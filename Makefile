@@ -7,14 +7,10 @@ setup:
 	@mkdir -p data
 
 ingest_dc: setup
-	$(PY) -c "print('Ingest placeholder ran')"
+	@echo "Ingest placeholder ran"
 
 transform_dc:
-	$(PY) - << 'PY'
-print('Transform placeholder ran')
-PY
+	@echo "Transform placeholder ran"
 
 forecast_dc:
-	$(PY) - << 'PY'
-print('Forecast placeholder ran')
-PY
+	@echo "Forecast placeholder ran"
