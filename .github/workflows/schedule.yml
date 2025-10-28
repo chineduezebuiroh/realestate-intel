@@ -13,13 +13,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install deps
+
+      - name: Show files (debug)
+        run: |
+          pwd
+          ls -la
+        
+      - name: Install deps (none needed yet)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+
       - name: Ingest DC
         run: make ingest_dc
+
       - name: Transform DC
         run: make transform_dc
+
       - name: Forecast DC
         run: make forecast_dc
