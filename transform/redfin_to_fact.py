@@ -18,13 +18,27 @@ METRIC_MAP = {
 }
 
 def ensure_dims(con):
-    # Minimal entries so the fact table has foreigns we understand
-    con.execute("INSERT INTO dim_market VALUES ('dc_city','Washington, DC','city','11001') ON CONFLICT DO NOTHING")
-    for src in [("redfin_weekly","Redfin Weekly","https://redfin.com","weekly","public")]:
-        con.execute("INSERT INTO dim_source VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING", src)
+    # dim_market (DC city)
+    con.execute("""
+        INSERT INTO dim_market (geo_id, name, type, fips)
+        SELECT 'dc_city','Washington, DC','city','11001'
+        WHERE NOT EXISTS (SELECT 1 FROM dim_market WHERE geo_id='dc_city');
+    """)
+
+    # dim_source (redfin_weekly)
+    con.execute("""
+        INSERT INTO dim_source (source_id, name, url, cadence, license)
+        SELECT 'redfin_weekly','Redfin Weekly','https://www.redfin.com','weekly','public'
+        WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id='redfin_weekly');
+    """)
+
+    # dim_metric rows
     for raw, (metric_id, unit, category, freq) in METRIC_MAP.items():
-        con.execute("INSERT INTO dim_metric VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING",
-                    (metric_id, metric_id.replace("_"," ").title(), freq, unit, category))
+        con.execute("""
+            INSERT INTO dim_metric (metric_id, name, frequency, unit, category)
+            SELECT ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id=?);
+        """, [metric_id, metric_id.replace("_"," ").title(), freq, unit, category, metric_id])
 
 def load_redfin_to_fact():
     con = duckdb.connect(DUCKDB_PATH)
