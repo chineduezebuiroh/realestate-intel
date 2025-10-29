@@ -16,5 +16,5 @@ def main(out_dir: str = "./data/parquet"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--out_dir", default="./data/parquet")
-    _ = parser.parse_args()
-    main(_.__dict__["out_dir"])
+    args = parser.parse_args()
+    main(args.out_dir)
