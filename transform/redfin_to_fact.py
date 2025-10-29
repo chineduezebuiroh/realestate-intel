@@ -18,21 +18,16 @@ METRIC_MAP = {
 }
 
 def ensure_dims(con):
-    # dim_market (DC city)
     con.execute("""
         INSERT INTO dim_market (geo_id, name, type, fips)
         SELECT 'dc_city','Washington, DC','city','11001'
         WHERE NOT EXISTS (SELECT 1 FROM dim_market WHERE geo_id='dc_city');
     """)
-
-    # dim_source (redfin_weekly)
     con.execute("""
         INSERT INTO dim_source (source_id, name, url, cadence, license)
         SELECT 'redfin_weekly','Redfin Weekly','https://www.redfin.com','weekly','public'
         WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id='redfin_weekly');
     """)
-
-    # dim_metric rows
     for raw, (metric_id, unit, category, freq) in METRIC_MAP.items():
         con.execute("""
             INSERT INTO dim_metric (metric_id, name, frequency, unit, category)
