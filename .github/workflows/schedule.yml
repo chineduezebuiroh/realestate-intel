@@ -24,6 +24,12 @@ jobs:
           pwd
           ls -la
 
+
+      - name: One-time clean DB (optional)
+        run: rm -f ./data/market.duckdb || true
+
+
+
       - name: Ingest DC (Redfin)
         env:
           ALLOW_REDFIN_FAIL: "1"
