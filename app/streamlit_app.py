@@ -2,18 +2,29 @@ import os
 import duckdb
 import pandas as pd
 import streamlit as st
+import subprocess   # <-- new import (for ensure_db)
 from datetime import date
 
+# --- 1️⃣ Define constants ---
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 GEO_ID = "dc_city"
 
+# --- 2️⃣ Add ensure_db() near the top ---
+def ensure_db():
+    os.makedirs(os.path.dirname(DUCKDB_PATH) or ".", exist_ok=True)
+    if not os.path.exists(DUCKDB_PATH):
+        # build schema once if file missing
+        subprocess.run(["python", "utils/db.py", "--build"], check=True)
+
+ensure_db()  # <-- run this immediately so DB exists before anything else
+
+# --- 3️⃣ Then continue with Streamlit config & UI ---
 st.set_page_config(page_title="Market Pulse — DC", layout="wide")
 st.title("🏙️ Washington, DC — Market Pulse (starter)")
 
 @st.cache_data
 def load_metrics():
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
-    # What metrics exist for dc_city?
     dfm = con.execute("""
         SELECT DISTINCT f.metric_id, COALESCE(m.name, f.metric_id) AS metric_name
         FROM fact_timeseries f
@@ -23,6 +34,11 @@ def load_metrics():
     """, [GEO_ID]).fetchdf()
     con.close()
     return dfm
+
+# ... (rest of your code unchanged)
+
+
+
 
 @st.cache_data
 def load_series(metric_id: str):
