@@ -26,3 +26,6 @@ transform_monthly: db
 
 forecast_dc:
 	@echo "[forecast] (placeholder) next: SARIMAX/XGBoost + backtests"
+
+dashboard:
+	streamlit run app/streamlit_app.py
