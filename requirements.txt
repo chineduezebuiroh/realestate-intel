@@ -4,3 +4,4 @@ python-dotenv==1.0.1
 requests==2.32.3
 fredapi==0.5.2
 streamlit==1.37.1
+pyarrow==16.1.0
