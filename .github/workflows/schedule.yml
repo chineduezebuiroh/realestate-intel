@@ -25,6 +25,8 @@ jobs:
           ls -la
 
       - name: Ingest DC (Redfin)
+        env:
+          ALLOW_REDFIN_FAIL: "1"
         run: make ingest_dc
 
       - name: Transform DC (load into DuckDB)
