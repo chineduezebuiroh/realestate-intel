@@ -1,16 +1,20 @@
 SHELL := /bin/bash
 PY := python
 
-.PHONY: setup ingest_dc transform_dc forecast_dc
+.PHONY: setup db ingest_dc transform_dc forecast_dc
 
 setup:
-	@mkdir -p data
+	@mkdir -p data data/parquet
+
+db:
+	$(PY) utils/db.py --build
 
 ingest_dc: setup
-	@echo "Ingest placeholder ran"
+	$(PY) ingest/redfin.py
+	$(PY) ingest/fred.py
 
-transform_dc:
-	@echo "Transform placeholder ran"
+transform_dc: db
+	@echo "[transform] (placeholder) map parquet -> fact_timeseries using DuckDB SQL"
 
 forecast_dc:
-	@echo "Forecast placeholder ran"
+	@echo "[forecast] (placeholder) train + write forecasts; send Slack later"
