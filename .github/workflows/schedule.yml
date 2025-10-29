@@ -24,10 +24,10 @@ jobs:
           pwd
           ls -la
 
-      - name: Ingest DC (Redfin + FRED)
+      - name: Ingest DC (Redfin)
         run: make ingest_dc
 
-      - name: Transform DC (build DB)
+      - name: Transform DC (load into DuckDB)
         run: make transform_dc
 
       - name: Forecast DC (placeholder)
