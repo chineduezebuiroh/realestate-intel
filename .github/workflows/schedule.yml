@@ -31,6 +31,17 @@ jobs:
           ALLOW_REDFIN_FAIL: "1"
         run: make ingest_dc
 
+      - name: Verify FRED_API_KEY is detected (masked)
+        run: |
+          if [ -z "${FRED_API_KEY}" ]; then
+            echo "❌ FRED_API_KEY is NOT set"
+            exit 1
+          else
+            echo "✅ FRED_API_KEY detected (value masked)"
+            echo "${FRED_API_KEY}" | wc -c | xargs echo "Length of key (should be ~32-40 chars):"
+          fi
+
+
       - name: Ingest Monthlies (Zillow + FRED)
         env:
           ALLOW_ZILLOW_FAIL: "1"
