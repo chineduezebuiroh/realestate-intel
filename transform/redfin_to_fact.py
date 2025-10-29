@@ -45,10 +45,22 @@ def load_redfin_to_fact():
     ensure_dims(con)
 
     parquet_path = os.path.join(PARQUET_DIR, "redfin_weekly.parquet")
-    if not os.path.exists(parquet_path):
-        raise FileNotFoundError(f"{parquet_path} not found. Run ingest/redfin.py first.")
+    csv_path = os.path.join(PARQUET_DIR, "redfin_weekly.csv")
+    
+    if os.path.exists(parquet_path):
+        df = pd.read_parquet(parquet_path)
+    elif os.path.exists(csv_path):
+        df = pd.read_csv(csv_path, low_memory=False)
+        # If it’s the empty placeholder, bail out gracefully
+        if df.empty or df.columns.tolist() == ["date","region","region_type","property_type","median_sale_price","homes_sold","new_listings","inventory","median_days_on_market","sale_to_list_ratio"] and len(df) == 0:
+            print("[transform] Redfin placeholder detected; skipping load.")
+            con.close()
+            return
+    else:
+        raise FileNotFoundError(
+            f"Neither {parquet_path} nor {csv_path} found. Run ingest/redfin.py first."
+        )
 
-    df = pd.read_parquet(parquet_path)
 
     # Filter to DC city, all property types combined
     dcf = df[(df["region_type"]=="city") & (df["region"]==DC_REGION)]
