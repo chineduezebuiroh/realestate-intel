@@ -11,10 +11,9 @@ db:
 
 ingest_dc: setup
 	$(PY) ingest/redfin.py
-	$(PY) ingest/fred.py
 
 transform_dc: db
-	@echo "[transform] (placeholder) map parquet -> fact_timeseries using DuckDB SQL"
+	$(PY) transform/redfin_to_fact.py
 
 forecast_dc:
-	@echo "[forecast] (placeholder) train + write forecasts; send Slack later"
+	@echo "[forecast] (placeholder) train + write forecasts; Slack alerts later"
