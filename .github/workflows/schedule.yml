@@ -8,6 +8,9 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
+    env:
+      # Map the repository secret into an environment variable for all steps
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,6 +34,7 @@ jobs:
           ALLOW_REDFIN_FAIL: "1"
         run: make ingest_dc
 
+
       - name: Verify FRED_API_KEY is detected (masked)
         run: |
           if [ -z "${FRED_API_KEY}" ]; then
@@ -48,7 +52,6 @@ jobs:
         run: make ingest_monthly
 
 
-
       - name: Transform DC (weekly Redfin)
         run: make transform_dc
 
@@ -57,4 +60,3 @@ jobs:
 
       - name: Forecast DC (placeholder)
         run: make forecast_dc
-
