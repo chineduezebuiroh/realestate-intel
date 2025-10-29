@@ -32,7 +32,10 @@ jobs:
         run: make ingest_dc
 
       - name: Ingest Monthlies (Zillow + FRED)
+        env:
+          ALLOW_ZILLOW_FAIL: "1"
         run: make ingest_monthly
+
 
 
       - name: Transform DC (weekly Redfin)
