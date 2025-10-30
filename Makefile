@@ -9,6 +9,8 @@ setup:
 db:
 	$(PY) utils/db.py --build
 
+
+
 ingest_dc: setup
 	# Redfin (weekly, may be skipped via env if blocked)
 	$(PY) ingest/redfin.py
@@ -18,11 +20,21 @@ ingest_monthly: setup
 	$(PY) ingest/zillow_zori.py
 	$(PY) ingest/fred_unemployment_dc.py
 
+ingest_bls:
+	python ingest/bls_laus_dc.py
+
+
+
 transform_dc: db
 	$(PY) transform/redfin_to_fact.py
 
 transform_monthly: db
 	$(PY) transform/monthlies_to_fact.py
+
+transform_bls:
+	python transform/laus_to_fact.py
+
+
 
 forecast_dc:
 	@echo "[forecast] (placeholder) next: SARIMAX/XGBoost + backtests"
