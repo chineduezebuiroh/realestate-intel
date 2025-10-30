@@ -19,8 +19,31 @@ def ensure_db():
 ensure_db()  # <-- run this immediately so DB exists before anything else
 
 # --- 3️⃣ Then continue with Streamlit config & UI ---
+# ... existing imports and ensure_db() ...
+
 st.set_page_config(page_title="Market Pulse — DC", layout="wide")
-st.title("🏙️ Washington, DC — Market Pulse (starter)")
+st.title("🏙️ Washington, DC — Market Pulse")
+
+@st.cache_data
+def load_markets():
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    df = con.execute("""
+        SELECT geo_id, COALESCE(name, geo_id) AS geo_name
+        FROM dim_market
+        WHERE geo_id IN ('dc_city','dc_state')
+        ORDER BY geo_name
+    """).fetchdf()
+    con.close()
+    return df
+
+mkts = load_markets()
+geo_choice = st.selectbox("Market", options=mkts["geo_id"].tolist(),
+                          format_func=lambda gid: mkts.set_index("geo_id").loc[gid,"geo_name"])
+
+# then replace every hard-coded 'dc_city' with geo_choice in your queries:
+# WHERE f.geo_id = ?  --> pass [geo_choice]
+
+
 
 @st.cache_data
 def load_metrics():
