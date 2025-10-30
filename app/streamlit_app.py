@@ -17,6 +17,46 @@ def ensure_db():
 
 ensure_db()  # <-- run this immediately so DB exists before anything else
 
+
+import datetime as dt
+
+@st.cache_data
+def get_series_extent(geo_id: str, metric_id: str):
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    res = con.execute("""
+        SELECT MIN(date) AS first_dt,
+               MAX(date) AS last_dt,
+               COUNT(*)   AS n_rows
+        FROM fact_timeseries
+        WHERE geo_id = ? AND metric_id = ?
+    """, [geo_id, metric_id]).fetchdf()
+    con.close()
+    first_dt = pd.to_datetime(res.loc[0, "first_dt"]) if not res.empty else None
+    last_dt  = pd.to_datetime(res.loc[0, "last_dt"])  if not res.empty else None
+    n_rows   = int(res.loc[0, "n_rows"]) if not res.empty else 0
+    return first_dt, last_dt, n_rows
+
+def freshness_status(last_dt: pd.Timestamp, freq="M"):
+    """Return (label, emoji, color, pct) given last date vs today."""
+    if last_dt is None or pd.isna(last_dt):
+        return ("no data", "⛔", "error", 0.0)
+    today = pd.Timestamp(dt.date.today())
+    lag_days = (today - last_dt).days
+    # thresholds: fresh <=45d, warming 46–90d, stale >90d
+    if lag_days <= 45:
+        return ("fresh", "✅", "success", 1.0)
+    elif lag_days <= 90:
+        # map 46–90d to 75%..50%
+        pct = max(0.5, 1.0 - (lag_days - 45) / 180)
+        return ("warming", "🟡", "warning", pct)
+    else:
+        # map >90d to 50%..0%
+        pct = max(0.0, 0.5 - (lag_days - 90) / 180)
+        return ("stale", "🟥", "error", pct)
+
+
+
+
 # --- 3️⃣ Then continue with Streamlit config & UI ---
 # ... existing imports and ensure_db() ...
 
@@ -88,6 +128,30 @@ df = load_series(geo_choice, choice)
 if df.empty:
     st.warning("Selected metric has no data.")
     st.stop()
+
+
+# ---- Data Freshness bar ----
+first_dt, last_dt, n_rows = get_series_extent(geo_choice, choice)
+label, emoji, color, pct = freshness_status(last_dt)
+
+c1, c2, c3, c4 = st.columns([1,1,1,2])
+with c1:
+    st.metric("First date", first_dt.date().isoformat() if first_dt is not None else "n/a")
+with c2:
+    st.metric("Last date",  last_dt.date().isoformat()  if last_dt  is not None else "n/a")
+with c3:
+    st.metric("Rows", f"{n_rows:,}")
+with c4:
+    st.write(f"**Freshness:** {emoji} {label}")
+    st.progress(pct)
+
+# Optional gentle nudge if stale
+if color == "warning":
+    st.info("This series is getting a bit old. Consider running your ETL.")
+elif color == "error":
+    st.warning("This series looks stale — run your ETL or check the source cadence.")
+
+
 
 # KPIs (unchanged)
 latest_row = df.dropna().iloc[-1]
