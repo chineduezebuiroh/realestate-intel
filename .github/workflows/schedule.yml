@@ -34,7 +34,6 @@ jobs:
           ALLOW_REDFIN_FAIL: "1"
         run: make ingest_dc
 
-
       - name: Verify FRED_API_KEY is detected (masked)
         run: |
           if [ -z "${FRED_API_KEY}" ]; then
@@ -45,11 +44,14 @@ jobs:
             echo "${FRED_API_KEY}" | wc -c | xargs echo "Length of key (should be ~32-40 chars):"
           fi
 
-
       - name: Ingest Monthlies (Zillow + FRED)
         env:
           ALLOW_ZILLOW_FAIL: "1"
         run: make ingest_monthly
+      
+      - name: Ingest BLS LAUS (DC)
+        run: make ingest_bls
+
 
 
       - name: Transform DC (weekly Redfin)
@@ -57,6 +59,11 @@ jobs:
 
       - name: Transform Monthlies (ZORI + Unemployment)
         run: make transform_monthly
+
+      - name: Transform BLS LAUS
+        run: make transform_bls
+
+        
 
       - name: Forecast DC (placeholder)
         run: make forecast_dc
