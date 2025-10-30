@@ -8,7 +8,7 @@ PARQUET = "./data/parquet/bls_laus_dc_state.parquet"
 def ensure_dims(con):
     # Market: DC statewide (FIPS state '11')
     con.execute("""
-        INSERT INTO dim_market(geo_id, name, geo_type, fips)
+        INSERT INTO dim_market(geo_id, name, type, fips)
         VALUES ('dc_state','District of Columbia (Statewide)','state','11')
         ON CONFLICT (geo_id) DO NOTHING
     """)
@@ -57,7 +57,7 @@ def upsert_from_parquet(con):
     df["source_id"] = "bls_laus"
     df = df.dropna(subset=["metric_id"])
 
-    # normalize types
+    # normalize s
     df["date"] = pd.to_datetime(df["date"]).dt.date
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     df = df.dropna(subset=["value"])
