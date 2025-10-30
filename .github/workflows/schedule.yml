@@ -55,6 +55,9 @@ jobs:
       - name: Ingest FRED Mortgage Rates
         run: make ingest_fred_rates
 
+      - name: Ingest FRED Yields
+        run: make ingest_fred_yields
+
 
 
       - name: Transform DC (weekly Redfin)
@@ -68,6 +71,9 @@ jobs:
 
       - name: Transform FRED Mortgage Rates
         run: make transform_fred_rates
+
+      - name: Transform FRED Yields
+        run: make transform_fred_yields
 
         
 
