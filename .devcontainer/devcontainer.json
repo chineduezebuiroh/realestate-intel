@@ -1,0 +1,19 @@
+{
+  "name": "realestate-intel",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "forwardPorts": [8501],
+  "portsAttributes": {
+    "8501": { "label": "Streamlit", "onAutoForward": "openBrowser" }
+  },
+
+  // Runs once after the container is created
+  "postCreateCommand": "python -m venv .venv && . .venv/bin/activate && python -m pip install --upgrade pip && pip install -r requirements.txt && mkdir -p data && python utils/db.py --build",
+
+  // If you save a Codespaces secret named FRED_API_KEY, we write it into .env for you
+  "postStartCommand": "bash -lc 'if [ -n \"$FRED_API_KEY\" ]; then echo FRED_API_KEY=$FRED_API_KEY >> .env; fi'",
+
+  // Make the secret visible inside the container if you set it in Codespaces user secrets
+  "remoteEnv": {
+    "FRED_API_KEY": "${FRED_API_KEY}"
+  }
+}
