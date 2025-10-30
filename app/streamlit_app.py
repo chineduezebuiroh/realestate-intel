@@ -67,13 +67,14 @@ st.title("🏙️ Washington, DC — Market Pulse")
 def load_markets():
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     df = con.execute("""
-        SELECT geo_id, COALESCE(name, geo_id) AS geo_name
-        FROM dim_market
-        WHERE geo_id IN ('dc_city','dc_state')
+        SELECT m.geo_id, COALESCE(m.name, m.geo_id) AS geo_name
+        FROM dim_market m
+        WHERE EXISTS (SELECT 1 FROM fact_timeseries f WHERE f.geo_id = m.geo_id)
         ORDER BY geo_name
     """).fetchdf()
     con.close()
     return df
+
 
 mkts = load_markets()
 if mkts.empty:
