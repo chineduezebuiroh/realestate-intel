@@ -1,0 +1,5 @@
+{
+  "git.postCommitCommand": "push",     // after every commit, auto-push to the current branch
+  "git.autofetch": true,               // periodically fetch from origin so you stay up to date
+  "files.autoSave": "onFocusChange"    // save files when you switch tabs/focus (fewer “dirty” files)
+}
