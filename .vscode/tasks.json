@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run Streamlit",
+      "type": "shell",
+      "command": "source .venv/bin/activate && python -m streamlit run app/streamlit_app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true",
+      "problemMatcher": []
+    },
+    {
+      "label": "Bootstrap Data (ingest + transform)",
+      "type": "shell",
+      "command": "source .venv/bin/activate && python ingest/zillow_zori.py && python ingest/fred_unemployment_dc.py && python transform/monthlies_to_fact.py",
+      "problemMatcher": []
+    }
+  ]
+}
