@@ -7,7 +7,6 @@ from datetime import date
 
 # --- 1️⃣ Define constants ---
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
-GEO_ID = "dc_city"
 
 # --- 2️⃣ Add ensure_db() near the top ---
 def ensure_db():
@@ -37,16 +36,18 @@ def load_markets():
     return df
 
 mkts = load_markets()
-geo_choice = st.selectbox("Market", options=mkts["geo_id"].tolist(),
-                          format_func=lambda gid: mkts.set_index("geo_id").loc[gid,"geo_name"])
+if mkts.empty:
+    st.warning("No markets found. Run ingest/transform, then retry.")
+    st.stop()
 
-# then replace every hard-coded 'dc_city' with geo_choice in your queries:
-# WHERE f.geo_id = ?  --> pass [geo_choice]
-
-
+geo_choice = st.selectbox(
+    "Market",
+    options=mkts["geo_id"].tolist(),
+    format_func=lambda gid: mkts.set_index("geo_id").loc[gid,"geo_name"]
+)
 
 @st.cache_data
-def load_metrics():
+def load_metrics(geo_id: str):
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     dfm = con.execute("""
         SELECT DISTINCT f.metric_id, COALESCE(m.name, f.metric_id) AS metric_name
@@ -54,30 +55,25 @@ def load_metrics():
         LEFT JOIN dim_metric m USING(metric_id)
         WHERE f.geo_id = ?
         ORDER BY metric_name
-    """, [GEO_ID]).fetchdf()
+    """, [geo_id]).fetchdf()
     con.close()
     return dfm
 
-# ... (rest of your code unchanged)
-
-
-
-
 @st.cache_data
-def load_series(metric_id: str):
+def load_series(geo_id: str, metric_id: str):
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     df = con.execute("""
         SELECT date, value
         FROM fact_timeseries
         WHERE geo_id = ? AND metric_id = ?
         ORDER BY date
-    """, [GEO_ID, metric_id]).fetchdf()
+    """, [geo_id, metric_id]).fetchdf()
     con.close()
     return df
 
-metrics = load_metrics()
+metrics = load_metrics(geo_choice)
 if metrics.empty:
-    st.warning("No data yet. Run your workflow (ingest + transform) and refresh this page.")
+    st.warning("No data yet for this market. Run your workflow (ingest + transform) and refresh.")
     st.stop()
 
 left, right = st.columns([1, 2])
@@ -88,18 +84,16 @@ with left:
         format_func=lambda mid: metrics.set_index("metric_id").loc[mid, "metric_name"]
     )
 
-df = load_series(choice)
-
+df = load_series(geo_choice, choice)
 if df.empty:
     st.warning("Selected metric has no data.")
     st.stop()
 
-# KPIs
+# KPIs (unchanged)
 latest_row = df.dropna().iloc[-1]
 latest_val = latest_row["value"]
 latest_date = pd.to_datetime(latest_row["date"]).date()
 
-# YoY
 df["date"] = pd.to_datetime(df["date"])
 this_month = df.iloc[-1]["date"]
 yoy_val = None
@@ -114,8 +108,8 @@ k1.metric("Latest value", f"{latest_val:,.2f}")
 k2.metric("As of", latest_date.strftime("%Y-%m-%d"))
 k3.metric("YoY change", f"{yoy_val:,.2f} %" if yoy_val is not None else "n/a")
 
-# Chart
 st.subheader("History")
 st.line_chart(df.set_index("date")["value"])
 
-st.caption("Data source(s): see dim_source in DuckDB. Geo: dc_city. This is a starter UI—forecasts & signals coming next.")
+# dynamic caption
+st.caption(f"Data sources: see dim_source. Market: {mkts.set_index('geo_id').loc[geo_choice,'geo_name']} ({geo_choice}).")
