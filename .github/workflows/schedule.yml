@@ -52,6 +52,9 @@ jobs:
       - name: Ingest BLS LAUS (DC)
         run: make ingest_bls
 
+      - name: Ingest FRED Mortgage Rates
+        run: make ingest_fred_rates
+
 
 
       - name: Transform DC (weekly Redfin)
@@ -62,6 +65,9 @@ jobs:
 
       - name: Transform BLS LAUS
         run: make transform_bls
+
+      - name: Transform FRED Mortgage Rates
+        run: make transform_fred_rates
 
         
 
