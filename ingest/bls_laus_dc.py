@@ -80,33 +80,48 @@ SERIES_IDS_SA = [
     "LASST110000000000006",  # Labor Force (SA)
 ]
 
+# replace your existing _fetch_via_api() with this version
+from datetime import datetime
+
 def _fetch_via_api():
+    sess = _session()
     url = "https://api.bls.gov/publicAPI/v2/timeseries/data"
-    payload = {"seriesid": SERIES_IDS_SA}
-    resp = _session().post(url, json=payload, timeout=60)
-    resp.raise_for_status()
-    js = resp.json()
-    if js.get("status") != "REQUEST_SUCCEEDED":
-        raise RuntimeError(f"BLS API failed: {js}")
+    this_year = datetime.utcnow().year
+
     rows = []
-    for s in js["Results"]["series"]:
-        sid = s["seriesID"]
-        meas = sid[-2:]  # last two chars
-        metric = KEEP_MEASURES.get(meas)
-        if not metric:
-            continue
-        for obs in s["data"]:
-            if obs.get("period","").startswith("M"):
-                year = int(obs["year"])
-                month = int(obs["period"][1:])
-                dt = pd.Timestamp(year=year, month=month, day=1)
-                val = pd.to_numeric(obs.get("value", None), errors="coerce")
-                if pd.notna(val):
-                    rows.append((dt, metric, float(val)))
+    for sid in SERIES_IDS_SA:
+        # pull in decade chunks for robustness
+        start = 1976
+        while start <= this_year:
+            end = min(start + 9, this_year)
+            payload = {"seriesid": [sid], "startyear": str(start), "endyear": str(end)}
+            resp = sess.post(url, json=payload, timeout=60)
+            resp.raise_for_status()
+            js = resp.json()
+            if js.get("status") != "REQUEST_SUCCEEDED":
+                raise RuntimeError(f"BLS API failed for {sid} {start}-{end}: {js}")
+
+            meas = sid[-2:]  # last two chars map to LAUS measure code
+            metric = KEEP_MEASURES.get(meas)
+            for s in js["Results"].get("series", []):
+                for obs in s.get("data", []):
+                    per = obs.get("period", "")
+                    if per.startswith("M"):
+                        year = int(obs["year"])
+                        month = int(per[1:])
+                        dt = pd.Timestamp(year=year, month=month, day=1)
+                        val = pd.to_numeric(obs.get("value"), errors="coerce")
+                        if pd.notna(val):
+                            rows.append((dt, metric, float(val)))
+            start = end + 1  # next block
+
     if not rows:
         raise RuntimeError("BLS API returned no rows")
     out = pd.DataFrame(rows, columns=["date","metric_id","value"]).sort_values(["metric_id","date"])
+    # drop duplicates in case blocks overlapped
+    out = out.drop_duplicates(subset=["metric_id","date"])
     return out
+
 
 def main(out_dir="./data/parquet"):
     pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
