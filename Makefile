@@ -26,6 +26,9 @@ ingest_bls:
 ingest_fred_rates:
 	python ingest/fred_mortgage_rates.py
 
+ingest_fred_yields:
+	python ingest/fred_yields.py
+
 
 
 transform_dc: db
@@ -39,6 +42,9 @@ transform_bls:
 
 transform_fred_rates:
 	python transform/fred_mortgage_to_fact.py
+
+transform_fred_yields:
+	python transform/fred_yields_to_fact.py
 
 
 
