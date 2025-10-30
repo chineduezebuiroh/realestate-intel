@@ -23,6 +23,9 @@ ingest_monthly: setup
 ingest_bls:
 	python ingest/bls_laus_dc.py
 
+ingest_fred_rates:
+	python ingest/fred_mortgage_rates.py
+
 
 
 transform_dc: db
@@ -33,6 +36,9 @@ transform_monthly: db
 
 transform_bls:
 	python transform/laus_to_fact.py
+
+transform_fred_rates:
+	python transform/fred_mortgage_to_fact.py
 
 
 
