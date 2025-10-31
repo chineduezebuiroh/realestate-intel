@@ -29,11 +29,17 @@ jobs:
 
 
 
+      # Ingest and Transform Redfin (DC) Data
       - name: Ingest DC (Redfin)
         env:
           ALLOW_REDFIN_FAIL: "1"
         run: make ingest_dc
+        
+      - name: Transform DC (weekly Redfin)
+        run: make transform_dc
+        
 
+      # Ingest and Transform Monthly Zillow annd FRED Unemployment (DC) Data
       - name: Verify FRED_API_KEY is detected (masked)
         run: |
           if [ -z "${FRED_API_KEY}" ]; then
@@ -48,32 +54,48 @@ jobs:
         env:
           ALLOW_ZILLOW_FAIL: "1"
         run: make ingest_monthly
-      
-      - name: Ingest BLS LAUS (DC)
-        run: make ingest_bls
-
-      - name: Ingest FRED Mortgage Rates
-        run: make ingest_fred_rates
-
-      - name: Ingest FRED Yields
-        run: make ingest_fred_yields
-
-
-
-      - name: Transform DC (weekly Redfin)
-        run: make transform_dc
 
       - name: Transform Monthlies (ZORI + Unemployment)
         run: make transform_monthly
 
+        
+      # Ingest and Transform BLS LAUS (DC) Data
+      - name: Ingest BLS LAUS (DC)
+        run: make ingest_bls
+
       - name: Transform BLS LAUS
         run: make transform_bls
+
+        
+      # Ingest and Transform FRED Mortgage Rates Data
+      - name: Ingest FRED Mortgage Rates
+        run: make ingest_fred_rates
 
       - name: Transform FRED Mortgage Rates
         run: make transform_fred_rates
 
+        
+      # Ingest and Transform FRED Yields Data
+      - name: Ingest FRED Yields
+        run: make ingest_fred_yields
+
       - name: Transform FRED Yields
         run: make transform_fred_yields
+
+        
+      # Ingest and Transform Redfin Weekly Trends Data
+      - name: Ingest Redfin Market Trends (weekly)
+        run: make ingest_redfin
+        env:
+          # Optional mirror if S3 blocks; leave unset if you don’t have one
+          REDFIN_MIRRORS: ${{ secrets.REDFIN_MIRRORS }}
+          # Optional: custom UA if needed
+          REDFIN_USER_AGENT: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36
+          # Cache freshness (days) before re-downloading
+          REDFIN_CACHE_DAYS: "7"
+
+      - name: Transform Redfin → fact_timeseries
+        run: make transform_redfin
 
         
 
