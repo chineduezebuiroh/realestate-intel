@@ -63,6 +63,30 @@ def freshness_status(last_dt: pd.Timestamp, freq="M"):
 st.set_page_config(page_title="Market Pulse — DC", layout="wide")
 st.title("🏙️ Washington, DC — Market Pulse")
 
+
+
+@st.cache_data
+def load_multi_series(geo_id: str, metric_ids: list[str]):
+    if not metric_ids:
+        return pd.DataFrame(columns=["date","metric_id","value"])
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    # parameterize the metric list
+    placeholders = ",".join(["?"] * len(metric_ids))
+    q = f"""
+        SELECT date, metric_id, value
+        FROM fact_timeseries
+        WHERE geo_id = ? AND metric_id IN ({placeholders})
+        ORDER BY date
+    """
+    df = con.execute(q, [geo_id, *metric_ids]).fetchdf()
+    con.close()
+    if df.empty:
+        return df
+    df["date"] = pd.to_datetime(df["date"])
+    return df
+
+
+
 @st.cache_data
 def load_markets():
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
