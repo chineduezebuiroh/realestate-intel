@@ -2,8 +2,9 @@ name: Scheduled ETL + Forecast
 
 on:
   schedule:
-    - cron: "15 3 * * 1"   # every Monday 03:15 UTC
+    - cron: "12 9 * * 1"   # every Monday 09:12 UTC
   workflow_dispatch: {}
+
 
 jobs:
   run:
