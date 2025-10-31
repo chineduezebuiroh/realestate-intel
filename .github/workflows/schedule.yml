@@ -97,7 +97,20 @@ jobs:
       - name: Transform Redfin → fact_timeseries
         run: make transform_redfin
 
+
+
+      # Optional: print a quick summary for debugging
+      - name: Verify row counts
+        run: |
+          python - << 'PY'
+          import duckdb
+          con = duckdb.connect("./data/market.duckdb", read_only=True)
+          print(con.execute("SELECT geo_id, COUNT(*) AS n FROM fact_timeseries GROUP BY 1 ORDER BY 1").fetchdf())
+          print(con.execute("SELECT metric_id, MIN(date), MAX(date), COUNT(*) FROM fact_timeseries WHERE metric_id LIKE 'redfin_%' GROUP BY 1 ORDER BY 1").fetchdf())
+          con.close()
+          PY
         
+
 
       - name: Forecast DC (placeholder)
         run: make forecast_dc
