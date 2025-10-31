@@ -127,8 +127,8 @@ if is_us:
         help="Pick base rates (GS2/GS10/GS30/Fed Funds) or derived spreads (10Y-2Y, 30Y-10Y, Mortgage-10Y)."
     )
 
+
     if cat == "Rates":
-        # fetch nice names from dim_metric to keep UI consistent
         con = duckdb.connect(DUCKDB_PATH, read_only=True)
         rates = con.execute("""
             SELECT metric_id, COALESCE(name, metric_id) AS metric_name
@@ -138,18 +138,29 @@ if is_us:
         """).fetchdf()
         con.close()
 
+        # robust name map + safe defaults
+        name_map = dict(zip(rates["metric_id"], rates["metric_name"]))
+        options = rates["metric_id"].tolist()
+        default_candidates = ["fred_gs10","fred_gs2"]
+        defaults = [m for m in default_candidates if m in options]
+
         rate_choices = st.multiselect(
             "Select rates",
-            options=rates["metric_id"].tolist(),
-            default=["fred_gs10","fred_gs2"],
-            format_func=lambda mid: rates.set_index("metric_id").loc[mid, "metric_name"]
+            options=options,
+            default=defaults,
+            format_func=lambda mid: name_map.get(mid, mid)
         )
-        dfm = load_multi_series(geo_choice, rate_choices)
-        if dfm.empty:
-            st.info("No data for the selected rates yet.")
+
+        if not rate_choices:
+            st.info("Select one or more rates to display.")
         else:
-            pivot = dfm.pivot(index="date", columns="metric_id", values="value")
-            st.line_chart(pivot)
+            dfm = load_multi_series(geo_choice, rate_choices)
+            if dfm.empty:
+                st.info("No data for the selected rates yet.")
+            else:
+                pivot = dfm.pivot(index="date", columns="metric_id", values="value")
+                st.line_chart(pivot)
+
 
     else:  # Spreads
         con = duckdb.connect(DUCKDB_PATH, read_only=True)
@@ -161,18 +172,29 @@ if is_us:
         """).fetchdf()
         con.close()
 
+        name_map = dict(zip(spreads["metric_id"], spreads["metric_name"]))
+        options = spreads["metric_id"].tolist()
+        default_candidates = ["spread_10y_2y","spread_mortgage_10y"]
+        defaults = [m for m in default_candidates if m in options]
+
         spread_choices = st.multiselect(
             "Select spreads",
-            options=spreads["metric_id"].tolist(),
-            default=["spread_10y_2y","spread_mortgage_10y"],
-            format_func=lambda mid: spreads.set_index("metric_id").loc[mid, "metric_name"]
+            options=options,
+            default=defaults,
+            format_func=lambda mid: name_map.get(mid, mid)
         )
-        dfs = load_multi_series(geo_choice, spread_choices)
-        if dfs.empty:
-            st.info("No data for the selected spreads yet.")
+
+        if not spread_choices:
+            st.info("Select one or more spreads to display.")
         else:
-            pivot = dfs.pivot(index="date", columns="metric_id", values="value")
-            st.line_chart(pivot)
+            dfs = load_multi_series(geo_choice, spread_choices)
+            if dfs.empty:
+                st.info("No data for the selected spreads yet.")
+            else:
+                pivot = dfs.pivot(index="date", columns="metric_id", values="value")
+                st.line_chart(pivot)
+
+    
 
     st.divider()
 
