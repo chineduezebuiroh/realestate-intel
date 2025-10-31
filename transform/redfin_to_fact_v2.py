@@ -1,12 +1,12 @@
 # transform/redfin_to_fact_v2.py
 import os, duckdb, pandas as pd
 
-CSV = "./data/raw/redfin/weekly_market_totals.csv"
+CSV = "./data/raw/redfin/monthly_market_totals.csv"  # <- monthly
 
 MARKET = ("dc_city","Washington, DC","city","11001")
-SOURCE = ("redfin","Redfin Market Trends","https://redfin.com/news/data-center/","weekly","public")
+SOURCE = ("redfin","Redfin Data Center","https://www.redfin.com/news/data-center/","monthly","public")
 
-# flexible column -> metric mapping (only apply if column exists)
+# Map only columns that actually exist in your CSV
 COL_MAP = {
     "median_sale_price":        ("redfin_median_sale_price",        "Median Sale Price",        "usd",      "prices"),
     "homes_sold":               ("redfin_homes_sold",               "Homes Sold",               "homes",    "sales"),
@@ -20,63 +20,90 @@ COL_MAP = {
 }
 
 def ensure_dims(con):
-    # market
+    # Market
     con.execute("""
         INSERT INTO dim_market(geo_id, name, type, fips)
         SELECT ?, ?, ?, ?
         WHERE NOT EXISTS (SELECT 1 FROM dim_market WHERE geo_id=?)
     """, [*MARKET, MARKET[0]])
-    # source
+
+    # Source
     con.execute("""
         INSERT INTO dim_source(source_id, name, url, cadence, license)
         SELECT ?, ?, ?, ?, ?
         WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id=?)
     """, [*SOURCE, SOURCE[0]])
 
-    # metrics (only those we actually will use)
+    # Metrics (monthly frequency)
     for _, (mid, name, unit, cat) in COL_MAP.items():
         con.execute("""
             INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
-            SELECT ?, ?, 'weekly', ?, ?
+            SELECT ?, ?, 'monthly', ?, ?
             WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id=?)
         """, [mid, name, unit, cat, mid])
 
+def normalize_redfin_monthly(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Put all custom data cleaning/transforms here:
+    - column normalization
+    - type coercions
+    - percent to ratio (if needed)
+    - deduping / latest-per-month, etc.
+    """
+    # Normalize column name case (we’ll refer to lowercase)
+    df = df.copy()
+    df.columns = [c.strip() for c in df.columns]
+    lc_map = {c.lower(): c for c in df.columns}
+
+    # Key columns: date, region, region_type
+    date_col  = lc_map.get("period_end") or lc_map.get("period_end_date") or lc_map.get("month")
+    region_col = lc_map.get("region") or lc_map.get("city")
+    rtype_col  = lc_map.get("region_type") or lc_map.get("city_type")
+
+    if not date_col or not region_col or not rtype_col:
+        raise RuntimeError(f"[redfin] missing key columns. Got: {list(df.columns)}")
+
+    # Filter to DC city
+    df = df[(df[rtype_col].str.lower()=="city") &
+            (df[region_col].str.lower().isin(["washington, dc","washington","dc"]))]
+
+    # Coerce date to month-end date
+    # (Redfin monthly usually provides a month-end date already; this keeps it consistent)
+    df["date"] = pd.to_datetime(df[date_col], errors="coerce")
+    df["date"] = (df["date"] + pd.offsets.MonthEnd(0)).dt.date
+
+    # Example: if any percent fields are 0–100, convert to 0–1 ratio (or leave as-is if you prefer %)
+    # if "off_market_in_two_weeks" in lc_map:
+    #     col = lc_map["off_market_in_two_weeks"]
+    #     if df[col].notna().any() and df[col].max() > 1.5:  # crude check (values like 12, 37, etc.)
+    #         df[col] = pd.to_numeric(df[col], errors="coerce") / 100.0
+
+    return df
+
 def main():
     if not os.path.exists(CSV):
-        print("[redfin] no csv found, skipping transform")
+        print("[redfin] monthly csv not found, skipping transform")
         return
 
-    df = pd.read_csv(CSV)
-    # Filter to DC city (Redfin: region_type, region columns may vary by case)
-    cols = {c.lower(): c for c in df.columns}
-    region_col = cols.get("region") or cols.get("city")
-    rtype_col  = cols.get("region_type") or cols.get("city_type") or "region_type"
-    date_col   = cols.get("period_end") or cols.get("period_end_date") or "period_end"
+    raw = pd.read_csv(CSV)
+    df = normalize_redfin_monthly(raw)
 
-    if region_col is None or rtype_col is None or date_col is None:
-        raise RuntimeError(f"[redfin] expected columns missing. got: {df.columns.tolist()}")
-
-    df = df[(df[rtype_col].str.lower()=="city") & (df[region_col].str.lower().isin(["washington, dc","washington","dc"]))].copy()
-    if df.empty:
-        print("[redfin] no DC city rows found after filter; nothing to load")
-        return
-
-    # Build a long table of (metric_id, date, value) for available columns
     long_frames = []
-    for col, (mid, _name, _unit, _cat) in COL_MAP.items():
-        if col in df.columns:
-            sub = df[[date_col, col]].dropna()
+    for source_col, (mid, _name, _unit, _cat) in COL_MAP.items():
+        if source_col in [c.lower() for c in df.columns]:
+            # map back to exact-case column in df
+            exact = next(c for c in df.columns if c.lower() == source_col)
+            sub = df[["date", exact]].dropna()
             if not sub.empty:
-                sub = sub.rename(columns={date_col:"date", col:"value"})
+                sub = sub.rename(columns={exact:"value"})
                 sub["metric_id"] = mid
                 long_frames.append(sub)
 
     if not long_frames:
-        print("[redfin] none of the mapped columns were present.")
+        print("[redfin] no mapped columns present; nothing to load")
         return
 
     tall = pd.concat(long_frames, ignore_index=True)
-    tall["date"] = pd.to_datetime(tall["date"], errors="coerce").dt.date
     tall["value"] = pd.to_numeric(tall["value"], errors="coerce")
     tall = tall.dropna(subset=["date","value"])
     tall["geo_id"] = MARKET[0]
@@ -86,19 +113,20 @@ def main():
     ensure_dims(con)
     con.register("df_stage", tall[["geo_id","metric_id","date","value","source_id"]])
 
-    # upsert by (geo, metric, date)
+    # Upsert
     con.execute("""
         DELETE FROM fact_timeseries
         WHERE geo_id=?
           AND metric_id IN (SELECT DISTINCT metric_id FROM df_stage)
           AND date IN (SELECT DISTINCT date FROM df_stage)
     """, [MARKET[0]])
+
     con.execute("""
         INSERT INTO fact_timeseries(geo_id, metric_id, date, value, source_id)
         SELECT geo_id, metric_id, date, CAST(value AS DOUBLE), source_id
         FROM df_stage
     """)
-    # quick summary
+
     print(con.execute("""
         SELECT metric_id, COUNT(*) AS rows, MIN(date) AS first, MAX(date) AS last
         FROM fact_timeseries
