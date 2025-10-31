@@ -68,3 +68,8 @@ dashboard:
 # --- Maintenance utilities ---
 update_redfin_mirror:
 	./tools/update_redfin_mirror.sh
+
+# --- Vendor data utilities ---
+import_redfin_local:
+	python tools/import_redfin_local.py --file "$(FILE)"
+
