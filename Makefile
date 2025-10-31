@@ -52,11 +52,19 @@ transform_fred_yields:
 transform_redfin:
 	python transform/redfin_to_fact_v2.py
 
+update_redfin_mirror:
+	./tools/update_redfin_mirror.sh
 
 
 
 forecast_dc:
 	@echo "[forecast] (placeholder) next: SARIMAX/XGBoost + backtests"
 
+
 dashboard:
 	streamlit run app/streamlit_app.py
+
+
+# --- Maintenance utilities ---
+update_redfin_mirror:
+	./tools/update_redfin_mirror.sh
