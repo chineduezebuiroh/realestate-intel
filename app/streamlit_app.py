@@ -111,6 +111,75 @@ geo_choice = st.selectbox(
     format_func=lambda gid: mkts.set_index("geo_id").loc[gid,"geo_name"]
 )
 
+
+
+
+# ---- Macro overlay for US National ----
+is_us = (geo_choice == "us_national")
+
+if is_us:
+    st.markdown("### 🇺🇸 Macro: Yields & Spreads")
+
+    cat = st.radio(
+        "Category",
+        options=["Rates", "Spreads"],
+        horizontal=True,
+        help="Pick base rates (GS2/GS10/GS30/Fed Funds) or derived spreads (10Y-2Y, 30Y-10Y, Mortgage-10Y)."
+    )
+
+    if cat == "Rates":
+        # fetch nice names from dim_metric to keep UI consistent
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        rates = con.execute("""
+            SELECT metric_id, COALESCE(name, metric_id) AS metric_name
+            FROM dim_metric
+            WHERE metric_id IN ('fred_gs2','fred_gs10','fred_gs30','fred_fedfunds')
+            ORDER BY metric_name
+        """).fetchdf()
+        con.close()
+
+        rate_choices = st.multiselect(
+            "Select rates",
+            options=rates["metric_id"].tolist(),
+            default=["fred_gs10","fred_gs2"],
+            format_func=lambda mid: rates.set_index("metric_id").loc[mid, "metric_name"]
+        )
+        dfm = load_multi_series(geo_choice, rate_choices)
+        if dfm.empty:
+            st.info("No data for the selected rates yet.")
+        else:
+            pivot = dfm.pivot(index="date", columns="metric_id", values="value")
+            st.line_chart(pivot)
+
+    else:  # Spreads
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        spreads = con.execute("""
+            SELECT metric_id, COALESCE(name, metric_id) AS metric_name
+            FROM dim_metric
+            WHERE metric_id IN ('spread_10y_2y','spread_30y_10y','spread_mortgage_10y')
+            ORDER BY metric_name
+        """).fetchdf()
+        con.close()
+
+        spread_choices = st.multiselect(
+            "Select spreads",
+            options=spreads["metric_id"].tolist(),
+            default=["spread_10y_2y","spread_mortgage_10y"],
+            format_func=lambda mid: spreads.set_index("metric_id").loc[mid, "metric_name"]
+        )
+        dfs = load_multi_series(geo_choice, spread_choices)
+        if dfs.empty:
+            st.info("No data for the selected spreads yet.")
+        else:
+            pivot = dfs.pivot(index="date", columns="metric_id", values="value")
+            st.line_chart(pivot)
+
+    st.divider()
+
+
+
+
+
 @st.cache_data
 def load_metrics(geo_id: str):
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
