@@ -29,6 +29,9 @@ ingest_fred_rates:
 ingest_fred_yields:
 	python ingest/fred_yields.py
 
+ingest_redfin:
+	python ingest/redfin_market_trends.py
+
 
 
 transform_dc: db
@@ -45,6 +48,10 @@ transform_fred_rates:
 
 transform_fred_yields:
 	python transform/fred_yields_to_fact.py
+
+transform_redfin:
+	python transform/redfin_to_fact_v2.py
+
 
 
 
