@@ -162,14 +162,23 @@ jobs:
           PY
 
           
-
+       
       - name: Commit & push slim slices
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/raw/redfin/**
+
+          # Stage only if the path exists; don't fail if glob is empty
+          if [ -d "data/raw/redfin" ]; then
+            git add -A data/raw/redfin || true
+          fi
+
+          # Commit only when there are staged changes
           if ! git diff --cached --quiet; then
             git commit -m "data(redfin): update slices from URLs"
             git push
           else
             echo "No changes to commit."
+          fi
