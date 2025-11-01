@@ -2,6 +2,7 @@
 import os, duckdb, pandas as pd, yaml
 from glob import glob
 from pathlib import Path
+from typing import Optional, List
 
 ROOT = Path("data/raw/redfin")
 
