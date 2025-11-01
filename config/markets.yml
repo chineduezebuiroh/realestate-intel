@@ -1,4 +1,5 @@
 markets:
+
   # --- States ---
   - geo_id: dc_state
     level: state
@@ -14,6 +15,7 @@ markets:
     level: state
     state_codes: ["VA"]
     match_exact: ["virginia"]
+
 
   # --- Counties ---
   - geo_id: dc_county
@@ -37,7 +39,6 @@ markets:
     match_exact: ["prince william county va"]
 
     
-
   # --- Cities ---
   - geo_id: dc_city
     level: city
@@ -47,19 +48,19 @@ markets:
   - geo_id: bethesda_city
     level: city
     state_codes: ["MD"]
-    match_exact: ["bethesda md"]
+    match_exact: ["bethesda"]
 
   - geo_id: arlington_city
     level: city
     state_codes: ["VA"]
-    match_exact: ["arlington, va"]
+    match_exact: ["arlington"]
 
   - geo_id: hyattsville_city
     level: city
     state_codes: ["MD"]
-    match_exact: ["hyattsville md"]
+    match_exact: ["hyattsville"]
 
   - geo_id: baltimore_city
     level: city
     state_codes: ["MD"]
-    match_exact: ["baltimore md"]
+    match_exact: ["baltimore"]
