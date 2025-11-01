@@ -131,33 +131,24 @@ jobs:
             for chunk in read_in_chunks(data, infer_sep(url)):
               if chunk is None or chunk.empty: continue
 
-              # --- tolerant column detection ---
+              # --- tolerant column detection (unchanged up to here) ---
               lc = {c.lower(): c for c in chunk.columns}
               
-              # date
               date_col = lc.get("period_end") or lc.get("period_begin") or lc.get("month") or lc.get("last_updated")
               if not date_col:
                   print(f"[{level}] missing date-like column; got:", list(chunk.columns))
                   continue
-
-
               chunk = chunk.copy()
               chunk[date_col] = pd.to_datetime(chunk[date_col], errors="coerce").dt.to_period("M").dt.to_timestamp("M")
               
-              # location columns (support variants)
-              cand_region = ["region","region_name","regionname"]
-              cand_city   = ["city"]
-              cand_state  = ["state"]
-              cand_county = ["county","county_name","countyname"]
-              cand_rtype  = ["region_type","regiontype","type","level"]
-              
-              REGION  = next((lc[x] for x in cand_region if x in lc), None)
-              CITY    = next((lc[x] for x in cand_city   if x in lc), None)
-              STATE   = next((lc[x] for x in cand_state  if x in lc), None)
-              COUNTY  = next((lc[x] for x in cand_county if x in lc), None)
-              RTYPE   = next((lc[x] for x in cand_rtype  if x in lc), None)
-              
-              # normalization
+              REGION     = next((lc.get(x) for x in ["region","region_name","regionname"]), None)
+              CITY       = lc.get("city")
+              STATE      = lc.get("state")
+              COUNTY     = next((lc.get(x) for x in ["county","county_name","countyname"]), None)
+              STATE_CODE = lc.get("state_code")
+              RTYPE      = next((lc.get(x) for x in ["region_type","regiontype","type","level"]), None)
+
+
               import re
               def norm(s:str)->str:
                   s = str(s).lower()
@@ -165,55 +156,54 @@ jobs:
                   s = re.sub(r"\s+", " ", s).strip()
                   return s
               
-              for col in [REGION,CITY,STATE,COUNTY,RTYPE]:
-                  if col and col not in chunk:
-                      # (shouldn't happen, but safety)
-                      continue
-              
-              chunk["_norm_region"] = chunk[REGION].map(norm) if REGION else ""
-              chunk["_norm_city"]   = chunk[CITY].map(norm)   if CITY   else ""
-              chunk["_norm_state"]  = chunk[STATE].map(norm)  if STATE  else ""
-              chunk["_norm_county"] = chunk[COUNTY].map(norm) if COUNTY else ""
-              chunk["_norm_rtype"]  = chunk[RTYPE].astype(str).str.lower() if RTYPE else ""
+              chunk["_n_region"] = chunk[REGION].map(norm) if REGION else ""
+              chunk["_n_city"]   = chunk[CITY].map(norm)   if CITY   else ""
+              chunk["_n_state"]  = chunk[STATE].map(norm)  if STATE  else ""
+              chunk["_n_county"] = chunk[COUNTY].map(norm) if COUNTY else ""
+              chunk["_state_code"]= chunk[STATE_CODE].astype(str).str.upper() if STATE_CODE else ""
 
               # write columns: date + everything else (we’ll subselect later)
               cols = [date_col] + [c for c in chunk.columns if c != date_col]
-              
-              # --- matching per configured market ---
+
               for m in by_level[level]:
-                  gid = m["geo_id"]
-                  names = [norm(x) for x in (m.get("match") or [])]
-                  if not names:
-                      continue
+                  gid   = m["geo_id"]
+                  exact = [norm(x) for x in (m.get("match_exact") or [])]
+                  fuzzy = [norm(x) for x in (m.get("match") or [])]
+                  sc    = (m.get("state_code") or "").upper()
               
-                  # For each level, allow matches on the most relevant columns that exist
-                  # and don't hard-require _norm_rtype == level (files differ).
-                  series = []
+                  # choose the best name column for this level
                   if level == "city":
-                      if CITY:    series.append(chunk["_norm_city"])
-                      if REGION:  series.append(chunk["_norm_region"])
+                      name_series = chunk["_n_city"] if CITY else (chunk["_n_region"] if REGION else None)
                   elif level == "state":
-                      if STATE:   series.append(chunk["_norm_state"])
-                      if REGION:  series.append(chunk["_norm_region"])
+                      name_series = chunk["_n_state"] if STATE else (chunk["_n_region"] if REGION else None)
                   elif level == "county":
-                      if COUNTY:  series.append(chunk["_norm_county"])
-                      if REGION:  series.append(chunk["_norm_region"])
+                      name_series = chunk["_n_county"] if COUNTY else (chunk["_n_region"] if REGION else None)
+                  else:
+                      name_series = chunk["_n_region"]
               
-                  import pandas as pd
-                  if not series:
-                      print(f"[{level}:{gid}] no suitable location columns present; skipping")
+                  if name_series is None:
+                      print(f"[{level}:{gid}] no suitable name column; skipping")
                       continue
-                  norm_series = series[0]
-                  for s in series[1:]:
-                      norm_series = norm_series.fillna("") + " | " + s.fillna("")
               
-                  # build contains pattern
-                  import re
-                  pat = "|".join(re.escape(n) for n in names)
-                  mask = norm_series.str.contains(pat, na=False)
+                  # optional state_code constraint
+                  mask_sc = True
+                  if sc and STATE_CODE:
+                      mask_sc = (chunk["_state_code"] == sc)
               
+                  # exact > fuzzy
+                  if exact:
+                      mask_name = name_series.isin(exact)
+                  elif fuzzy:
+                      pat = "|".join(re.escape(n) for n in fuzzy)
+                      mask_name = name_series.str.contains(pat, na=False)
+                  else:
+                      print(f"[{level}:{gid}] no match or match_exact provided; skipping")
+                      continue
+              
+                  mask = mask_sc & mask_name  # 🔹 no property-type filter
                   sub = chunk.loc[mask, cols]
                   if sub.empty:
+                      print(f"[{level}:{gid}] matched 0 rows")
                       continue
               
                   ensure_writer(gid, cols)
@@ -221,6 +211,7 @@ jobs:
                   writers[gid]["dated"].write(tsv)
                   writers[gid]["latest"].write(tsv)
                   counts[gid] = counts.get(gid, 0) + len(sub)
+
             
             # close all writers
             for w in writers.values():
