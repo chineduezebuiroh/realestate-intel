@@ -1,12 +1,24 @@
 # transform/redfin_to_fact_v2.py
 import os, duckdb, pandas as pd
+from typing import Optional, Dict, Tuple, List
 
-CSV = "./data/raw/redfin/monthly_market_totals.csv"  # <- monthly
+ROOT = "./data/raw/redfin"
+CANDIDATES = {
+    "city":   f"{ROOT}/city/monthly_latest.tsv",
+    "county": f"{ROOT}/county/monthly_latest.tsv",
+    "state":  f"{ROOT}/state/monthly_latest.tsv",
+}
 
-MARKET = ("dc_city","Washington, DC","city","11001")
+# (geo_id, name, type, fips) – county inserted only if data exists
+MARKETS = {
+    "city":  ("dc_city",  "Washington, DC",                 "city",   "11001"),
+    "state": ("dc_state", "District of Columbia (Statewide)","state",  "11"),
+    "county":("dc_county","District of Columbia County, DC","county", "11001"),
+}
+
 SOURCE = ("redfin","Redfin Data Center","https://www.redfin.com/news/data-center/","monthly","public")
 
-# Map only columns that actually exist in your CSV
+# Only map columns that exist in file(s)
 COL_MAP = {
     "median_sale_price":        ("redfin_median_sale_price",        "Median Sale Price",        "usd",      "prices"),
     "homes_sold":               ("redfin_homes_sold",               "Homes Sold",               "homes",    "sales"),
@@ -19,14 +31,58 @@ COL_MAP = {
     "pending_sales":            ("redfin_pending_sales",            "Pending Sales",            "homes",    "sales"),
 }
 
-def ensure_dims(con):
-    # Market
-    con.execute("""
-        INSERT INTO dim_market(geo_id, name, type, fips)
-        SELECT ?, ?, ?, ?
-        WHERE NOT EXISTS (SELECT 1 FROM dim_market WHERE geo_id=?)
-    """, [*MARKET, MARKET[0]])
+def _read_tsv(path: str) -> Optional[pd.DataFrame]:
+    if not os.path.exists(path): return None
+    try:
+        return pd.read_csv(path, sep="\t")
+    except Exception as e:
+        print(f"[redfin:{path}] read failed: {e}")
+        return None
 
+def _normalize(df: pd.DataFrame, level: str) -> pd.DataFrame:
+    """Return rows for DC at the requested level, with standardized date + columns."""
+    df = df.copy()
+    # normalize column names (keep original for values; use lowercase for lookup)
+    orig_cols = df.columns.tolist()
+    lower_map = {c.lower(): c for c in orig_cols}
+
+    date_col  = lower_map.get("period_end") or lower_map.get("period_end_date") or lower_map.get("month")
+    region    = lower_map.get("region")     or lower_map.get("city") or lower_map.get("state")
+    region_ty = lower_map.get("region_type") or lower_map.get("city_type") or lower_map.get("state_type")
+
+    if not date_col or not region or not region_ty:
+        raise RuntimeError(f"[redfin:{level}] missing key columns. have={orig_cols}")
+
+    # Filter DC by level
+    if level == "city":
+        mask = (df[region_ty].str.lower()=="city") & (df[region].str.lower().isin(["washington, dc","washington","dc"]))
+        geo_id = "dc_city"
+    elif level == "state":
+        # Redfin states typically like "District of Columbia"
+        mask = (df[region_ty].str.lower()=="state") & (df[region].str.lower().isin(["district of columbia","washington dc","dc"]))
+        geo_id = "dc_state"
+    else:  # county
+        # DC county is typically "District of Columbia County, DC"
+        mask = (df[region_ty].str.lower()=="county") & (df[region].str.lower().isin([
+            "district of columbia county, dc", "washington, dc", "district of columbia"
+        ]))
+        geo_id = "dc_county"
+
+    dcf = df.loc[mask].copy()
+    if dcf.empty:
+        return dcf  # return empty; caller will skip
+
+    # Standardize date to month-end
+    dcf["date"] = pd.to_datetime(dcf[date_col], errors="coerce")
+    dcf["date"] = (dcf["date"] + pd.offsets.MonthEnd(0)).dt.date
+
+    # Keep for value mapping later; also stash geo_id
+    dcf["__geo_id__"] = geo_id
+    dcf["__level__"]  = level
+    dcf.attrs["lower_map"] = lower_map  # keep mapping for column lookups
+    return dcf
+
+def ensure_dims(con: duckdb.DuckDBPyConnection, have_geo: List[str]):
     # Source
     con.execute("""
         INSERT INTO dim_source(source_id, name, url, cadence, license)
@@ -34,7 +90,16 @@ def ensure_dims(con):
         WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id=?)
     """, [*SOURCE, SOURCE[0]])
 
-    # Metrics (monthly frequency)
+    # Markets (only the ones we actually saw data for)
+    for level in have_geo:
+        geo_id, name, typ, fips = MARKETS[level]
+        con.execute("""
+            INSERT INTO dim_market(geo_id, name, type, fips)
+            SELECT ?, ?, ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM dim_market WHERE geo_id=?)
+        """, [geo_id, name, typ, fips, geo_id])
+
+    # Metrics
     for _, (mid, name, unit, cat) in COL_MAP.items():
         con.execute("""
             INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
@@ -42,85 +107,53 @@ def ensure_dims(con):
             WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id=?)
         """, [mid, name, unit, cat, mid])
 
-def normalize_redfin_monthly(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Put all custom data cleaning/transforms here:
-    - column normalization
-    - type coercions
-    - percent to ratio (if needed)
-    - deduping / latest-per-month, etc.
-    """
-    # Normalize column name case (we’ll refer to lowercase)
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
-    lc_map = {c.lower(): c for c in df.columns}
-
-    # Key columns: date, region, region_type
-    date_col  = lc_map.get("period_end") or lc_map.get("period_end_date") or lc_map.get("month")
-    region_col = lc_map.get("region") or lc_map.get("city")
-    rtype_col  = lc_map.get("region_type") or lc_map.get("city_type")
-
-    if not date_col or not region_col or not rtype_col:
-        raise RuntimeError(f"[redfin] missing key columns. Got: {list(df.columns)}")
-
-    # Filter to DC city
-    df = df[(df[rtype_col].str.lower()=="city") &
-            (df[region_col].str.lower().isin(["washington, dc","washington","dc"]))]
-
-    # Coerce date to month-end date
-    # (Redfin monthly usually provides a month-end date already; this keeps it consistent)
-    df["date"] = pd.to_datetime(df[date_col], errors="coerce")
-    df["date"] = (df["date"] + pd.offsets.MonthEnd(0)).dt.date
-
-    # Example: if any percent fields are 0–100, convert to 0–1 ratio (or leave as-is if you prefer %)
-    # if "off_market_in_two_weeks" in lc_map:
-    #     col = lc_map["off_market_in_two_weeks"]
-    #     if df[col].notna().any() and df[col].max() > 1.5:  # crude check (values like 12, 37, etc.)
-    #         df[col] = pd.to_numeric(df[col], errors="coerce") / 100.0
-
-    return df
-
 def main():
-    if not os.path.exists(CSV):
-        print("[redfin] monthly csv not found, skipping transform")
+    pieces = []
+    levels_with_rows = []
+
+    for level, path in CANDIDATES.items():
+        df = _read_tsv(path)
+        if df is None:
+            print(f"[redfin:{level}] file not found: {path} (skipping)")
+            continue
+        dcf = _normalize(df, level)
+        if dcf.empty:
+            print(f"[redfin:{level}] no DC rows found (skipping)")
+            continue
+
+        lower_map = dcf.attrs.get("lower_map", {})
+        # Build long form for mapped columns that exist
+        for source_col_lc, (metric_id, _name, _unit, _cat) in COL_MAP.items():
+            exact = lower_map.get(source_col_lc)
+            if exact and exact in dcf.columns:
+                sub = dcf[["date", exact]].dropna().rename(columns={exact:"value"}).copy()
+                if not sub.empty:
+                    sub["metric_id"] = metric_id
+                    sub["geo_id"]    = dcf["__geo_id__"].iloc[0]
+                    sub["source_id"] = SOURCE[0]
+                    pieces.append(sub)
+
+        levels_with_rows.append(level)
+
+    if not pieces:
+        print("[redfin] nothing to load (no mapped columns across provided levels).")
         return
 
-    raw = pd.read_csv(CSV)
-    df = normalize_redfin_monthly(raw)
-
-    long_frames = []
-    for source_col, (mid, _name, _unit, _cat) in COL_MAP.items():
-        if source_col in [c.lower() for c in df.columns]:
-            # map back to exact-case column in df
-            exact = next(c for c in df.columns if c.lower() == source_col)
-            sub = df[["date", exact]].dropna()
-            if not sub.empty:
-                sub = sub.rename(columns={exact:"value"})
-                sub["metric_id"] = mid
-                long_frames.append(sub)
-
-    if not long_frames:
-        print("[redfin] no mapped columns present; nothing to load")
-        return
-
-    tall = pd.concat(long_frames, ignore_index=True)
+    tall = pd.concat(pieces, ignore_index=True)
     tall["value"] = pd.to_numeric(tall["value"], errors="coerce")
-    tall = tall.dropna(subset=["date","value"])
-    tall["geo_id"] = MARKET[0]
-    tall["source_id"] = SOURCE[0]
+    tall = tall.dropna(subset=["date","value","metric_id","geo_id"])
 
     con = duckdb.connect("./data/market.duckdb")
-    ensure_dims(con)
+    ensure_dims(con, levels_with_rows)
     con.register("df_stage", tall[["geo_id","metric_id","date","value","source_id"]])
 
-    # Upsert
+    # Upsert per (geo, metric, date)
     con.execute("""
         DELETE FROM fact_timeseries
-        WHERE geo_id=?
-          AND metric_id IN (SELECT DISTINCT metric_id FROM df_stage)
-          AND date IN (SELECT DISTINCT date FROM df_stage)
-    """, [MARKET[0]])
-
+        WHERE (geo_id, metric_id, date) IN (
+          SELECT geo_id, metric_id, date FROM df_stage
+        )
+    """)
     con.execute("""
         INSERT INTO fact_timeseries(geo_id, metric_id, date, value, source_id)
         SELECT geo_id, metric_id, date, CAST(value AS DOUBLE), source_id
@@ -128,11 +161,11 @@ def main():
     """)
 
     print(con.execute("""
-        SELECT metric_id, COUNT(*) AS rows, MIN(date) AS first, MAX(date) AS last
+        SELECT geo_id, metric_id, COUNT(*) AS rows, MIN(date) AS first, MAX(date) AS last
         FROM fact_timeseries
-        WHERE geo_id=? AND metric_id LIKE 'redfin_%'
-        GROUP BY 1 ORDER BY 1
-    """, [MARKET[0]]).fetchdf())
+        WHERE metric_id LIKE 'redfin_%' AND geo_id IN ('dc_city','dc_state','dc_county')
+        GROUP BY 1,2 ORDER BY 1,2
+    """).fetchdf())
     con.close()
 
 if __name__ == "__main__":
