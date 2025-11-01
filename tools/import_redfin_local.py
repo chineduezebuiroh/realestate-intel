@@ -2,43 +2,49 @@
 import argparse, os, shutil, pathlib, sys
 import pandas as pd
 
-RAW_DIR = "data/raw/redfin"
-LATEST = os.path.join(RAW_DIR, "monthly_market_totals.csv")  # <- monthly
+def detect_sep(path: str) -> str:
+    # Quick heuristic: tabs for .tsv/.tsv000, else comma
+    p = path.lower()
+    if p.endswith(".tsv") or p.endswith(".tsv000"):
+        return "\t"
+    return ","
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--file", required=True, help="Path to a manually downloaded Redfin MONTHLY CSV")
+    p.add_argument("--file", required=True, help="Path to a manually downloaded Redfin MONTHLY file (.tsv/.tsv000/.csv)")
+    p.add_argument("--level", required=True, choices=["city","county","state"], help="Geography granularity")
     args = p.parse_args()
 
     src = os.path.abspath(args.file)
     if not os.path.exists(src):
         sys.exit(f"[import] file not found: {src}")
 
-    pathlib.Path(RAW_DIR).mkdir(parents=True, exist_ok=True)
+    raw_dir = os.path.join("data","raw","redfin", args.level)
+    latest = os.path.join(raw_dir, "monthly_latest.tsv")  # normalize to .tsv on disk
+    pathlib.Path(raw_dir).mkdir(parents=True, exist_ok=True)
 
-    # Sanity check
+    # Sanity read a few rows (auto sep)
+    sep = detect_sep(src)
     try:
-        head = pd.read_csv(src, nrows=5)
+        head = pd.read_csv(src, sep=sep, nrows=5)
     except Exception as e:
-        sys.exit(f"[import] cannot read CSV: {e}")
+        sys.exit(f"[import] cannot read input file with sep='{sep}': {e}")
 
-    # Expect a monthly CSV (usually still has `period_end`), this is just advisory:
-    expected_any = {"period_end", "period_end_date", "month", "region", "region_type"}
-    lower = set(map(str.lower, head.columns))
-    if not (expected_any & lower):
-        print(f"[import] warning: columns look unusual for Redfin monthly: {list(head.columns)}")
-
-    # Archive copy with timestamp
+    # Archive and copy to latest
     stamp = pd.Timestamp.utcnow().strftime("%Y%m%d")
-    dated_name = f"monthly_market_totals_{stamp}.csv"
-    dst_dated = os.path.join(RAW_DIR, dated_name)
-    shutil.copy2(src, dst_dated)
+    dated_name = f"monthly_{args.level}_{stamp}.tsv"
+    dst_dated = os.path.join(raw_dir, dated_name)
+    # If source isn’t tab, convert to canonical TSV for consistency
+    if sep == "\t":
+        shutil.copy2(src, dst_dated)
+    else:
+        head0 = pd.read_csv(src, sep=sep)  # full read for conversion
+        head0.to_csv(dst_dated, sep="\t", index=False)
 
-    # Stable “latest” pointer (transform reads this)
-    shutil.copy2(dst_dated, LATEST)
+    shutil.copy2(dst_dated, latest)
 
-    print(f"[import] archived -> {dst_dated}")
-    print(f"[import] latest   -> {LATEST}")
+    print(f"[import:{args.level}] archived -> {dst_dated}")
+    print(f"[import:{args.level}] latest   -> {latest}")
 
 if __name__ == "__main__":
     main()
