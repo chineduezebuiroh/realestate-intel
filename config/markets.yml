@@ -1,0 +1,12 @@
+markets:
+  - geo_id: dc_city
+    level: city
+    match: ["Washington, DC", "Washington", "DC"]
+
+  - geo_id: dc_state
+    level: state
+    match: ["District of Columbia", "Washington DC", "DC"]
+
+  - geo_id: dc_county
+    level: county
+    match: ["District of Columbia County, DC", "District of Columbia", "Washington, DC"]
