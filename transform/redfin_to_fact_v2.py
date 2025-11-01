@@ -36,7 +36,11 @@ COL_MAP = {
     "sale_to_list_ratio":       ("redfin_sale_to_list_ratio",       "Sale-to-List Ratio",       "ratio",    "prices"),
     "off_market_in_two_weeks":  ("redfin_off_market_2w_share",      "Off-Market in 2 Weeks %",  "percent",  "speed"),
     "pending_sales":            ("redfin_pending_sales",            "Pending Sales",            "homes",    "sales"),
+    # ---- aliases for your export headers ----
+    "median_dom":               ("redfin_median_days_on_market",    "Median Days on Market",    "days",     "speed"),
+    "avg_sale_to_list":         ("redfin_sale_to_list_ratio",       "Sale-to-List Ratio",       "ratio",    "prices"),
 }
+
 
 
 def _read_tsv(path: str) -> Optional[pd.DataFrame]:
