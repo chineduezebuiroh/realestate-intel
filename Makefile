@@ -1,13 +1,36 @@
 SHELL := /bin/bash
-PY := python
+VENV := .venv
+PY := $(VENV)/bin/python
+PIP := $(VENV)/bin/pip
 
-.PHONY: setup db ingest_dc transform_dc forecast_dc ingest_monthly transform_monthly
 
-setup:
+.PHONY: venv bootstrap deps clean-venv
+
+venv:
+	python -m venv $(VENV)
+	. $(VENV)/bin/activate; pip install -U pip wheel
+	. $(VENV)/bin/activate; pip install -r requirements.txt
+
+bootstrap: clean-venv venv
+
+deps:
+	$(PIP) install -r requirements.txt
+
+clean-venv:
+	rm -rf $(VENV)
+
+
+.PHONY: setup db ingest_dc transform_dc forecast_dc ingest_monthly transform_monthly \
+        ingest_bls ingest_fred_rates ingest_fred_yields ingest_redfin \
+        transform_bls transform_fred_rates transform_fred_yields transform_redfin dashboard \
+        update_redfin_mirror import_redfin_local_city import_redfin_local_county import_redfin_local_state
+
+setup: venv
 	@mkdir -p data data/parquet
 
-db:
+db: venv
 	$(PY) utils/db.py --build
+
 
 
 
@@ -20,17 +43,17 @@ ingest_monthly: setup
 	$(PY) ingest/zillow_zori.py
 	$(PY) ingest/fred_unemployment_dc.py
 
-ingest_bls:
-	python ingest/bls_laus_dc.py
+ingest_bls: setup
+	$(PY) ingest/bls_laus_dc.py
 
-ingest_fred_rates:
-	python ingest/fred_mortgage_rates.py
+ingest_fred_rates: setup
+	$(PY) ingest/fred_mortgage_rates.py
 
-ingest_fred_yields:
-	python ingest/fred_yields.py
+ingest_fred_yields: setup
+	$(PY) ingest/fred_yields.py
 
-ingest_redfin:
-	python ingest/redfin_market_trends.py
+ingest_redfin: setup
+	$(PY) ingest/redfin_market_trends.py
 
 
 
@@ -40,40 +63,42 @@ transform_dc: db
 transform_monthly: db
 	$(PY) transform/monthlies_to_fact.py
 
-transform_bls:
-	python transform/laus_to_fact.py
+transform_bls: db
+	$(PY) transform/laus_to_fact.py
 
-transform_fred_rates:
-	python transform/fred_mortgage_to_fact.py
+transform_fred_rates: db
+	$(PY) transform/fred_mortgage_to_fact.py
 
-transform_fred_yields:
-	python transform/fred_yields_to_fact.py
+transform_fred_yields: db
+	$(PY) transform/fred_yields_to_fact.py
 
-transform_redfin:
-	python transform/redfin_to_fact_v2.py
+transform_redfin: db
+	$(PY) transform/redfin_to_fact_v2.py
 
 
 
-forecast_dc:
+forecast_dc: venv
 	@echo "[forecast] (placeholder) next: SARIMAX/XGBoost + backtests"
 
 
-dashboard:
-	streamlit run app/streamlit_app.py
+
+dashboard: venv
+	$(PY) -m streamlit run app/streamlit_app.py
+
 
 
 # --- Maintenance utilities ---
-update_redfin_mirror:
+update_redfin_mirror: venv
 	./tools/update_redfin_mirror.sh
 
 
 
 # --- Vendor data utilities ---
-import_redfin_local_city:
-	python tools/import_redfin_local.py --file "$(FILE)" --level city
+import_redfin_local_city: venv
+	$(PY) tools/import_redfin_local.py --file "$(FILE)" --level city
 
-import_redfin_local_county:
-	python tools/import_redfin_local.py --file "$(FILE)" --level county
+import_redfin_local_county: venv
+	$(PY) tools/import_redfin_local.py --file "$(FILE)" --level county
 
-import_redfin_local_state:
-	python tools/import_redfin_local.py --file "$(FILE)" --level state
+import_redfin_local_state: venv
+	$(PY) tools/import_redfin_local.py --file "$(FILE)" --level state
