@@ -75,6 +75,13 @@ jobs:
             bio = io.BytesIO(content)
             yield from pd.read_csv(bio, chunksize=CHUNK)
 
+          import re
+          def norm(s:str)->str:
+              s = str(s).lower()
+              s = re.sub(r"[\.\,']", "", s)  # drop punctuation like .,'
+              s = re.sub(r"\s+", " ", s).strip()
+              return s
+
           # Load markets.yml → by level
           with open(CFG_PATH, "r") as f:
             cfg = yaml.safe_load(f) or {}
@@ -132,25 +139,32 @@ jobs:
                 print(f"[{level}] missing key cols in chunk; skipping that chunk"); continue
 
               # normalize date
+              # ... inside the chunk loop, after we build lc / date_col / region / region_ty:
               chunk = chunk.copy()
               chunk[date_col] = pd.to_datetime(chunk[date_col], errors="coerce").dt.to_period("M").dt.to_timestamp("M")
+              chunk["_region_norm"] = chunk[region].map(norm)
+              chunk["_rtype_norm"]  = chunk[region_ty].map(lambda x: str(x).lower())
 
-              # choose columns (keep date + all value cols by default)
+              # choose columns
               cols = [date_col] + [c for c in chunk.columns if c != date_col]
 
               for m in by_level[level]:
                 gid = m["geo_id"]
-                names = m["match_lc"]
-                mask = chunk[region_ty].astype(str).str.lower().eq(level) & \
-                       chunk[region].astype(str).str.lower().isin(names)
+                names = [norm(x) for x in (m.get("match") or [])]
+                if not names:  # safety
+                    continue
+                # substring contains on normalized text
+                pat = "|" .join(re.escape(n) for n in names)
+                mask = (chunk["_rtype_norm"] == level) & (chunk["_region_norm"].str.contains(pat, na=False))
                 sub = chunk.loc[mask, cols]
-                if sub.empty: continue
-
+                if sub.empty: 
+                    continue
                 ensure_writer(gid, cols)
                 tsv = sub.to_csv(sep="\t", index=False, header=False)
                 writers[gid]["dated"].write(tsv)
                 writers[gid]["latest"].write(tsv)
                 counts[gid] = counts.get(gid, 0) + len(sub)
+         
 
             # close all writers
             for w in writers.values():
@@ -161,7 +175,21 @@ jobs:
 
           PY
 
-          
+
+      - name: Debug — list produced files & sample
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Tree under data/raw/redfin:"
+          find data/raw/redfin -maxdepth 2 -type f -name '*monthly*.tsv' -print || true
+          echo
+          for f in data/raw/redfin/*/*_monthly_latest.tsv; do
+            echo "---- HEAD $f"
+            head -n 3 "$f" || true
+            echo
+          done
+
+
        
       - name: Commit & push slim slices
         shell: bash
