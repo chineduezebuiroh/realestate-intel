@@ -52,9 +52,6 @@ transform_fred_yields:
 transform_redfin:
 	python transform/redfin_to_fact_v2.py
 
-update_redfin_mirror:
-	./tools/update_redfin_mirror.sh
-
 
 
 forecast_dc:
