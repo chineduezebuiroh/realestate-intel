@@ -1,18 +1,65 @@
 markets:
-  - geo_id: dc_city
-    level: city
-    state_code: DC
-    match_exact:
-      - "washington"         # exact city name after normalization
-
+  # --- States ---
   - geo_id: dc_state
     level: state
-    state_code: DC
-    match_exact:
-      - "district of columbia"
+    state_codes: ["DC"]
+    match_exact: ["columbia"]
 
+  - geo_id: md_state
+    level: state
+    state_codes: ["MD"]
+    match_exact: ["maryland"]
+
+  - geo_id: va_state
+    level: state
+    state_codes: ["VA"]
+    match_exact: ["virginia"]
+
+  # --- Counties ---
   - geo_id: dc_county
     level: county
-    state_code: DC
-    match_exact:
-      - "district of columbia county"
+    state_codes: ["DC"]
+    match_exact: ["district of columbia dc"]
+
+  - geo_id: montgomery_county
+    level: county
+    state_codes: ["MD"]
+    match_exact: ["montgomery county md"]
+
+  - geo_id: prince_georges_county
+    level: county
+    state_codes: ["MD"]
+    match_exact: ["prince georges county md"]
+
+  - geo_id: prince_william_county
+    level: county
+    state_codes: ["VA"]
+    match_exact: ["prince william county va"]
+
+    
+
+  # --- Cities ---
+  - geo_id: dc_city
+    level: city
+    state_codes: ["DC"]
+    match_exact: ["washington dc"]
+
+  - geo_id: bethesda_city
+    level: city
+    state_codes: ["MD"]
+    match_exact: ["bethesda md"]
+
+  - geo_id: arlington_city
+    level: city
+    state_codes: ["VA"]
+    match_exact: ["arlington, va"]
+
+  - geo_id: hyattsville_city
+    level: city
+    state_codes: ["MD"]
+    match_exact: ["hyattsville md"]
+
+  - geo_id: baltimore_city
+    level: city
+    state_codes: ["MD"]
+    match_exact: ["baltimore md"]
