@@ -227,6 +227,31 @@ def load_series(geo_id: str, metric_id: str):
     con.close()
     return df
 
+
+
+# --- Compare: load one metric across many markets ---
+@st.cache_data
+def load_metric_across_markets(geo_ids: list[str], metric_id: str) -> pd.DataFrame:
+    if not geo_ids:
+        return pd.DataFrame(columns=["date","geo_id","value"])
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    placeholders = ",".join(["?"] * len(geo_ids))
+    q = f"""
+        SELECT date, geo_id, value
+        FROM fact_timeseries
+        WHERE metric_id = ? AND geo_id IN ({placeholders})
+        ORDER BY date
+    """
+    df = con.execute(q, [metric_id, *geo_ids]).fetchdf()
+    con.close()
+    if df.empty:
+        return df
+    df["date"] = pd.to_datetime(df["date"])
+    return df
+
+
+
+
 metrics = load_metrics(geo_choice)
 if metrics.empty:
     st.warning("No data yet for this market. Run your workflow (ingest + transform) and refresh.")
@@ -291,5 +316,60 @@ k3.metric("YoY change", f"{yoy_val:,.2f} %" if yoy_val is not None else "n/a")
 st.subheader("History")
 st.line_chart(df.set_index("date")["value"])
 
+
+# === Compare Markets panel (insert here) ===
+st.divider()
+st.subheader("Compare markets")
+
+# 2a) choose metric (reuse your metrics df from current market to keep list friendly)
+cmp_metric = st.selectbox(
+    "Metric to compare",
+    options=metrics["metric_id"].tolist(),
+    format_func=lambda mid: metrics.set_index("metric_id").loc[mid, "metric_name"]
+)
+
+# 2b) multi-select markets (offer all with data, preselect 2–3 nearby geos)
+all_mkts = mkts.copy()
+default_choices = [gid for gid in all_mkts["geo_id"].tolist() if gid in ("dc_state","md_state","va_state")][:3]
+cmp_geos = st.multiselect(
+    "Markets to overlay",
+    options=all_mkts["geo_id"].tolist(),
+    default=default_choices,
+    format_func=lambda gid: all_mkts.set_index("geo_id").loc[gid,"geo_name"]
+)
+
+df_cmp = load_metric_across_markets(cmp_geos, cmp_metric)
+if df_cmp.empty:
+    st.info("No data found for the chosen metric/markets.")
+else:
+    piv = df_cmp.pivot(index="date", columns="geo_id", values="value")
+    st.line_chart(piv)
+
+    # small KPI table for quick deltas
+    with st.expander("Show latest + changes"):
+        latest = piv.dropna().iloc[-1:].T.reset_index()
+        latest.columns = ["geo_id","latest"]
+        # compute 3/6/12m deltas where available
+        def pct_delta(series, months):
+            try:
+                return (series.iloc[-1] - series.iloc[-months]) / series.iloc[-months] * 100.0
+            except Exception:
+                return None
+        rows = []
+        for gid in piv.columns:
+            s = piv[gid].dropna()
+            rows.append({
+                "geo_id": gid,
+                "name": all_mkts.set_index("geo_id").loc[gid,"geo_name"],
+                "latest": s.iloc[-1] if len(s) else None,
+                "Δ3m%": pct_delta(s, 3),
+                "Δ6m%": pct_delta(s, 6),
+                "Δ12m%": pct_delta(s, 12),
+            })
+        tbl = pd.DataFrame(rows)
+        st.dataframe(tbl.set_index("name"))
+
+
+# (keep your caption below)
 # dynamic caption
 st.caption(f"Data sources: see dim_source. Market: {mkts.set_index('geo_id').loc[geo_choice,'geo_name']} ({geo_choice}).")
