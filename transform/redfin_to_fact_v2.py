@@ -66,8 +66,9 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, geo_df: pd.DataFrame):
 
     # markets (auto from geo_df)
     con.register("df_geo", geo_df)
+    con.execute("DELETE FROM dim_market WHERE geo_id IN (SELECT geo_id FROM df_geo)")
     con.execute("""
-        INSERT OR REPLACE INTO dim_market (geo_id, name, type, fips)
+        INSERT INTO dim_market (geo_id, name, type, fips)
         SELECT geo_id, name, type, fips FROM df_geo
     """)
 
@@ -75,12 +76,11 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, geo_df: pd.DataFrame):
 
 
 
-def main():
-    pieces = []
-    levels_with_rows = []
 
-    from glob import glob
-    from pathlib import Path
+def main():
+
+    #from glob import glob
+    #from pathlib import Path
     
     pieces = []
     geo_meta = []
@@ -111,6 +111,12 @@ def main():
             print(f"[redfin:{geo_id}] ⚠️ missing date column")
             continue
         df["date"] = pd.to_datetime(df[date_col], errors="coerce").dt.to_period("M").dt.to_timestamp("M")
+        df["date"] = (
+            pd.to_datetime(df[date_col], errors="coerce")
+              .dt.to_period("M").dt.to_timestamp("M")
+              .dt.date
+        )
+
     
         # flatten to tall per COL_MAP
         for source_col_lc, (metric_id, _name, _unit, _cat) in COL_MAP.items():
