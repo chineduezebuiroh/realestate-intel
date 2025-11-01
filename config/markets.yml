@@ -1,23 +1,18 @@
 markets:
   - geo_id: dc_city
     level: city
-    match:
-      - "washington, dc"
-      - "washington dc"
-      - "washington"
-      - "dc"
+    state_code: DC
+    match_exact:
+      - "washington"         # exact city name after normalization
 
   - geo_id: dc_state
     level: state
-    match:
+    state_code: DC
+    match_exact:
       - "district of columbia"
-      - "washington dc"
-      - "dc"
 
   - geo_id: dc_county
     level: county
-    match:
-      - "district of columbia county, dc"
+    state_code: DC
+    match_exact:
       - "district of columbia county"
-      - "district of columbia"
-      - "washington, dc"
