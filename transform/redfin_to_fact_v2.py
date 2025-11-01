@@ -160,17 +160,17 @@ def main():
 
 
     # Upsert per (geo, metric, date)
+    con.register("df_stage", tall[["geo_id","metric_id","date","value","source_id"]])
+
     con.execute("""
-        DELETE FROM fact_timeseries AS t
-        USING df_stage AS s
-        WHERE t.geo_id = s.geo_id
-            AND t.metric_id = s.metric_id
-            AND t.date = s.date
-    """)
-    con.execute("""
-        INSERT INTO fact_timeseries(geo_id, metric_id, date, value, source_id)
-        SELECT geo_id, metric_id, date, CAST(value AS DOUBLE), source_id
-        FROM df_stage
+      MERGE INTO fact_timeseries t
+      USING df_stage s
+      ON t.geo_id = s.geo_id AND t.metric_id = s.metric_id AND t.date = s.date
+      WHEN MATCHED THEN
+        UPDATE SET value = CAST(s.value AS DOUBLE), source_id = s.source_id
+      WHEN NOT MATCHED THEN
+        INSERT (geo_id, metric_id, date, value, source_id)
+        VALUES (s.geo_id, s.metric_id, s.date, CAST(s.value AS DOUBLE), s.source_id)
     """)
 
 
