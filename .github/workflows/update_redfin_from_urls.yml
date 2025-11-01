@@ -36,6 +36,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas pyyaml requests gdown
 
+
       - name: Slice per-geo from provided URLs (chunked)
         env:
           CITY_URL:   ${{ github.event.inputs.city_url }}
@@ -43,32 +44,28 @@ jobs:
           STATE_URL:  ${{ github.event.inputs.state_url }}
         run: |
           python - << 'PY'
-          import os, io, sys, re, json, time, pathlib, datetime as dt
+          import os, io, sys, pathlib, datetime as dt
           import pandas as pd, requests, yaml
-          from typing import Optional, List
-          # ---------- config ----------
+
           CFG_PATH = "config/markets.yml"
           OUT_ROOT = pathlib.Path("data/raw/redfin")
-          CHUNK = 200_000  # rows per chunk (adjust if needed)
-          KEEP_COLS = None  # None = keep all, or set to mapped subset later
-          # ---------- helpers ----------
+          CHUNK = 200_000
+
           def is_drive(url): return "drive.google.com" in url or "docs.google.com" in url
           def fetch_bytes(url: str) -> bytes:
             if not url: return b""
             if is_drive(url):
               import gdown, tempfile
-              tmp = tempfile.NamedTemporaryFile(delete=False)
-              tmp.close()
+              tmp = tempfile.NamedTemporaryFile(delete=False); tmp.close()
               gdown.download(url=url, output=tmp.name, quiet=False, fuzzy=True)
               b = open(tmp.name, "rb").read(); os.unlink(tmp.name); return b
             r = requests.get(url, timeout=120); r.raise_for_status(); return r.content
 
-          def infer_sep(name: str): 
+          def infer_sep(name: str):
             l = name.lower()
             return "\t" if (l.endswith(".tsv") or l.endswith(".tsv000")) else None
 
-          def read_in_chunks(content: bytes, sep_hint: Optional[str]):
-            # try TSV first (Redfin), then CSV
+          def read_in_chunks(content: bytes, sep_hint: str | None):
             bio = io.BytesIO(content)
             try:
               yield from pd.read_csv(bio, sep=sep_hint or "\t", chunksize=CHUNK)
@@ -78,12 +75,16 @@ jobs:
             bio = io.BytesIO(content)
             yield from pd.read_csv(bio, chunksize=CHUNK)
 
-          # load markets.yml
+          # Load markets.yml → by level
           with open(CFG_PATH, "r") as f:
-            cfg = yaml.safe_load(f)
+            cfg = yaml.safe_load(f) or {}
           markets = cfg.get("markets", [])
-          if not markets:
-            print("[cfg] no markets defined; nothing to do."); sys.exit(0)
+          by_level = {}
+          for m in markets:
+            lvl = (m.get("level") or m.get("type") or "").lower()
+            if not lvl or "geo_id" not in m: continue
+            m["match_lc"] = [s.lower() for s in (m.get("match") or [])]
+            by_level.setdefault(lvl, []).append(m)
 
           now = dt.datetime.utcnow().strftime("%Y%m%d")
           url_by_level = {
@@ -92,83 +93,66 @@ jobs:
             "state":  os.environ.get("STATE_URL","").strip(),
           }
 
-          # build matchers per level
-          by_level = {}
-          for m in markets:
-            lvl = m["level"].lower()
-            by_level.setdefault(lvl, []).append(m)
-
           for level, url in url_by_level.items():
-            if not url: 
-              print(f"[{level}] no URL provided; skip"); 
-              continue
+            if not url:
+              print(f"[{level}] no URL provided; skip"); continue
+            if level not in by_level:
+              print(f"[{level}] no markets configured; skip"); continue
 
-            print(f"[{level}] downloading…")
             data = fetch_bytes(url)
             if not data:
-              print(f"[{level}] empty download; skip"); 
-              continue
+              print(f"[{level}] empty download; skip"); continue
 
-            OUT_DIR = (OUT_ROOT/level)
-            OUT_DIR.mkdir(parents=True, exist_ok=True)
+            out_dir = OUT_ROOT / level
+            out_dir.mkdir(parents=True, exist_ok=True)
 
-            # prep output writers per geo_id
-            writers = {}
-            counts  = { }  # geo_id -> rows
+            # open writers lazily when first chunk arrives
+            writers = {}  # gid -> {"dated": fh, "latest": fh, "cols": list}
+            counts  = {}
 
-            def get_writers(df_cols):
-              nonlocal writers
-              # choose columns: keep all or a consistent subset
-              cols = list(df_cols) if KEEP_COLS is None else [c for c in KEEP_COLS if c in df_cols]
-              for m in by_level.get(level, []):
-                gid = m["geo_id"]
-                dated = OUT_DIR / f"{gid}_monthly_{now}.tsv"
-                latest = OUT_DIR / f"{gid}_monthly_latest.tsv"
-                if gid not in writers:
-                  writers[gid] = {
-                    "cols": cols,
-                    "dated": open(dated, "w", encoding="utf-8"),
-                    "latest": open(latest, "w", encoding="utf-8")
-                  }
-                  # write headers
-                  line = "\t".join(cols) + "\n"
-                  writers[gid]["dated"].write(line)
-                  writers[gid]["latest"].write(line)
+            def ensure_writer(gid: str, cols: list[str]):
+              if gid in writers: return
+              dated  = out_dir / f"{gid}_monthly_{now}.tsv"
+              latest = out_dir / f"{gid}_monthly_latest.tsv"
+              fh_d = open(dated, "w", encoding="utf-8")
+              fh_l = open(latest, "w", encoding="utf-8")
+              header = "\t".join(cols) + "\n"
+              fh_d.write(header); fh_l.write(header)
+              writers[gid] = {"dated": fh_d, "latest": fh_l, "cols": cols}
 
-            # streaming filter
+            # stream
             for chunk in read_in_chunks(data, infer_sep(url)):
-              # standardize lookup keys
+              if chunk is None or chunk.empty: continue
+              # column lookups
               lc = {c.lower(): c for c in chunk.columns}
               date_col  = lc.get("period_end") or lc.get("period_end_date") or lc.get("month")
               region    = lc.get("region") or lc.get("city") or lc.get("state")
               region_ty = lc.get("region_type") or lc.get("city_type") or lc.get("state_type")
               if not (date_col and region and region_ty):
-                print(f"[{level}] missing key columns in chunk; skip this chunk")
-                continue
+                print(f"[{level}] missing key cols in chunk; skipping that chunk"); continue
 
-              # init writers once we know columns
-              get_writers(chunk.columns)
+              # normalize date
+              chunk = chunk.copy()
+              chunk[date_col] = pd.to_datetime(chunk[date_col], errors="coerce").dt.to_period("M").dt.to_timestamp("M")
 
-              # for each configured market at this level, filter & write
-              for m in by_level.get(level, []):
+              # choose columns (keep date + all value cols by default)
+              cols = [date_col] + [c for c in chunk.columns if c != date_col]
+
+              for m in by_level[level]:
                 gid = m["geo_id"]
-                names = [s.lower() for s in m["match"]]
+                names = m["match_lc"]
                 mask = chunk[region_ty].astype(str).str.lower().eq(level) & \
                        chunk[region].astype(str).str.lower().isin(names)
-                sub = chunk.loc[mask, writers[gid]["cols"]]
-                if sub.empty: 
-                  continue
-                # month-end normalize (optional here; transform will also standardize)
-                sub = sub.copy()
-                if date_col in sub.columns:
-                  sub[date_col] = pd.to_datetime(sub[date_col], errors="coerce").dt.to_period("M").dt.to_timestamp("M")
-                # write rows
+                sub = chunk.loc[mask, cols]
+                if sub.empty: continue
+
+                ensure_writer(gid, cols)
                 tsv = sub.to_csv(sep="\t", index=False, header=False)
                 writers[gid]["dated"].write(tsv)
                 writers[gid]["latest"].write(tsv)
                 counts[gid] = counts.get(gid, 0) + len(sub)
 
-            # close files
+            # close all writers
             for w in writers.values():
               w["dated"].close(); w["latest"].close()
 
@@ -176,6 +160,8 @@ jobs:
               print(f"[{level}:{gid}] wrote rows={n}")
 
           PY
+
+          
 
       - name: Commit & push slim slices
         run: |
