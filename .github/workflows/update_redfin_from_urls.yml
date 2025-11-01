@@ -130,42 +130,98 @@ jobs:
             # stream
             for chunk in read_in_chunks(data, infer_sep(url)):
               if chunk is None or chunk.empty: continue
-              # column lookups
-              lc = {c.lower(): c for c in chunk.columns}
-              date_col  = lc.get("period_end") or lc.get("period_end_date") or lc.get("month")
-              region    = lc.get("region") or lc.get("city") or lc.get("state")
-              region_ty = lc.get("region_type") or lc.get("city_type") or lc.get("state_type")
-              if not (date_col and region and region_ty):
-                print(f"[{level}] missing key cols in chunk; skipping that chunk"); continue
 
-              # normalize date
-              # ... inside the chunk loop, after we build lc / date_col / region / region_ty:
+              # --- tolerant column detection ---
+              lc = {c.lower(): c for c in chunk.columns}
+              
+              # date
+              date_col = lc.get("period_end") or lc.get("period_begin") or lc.get("month") or lc.get("last_updated")
+              if not date_col:
+                  print(f"[{level}] missing date-like column; got:", list(chunk.columns))
+                  continue
+
+
               chunk = chunk.copy()
               chunk[date_col] = pd.to_datetime(chunk[date_col], errors="coerce").dt.to_period("M").dt.to_timestamp("M")
-              chunk["_region_norm"] = chunk[region].map(norm)
-              chunk["_rtype_norm"]  = chunk[region_ty].map(lambda x: str(x).lower())
+              
+              # location columns (support variants)
+              cand_region = ["region","region_name","regionname"]
+              cand_city   = ["city"]
+              cand_state  = ["state"]
+              cand_county = ["county","county_name","countyname"]
+              cand_rtype  = ["region_type","regiontype","type","level"]
+              
+              REGION  = next((lc[x] for x in cand_region if x in lc), None)
+              CITY    = next((lc[x] for x in cand_city   if x in lc), None)
+              STATE   = next((lc[x] for x in cand_state  if x in lc), None)
+              COUNTY  = next((lc[x] for x in cand_county if x in lc), None)
+              RTYPE   = next((lc[x] for x in cand_rtype  if x in lc), None)
+              
+              # normalization
+              import re
+              def norm(s:str)->str:
+                  s = str(s).lower()
+                  s = re.sub(r"[\.\,']", "", s)
+                  s = re.sub(r"\s+", " ", s).strip()
+                  return s
+              
+              for col in [REGION,CITY,STATE,COUNTY,RTYPE]:
+                  if col and col not in chunk:
+                      # (shouldn't happen, but safety)
+                      continue
+              
+              chunk["_norm_region"] = chunk[REGION].map(norm) if REGION else ""
+              chunk["_norm_city"]   = chunk[CITY].map(norm)   if CITY   else ""
+              chunk["_norm_state"]  = chunk[STATE].map(norm)  if STATE  else ""
+              chunk["_norm_county"] = chunk[COUNTY].map(norm) if COUNTY else ""
+              chunk["_norm_rtype"]  = chunk[RTYPE].astype(str).str.lower() if RTYPE else ""
 
-              # choose columns
+              # write columns: date + everything else (we’ll subselect later)
               cols = [date_col] + [c for c in chunk.columns if c != date_col]
-
+              
+              # --- matching per configured market ---
               for m in by_level[level]:
-                gid = m["geo_id"]
-                names = [norm(x) for x in (m.get("match") or [])]
-                if not names:  # safety
-                    continue
-                # substring contains on normalized text
-                pat = "|" .join(re.escape(n) for n in names)
-                mask = (chunk["_rtype_norm"] == level) & (chunk["_region_norm"].str.contains(pat, na=False))
-                sub = chunk.loc[mask, cols]
-                if sub.empty: 
-                    continue
-                ensure_writer(gid, cols)
-                tsv = sub.to_csv(sep="\t", index=False, header=False)
-                writers[gid]["dated"].write(tsv)
-                writers[gid]["latest"].write(tsv)
-                counts[gid] = counts.get(gid, 0) + len(sub)
-         
-
+                  gid = m["geo_id"]
+                  names = [norm(x) for x in (m.get("match") or [])]
+                  if not names:
+                      continue
+              
+                  # For each level, allow matches on the most relevant columns that exist
+                  # and don't hard-require _norm_rtype == level (files differ).
+                  series = []
+                  if level == "city":
+                      if CITY:    series.append(chunk["_norm_city"])
+                      if REGION:  series.append(chunk["_norm_region"])
+                  elif level == "state":
+                      if STATE:   series.append(chunk["_norm_state"])
+                      if REGION:  series.append(chunk["_norm_region"])
+                  elif level == "county":
+                      if COUNTY:  series.append(chunk["_norm_county"])
+                      if REGION:  series.append(chunk["_norm_region"])
+              
+                  import pandas as pd
+                  if not series:
+                      print(f"[{level}:{gid}] no suitable location columns present; skipping")
+                      continue
+                  norm_series = series[0]
+                  for s in series[1:]:
+                      norm_series = norm_series.fillna("") + " | " + s.fillna("")
+              
+                  # build contains pattern
+                  import re
+                  pat = "|".join(re.escape(n) for n in names)
+                  mask = norm_series.str.contains(pat, na=False)
+              
+                  sub = chunk.loc[mask, cols]
+                  if sub.empty:
+                      continue
+              
+                  ensure_writer(gid, cols)
+                  tsv = sub.to_csv(sep="\t", index=False, header=False)
+                  writers[gid]["dated"].write(tsv)
+                  writers[gid]["latest"].write(tsv)
+                  counts[gid] = counts.get(gid, 0) + len(sub)
+            
             # close all writers
             for w in writers.values():
               w["dated"].close(); w["latest"].close()
