@@ -69,7 +69,14 @@ dashboard:
 update_redfin_mirror:
 	./tools/update_redfin_mirror.sh
 
-# --- Vendor data utilities ---
-import_redfin_local:
-	python tools/import_redfin_local.py --file "$(FILE)"
 
+
+# --- Vendor data utilities ---
+import_redfin_local_city:
+	python tools/import_redfin_local.py --file "$(FILE)" --level city
+
+import_redfin_local_county:
+	python tools/import_redfin_local.py --file "$(FILE)" --level county
+
+import_redfin_local_state:
+	python tools/import_redfin_local.py --file "$(FILE)" --level state
