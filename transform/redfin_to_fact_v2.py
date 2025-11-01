@@ -157,19 +157,25 @@ def main():
     con = duckdb.connect("./data/market.duckdb")
     ensure_dims(con, geo_df)
     con.register("df_stage", tall[["geo_id","metric_id","date","value","source_id"]])
-    
+
+
     # Upsert per (geo, metric, date)
     con.execute("""
-        DELETE FROM fact_timeseries
-        WHERE (geo_id, metric_id, date) IN (
-            SELECT geo_id, metric_id, date FROM df_stage
-        )
+        DELETE FROM fact_timeseries AS t
+        USING df_stage AS s
+        WHERE t.geo_id = s.geo_id
+            AND t.metric_id = s.metric_id
+            AND t.date = s.date
     """)
     con.execute("""
         INSERT INTO fact_timeseries(geo_id, metric_id, date, value, source_id)
         SELECT geo_id, metric_id, date, CAST(value AS DOUBLE), source_id
         FROM df_stage
     """)
+
+
+
+    
     
     print(con.execute("""
         SELECT geo_id, metric_id, COUNT(*) AS rows, MIN(date) AS first, MAX(date) AS last
