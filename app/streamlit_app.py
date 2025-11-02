@@ -120,22 +120,38 @@ def load_multi_series(geo_id: str, metric_ids: list[str]):
 
 
 @st.cache_data
-def load_markets(level: str | None = None):
+def load_markets(level: str | None = None, require_data: bool = False):
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     if level is None:
-        df = con.execute("""
-            SELECT m.geo_id, COALESCE(m.name, m.geo_id) AS geo_name, m.type
-            FROM dim_market m
-            WHERE EXISTS (SELECT 1 FROM fact_timeseries f WHERE f.geo_id = m.geo_id)
-            ORDER BY geo_name
-        """).fetchdf()
+        if require_data:
+            df = con.execute("""
+                SELECT m.geo_id, COALESCE(m.name, m.geo_id) AS geo_name, m.type
+                FROM dim_market m
+                WHERE EXISTS (SELECT 1 FROM fact_timeseries f WHERE f.geo_id = m.geo_id)
+                ORDER BY geo_name
+            """).fetchdf()
+        else:
+            df = con.execute("""
+                SELECT m.geo_id, COALESCE(m.name, m.geo_id) AS geo_name, m.type
+                FROM dim_market m
+                ORDER BY geo_name
+            """).fetchdf()
     else:
-        df = con.execute("""
-            SELECT m.geo_id, COALESCE(m.name, m.geo_id) AS geo_name, m.type
-            FROM dim_market m
-            WHERE m.type = ? AND EXISTS (SELECT 1 FROM fact_timeseries f WHERE f.geo_id = m.geo_id)
-            ORDER BY geo_name
-        """, [level]).fetchdf()
+        if require_data:
+            df = con.execute("""
+                SELECT m.geo_id, COALESCE(m.name, m.geo_id) AS geo_name, m.type
+                FROM dim_market m
+                WHERE m.type = ?
+                  AND EXISTS (SELECT 1 FROM fact_timeseries f WHERE f.geo_id = m.geo_id)
+                ORDER BY geo_name
+            """, [level]).fetchdf()
+        else:
+            df = con.execute("""
+                SELECT m.geo_id, COALESCE(m.name, m.geo_id) AS geo_name, m.type
+                FROM dim_market m
+                WHERE m.type = ?
+                ORDER BY geo_name
+            """, [level]).fetchdf()
     con.close()
     return df
 
@@ -150,9 +166,9 @@ level_map = {
 lvl = st.radio("Geography level", options=list(level_map.keys()), horizontal=True)
 lvl_code = level_map[lvl]
 
-mkts = load_markets(lvl_code)
+mkts = load_markets(lvl_code, require_data=False)  # show all known markets at this level
 if mkts.empty:
-    st.warning(f"No markets with data at the {lvl.lower()} level yet.")
+    st.warning(f"No markets are configured at the {lvl.lower()} level.")
     st.stop()
 
 geo_choice = st.selectbox(
@@ -160,6 +176,10 @@ geo_choice = st.selectbox(
     options=mkts["geo_id"].tolist(),
     format_func=lambda gid: mkts.set_index("geo_id").loc[gid, "geo_name"]
 )
+
+
+
+
 
 
 
