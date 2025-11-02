@@ -229,27 +229,49 @@ def load_series(geo_id: str, metric_id: str):
 
 
 
-# --- Compare: load one metric across many markets ---
 @st.cache_data
-def load_metric_across_markets(geo_ids: list[str], metric_id: str) -> pd.DataFrame:
-    if not geo_ids:
-        return pd.DataFrame(columns=["date","geo_id","value"])
+def available_property_types_labeled(geo_id: str, metric_id: str):
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
-    placeholders = ",".join(["?"] * len(geo_ids))
-    q = f"""
-        SELECT date, geo_id, value
-        FROM fact_timeseries
-        WHERE metric_id = ? AND geo_id IN ({placeholders})
-        ORDER BY date
+    df = con.execute("""
+        SELECT DISTINCT f.property_type_id,
+               COALESCE(d.name, f.property_type_id) AS label
+        FROM fact_timeseries f
+        LEFT JOIN dim_property_type d USING(property_type_id)
+        WHERE f.geo_id = ? AND f.metric_id = ?
+        ORDER BY label
+    """, [geo_id, metric_id]).fetchdf()
+    con.close()
+    return df  # columns: property_type_id, label
+
+
+@st.cache_data
+def load_series_with_ptype(geo_id: str, metric_id: str, ptypes: list[str]):
     """
-    df = con.execute(q, [metric_id, *geo_ids]).fetchdf()
+    If ptypes is empty, fall back to 'all'.
+    If multiple ptypes selected, we average them by date (you can switch to SUM for count metrics later).
+    """
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    if not ptypes:
+        df = con.execute("""
+            SELECT date, value
+            FROM fact_timeseries
+            WHERE geo_id = ? AND metric_id = ? AND property_type_id = 'all'
+            ORDER BY date
+        """, [geo_id, metric_id]).fetchdf()
+    else:
+        placeholders = ",".join(["?"] * len(ptypes))
+        df = con.execute(f"""
+            SELECT date, AVG(value) AS value
+            FROM fact_timeseries
+            WHERE geo_id = ? AND metric_id = ? AND property_type_id IN ({placeholders})
+            GROUP BY 1
+            ORDER BY 1
+        """, [geo_id, metric_id, *ptypes]).fetchdf()
     con.close()
     if df.empty:
         return df
     df["date"] = pd.to_datetime(df["date"])
     return df
-
-
 
 
 metrics = load_metrics(geo_choice)
@@ -265,7 +287,23 @@ with left:
         format_func=lambda mid: metrics.set_index("metric_id").loc[mid, "metric_name"]
     )
 
-df = load_series(geo_choice, choice)
+# --- Property type selector ---
+df_pt = available_property_types_labeled(geo_choice, choice)
+pt_ids = df_pt["property_type_id"].tolist()
+label_map = dict(zip(df_pt["property_type_id"], df_pt["label"]))
+
+if pt_ids and not (len(pt_ids) == 1 and pt_ids[0] == "all"):
+    sel_ptypes = st.multiselect(
+        "Property types",
+        options=pt_ids,
+        default=pt_ids,
+        format_func=lambda pid: label_map.get(pid, pid)
+    )
+else:
+    sel_ptypes = []
+
+
+df = load_series_with_ptype(geo_choice, choice, sel_ptypes)
 if df.empty:
     st.warning("Selected metric has no data.")
     st.stop()
@@ -338,12 +376,22 @@ cmp_geos = st.multiselect(
     format_func=lambda gid: all_mkts.set_index("geo_id").loc[gid,"geo_name"]
 )
 
-df_cmp = load_metric_across_markets(cmp_geos, cmp_metric)
-if df_cmp.empty:
+dfs = []
+for gid in cmp_geos:
+    dfg = load_series_with_ptype(gid, cmp_metric, sel_ptypes)  # reuse same ptype choices
+    if not dfg.empty:
+        dfg["geo_id"] = gid
+        dfs.append(dfg)
+
+if not dfs:
     st.info("No data found for the chosen metric/markets.")
 else:
+    df_cmp = pd.concat(dfs, ignore_index=True)
+    # in case of any duplicate (date, geo_id) rows, average them
+    df_cmp = df_cmp.groupby(["date","geo_id"], as_index=False)["value"].mean()
     piv = df_cmp.pivot(index="date", columns="geo_id", values="value")
     st.line_chart(piv)
+
 
     # small KPI table for quick deltas
     with st.expander("Show latest + changes"):
