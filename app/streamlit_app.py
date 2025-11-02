@@ -55,6 +55,20 @@ def get_series_extent_with_ptype(geo_id: str, metric_id: str, ptypes: list[str])
     return first_dt, last_dt, n_rows
 
 
+# Simple aggregation policy — evolve later (e.g., drive from dim_metric.unit/category)
+AGG_POLICY = {
+    # examples:
+    # "redfin_homes_sold": "sum",
+    # "permits_total": "sum",
+    # "redfin_median_sale_price": "avg",
+    # "fred_gs10": "avg",
+}
+def metric_agg(metric_id: str) -> str:
+    # default to 'avg' unless explicitly set
+    return AGG_POLICY.get(metric_id, "avg")
+
+
+
 def freshness_status(last_dt: pd.Timestamp, freq="M"):
     """Return (label, emoji, color, pct) given last date vs today."""
     if last_dt is None or pd.isna(last_dt):
@@ -265,11 +279,8 @@ def available_property_types_labeled(geo_id: str, metric_id: str):
 
 @st.cache_data
 def load_series_with_ptype(geo_id: str, metric_id: str, ptypes: list[str]):
-    """
-    If ptypes is empty, fall back to 'all'.
-    If multiple ptypes selected, we average them by date (you can switch to SUM for count metrics later).
-    """
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    agg = metric_agg(metric_id).lower()  # 'avg' (default), 'sum', 'min', 'max'
     if not ptypes:
         df = con.execute("""
             SELECT date, value
@@ -280,7 +291,7 @@ def load_series_with_ptype(geo_id: str, metric_id: str, ptypes: list[str]):
     else:
         placeholders = ",".join(["?"] * len(ptypes))
         df = con.execute(f"""
-            SELECT date, AVG(value) AS value
+            SELECT date, {agg}(value) AS value
             FROM fact_timeseries
             WHERE geo_id = ? AND metric_id = ? AND property_type_id IN ({placeholders})
             GROUP BY 1
