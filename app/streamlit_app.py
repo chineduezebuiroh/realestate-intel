@@ -119,31 +119,47 @@ def load_multi_series(geo_id: str, metric_ids: list[str]):
     return df
 
 
-
 @st.cache_data
-def load_markets():
+def load_markets(level: str | None = None):
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
-    df = con.execute("""
-        SELECT m.geo_id, COALESCE(m.name, m.geo_id) AS geo_name
-        FROM dim_market m
-        WHERE EXISTS (SELECT 1 FROM fact_timeseries f WHERE f.geo_id = m.geo_id)
-        ORDER BY geo_name
-    """).fetchdf()
+    if level is None:
+        df = con.execute("""
+            SELECT m.geo_id, COALESCE(m.name, m.geo_id) AS geo_name, m.type
+            FROM dim_market m
+            WHERE EXISTS (SELECT 1 FROM fact_timeseries f WHERE f.geo_id = m.geo_id)
+            ORDER BY geo_name
+        """).fetchdf()
+    else:
+        df = con.execute("""
+            SELECT m.geo_id, COALESCE(m.name, m.geo_id) AS geo_name, m.type
+            FROM dim_market m
+            WHERE m.type = ? AND EXISTS (SELECT 1 FROM fact_timeseries f WHERE f.geo_id = m.geo_id)
+            ORDER BY geo_name
+        """, [level]).fetchdf()
     con.close()
     return df
 
 
-mkts = load_markets()
+# ---- Level → Market cascade ----
+level_map = {
+    "City": "city",
+    "County": "county",
+    "State": "state",
+    "National": "national",
+}
+lvl = st.radio("Geography level", options=list(level_map.keys()), horizontal=True)
+lvl_code = level_map[lvl]
+
+mkts = load_markets(lvl_code)
 if mkts.empty:
-    st.warning("No markets found. Run ingest/transform, then retry.")
+    st.warning(f"No markets with data at the {lvl.lower()} level yet.")
     st.stop()
 
 geo_choice = st.selectbox(
     "Market",
     options=mkts["geo_id"].tolist(),
-    format_func=lambda gid: mkts.set_index("geo_id").loc[gid,"geo_name"]
+    format_func=lambda gid: mkts.set_index("geo_id").loc[gid, "geo_name"]
 )
-
 
 
 
