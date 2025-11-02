@@ -30,15 +30,18 @@ CREATE OR REPLACE TABLE dim_source(
   license   VARCHAR
 );
 
--- Facts don’t need PKs now; we append time series
-CREATE OR REPLACE TABLE fact_timeseries(
-  geo_id    VARCHAR,
-  metric_id VARCHAR,
-  date      DATE,
-  value     DOUBLE,
-  vintage_ts TIMESTAMP DEFAULT now(),
-  source_id VARCHAR
+
+CREATE TABLE IF NOT EXISTS fact_timeseries(
+  geo_id           TEXT NOT NULL,
+  metric_id        TEXT NOT NULL,
+  date             DATE NOT NULL,
+  property_type_id TEXT NOT NULL DEFAULT 'all',
+  value            DOUBLE,
+  source_id        TEXT,
+  PRIMARY KEY (geo_id, metric_id, date, property_type_id)
 );
+
+
 
 CREATE OR REPLACE TABLE fact_forecast(
   geo_id     VARCHAR,
