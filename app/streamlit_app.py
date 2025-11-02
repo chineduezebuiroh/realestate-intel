@@ -20,21 +20,40 @@ ensure_db()  # <-- run this immediately so DB exists before anything else
 
 import datetime as dt
 
+
 @st.cache_data
-def get_series_extent(geo_id: str, metric_id: str):
+def get_series_extent_with_ptype(geo_id: str, metric_id: str, ptypes: list[str]):
+    """
+    Returns (first_dt, last_dt, n_rows) for the currently selected property type(s).
+    If ptypes is empty, we treat it as ['all'].
+    """
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
-    res = con.execute("""
-        SELECT MIN(date) AS first_dt,
-               MAX(date) AS last_dt,
-               COUNT(*)   AS n_rows
-        FROM fact_timeseries
-        WHERE geo_id = ? AND metric_id = ?
-    """, [geo_id, metric_id]).fetchdf()
+    if not ptypes:
+        res = con.execute("""
+            SELECT MIN(date) AS first_dt,
+                   MAX(date) AS last_dt,
+                   COUNT(DISTINCT date) AS n_rows
+            FROM fact_timeseries
+            WHERE geo_id = ? AND metric_id = ? AND property_type_id = 'all'
+        """, [geo_id, metric_id]).fetchdf()
+    else:
+        placeholders = ",".join(["?"] * len(ptypes))
+        res = con.execute(f"""
+            SELECT MIN(date) AS first_dt,
+                   MAX(date) AS last_dt,
+                   COUNT(DISTINCT date) AS n_rows
+            FROM fact_timeseries
+            WHERE geo_id = ? AND metric_id = ? AND property_type_id IN ({placeholders})
+        """, [geo_id, metric_id, *ptypes]).fetchdf()
     con.close()
-    first_dt = pd.to_datetime(res.loc[0, "first_dt"]) if not res.empty else None
-    last_dt  = pd.to_datetime(res.loc[0, "last_dt"])  if not res.empty else None
-    n_rows   = int(res.loc[0, "n_rows"]) if not res.empty else 0
+
+    if res.empty:
+        return None, None, 0
+    first_dt = pd.to_datetime(res.loc[0, "first_dt"]) if pd.notna(res.loc[0, "first_dt"]) else None
+    last_dt  = pd.to_datetime(res.loc[0, "last_dt"])  if pd.notna(res.loc[0, "last_dt"])  else None
+    n_rows   = int(res.loc[0, "n_rows"] or 0)
     return first_dt, last_dt, n_rows
+
 
 def freshness_status(last_dt: pd.Timestamp, freq="M"):
     """Return (label, emoji, color, pct) given last date vs today."""
@@ -309,8 +328,8 @@ if df.empty:
     st.stop()
 
 
-# ---- Data Freshness bar ----
-first_dt, last_dt, n_rows = get_series_extent(geo_choice, choice)
+# ---- Data Freshness bar (ptype-aware) ----
+first_dt, last_dt, n_rows = get_series_extent_with_ptype(geo_choice, choice, sel_ptypes)
 label, emoji, color, pct = freshness_status(last_dt)
 
 c1, c2, c3, c4 = st.columns([1,1,1,2])
@@ -324,7 +343,6 @@ with c4:
     st.write(f"**Freshness:** {emoji} {label}")
     st.progress(pct)
 
-# Optional gentle nudge if stale
 if color == "warning":
     st.info("This series is getting a bit old. Consider running your ETL.")
 elif color == "error":
