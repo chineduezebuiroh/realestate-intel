@@ -123,37 +123,42 @@ def main():
             continue
         if df.empty:
             continue
-    
 
-        # locate/date normalize (you already have this)
+
+        # ---- property type extraction (per-row) ----
         lc = {c.lower(): c for c in df.columns}
-        date_col = lc.get("period_end") or lc.get("period_end_date") or lc.get("month")
-        ptype_col = lc.get("property_type")
+        pid_col  = lc.get("property_type_id")
+        pname_col = lc.get("property_type") or lc.get("propertytype") or lc.get("ptype")
         
-        # derive canonical property_type_id; default to 'all' when column missing
-        ptype_id = "all"
-        if ptype_col:
-            # all rows in a slice share one type in many exports; if not, we handle row-wise
-            # safest: compute per-row below
-            pass
+        import re
+        def slugify(s: str) -> str:
+            return re.sub(r'[^a-z0-9]+', '_', str(s).lower()).strip('_')
         
+        if pid_col is not None:
+            df["__ptype_id__"] = df[pid_col].astype(str).str.lower().str.strip()
+        elif pname_col is not None:
+            # derive stable id from the human label
+            df["__ptype_id__"] = df[pname_col].fillna("all").map(slugify)
+        else:
+            # fallback if file has no property type columns
+            df["__ptype_id__"] = "all"
+
+
         for source_col_lc, (metric_id, _name, _unit, _cat) in COL_MAP.items():
             exact = next((c for c in df.columns if c.lower() == source_col_lc), None)
             if exact is None:
                 continue
-            sub = df[[date_col, exact] + ([ptype_col] if ptype_col else [])].dropna(subset=[exact]).copy()
-            sub.rename(columns={date_col: "date", exact: "value"}, inplace=True)
-            sub["date"] = pd.to_datetime(sub["date"], errors="coerce").dt.to_period("M").dt.to_timestamp("M")
-            # row-wise ptype
-            if ptype_col:
-                sub["property_type_id"] = sub[ptype_col].map(_ptype_id).fillna("all")
-            else:
-                sub["property_type_id"] = "all"
-        
+            sub = df[["date", exact, "__ptype_id__"]].dropna(subset=[exact]).rename(columns={exact: "value"}).copy()
+            if sub.empty:
+                continue
             sub["metric_id"] = metric_id
             sub["geo_id"]    = geo_id
             sub["source_id"] = SOURCE[0]
-            pieces.append(sub[["date","value","metric_id","geo_id","source_id","property_type_id"]])
+            sub["property_type_id"] = sub["__ptype_id__"]
+            pieces.append(sub)
+
+
+        
 
     
         # capture minimal market metadata (can be enriched from config later)
@@ -181,10 +186,28 @@ def main():
     con = duckdb.connect("./data/market.duckdb")
     ensure_dims(con, geo_df)
 
-    # after you register df_stage
-    con.register("df_stage", tall[["geo_id","metric_id","date","value","source_id","property_type_id"]])
 
+    # Normalize and dedupe within the stage to one row per 4-key
+    tall["property_type_id"] = tall["property_type_id"].fillna("all").astype(str)
+    # If the same 4-key appears from multiple files, keep the last (usually _latest)
+    tall = tall.sort_values(["date"]).drop_duplicates(
+        subset=["geo_id", "metric_id", "date", "property_type_id"],
+        keep="last"
+    )
     
+
+    # register with property_type_id included
+    con.register("df_stage", tall[["geo_id","metric_id","date","property_type_id","value","source_id"]])
+
+    # ensure property types are in the dimension (optional names later)
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS dim_property_type(
+      property_type_id TEXT PRIMARY KEY,
+      name TEXT,
+      "group" TEXT
+    );
+    """)
+
     con.execute("""
     INSERT INTO dim_property_type(property_type_id)
     SELECT DISTINCT property_type_id
@@ -193,7 +216,7 @@ def main():
     """)
 
 
-    # Upsert per (geo, metric, date, property_type_id)
+    # 4-key upsert
     con.execute("""
     DELETE FROM fact_timeseries AS f
     WHERE EXISTS (
@@ -206,15 +229,19 @@ def main():
     );
     """)
 
+
     
     # 2) Insert fresh rows
     con.execute("""
     INSERT INTO fact_timeseries(geo_id, metric_id, date, property_type_id, value, source_id)
     SELECT geo_id, metric_id, date, property_type_id, CAST(value AS DOUBLE), source_id
-    FROM df_stage
+    FROM df_stage;
     """)
 
-    
+
+
+
+
     
     print(con.execute("""
         SELECT geo_id, metric_id, COUNT(*) AS rows, MIN(date) AS first, MAX(date) AS last
