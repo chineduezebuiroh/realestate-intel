@@ -125,9 +125,37 @@ def main():
             continue
 
 
-        # ---- property type extraction (per-row) ----
+        # ---- canonicalize header lookup (case-insensitive) ----
         lc = {c.lower(): c for c in df.columns}
-        pid_col  = lc.get("property_type_id")
+
+        # ---- choose a date column (prefer period_end) ----
+        date_candidates = ["period_end", "period_end_date", "month", "date"]
+        date_raw = None
+        for key in date_candidates:
+            if key in lc:
+                date_raw = lc[key]
+                break
+        
+        if date_raw is None:
+            print(f"[redfin:{geo_id}] ❌ no usable date column in {path.name}; columns={list(df.columns)[:8]}...")
+            continue  # skip this slice safely
+        
+        # ---- normalize to month-end ----
+        df["date"] = (
+            pd.to_datetime(df[date_raw], errors="coerce")
+              .dt.to_period("M").dt.to_timestamp("M")
+        )
+        
+        # drop rows where we still couldn't parse a date
+        df = df.dropna(subset=["date"])
+        if df.empty:
+            print(f"[redfin:{geo_id}] ⚠️ all rows had invalid dates in {path.name}; skipping")
+            continue
+
+        
+
+        # ---- property type extraction (robust) ----
+        pid_col   = lc.get("property_type_id")
         pname_col = lc.get("property_type") or lc.get("propertytype") or lc.get("ptype")
         
         import re
@@ -137,25 +165,35 @@ def main():
         if pid_col is not None:
             df["__ptype_id__"] = df[pid_col].astype(str).str.lower().str.strip()
         elif pname_col is not None:
-            # derive stable id from the human label
             df["__ptype_id__"] = df[pname_col].fillna("all").map(slugify)
         else:
-            # fallback if file has no property type columns
             df["__ptype_id__"] = "all"
 
 
+        
         for source_col_lc, (metric_id, _name, _unit, _cat) in COL_MAP.items():
             exact = next((c for c in df.columns if c.lower() == source_col_lc), None)
             if exact is None:
                 continue
-            sub = df[["date", exact, "__ptype_id__"]].dropna(subset=[exact]).rename(columns={exact: "value"}).copy()
+            
+            # guard: make sure 'date' is there (it should be, from step 1)
+            if "date" not in df.columns:
+                print(f"[redfin:{geo_id}] ❌ internal: 'date' missing just before flatten; skipping metric {source_col_lc}")
+                continue
+            
+            sub = (df[["date", exact, "__ptype_id__"]]
+                   .dropna(subset=[exact])
+                   .rename(columns={exact: "value"})
+                   .copy())
             if sub.empty:
                 continue
-            sub["metric_id"] = metric_id
-            sub["geo_id"]    = geo_id
-            sub["source_id"] = SOURCE[0]
+            
+            sub["metric_id"]        = metric_id
+            sub["geo_id"]           = geo_id
+            sub["source_id"]        = SOURCE[0]
             sub["property_type_id"] = sub["__ptype_id__"]
             pieces.append(sub)
+
 
 
         
@@ -190,12 +228,16 @@ def main():
     # Normalize and dedupe within the stage to one row per 4-key
     tall["property_type_id"] = tall["property_type_id"].fillna("all").astype(str)
     # If the same 4-key appears from multiple files, keep the last (usually _latest)
-    tall = tall.sort_values(["date"]).drop_duplicates(
-        subset=["geo_id", "metric_id", "date", "property_type_id"],
-        keep="last"
+    tall = (
+        tall.sort_values(["date"])
+            .drop_duplicates(
+                subset=["geo_id","metric_id","date","property_type_id"],
+                keep="last"
+            )
     )
-    
 
+
+    
     # register with property_type_id included
     con.register("df_stage", tall[["geo_id","metric_id","date","property_type_id","value","source_id"]])
 
