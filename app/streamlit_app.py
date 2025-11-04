@@ -21,38 +21,42 @@ ensure_db()  # <-- run this immediately so DB exists before anything else
 import datetime as dt
 
 
+
 @st.cache_data
-def get_series_extent_with_ptype(geo_id: str, metric_id: str, ptypes: list[str]):
+def get_series_extent_with_ptype(geo_id: str, metric_id: str, property_types: list[str] | None):
     """
-    Returns (first_dt, last_dt, n_rows) for the currently selected property type(s).
-    If ptypes is empty, we treat it as ['all'].
+    Freshness extent (first/last/n_rows) honoring selected property types.
+    If multiple ptypes, compute on the aggregated (AVG) result set.
     """
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
-    if not ptypes:
-        res = con.execute("""
-            SELECT MIN(date) AS first_dt,
-                   MAX(date) AS last_dt,
-                   COUNT(DISTINCT date) AS n_rows
-            FROM fact_timeseries
-            WHERE geo_id = ? AND metric_id = ? AND property_type_id = 'all'
-        """, [geo_id, metric_id]).fetchdf()
+    if property_types:
+        q = """
+            SELECT MIN(date) AS first_dt, MAX(date) AS last_dt, COUNT(*) AS n_rows
+            FROM (
+              SELECT date, AVG(value) AS value
+              FROM fact_timeseries
+              WHERE geo_id = ? AND metric_id = ? AND property_type_id IN ({})
+              GROUP BY date
+            ) t
+        """.format(",".join(["?"] * len(property_types)))
+        params = [geo_id, metric_id, *property_types]
     else:
-        placeholders = ",".join(["?"] * len(ptypes))
-        res = con.execute(f"""
-            SELECT MIN(date) AS first_dt,
-                   MAX(date) AS last_dt,
-                   COUNT(DISTINCT date) AS n_rows
+        q = """
+            SELECT MIN(date) AS first_dt, MAX(date) AS last_dt, COUNT(*) AS n_rows
             FROM fact_timeseries
-            WHERE geo_id = ? AND metric_id = ? AND property_type_id IN ({placeholders})
-        """, [geo_id, metric_id, *ptypes]).fetchdf()
-    con.close()
+            WHERE geo_id = ? AND metric_id = ?
+        """
+        params = [geo_id, metric_id]
 
+    res = con.execute(q, params).fetchdf()
+    con.close()
     if res.empty:
         return None, None, 0
-    first_dt = pd.to_datetime(res.loc[0, "first_dt"]) if pd.notna(res.loc[0, "first_dt"]) else None
-    last_dt  = pd.to_datetime(res.loc[0, "last_dt"])  if pd.notna(res.loc[0, "last_dt"])  else None
+    first_dt = pd.to_datetime(res.loc[0, "first_dt"]) if not pd.isna(res.loc[0, "first_dt"]) else None
+    last_dt  = pd.to_datetime(res.loc[0, "last_dt"])  if not pd.isna(res.loc[0, "last_dt"])  else None
     n_rows   = int(res.loc[0, "n_rows"] or 0)
     return first_dt, last_dt, n_rows
+
 
 
 # Simple aggregation policy — evolve later (e.g., drive from dim_metric.unit/category)
@@ -313,31 +317,42 @@ def available_property_types_labeled(geo_id: str, metric_id: str):
     return df  # columns: property_type_id, label
 
 
+
 @st.cache_data
-def load_series_with_ptype(geo_id: str, metric_id: str, ptypes: list[str]):
+def load_series_with_ptype(geo_id: str, metric_id: str, property_types: list[str] | None):
+    """
+    Return a single long series (date, value) aggregated across the selected property types.
+    Temporary rule: use AVG for multi-ptype aggregation.
+    """
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
-    agg = metric_agg(metric_id).lower()  # 'avg' (default), 'sum', 'min', 'max'
-    if not ptypes:
-        df = con.execute("""
+    if property_types:
+        q = """
+            SELECT date, AVG(value) AS value
+            FROM fact_timeseries
+            WHERE geo_id = ? AND metric_id = ? AND property_type_id IN ({})
+            GROUP BY date
+            ORDER BY date
+        """.format(",".join(["?"] * len(property_types)))
+        params = [geo_id, metric_id, *property_types]
+    else:
+        # if none selected (or only 'all' exists), just use whatever is there
+        q = """
             SELECT date, value
             FROM fact_timeseries
-            WHERE geo_id = ? AND metric_id = ? AND property_type_id = 'all'
+            WHERE geo_id = ? AND metric_id = ?
             ORDER BY date
-        """, [geo_id, metric_id]).fetchdf()
-    else:
-        placeholders = ",".join(["?"] * len(ptypes))
-        df = con.execute(f"""
-            SELECT date, {agg}(value) AS value
-            FROM fact_timeseries
-            WHERE geo_id = ? AND metric_id = ? AND property_type_id IN ({placeholders})
-            GROUP BY 1
-            ORDER BY 1
-        """, [geo_id, metric_id, *ptypes]).fetchdf()
+        """
+        params = [geo_id, metric_id]
+
+    df = con.execute(q, params).fetchdf()
     con.close()
     if df.empty:
         return df
     df["date"] = pd.to_datetime(df["date"])
     return df
+
+
+
 
 
 metrics = load_metrics(geo_choice)
@@ -369,10 +384,12 @@ else:
     sel_ptypes = []
 
 
+
 df = load_series_with_ptype(geo_choice, choice, sel_ptypes)
 if df.empty:
-    st.warning("Selected metric has no data.")
+    st.warning("Selected metric / property type(s) has no data.")
     st.stop()
+
 
 
 # ---- Data Freshness bar (ptype-aware) ----
@@ -417,6 +434,13 @@ k2.metric("As of", latest_date.strftime("%Y-%m-%d"))
 k3.metric("YoY change", f"{yoy_val:,.2f} %" if yoy_val is not None else "n/a")
 
 st.subheader("History")
+
+if sel_ptypes:
+    pretty_pts = ", ".join([label_map.get(pid, pid) for pid in sel_ptypes])
+    st.caption(f"Filtered property types: {pretty_pts} (agg = AVG)")
+else:
+    st.caption("Property types: all (no filter) or ‘all’ series. (agg = identity)")
+
 st.line_chart(df.set_index("date")["value"])
 
 
