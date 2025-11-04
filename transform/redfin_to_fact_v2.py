@@ -181,8 +181,15 @@ def main():
     con = duckdb.connect("./data/market.duckdb")
     ensure_dims(con, geo_df)
 
-
-    con.register("df_stage", tall[["geo_id","metric_id","date","value","source_id"]])
+    # after you register df_stage
+    con.register("df_stage", tall[["geo_id","metric_id","date","value","source_id","property_type_id"]])
+    
+    con.execute("""
+    INSERT INTO dim_property_type(property_type_id)
+    SELECT DISTINCT property_type_id
+    FROM df_stage
+    WHERE property_type_id NOT IN (SELECT property_type_id FROM dim_property_type);
+    """)
 
     # 1) Delete any existing rows that collide with df_stage
     con.execute("""
