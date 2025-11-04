@@ -4,6 +4,21 @@ from glob import glob
 from pathlib import Path
 from typing import Optional, List
 
+# Redfin "PROPERTY_TYPE" → our canonical IDs
+PTYPE_MAP = {
+    "All Residential": "all",
+    "Single Family Residential": "single_family_residential",
+    "Condo/Co-op": "condo_co-op",
+    "Townhouse": "townhouse",
+    "Multi-Family (2-4 Unit)": "multi_family",
+    "Manufactured": "manufactured",
+    # fallback: slugify
+}
+def _ptype_id(raw: str) -> str:
+    if raw in PTYPE_MAP: 
+        return PTYPE_MAP[raw]
+    return str(raw or "all").strip().lower().replace("/", "_").replace(" ", "_").replace("-", "_")
+
 ROOT = Path("data/raw/redfin")
 
 SOURCE = (
@@ -109,32 +124,37 @@ def main():
         if df.empty:
             continue
     
-        # locate date column and normalize to month-end
+
+        # locate/date normalize (you already have this)
         lc = {c.lower(): c for c in df.columns}
         date_col = lc.get("period_end") or lc.get("period_end_date") or lc.get("month")
-        if not date_col:
-            print(f"[redfin:{geo_id}] ⚠️ missing date column")
-            continue
-        df["date"] = pd.to_datetime(df[date_col], errors="coerce").dt.to_period("M").dt.to_timestamp("M")
-        df["date"] = (
-            pd.to_datetime(df[date_col], errors="coerce")
-              .dt.to_period("M").dt.to_timestamp("M")
-              .dt.date
-        )
-
-    
-        # flatten to tall per COL_MAP
+        ptype_col = lc.get("property_type")
+        
+        # derive canonical property_type_id; default to 'all' when column missing
+        ptype_id = "all"
+        if ptype_col:
+            # all rows in a slice share one type in many exports; if not, we handle row-wise
+            # safest: compute per-row below
+            pass
+        
         for source_col_lc, (metric_id, _name, _unit, _cat) in COL_MAP.items():
             exact = next((c for c in df.columns if c.lower() == source_col_lc), None)
             if exact is None:
                 continue
-            sub = df[["date", exact]].dropna().rename(columns={exact: "value"}).copy()
-            if sub.empty:
-                continue
+            sub = df[[date_col, exact] + ([ptype_col] if ptype_col else [])].dropna(subset=[exact]).copy()
+            sub.rename(columns={date_col: "date", exact: "value"}, inplace=True)
+            sub["date"] = pd.to_datetime(sub["date"], errors="coerce").dt.to_period("M").dt.to_timestamp("M")
+            # row-wise ptype
+            if ptype_col:
+                sub["property_type_id"] = sub[ptype_col].map(_ptype_id).fillna("all")
+            else:
+                sub["property_type_id"] = "all"
+        
             sub["metric_id"] = metric_id
-            sub["geo_id"] = geo_id
+            sub["geo_id"]    = geo_id
             sub["source_id"] = SOURCE[0]
-            pieces.append(sub)
+            pieces.append(sub[["date","value","metric_id","geo_id","source_id","property_type_id"]])
+
     
         # capture minimal market metadata (can be enriched from config later)
         geo_meta.append({
@@ -166,22 +186,19 @@ def main():
 
     # 1) Delete any existing rows that collide with df_stage
     con.execute("""
-      DELETE FROM fact_timeseries AS t
-      USING df_stage AS s
-      WHERE t.geo_id = s.geo_id
-        AND t.metric_id = s.metric_id
-        AND t.date = s.date
+        DELETE FROM fact_timeseries
+        WHERE    (geo_id, metric_id, date, property_type_id) 
+          IN     (    SELECT geo_id, metric_id, date, property_type_id
+                      FROM df_stage
+                      )
     """)
     
     # 2) Insert fresh rows
     con.execute("""
-      INSERT INTO fact_timeseries (geo_id, metric_id, date, value, source_id)
-      SELECT geo_id, metric_id, date, CAST(value AS DOUBLE), source_id
-      FROM df_stage
+        INSERT INTO fact_timeseries(geo_id, metric_id, date, property_type_id, value, source_id)
+        SELECT geo_id, metric_id, date, property_type_id, CAST(value AS DOUBLE), source_id
+        FROM df_stage
     """)
-
-
-
 
     
     
