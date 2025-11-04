@@ -183,6 +183,7 @@ def main():
 
     # after you register df_stage
     con.register("df_stage", tall[["geo_id","metric_id","date","value","source_id","property_type_id"]])
+
     
     con.execute("""
     INSERT INTO dim_property_type(property_type_id)
@@ -191,20 +192,26 @@ def main():
     WHERE property_type_id NOT IN (SELECT property_type_id FROM dim_property_type);
     """)
 
-    # 1) Delete any existing rows that collide with df_stage
+
+    # Upsert per (geo, metric, date, property_type_id)
     con.execute("""
-        DELETE FROM fact_timeseries
-        WHERE    (geo_id, metric_id, date, property_type_id) 
-          IN     (    SELECT geo_id, metric_id, date, property_type_id
-                      FROM df_stage
-                      )
+    DELETE FROM fact_timeseries AS f
+    WHERE EXISTS (
+      SELECT 1
+      FROM df_stage AS s
+      WHERE s.geo_id = f.geo_id
+        AND s.metric_id = f.metric_id
+        AND s.date = f.date
+        AND s.property_type_id = f.property_type_id
+    );
     """)
+
     
     # 2) Insert fresh rows
     con.execute("""
-        INSERT INTO fact_timeseries(geo_id, metric_id, date, property_type_id, value, source_id)
-        SELECT geo_id, metric_id, date, property_type_id, CAST(value AS DOUBLE), source_id
-        FROM df_stage
+    INSERT INTO fact_timeseries(geo_id, metric_id, date, property_type_id, value, source_id)
+    SELECT geo_id, metric_id, date, property_type_id, CAST(value AS DOUBLE), source_id
+    FROM df_stage
     """)
 
     
