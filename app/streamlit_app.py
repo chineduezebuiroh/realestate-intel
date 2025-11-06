@@ -21,44 +21,6 @@ ensure_db()  # <-- run this immediately so DB exists before anything else
 import datetime as dt
 
 
-
-@st.cache_data
-def get_series_extent_with_ptype(geo_id: str, metric_id: str, property_types: list[str] | None):
-    """
-    Freshness extent (first/last/n_rows) honoring selected property types.
-    If multiple ptypes, compute on the aggregated (AVG) result set.
-    """
-    con = duckdb.connect(DUCKDB_PATH, read_only=True)
-    if property_types:
-        q = """
-            SELECT MIN(date) AS first_dt, MAX(date) AS last_dt, COUNT(*) AS n_rows
-            FROM (
-              SELECT date, AVG(value) AS value
-              FROM fact_timeseries
-              WHERE geo_id = ? AND metric_id = ? AND property_type_id IN ({})
-              GROUP BY date
-            ) t
-        """.format(",".join(["?"] * len(property_types)))
-        params = [geo_id, metric_id, *property_types]
-    else:
-        q = """
-            SELECT MIN(date) AS first_dt, MAX(date) AS last_dt, COUNT(*) AS n_rows
-            FROM fact_timeseries
-            WHERE geo_id = ? AND metric_id = ?
-        """
-        params = [geo_id, metric_id]
-
-    res = con.execute(q, params).fetchdf()
-    con.close()
-    if res.empty:
-        return None, None, 0
-    first_dt = pd.to_datetime(res.loc[0, "first_dt"]) if not pd.isna(res.loc[0, "first_dt"]) else None
-    last_dt  = pd.to_datetime(res.loc[0, "last_dt"])  if not pd.isna(res.loc[0, "last_dt"])  else None
-    n_rows   = int(res.loc[0, "n_rows"] or 0)
-    return first_dt, last_dt, n_rows
-
-
-
 # Simple aggregation policy — evolve later (e.g., drive from dim_metric.unit/category)
 AGG_POLICY = {
     # examples:
@@ -180,9 +142,6 @@ geo_choice = st.selectbox(
     options=mkts["geo_id"].tolist(),
     format_func=lambda gid: mkts.set_index("geo_id").loc[gid, "geo_name"]
 )
-
-
-
 
 
 
@@ -352,6 +311,41 @@ def load_series_with_ptype(geo_id: str, metric_id: str, property_types: list[str
     return df
 
 
+
+@st.cache_data
+def get_series_extent_with_ptype(geo_id: str, metric_id: str, property_types: list[str] | None):
+    """
+    Freshness extent (first/last/n_rows) honoring selected property types.
+    If multiple ptypes, compute on the aggregated (AVG) result set.
+    """
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    if property_types:
+        q = """
+            SELECT MIN(date) AS first_dt, MAX(date) AS last_dt, COUNT(*) AS n_rows
+            FROM (
+              SELECT date, AVG(value) AS value
+              FROM fact_timeseries
+              WHERE geo_id = ? AND metric_id = ? AND property_type_id IN ({})
+              GROUP BY date
+            ) t
+        """.format(",".join(["?"] * len(property_types)))
+        params = [geo_id, metric_id, *property_types]
+    else:
+        q = """
+            SELECT MIN(date) AS first_dt, MAX(date) AS last_dt, COUNT(*) AS n_rows
+            FROM fact_timeseries
+            WHERE geo_id = ? AND metric_id = ?
+        """
+        params = [geo_id, metric_id]
+
+    res = con.execute(q, params).fetchdf()
+    con.close()
+    if res.empty:
+        return None, None, 0
+    first_dt = pd.to_datetime(res.loc[0, "first_dt"]) if not pd.isna(res.loc[0, "first_dt"]) else None
+    last_dt  = pd.to_datetime(res.loc[0, "last_dt"])  if not pd.isna(res.loc[0, "last_dt"])  else None
+    n_rows   = int(res.loc[0, "n_rows"] or 0)
+    return first_dt, last_dt, n_rows
 
 
 
