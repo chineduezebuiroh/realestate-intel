@@ -46,6 +46,13 @@ ingest_monthly: setup
 ingest_bls: setup
 	$(PY) ingest/bls_laus_dc.py
 
+ingest_bls_laus:
+\tpython ingest/laus_api_bulk.py
+
+# if you still have old LAUS transform targets, you can keep them,
+# but this script writes directly into fact_timeseries, so transform is optional.
+
+
 ingest_fred_rates: setup
 	$(PY) ingest/fred_mortgage_rates.py
 
