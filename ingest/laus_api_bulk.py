@@ -8,6 +8,31 @@ BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = os.getenv("BLS_API_KEY")  # optional
 DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 
+
+
+# ---- seasonal + metric id helpers ----
+BASE_METRIC_ALIAS = {
+    # allow short names in CSV; feel free to expand
+    "employment": "laus_employment",
+    "labor_force": "laus_labor_force",
+    "unemployment": "laus_unemployment",
+    "unemployment_rate": "laus_unemployment_rate",
+}
+
+def normalize_base_metric(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = BASE_METRIC_ALIAS.get(s, s)
+    if not s.startswith("laus_"):
+        s = "laus_" + s
+    return s
+
+def make_metric_id(base_metric: str, seasonal: str) -> str:
+    # seasonal expected 'SA' or 'NSA'
+    tag = "_sa" if (seasonal or "").upper() == "SA" else "_nsa"
+    return normalize_base_metric(base_metric) + tag
+
+
+
 def fetch_series(series_ids):
     # BLS allows up to 50 series per request
     payload = {"seriesid": series_ids}
@@ -20,46 +45,70 @@ def fetch_series(series_ids):
         raise RuntimeError(f"BLS error: {data}")
     return data["Results"]["series"]
 
+
+
 def to_df(series_block, sid_to_rowmeta):
     rows = []
     for s in series_block:
         sid = s["seriesID"]
         meta = sid_to_rowmeta.get(sid, {})
         for item in s.get("data", []):
-            # BLS sends year, period ('M01'..'M12'), value as string
             period = item["period"]
-            if not period.startswith("M"):  # skip annual 'M13' etc if present
+            if not period.startswith("M"):  # skip annual 'M13' etc
                 continue
             month = int(period[1:])
             year  = int(item["year"])
-            # month end date
-            date = pd.Timestamp(year=year, month=month, day=1).to_period("M").to_timestamp("M").date()
+            date = (pd.Timestamp(year=year, month=month, day=1)
+                      .to_period("M").to_timestamp("M").date())
             try:
                 val = float(item["value"])
             except:
                 continue
+
+            metric_id = make_metric_id(
+                meta.get("metric_base", "unemployment_rate"),
+                meta.get("seasonal", "NSA")
+            )
+
             rows.append({
-                "geo_id": meta.get("geo_id"),
-                "metric_id": meta.get("metric_id", "laus_unemployment_rate"),
-                "date": date,
-                "value": val,
-                "source_id": "laus",
-                "property_type_id": "all"
+                "geo_id":         meta.get("geo_id"),
+                "metric_id":      metric_id,           # <-- SA/NSA suffix here
+                "date":           date,
+                "value":          val,
+                "source_id":      "laus",              # keep consistent with your dim_source insert
+                "property_type_id": "all",
+                "series_id":      sid,
+                "seasonal":       meta.get("seasonal", "NSA"),
             })
     return pd.DataFrame(rows)
 
-def ensure_dims(con: duckdb.DuckDBPyConnection):
+
+
+def ensure_dims(con: duckdb.DuckDBPyConnection, all_metrics: pd.Series):
+    # dim_source
     con.execute("""
     INSERT INTO dim_source(source_id, name, url, cadence, license)
     SELECT 'laus','BLS Local Area Unemployment Statistics',
            'https://www.bls.gov/lau/','monthly','public'
     WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id='laus')
     """)
+
+    # dim_metric: add any missing metric_ids discovered in this run
+    con.register("metric_ids_tmp", pd.DataFrame({"metric_id": all_metrics.unique()}))
     con.execute("""
     INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
-    SELECT 'laus_unemployment_rate','Unemployment Rate','monthly','percent','labor'
-    WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id='laus_unemployment_rate')
+    SELECT m.metric_id,
+           -- simple humanized name; adjust as you like
+           REGEXP_REPLACE(m.metric_id, '_', ' ') AS name,
+           'monthly',
+           CASE WHEN m.metric_id LIKE '%_rate_%' OR m.metric_id LIKE '%_rate' THEN 'percent' ELSE 'count' END,
+           'labor'
+    FROM metric_ids_tmp m
+    WHERE m.metric_id NOT IN (SELECT metric_id FROM dim_metric)
     """)
+    con.execute("UNREGISTER metric_ids_tmp")
+
+
 
 def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
     if df.empty: return
@@ -88,16 +137,28 @@ def main():
     sid_to_rowmeta = {}
     with open(cfg_path, newline="") as f:
         for r in csv.DictReader(f):
-            sid = r["series_id"].strip()
-            if not sid: 
+            sid = (r.get("series_id") or "").strip()
+            if not sid:
                 print(f"[laus] skip row with empty series_id: {r}")
                 continue
+
+            # normalize seasonality + metric base
+            seasonal = (r.get("seasonal") or "").strip().upper()
+            if seasonal not in ("SA", "NSA"):
+                print(f"[laus] WARN: unknown seasonal '{seasonal}', defaulting to NSA for {sid}")
+                seasonal = "NSA"
+
+            metric_base = (r.get("metric_id") or "unemployment_rate").strip()
+
             series_ids.append(sid)
             sid_to_rowmeta[sid] = {
-                "geo_id": r["geo_id"].strip(),
-                "metric_id": r.get("metric_id","laus_unemployment_rate").strip()
+                "geo_id": (r.get("geo_id") or "").strip(),
+                "metric_base": metric_base,    # store base; we’ll suffix later
+                "seasonal": seasonal,
+                "name": r.get("name", "").strip(),
             }
             rows.append(r)
+    
     if not series_ids:
         raise SystemExit("[laus] no series_id entries found in config/laus_series.csv")
 
@@ -110,6 +171,7 @@ def main():
         dfs.append(to_df(series_block, sid_to_rowmeta))
         time.sleep(0.5)  # small courtesy pause
 
+    
     all_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     if all_df.empty:
         print("[laus] no rows returned.")
@@ -118,9 +180,12 @@ def main():
     # ensure markets exist minimally (name fallback)
     mkts = (
         all_df[["geo_id"]].drop_duplicates()
-        .assign(name=lambda d: d["geo_id"], type=lambda d: d["geo_id"].str.split("_").str[-1], fips=None)
+        .assign(name=lambda d: d["geo_id"],
+                type=lambda d: d["geo_id"].str.split("_").str[-1],
+                fips=None)
     )
     con = duckdb.connect(DB_PATH)
+
     # ensure tables exist (idempotent)
     con.execute("""
     CREATE TABLE IF NOT EXISTS dim_source(source_id TEXT PRIMARY KEY, name TEXT, url TEXT, cadence TEXT, license TEXT);
@@ -137,7 +202,11 @@ def main():
       PRIMARY KEY (geo_id, metric_id, date, property_type_id)
     );
     """)
-    ensure_dims(con)
+
+    # NEW: pass the distinct metric_ids we ingested so we add SA/NSA rows
+    ensure_dims(con, all_df["metric_id"])
+
+    
     con.register("mkts", mkts)
     con.execute("""
     INSERT INTO dim_market(geo_id,name,type,fips)
@@ -145,12 +214,16 @@ def main():
     WHERE geo_id NOT IN (SELECT geo_id FROM dim_market)
     """)
     upsert(con, all_df)
+
     # quick summary
     print(con.execute("""
-      SELECT geo_id, metric_id, MIN(date) first, MAX(date) last, COUNT(*) n
-      FROM fact_timeseries WHERE metric_id='laus_unemployment_rate'
-      GROUP BY 1,2 ORDER BY 1
+      SELECT geo_id, metric_id, MIN(date) AS first, MAX(date) AS last, COUNT(*) AS n
+      FROM fact_timeseries
+      WHERE metric_id LIKE 'laus_%'
+      GROUP BY 1,2
+      ORDER BY 1,2
     """).fetchdf())
+
     con.close()
 
 if __name__ == "__main__":
