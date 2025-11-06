@@ -1,5 +1,6 @@
 geo_id,series_id,metric_id,name,seasonal,notes
 
-dc_state,<<PASTE_SERIES_ID>>,laus_unemployment_rate,Unemployment Rate (State, SA),SA,DC statewide rate
-md_state,<<PASTE_SERIES_ID>>,laus_unemployment_rate,Unemployment Rate (State, SA),SA,Maryland statewide rate
-va_state,<<PASTE_SERIES_ID>>,laus_unemployment_rate,Unemployment Rate (State, SA),SA,Virginia statewide rate
+dc_state,LAUST110000000000003,laus_unemployment_rate,Unemployment Rate (State, SA),SA,DC statewide rate
+md_state,LAUST240000000000003,laus_unemployment_rate,Unemployment Rate (State, SA),SA,Maryland statewide rate
+va_state,LAUST510000000000003,laus_unemployment_rate,Unemployment Rate (State, SA),SA,Virginia statewide rate
+
