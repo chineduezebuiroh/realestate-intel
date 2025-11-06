@@ -19,6 +19,35 @@ def _ptype_id(raw: str) -> str:
         return PTYPE_MAP[raw]
     return str(raw or "all").strip().lower().replace("/", "_").replace(" ", "_").replace("-", "_")
 
+
+
+def _ptype_label_and_group(raw: str) -> tuple[str, str]:
+    """
+    Return (label, group) from the raw Redfin PROPERTY_TYPE.
+    Label = human-readable, Group = coarse bucket for UI (optional).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ("All Home Types", "all")
+    # Simple heuristics; tweak to your taste
+    txt = raw.lower()
+    if "single family" in txt:
+        return ("Single-Family", "residential")
+    if "condo" in txt or "co-op" in txt:
+        return ("Condo/Co-op", "residential")
+    if "townhouse" in txt or "townhome" in txt:
+        return ("Townhouse", "residential")
+    if "multi" in txt:
+        return ("Multi-Family (2–4)", "residential")
+    if "manufactured" in txt:
+        return ("Manufactured", "residential")
+    if "all residential" in txt:
+        return ("All Home Types", "all")
+    # Fallback: title-case the raw text
+    return (raw.title(), "other")
+
+
+
 ROOT = Path("data/raw/redfin")
 
 SOURCE = (
@@ -104,6 +133,7 @@ def main():
     
     pieces = []
     geo_meta = []
+    ptype_rows = set() 
     
     files = glob("data/raw/redfin/*/*_monthly_latest.tsv")
     if not files:
@@ -168,6 +198,23 @@ def main():
             df["__ptype_id__"] = df[pname_col].fillna("all").map(slugify)
         else:
             df["__ptype_id__"] = "all"
+
+        
+        # Also compute readable label & group for the dim table
+        if pname_col is not None:
+            labels_groups = df[pname_col].fillna("All Residential").apply(_ptype_label_and_group)
+        else:
+            # if we only had IDs, make a best-effort label from ID
+            labels_groups = df["__ptype_id__"].fillna("all").apply(
+                lambda s: _ptype_label_and_group(str(s).replace("_", " "))
+            )
+        df["__ptype_name__"]  = labels_groups.apply(lambda t: t[0])
+        df["__ptype_group__"] = labels_groups.apply(lambda t: t[1])
+
+        # Accumulate unique rows for dim_property_type
+        for pid, pname, pgrp in zip(df["__ptype_id__"], df["__ptype_name__"], df["__ptype_group__"]):
+            ptype_rows.add((str(pid), str(pname), str(pgrp)))
+
 
 
         
@@ -237,11 +284,8 @@ def main():
     )
 
 
-    
-    # register with property_type_id included
-    con.register("df_stage", tall[["geo_id","metric_id","date","property_type_id","value","source_id"]])
 
-    # ensure property types are in the dimension (optional names later)
+    # Ensure dim_property_type exists
     con.execute("""
     CREATE TABLE IF NOT EXISTS dim_property_type(
       property_type_id TEXT PRIMARY KEY,
@@ -250,12 +294,21 @@ def main():
     );
     """)
 
-    con.execute("""
-    INSERT INTO dim_property_type(property_type_id)
-    SELECT DISTINCT property_type_id
-    FROM df_stage
-    WHERE property_type_id NOT IN (SELECT property_type_id FROM dim_property_type);
-    """)
+    # Upsert labels/groups gathered during parsing
+    if ptype_rows:
+        df_ptypes = pd.DataFrame(list(ptype_rows),
+                                 columns=["property_type_id","name","group"])
+        con.register("df_ptypes", df_ptypes)
+        con.execute("""
+        INSERT OR REPLACE INTO dim_property_type(property_type_id, name, "group")
+        SELECT property_type_id, name, "group" FROM df_ptypes;
+        """)
+
+
+    
+    # register with property_type_id included
+    con.register("df_stage", tall[["geo_id","metric_id","date","property_type_id","value","source_id"]])
+
 
 
     # 4-key upsert
