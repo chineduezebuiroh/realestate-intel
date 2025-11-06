@@ -1,10 +1,9 @@
-geo_id,series_id,metric_base,seasonal,name,notes
+geo_id,series_id,metric_base,name,seasonal,notes
 
 dc_state,LASST110000000000003,laus_unemployment_rate,Unemployment Rate (State, SA),SA,DC statewide rate
 md_state,LASST240000000000003,laus_unemployment_rate,Unemployment Rate (State, SA),SA,Maryland statewide rate
 va_state,LASST510000000000003,laus_unemployment_rate,Unemployment Rate (State, SA),SA,Virginia statewide rate
 
-# --- To add NSA later, put each NSA series_id on its own row with seasonal=NSA ---
 dc_state,LAUST110000000000003,laus_unemployment_rate,Unemployment Rate (State, NSA),NSA,DC statewide rate
 md_state,LAUST240000000000003,laus_unemployment_rate,Unemployment Rate (State, NSA),NSA,Maryland statewide rate
 va_state,LAUST510000000000003,laus_unemployment_rate,Unemployment Rate (State, NSA),NSA,Virginia statewide rate
