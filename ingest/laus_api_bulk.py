@@ -151,12 +151,22 @@ def main():
             metric_base = (r.get("metric_id") or "unemployment_rate").strip()
 
             series_ids.append(sid)
+
+            base = (r.get("metric_base") or r.get("metric_id") or "laus_unemployment_rate").strip()
+            seasonal = (r.get("seasonal") or "").strip().upper()
+            if seasonal in ("SA", "S"):
+                suffix = "sa"
+            elif seasonal in ("NSA", "U"):
+                suffix = "nsa"
+            else:
+                # default to NSA if unspecified/unknown
+                suffix = "nsa"
+            
             sid_to_rowmeta[sid] = {
-                "geo_id": (r.get("geo_id") or "").strip(),
-                "metric_base": metric_base,    # store base; we’ll suffix later
-                "seasonal": seasonal,
-                "name": r.get("name", "").strip(),
+                "geo_id": r["geo_id"].strip(),
+                "metric_id": f"{base}_{suffix}",
             }
+            
             rows.append(r)
     
     if not series_ids:
