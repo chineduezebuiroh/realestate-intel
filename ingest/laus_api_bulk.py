@@ -10,6 +10,21 @@ DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 
 
 
+def seasonal_suffix(series_id: str, seasonal_field: str | None) -> str:
+    s = (seasonal_field or "").strip().upper()
+    if s in ("SA", "S"):
+        return "sa"
+    if s in ("NSA", "U"):
+        return "nsa"
+    sid = (series_id or "").strip().upper()
+    if sid.startswith("LASST"):  # Seasonally Adjusted
+        return "sa"
+    if sid.startswith("LAUST"):  # Not Seasonally Adjusted
+        return "nsa"
+    return "nsa"  # safe default
+
+
+
 # ---- seasonal + metric id helpers ----
 BASE_METRIC_ALIAS = {
     # allow short names in CSV; feel free to expand
@@ -84,8 +99,7 @@ def to_df(series_block, sid_to_rowmeta):
 
 
 
-def ensure_dims(con: duckdb.DuckDBPyConnection, all_metrics: pd.Series):
-    # dim_source
+def ensure_dims(con: duckdb.DuckDBPyConnection):
     con.execute("""
     INSERT INTO dim_source(source_id, name, url, cadence, license)
     SELECT 'laus','BLS Local Area Unemployment Statistics',
@@ -93,20 +107,16 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, all_metrics: pd.Series):
     WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id='laus')
     """)
 
-    # dim_metric: add any missing metric_ids discovered in this run
-    con.register("metric_ids_tmp", pd.DataFrame({"metric_id": all_metrics.unique()}))
-    con.execute("""
-    INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
-    SELECT m.metric_id,
-           -- simple humanized name; adjust as you like
-           REGEXP_REPLACE(m.metric_id, '_', ' ') AS name,
-           'monthly',
-           CASE WHEN m.metric_id LIKE '%_rate_%' OR m.metric_id LIKE '%_rate' THEN 'percent' ELSE 'count' END,
-           'labor'
-    FROM metric_ids_tmp m
-    WHERE m.metric_id NOT IN (SELECT metric_id FROM dim_metric)
-    """)
-    con.execute("UNREGISTER metric_ids_tmp")
+    # make sure both SA/NSA unemployment rate metrics exist
+    for mid, name in [
+        ("laus_unemployment_rate_sa",  "Unemployment Rate (SA)"),
+        ("laus_unemployment_rate_nsa", "Unemployment Rate (NSA)"),
+    ]:
+        con.execute("""
+        INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
+        SELECT ?, ?, 'monthly','percent','labor'
+        WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id=?)
+        """, [mid, name, mid])
 
 
 
@@ -135,42 +145,38 @@ def main():
     # read config and group intended rows by series id
     rows, series_ids = [], []
     sid_to_rowmeta = {}
-    with open(cfg_path, newline="") as f:
+    with open("config/laus_series.csv", newline="") as f:
         for r in csv.DictReader(f):
+            # skip commented/blank rows defensively
+            if not r or (r.get("geo_id", "").strip().startswith("#")):
+                continue
             sid = (r.get("series_id") or "").strip()
             if not sid:
                 print(f"[laus] skip row with empty series_id: {r}")
                 continue
-
-            # normalize seasonality + metric base
-            seasonal = (r.get("seasonal") or "").strip().upper()
-            if seasonal not in ("SA", "NSA"):
-                print(f"[laus] WARN: unknown seasonal '{seasonal}', defaulting to NSA for {sid}")
-                seasonal = "NSA"
-
-            metric_base = (r.get("metric_id") or "unemployment_rate").strip()
-
-            series_ids.append(sid)
-
+    
             base = (r.get("metric_base") or r.get("metric_id") or "laus_unemployment_rate").strip()
-            seasonal = (r.get("seasonal") or "").strip().upper()
-            if seasonal in ("SA", "S"):
-                suffix = "sa"
-            elif seasonal in ("NSA", "U"):
-                suffix = "nsa"
-            else:
-                # default to NSA if unspecified/unknown
-                suffix = "nsa"
-            
+            suffix = seasonal_suffix(sid, r.get("seasonal"))
+            metric_id = f"{base}_{suffix}"
+    
+            # optional validation warning if CSV says the opposite
+            s_raw = (r.get("seasonal") or "").strip().upper()
+            if s_raw in ("SA","S") and suffix != "sa":
+                print(f"[laus] ⚠️ CSV seasonal=SA but series_id looks NSA: {sid}")
+            if s_raw in ("NSA","U") and suffix != "nsa":
+                print(f"[laus] ⚠️ CSV seasonal=NSA but series_id looks SA: {sid}")
+    
+            series_ids.append(sid)
             sid_to_rowmeta[sid] = {
-                "geo_id": r["geo_id"].strip(),
-                "metric_id": f"{base}_{suffix}",
+                "geo_id": (r.get("geo_id") or "").strip(),
+                "metric_id": metric_id,
             }
-            
             rows.append(r)
     
     if not series_ids:
         raise SystemExit("[laus] no series_id entries found in config/laus_series.csv")
+
+    
 
     # batch up to 50 series per API call
     dfs = []
