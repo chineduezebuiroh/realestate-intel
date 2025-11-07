@@ -172,6 +172,11 @@ def main():
                 "metric_id": metric_id,
             }
             rows.append(r)
+
+            print("[laus] planned series + mapped metric_id:")
+            for sid in series_ids:
+                print("  ", sid, "->", sid_to_rowmeta[sid]["metric_id"])
+
     
     if not series_ids:
         raise SystemExit("[laus] no series_id entries found in config/laus_series.csv")
@@ -184,11 +189,21 @@ def main():
         chunk = series_ids[i:i+50]
         print(f"[laus] fetching {len(chunk)} series…")
         series_block = fetch_series(chunk)
+
+        # DEBUG: count data points per SID
+        for s in series_block:
+            sid = s["seriesID"]
+            n = sum(1 for d in s.get("data", []) if str(d.get("period","")).startswith("M"))
+            print(f"[laus] fetched {n:4d} monthly rows for {sid} -> {sid_to_rowmeta.get(sid,{}).get('metric_id')}")
+        
         dfs.append(to_df(series_block, sid_to_rowmeta))
         time.sleep(0.5)  # small courtesy pause
 
     
     all_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+    print("[laus] sample of metric_id counts (pre-upsert):")
+    print(all_df.groupby("metric_id").size().sort_index().to_string())
+
     if all_df.empty:
         print("[laus] no rows returned.")
         return
