@@ -1,34 +1,34 @@
 geo_id,series_id,metric_base,name,seasonal,notes
 
 # State — SA (rate + levels)
-dc_state,LASST110000000000003,laus_unemployment_rate,Unemployment Rate (State, SA),SA,DC statewide SA
-dc_state,LASST110000000000004,laus_unemployment,Unemployment (State, SA),SA,DC statewide SA
-dc_state,LASST110000000000005,laus_employment,Employment (State, SA),SA,DC statewide SA
-dc_state,LASST110000000000006,laus_labor_force,Labor Force (State, SA),SA,DC statewide SA
+dc_state,LASST110000000000003,laus_unemployment_rate,"Unemployment Rate (State, SA)",SA,DC statewide SA
+dc_state,LASST110000000000004,laus_unemployment,"Unemployment (State, SA)",SA,DC statewide SA
+dc_state,LASST110000000000005,laus_employment,"Employment (State, SA)",SA,DC statewide SA
+dc_state,LASST110000000000006,laus_labor_force,"Labor Force (State, SA)",SA,DC statewide SA
 
-md_state,LASST240000000000003,laus_unemployment_rate,Unemployment Rate (State, SA),SA,Maryland statewide SA
-md_state,LASST240000000000004,laus_unemployment,Unemployment (State, SA),SA,Maryland statewide SA
-md_state,LASST240000000000005,laus_employment,Employment (State, SA),SA,Maryland statewide SA
-md_state,LASST240000000000006,laus_labor_force,Labor Force (State, SA),SA,Maryland statewide SA
+md_state,LASST240000000000003,laus_unemployment_rate,"Unemployment Rate (State, SA)",SA,Maryland statewide SA
+md_state,LASST240000000000004,laus_unemployment,"Unemployment (State, SA)",SA,Maryland statewide SA
+md_state,LASST240000000000005,laus_employment,"Employment (State, SA)",SA,Maryland statewide SA
+md_state,LASST240000000000006,laus_labor_force,"Labor Force (State, SA)",SA,Maryland statewide SA
 
-va_state,LASST510000000000003,laus_unemployment_rate,Unemployment Rate (State, SA),SA,Virginia statewide SA
-va_state,LASST510000000000004,laus_unemployment,Unemployment (State, SA),SA,Virginia statewide SA
-va_state,LASST510000000000005,laus_employment,Employment (State, SA),SA,Virginia statewide SA
-va_state,LASST510000000000006,laus_labor_force,Labor Force (State, SA),SA,Virginia statewide SA
+va_state,LASST510000000000003,laus_unemployment_rate,"Unemployment Rate (State, SA)",SA,Virginia statewide SA
+va_state,LASST510000000000004,laus_unemployment,"Unemployment (State, SA)",SA,Virginia statewide SA
+va_state,LASST510000000000005,laus_employment,"Employment (State, SA)",SA,Virginia statewide SA
+va_state,LASST510000000000006,laus_labor_force,"Labor Force (State, SA)",SA,Virginia statewide SA
 
 
 # State — NSA (rate + levels)
-dc_state,LAUST110000000000003,laus_unemployment_rate,Unemployment Rate (State, NSA),NSA,DC statewide NSA
-dc_state,LAUST110000000000004,laus_unemployment,Unemployment (State, NSA),NSA,DC statewide NSA
-dc_state,LAUST110000000000005,laus_employment,Employment (State, NSA),NSA,DC statewide NSA
-dc_state,LAUST110000000000006,laus_labor_force,Labor Force (State, NSA),NSA,DC statewide NSA
+dc_state,LAUST110000000000003,laus_unemployment_rate,"Unemployment Rate (State, NSA)",NSA,DC statewide NSA
+dc_state,LAUST110000000000004,laus_unemployment,"Unemployment (State, NSA)",NSA,DC statewide NSA
+dc_state,LAUST110000000000005,laus_employment,"Employment (State, NSA)",NSA,DC statewide NSA
+dc_state,LAUST110000000000006,laus_labor_force,"Labor Force (State, NSA)",NSA,DC statewide NSA
 
-md_state,LAUST240000000000003,laus_unemployment_rate,Unemployment Rate (State, NSA),NSA,Maryland statewide NSA
-md_state,LAUST240000000000004,laus_unemployment,Unemployment (State, NSA),NSA,Maryland statewide NSA
-md_state,LAUST240000000000005,laus_employment,Employment (State, NSA),NSA,Maryland statewide NSA
-md_state,LAUST240000000000006,laus_labor_force,Labor Force (State, NSA),NSA,Maryland statewide NSA
+md_state,LAUST240000000000003,laus_unemployment_rate,"Unemployment Rate (State, NSA)",NSA,Maryland statewide NSA
+md_state,LAUST240000000000004,laus_unemployment,"Unemployment (State, NSA)",NSA,Maryland statewide NSA
+md_state,LAUST240000000000005,laus_employment,"Employment (State, NSA)",NSA,Maryland statewide NSA
+md_state,LAUST240000000000006,laus_labor_force,"Labor Force (State, NSA)",NSA,Maryland statewide NSA
 
-va_state,LAUST510000000000003,laus_unemployment_rate,Unemployment Rate (State, NSA),NSA,Virginia statewide NSA
-va_state,LAUST510000000000004,laus_unemployment,Unemployment (State, NSA),NSA,Virginia statewide NSA
-va_state,LAUST510000000000005,laus_employment,Employment (State, NSA),NSA,Virginia statewide NSA
-va_state,LAUST510000000000006,laus_labor_force,Labor Force (State, NSA),NSA,Virginia statewide NSA
+va_state,LAUST510000000000003,laus_unemployment_rate,"Unemployment Rate (State, NSA)",NSA,Virginia statewide NSA
+va_state,LAUST510000000000004,laus_unemployment,"Unemployment (State, NSA)",NSA,Virginia statewide NSA
+va_state,LAUST510000000000005,laus_employment,"Employment (State, NSA)",NSA,Virginia statewide NSA
+va_state,LAUST510000000000006,laus_labor_force,"Labor Force (State, NSA)",NSA,Virginia statewide NSA
