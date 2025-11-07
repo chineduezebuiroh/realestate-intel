@@ -5,7 +5,7 @@ import pandas as pd
 import duckdb
 
 BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
-BLS_KEY = os.getenv("BLS_API_KEY")  # optional
+BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
 DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 
 
@@ -49,14 +49,18 @@ def make_metric_id(base_metric: str, seasonal: str) -> str:
 
 
 def fetch_series(series_ids):
-    # BLS allows up to 50 series per request
     payload = {"seriesid": series_ids}
     if BLS_KEY:
         payload["registrationkey"] = BLS_KEY
+        print(f"[laus] using BLS key: yes (len={len(BLS_KEY)})")
+    else:
+        print("[laus] using BLS key: no (public quota)")
+
     r = requests.post(BLS_API, json=payload, timeout=60)
     r.raise_for_status()
     data = r.json()
     if data.get("status") != "REQUEST_SUCCEEDED":
+        # bubble up the exact API message so we don’t have to guess next time
         raise RuntimeError(f"BLS error: {data}")
     return data["Results"]["series"]
 
