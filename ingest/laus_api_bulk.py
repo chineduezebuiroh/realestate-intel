@@ -168,7 +168,18 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids=None):
 
 
 def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
-    if df.empty: return
+    if df.empty:
+        return
+
+    # 🔒 ensure one row per 4-key (geo, metric, date, ptype)
+    df = (
+        df.sort_values(["geo_id","metric_id","date","property_type_id"])
+          .drop_duplicates(
+              subset=["geo_id","metric_id","date","property_type_id"],
+              keep="last"
+          )
+    )
+
     con.register("df_stage", df[["geo_id","metric_id","date","property_type_id","value","source_id"]])
     con.execute("""
     DELETE FROM fact_timeseries AS f
@@ -183,6 +194,8 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
     SELECT geo_id,metric_id,date,property_type_id,CAST(value AS DOUBLE),source_id
     FROM df_stage
     """)
+
+
 
 def main():
     cfg_path = "config/laus_series.csv"
@@ -291,6 +304,16 @@ def main():
     SELECT geo_id,name,type,fips FROM mkts
     WHERE geo_id NOT IN (SELECT geo_id FROM dim_market)
     """)
+
+    # … after building all_df …
+    all_df = (
+        all_df.sort_values(["geo_id","metric_id","date","property_type_id"])
+              .drop_duplicates(
+                  subset=["geo_id","metric_id","date","property_type_id"],
+                  keep="last"
+              )
+    )
+
     upsert(con, all_df)
 
     # quick summary
