@@ -44,7 +44,8 @@ ingest_monthly: setup
 	$(PY) ingest/fred_unemployment_dc.py
 
 ingest_bls: setup
-	$(PY) ingest/bls_laus_dc.py
+	$(PY) ingest/laus_api_bulk.py
+
 
 ingest_bls_laus:
 	\tpython ingest/laus_api_bulk.py
