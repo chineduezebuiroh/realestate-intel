@@ -38,14 +38,29 @@ ingest_dc: setup
 	# Redfin (weekly, may be skipped via env if blocked)
 	$(PY) ingest/redfin.py
 
+ingest_redfin: setup
+	$(PY) ingest/redfin_market_trends.py
+
+transform_dc: db
+	$(PY) transform/redfin_to_fact.py
+
+transform_redfin: db
+	$(PY) transform/redfin_to_fact_v2.py
+
+
+
 ingest_monthly: setup
 	# Zillow ZORI + FRED Unemployment (monthly)
 	$(PY) ingest/zillow_zori.py
 	$(PY) ingest/fred_unemployment_dc.py
 
+transform_monthly: db
+	$(PY) transform/monthlies_to_fact.py
+
+
+
 ingest_bls: setup
 	$(PY) ingest/laus_api_bulk.py
-
 
 ingest_bls_laus:
 	\tpython ingest/laus_api_bulk.py
@@ -53,35 +68,24 @@ ingest_bls_laus:
 # if you still have old LAUS transform targets, you can keep them,
 # but this script writes directly into fact_timeseries, so transform is optional.
 
+transform_bls: db
+	$(PY) transform/laus_to_fact.py
+
+
 
 ingest_fred_rates: setup
 	$(PY) ingest/fred_mortgage_rates.py
 
-ingest_fred_yields: setup
-	$(PY) ingest/fred_yields.py
-
-ingest_redfin: setup
-	$(PY) ingest/redfin_market_trends.py
-
-
-
-transform_dc: db
-	$(PY) transform/redfin_to_fact.py
-
-transform_monthly: db
-	$(PY) transform/monthlies_to_fact.py
-
-transform_bls: db
-	$(PY) transform/laus_to_fact.py
-
 transform_fred_rates: db
 	$(PY) transform/fred_mortgage_to_fact.py
 
+
+
+ingest_fred_yields: setup
+	$(PY) ingest/fred_yields.py
+
 transform_fred_yields: db
 	$(PY) transform/fred_yields_to_fact.py
-
-transform_redfin: db
-	$(PY) transform/redfin_to_fact_v2.py
 
 
 
