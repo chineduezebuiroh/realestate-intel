@@ -103,7 +103,13 @@ def to_df(series_block, sid_to_rowmeta):
 
 
 
-def ensure_dims(con: duckdb.DuckDBPyConnection):
+def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids=None):
+    """
+    Ensure dim_source and dim_metric rows exist.
+    If metric_ids is provided, insert just those metric_ids with sensible names.
+    Otherwise, insert the SA set (idempotent).
+    """
+    # source
     con.execute("""
     INSERT INTO dim_source(source_id, name, url, cadence, license)
     SELECT 'laus','BLS Local Area Unemployment Statistics',
@@ -111,16 +117,53 @@ def ensure_dims(con: duckdb.DuckDBPyConnection):
     WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id='laus')
     """)
 
-    # make sure both SA/NSA unemployment rate metrics exist
-    for mid, name in [
-        ("laus_unemployment_rate_sa",  "Unemployment Rate (SA)"),
-        ("laus_unemployment_rate_nsa", "Unemployment Rate (NSA)"),
-    ]:
-        con.execute("""
-        INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
-        SELECT ?, ?, 'monthly','percent','labor'
-        WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id=?)
-        """, [mid, name, mid])
+    # normalize incoming list -> unique list of strings
+    mids = []
+    if metric_ids is not None:
+        mids = sorted(set(str(m) for m in metric_ids if m))
+
+    def name_of(mid: str) -> tuple[str, str, str, str]:
+        # (name, frequency, unit, category)
+        base = mid.lower()
+        if base.startswith("laus_unemployment_rate"):
+            return ("Unemployment Rate (LAUS)", "monthly", "percent", "labor")
+        if base.startswith("laus_unemployment"):
+            return ("Unemployed (LAUS)", "monthly", "persons", "labor")
+        if base.startswith("laus_employment"):
+            return ("Employment (LAUS)", "monthly", "persons", "labor")
+        if base.startswith("laus_labor_force"):
+            return ("Labor Force (LAUS)", "monthly", "persons", "labor")
+        # fallback
+        return (mid, "monthly", "units", "labor")
+
+    if mids:
+        # insert only the metrics we actually have
+        for mid in mids:
+            nm, freq, unit, cat = name_of(mid)
+            con.execute("""
+            INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
+            SELECT ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id = ?)
+            """, [mid, nm, freq, unit, cat, mid])
+    else:
+        # safe defaults (idempotent)
+        defaults = [
+            "laus_unemployment_rate_sa",
+            "laus_unemployment_rate_nsa",
+            "laus_unemployment_sa",
+            "laus_unemployment_nsa",
+            "laus_employment_sa",
+            "laus_employment_nsa",
+            "laus_labor_force_sa",
+            "laus_labor_force_nsa",
+        ]
+        for mid in defaults:
+            nm, freq, unit, cat = name_of(mid)
+            con.execute("""
+            INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
+            SELECT ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id = ?)
+            """, [mid, nm, freq, unit, cat, mid])
 
 
 
