@@ -1,5 +1,6 @@
 geo_id,series_id,metric_base,name,seasonal,notes
 
+# --- STATES ---
 # State — SA (rate + levels)
 dc_state,LASST110000000000003,laus_unemployment_rate,"Unemployment Rate (State, SA)",SA,DC statewide SA
 dc_state,LASST110000000000004,laus_unemployment,"Unemployment (State, SA)",SA,DC statewide SA
@@ -32,3 +33,149 @@ va_state,LAUST510000000000003,laus_unemployment_rate,"Unemployment Rate (State, 
 va_state,LAUST510000000000004,laus_unemployment,"Unemployment (State, NSA)",NSA,Virginia statewide NSA
 va_state,LAUST510000000000005,laus_employment,"Employment (State, NSA)",NSA,Virginia statewide NSA
 va_state,LAUST510000000000006,laus_labor_force,"Labor Force (State, NSA)",NSA,Virginia statewide NSA
+
+
+
+# --- COUNTIES ---
+# County — SA (rate + levels)
+dc_county,LASST110000000000003,laus_unemployment_rate,"Unemployment Rate (County, SA)",SA,DC county SA
+dc_county,LASST110000000000004,laus_unemployment,"Unemployment (County, SA)",SA,DC county SA
+dc_county,LASST110000000000005,laus_employment,"Employment (County, SA)",SA,DC county SA
+dc_county,LASST110000000000006,laus_labor_force,"Labor Force (County, SA)",SA,DC county SA
+
+montgomery_county_md,LASCN240310000000003,laus_unemployment_rate,"Unemployment Rate (County, SA)",SA,Montgomery County SA
+montgomery_county_md,LASCN240310000000004,laus_unemployment,"Unemployment (County, SA)",SA,Montgomery County SA
+montgomery_county_md,LASCN240310000000005,laus_employment,"Employment (County, SA)",SA,Montgomery County SA
+montgomery_county_md,LASCN240310000000006,laus_labor_force,"Labor Force (County, SA)",SA,Montgomery County SA
+
+prince_georges_county_md,LASCN240330000000003,laus_unemployment_rate,"Unemployment Rate (County, SA)",SA,Prince George's County SA
+prince_georges_county_md,LASCN240330000000004,laus_unemployment,"Unemployment (County, SA)",Prince George's County SA
+prince_georges_county_md,LASCN240330000000005,laus_employment,"Employment (County, SA)",SA,Prince George's County SA
+prince_georges_county_md,LASCN240330000000006,laus_labor_force,"Labor Force (County, SA)",SA,Prince George's County SA
+
+prince_william_county_va,LASCN511530000000003,laus_unemployment_rate,"Unemployment Rate (County, SA)",SA,Prince William County SA
+prince_william_county_va,LASCN511530000000004,laus_unemployment,"Unemployment (County, SA)",Prince William County SA
+prince_william_county_va,LASCN511530000000005,laus_employment,"Employment (County, SA)",SA,Prince William County SA
+prince_william_county_va,LASCN511530000000006,laus_labor_force,"Labor Force (County, SA)",SA,Prince William County SA
+
+
+# County — NSA (rate + levels)
+dc_county,LAUST110000000000003,laus_unemployment_rate,"Unemployment Rate (County, NSA)",NSA,DC county NSA
+dc_county,LAUST110000000000004,laus_unemployment,"Unemployment (County, NSA)",NSA,DC county NSA
+dc_county,LAUST110000000000005,laus_employment,"Employment (County,NSA)",NSA,DC county NSA
+dc_county,LAUST110000000000006,laus_labor_force,"Labor Force (County,NSA)",NSA,DC county NSA
+
+montgomery_county_md,LAUCN240310000000003,laus_unemployment_rate,"Unemployment Rate (County, NSA)",NSA,Montgomery County NSA
+montgomery_county_md,LAUCN240310000000004,laus_unemployment,"Unemployment (County, NSA)",NSA,Montgomery County NSA
+montgomery_county_md,LAUCN240310000000005,laus_employment,"Employment (County, NSA)",NSA,Montgomery County NSA
+montgomery_county_md,LAUCN240310000000006,laus_labor_force,"Labor Force (County, NSA)",NSA,Montgomery County NSA
+
+prince_georges_county_md,LAUCN240330000000003,laus_unemployment_rate,"Unemployment Rate (County, NSA)",NSA,Prince George's County NSA
+prince_georges_county_md,LAUCN240330000000004,laus_unemployment,"Unemployment (County, NSA)",Prince George's County NSA
+prince_georges_county_md,LAUCN240330000000005,laus_employment,"Employment (County, NSA)",NSA,Prince George's County NSA
+prince_georges_county_md,LAUCN240330000000006,laus_labor_force,"Labor Force (County, NSA)",NSA,Prince George's County NSA
+
+prince_william_county_va,LAUCN511530000000003,laus_unemployment_rate,"Unemployment Rate (County, NSA)",NSA,Prince William County NSA
+prince_william_county_va,LAUCN511530000000004,laus_unemployment,"Unemployment (County, NSA)",Prince William County NSA
+prince_william_county_va,LAUCN511530000000005,laus_employment,"Employment (County, NSA)",NSA,Prince William County NSA
+prince_william_county_va,LAUCN511530000000006,laus_labor_force,"Labor Force (County, NSA)",NSA,Prince William County NSA
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+md_state,LASST240000000000003,laus_unemployment_rate,"Unemployment Rate (State, SA)",SA,Maryland statewide SA
+md_state,LASST240000000000004,laus_unemployment,"Unemployment (State, SA)",SA,Maryland statewide SA
+md_state,LASST240000000000005,laus_employment,"Employment (State, SA)",SA,Maryland statewide SA
+md_state,LASST240000000000006,laus_labor_force,"Labor Force (State, SA)",SA,Maryland statewide SA
+
+va_state,LASST510000000000003,laus_unemployment_rate,"Unemployment Rate (State, SA)",SA,Virginia statewide SA
+va_state,LASST510000000000004,laus_unemployment,"Unemployment (State, SA)",SA,Virginia statewide SA
+va_state,LASST510000000000005,laus_employment,"Employment (State, SA)",SA,Virginia statewide SA
+va_state,LASST510000000000006,laus_labor_force,"Labor Force (State, SA)",SA,Virginia statewide SA
+
+# County — NSA (rate + levels)
+dc_county,LAUST110000000000003,laus_unemployment_rate,"Unemployment Rate (State, NSA)",NSA,DC statewide NSA
+dc_county,LAUST110000000000004,laus_unemployment,"Unemployment (State, NSA)",NSA,DC statewide NSA
+dc_county,LAUST110000000000005,laus_employment,"Employment (State, NSA)",NSA,DC statewide NSA
+dc_county,LAUST110000000000006,laus_labor_force,"Labor Force (State, NSA)",NSA,DC statewide NSA
+
+md_state,LAUST240000000000003,laus_unemployment_rate,"Unemployment Rate (State, NSA)",NSA,Maryland statewide NSA
+md_state,LAUST240000000000004,laus_unemployment,"Unemployment (State, NSA)",NSA,Maryland statewide NSA
+md_state,LAUST240000000000005,laus_employment,"Employment (State, NSA)",NSA,Maryland statewide NSA
+md_state,LAUST240000000000006,laus_labor_force,"Labor Force (State, NSA)",NSA,Maryland statewide NSA
+
+va_state,LAUST510000000000003,laus_unemployment_rate,"Unemployment Rate (State, NSA)",NSA,Virginia statewide NSA
+va_state,LAUST510000000000004,laus_unemployment,"Unemployment (State, NSA)",NSA,Virginia statewide NSA
+va_state,LAUST510000000000005,laus_employment,"Employment (State, NSA)",NSA,Virginia statewide NSA
+va_state,LAUST510000000000006,laus_labor_force,"Labor Force (State, NSA)",NSA,Virginia statewide NSA
+
+
+
+
+
+
+
+
+DONE
+  - geo_id: dc_state
+  - geo_id: md_state
+  - geo_id: va_state
+
+  - geo_id: dc_county
+  - geo_id: montgomery_county
+  - geo_id: prince_georges_county
+
+PENDING
+markets:
+
+
+
+
+  # --- Counties ---
+
+
+  - geo_id: prince_william_county
+    level: county
+    state_codes: ["VA"]
+    match_exact: ["prince william county va"]
+
+    
+  # --- Cities ---
+  - geo_id: dc_city
+    level: city
+    state_codes: ["DC"]
+    match_exact: ["washington dc"]
+
+  - geo_id: bethesda_city
+    level: city
+    state_codes: ["MD"]
+    match_exact: ["bethesda"]
+
+  - geo_id: arlington_city
+    level: city
+    state_codes: ["VA"]
+    match_exact: ["arlington"]
+
+  - geo_id: hyattsville_city
+    level: city
+    state_codes: ["MD"]
+    match_exact: ["hyattsville"]
+
+  - geo_id: baltimore_city
+    level: city
+    state_codes: ["MD"]
+    match_exact: ["baltimore"]
