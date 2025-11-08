@@ -111,20 +111,20 @@ def to_df(series_block, sid_to_rowmeta):
             except:
                 continue
 
-            metric_id = make_metric_id(
-                meta.get("metric_base", "unemployment_rate"),
-                meta.get("seasonal", "NSA")
-            )
+            # ✅ Use the metric_id we computed in main()
+            metric_id = meta.get("metric_id")
+            if not metric_id:
+                # ultra-safe fallback (shouldn’t happen once main() fills meta)
+                metric_id = "laus_unemployment_rate_nsa"
 
             rows.append({
-                "geo_id":         meta.get("geo_id"),
-                "metric_id":      metric_id,           # <-- SA/NSA suffix here
-                "date":           date,
-                "value":          val,
-                "source_id":      "laus",              # keep consistent with your dim_source insert
+                "geo_id":           meta.get("geo_id"),
+                "metric_id":        metric_id,
+                "date":             date,
+                "value":            val,
+                "source_id":        "laus",
                 "property_type_id": "all",
-                "series_id":      sid,
-                "seasonal":       meta.get("seasonal", "NSA"),
+                "series_id":        sid,
             })
     return pd.DataFrame(rows)
 
@@ -236,7 +236,10 @@ def main():
             sid_to_rowmeta[sid] = {
                 "geo_id": geo_id,
                 "metric_id": metric_id,
+                "metric_base": base_csv,   # optional
+                "seasonal": sfx,           # optional ("sa"/"nsa")
             }
+            
             rows.append(r)
     
     print("[laus] planned series + mapped metric_id:")
