@@ -190,9 +190,11 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
 
 
 def main():
-    cfg_path = "config/laus_series.csv"
-    if not os.path.exists(cfg_path):
-        raise SystemExit(f"[laus] missing {cfg_path}")
+    # prefer generated, fall back to hand-maintained
+    cfg_path = "config/laus_series.generated.csv"
+    if not Path(cfg_path).exists():
+        cfg_path = "config/laus_series.csv"
+
 
     # read config and group intended rows by series id
     rows, series_ids = [], []
