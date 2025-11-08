@@ -65,6 +65,14 @@ ingest_bls: setup
 ingest_bls_laus:
 	\tpython ingest/laus_api_bulk.py
 
+laus_gen:
+	\t. .venv/bin/activate; python ingest/laus_expand_spec.py
+
+ingest_bls: laus_gen
+	\t. .venv/bin/activate; python ingest/laus_api_bulk.py
+
+
+
 # if you still have old LAUS transform targets, you can keep them,
 # but this script writes directly into fact_timeseries, so transform is optional.
 
