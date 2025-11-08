@@ -75,8 +75,13 @@ def make_metric_id(base_metric: str, seasonal: str) -> str:
 
 
 
+from datetime import date
 def fetch_series(series_ids):
-    payload = {"seriesid": series_ids}
+    payload = {
+        "seriesid": series_ids,
+        "startyear": "1976",           # LAUS has history back to 1976
+        "endyear": str(date.today().year),
+    }
     if BLS_KEY:
         payload["registrationkey"] = BLS_KEY
         print(f"[laus] using BLS key: yes (len={len(BLS_KEY)})")
@@ -87,9 +92,9 @@ def fetch_series(series_ids):
     r.raise_for_status()
     data = r.json()
     if data.get("status") != "REQUEST_SUCCEEDED":
-        # bubble up the exact API message so we don’t have to guess next time
         raise RuntimeError(f"BLS error: {data}")
     return data["Results"]["series"]
+
 
 
 
