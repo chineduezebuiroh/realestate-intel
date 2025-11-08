@@ -59,25 +59,19 @@ transform_monthly: db
 
 
 
-ingest_bls: setup
-	$(PY) ingest/laus_api_bulk.py
 
-ingest_bls_laus:
-	\tpython ingest/laus_api_bulk.py
+.PHONY: laus_gen ingest_bls transform_bls
 
 laus_gen:
-	\t. .venv/bin/activate; python ingest/laus_expand_spec.py
+	(PY) ingest/laus_expand_spec.py
 
 ingest_bls: laus_gen
-	\t. .venv/bin/activate; python ingest/laus_api_bulk.py
+	(PY) ingest/laus_api_bulk.py
 
+transform_bls:
+	(PY) utils/db.py --build
+	(PY) transform/laus_to_fact.py
 
-
-# if you still have old LAUS transform targets, you can keep them,
-# but this script writes directly into fact_timeseries, so transform is optional.
-
-transform_bls: db
-	$(PY) transform/laus_to_fact.py
 
 
 
