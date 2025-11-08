@@ -2,7 +2,7 @@
 import yaml, csv, sys
 from pathlib import Path
 
-SPEC_PATH = Path("config/laus_spec.yml")
+SPEC = Path("config/laus_spec.yml")
 OUT_CSV   = Path("config/laus_series.generated.csv")
 
 def main():
