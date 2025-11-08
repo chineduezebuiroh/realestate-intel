@@ -4,6 +4,33 @@ import requests
 import pandas as pd
 import duckdb
 
+
+def suffix_from_sid(series_id: str) -> str:
+    sid = (series_id or "").upper().strip()
+    if sid.startswith("LASST"):  # Seasonally Adjusted
+        return "sa"
+    if sid.startswith("LAUST"):  # Not Seasonally Adjusted
+        return "nsa"
+    # Fallback: use CSV seasonal field later
+    return "nsa"
+
+def base_from_sid(series_id: str) -> str:
+    # last 3 digits map the LAUS measure
+    tail = (series_id or "")[-3:]
+    return {
+        "003": "laus_unemployment_rate",
+        "004": "laus_unemployment",
+        "005": "laus_employment",
+        "006": "laus_labor_force",
+    }.get(tail, "laus_unemployment_rate")
+
+def sfx_from_csv(seasonal: str) -> str:
+    v = (seasonal or "").strip().upper()
+    if v in ("SA","S"): return "sa"
+    if v in ("NSA","U"): return "nsa"
+    return "nsa"
+
+
 BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
 DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
@@ -103,13 +130,8 @@ def to_df(series_block, sid_to_rowmeta):
 
 
 
-def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids=None):
-    """
-    Ensure dim_source and dim_metric rows exist.
-    If metric_ids is provided, insert just those metric_ids with sensible names.
-    Otherwise, insert the SA set (idempotent).
-    """
-    # source
+def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids_needed):
+    # Source (idempotent)
     con.execute("""
     INSERT INTO dim_source(source_id, name, url, cadence, license)
     SELECT 'laus','BLS Local Area Unemployment Statistics',
@@ -117,53 +139,23 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids=None):
     WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id='laus')
     """)
 
-    # normalize incoming list -> unique list of strings
-    mids = []
-    if metric_ids is not None:
-        mids = sorted(set(str(m) for m in metric_ids if m))
+    # Name/unit/category per base; SA/NSA share same name/unit/category
+    META = {
+        "laus_unemployment_rate": ("Unemployment Rate", "percent", "labor"),
+        "laus_unemployment":      ("Unemployment",      "persons", "labor"),
+        "laus_employment":        ("Employment",        "persons", "labor"),
+        "laus_labor_force":       ("Labor Force",       "persons", "labor"),
+    }
 
-    def name_of(mid: str) -> tuple[str, str, str, str]:
-        # (name, frequency, unit, category)
-        base = mid.lower()
-        if base.startswith("laus_unemployment_rate"):
-            return ("Unemployment Rate (LAUS)", "monthly", "percent", "labor")
-        if base.startswith("laus_unemployment"):
-            return ("Unemployed (LAUS)", "monthly", "persons", "labor")
-        if base.startswith("laus_employment"):
-            return ("Employment (LAUS)", "monthly", "persons", "labor")
-        if base.startswith("laus_labor_force"):
-            return ("Labor Force (LAUS)", "monthly", "persons", "labor")
-        # fallback
-        return (mid, "monthly", "units", "labor")
-
-    if mids:
-        # insert only the metrics we actually have
-        for mid in mids:
-            nm, freq, unit, cat = name_of(mid)
-            con.execute("""
-            INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
-            SELECT ?, ?, ?, ?, ?
-            WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id = ?)
-            """, [mid, nm, freq, unit, cat, mid])
-    else:
-        # safe defaults (idempotent)
-        defaults = [
-            "laus_unemployment_rate_sa",
-            "laus_unemployment_rate_nsa",
-            "laus_unemployment_sa",
-            "laus_unemployment_nsa",
-            "laus_employment_sa",
-            "laus_employment_nsa",
-            "laus_labor_force_sa",
-            "laus_labor_force_nsa",
-        ]
-        for mid in defaults:
-            nm, freq, unit, cat = name_of(mid)
-            con.execute("""
-            INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
-            SELECT ?, ?, ?, ?, ?
-            WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id = ?)
-            """, [mid, nm, freq, unit, cat, mid])
+    needed = set(str(m) for m in metric_ids_needed if m)
+    for mid in sorted(needed):
+        base = mid.rsplit("_", 1)[0]  # strip _sa/_nsa
+        name, unit, cat = META.get(base, ("LAUS Series", "value", "labor"))
+        con.execute("""
+        INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
+        SELECT ?, ?, 'monthly', ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id = ?)
+        """, [mid, name, unit, cat, mid])
 
 
 
@@ -205,37 +197,54 @@ def main():
     # read config and group intended rows by series id
     rows, series_ids = [], []
     sid_to_rowmeta = {}
-    with open("config/laus_series.csv", newline="") as f:
-        for r in csv.DictReader(f):
-            # skip commented/blank rows defensively
-            if not r or (r.get("geo_id", "").strip().startswith("#")):
+    
+    with open(cfg_path, newline="") as f:
+        rdr = csv.DictReader(f)
+        for r in rdr:
+            if not r:
                 continue
+            # allow comment lines
+            if (r.get("geo_id","").strip().startswith("#")
+                or r.get("series_id","").strip().startswith("#")):
+                continue
+    
             sid = (r.get("series_id") or "").strip()
             if not sid:
                 print(f"[laus] skip row with empty series_id: {r}")
                 continue
     
-            base = (r.get("metric_base") or r.get("metric_id") or "laus_unemployment_rate").strip()
-            suffix = seasonal_suffix(sid, r.get("seasonal"))
-            metric_id = f"{base}_{suffix}"
+            geo_id = (r.get("geo_id") or "").strip()
     
-            # optional validation warning if CSV says the opposite
-            s_raw = (r.get("seasonal") or "").strip().upper()
-            if s_raw in ("SA","S") and suffix != "sa":
-                print(f"[laus] ⚠️ CSV seasonal=SA but series_id looks NSA: {sid}")
-            if s_raw in ("NSA","U") and suffix != "nsa":
-                print(f"[laus] ⚠️ CSV seasonal=NSA but series_id looks SA: {sid}")
+            # Robust metric resolution:
+            # 1) infer base from series_id tail (003/004/005/006)
+            base_auto = base_from_sid(sid)
+            # 2) prefer CSV column if valid, else use inferred
+            base_csv  = (r.get("metric_base") or "").strip() or base_auto
+            if base_csv not in {
+                "laus_unemployment_rate","laus_unemployment","laus_employment","laus_labor_force"
+            }:
+                base_csv = base_auto
+    
+            # 3) SA/NSA from series_id (LASST/LAUST); fallback to CSV `seasonal`
+            sfx = suffix_from_sid(sid)
+            if sfx not in ("sa","nsa"):
+                sfx = sfx_from_csv(r.get("seasonal"))
+    
+            metric_id = f"{base_csv}_{sfx}"
     
             series_ids.append(sid)
             sid_to_rowmeta[sid] = {
-                "geo_id": (r.get("geo_id") or "").strip(),
+                "geo_id": geo_id,
                 "metric_id": metric_id,
             }
             rows.append(r)
+    
+    print("[laus] planned series + mapped metric_id:")
+    for sid in series_ids:
+        print(f"  {sid} -> {sid_to_rowmeta[sid]['metric_id']}")
 
-            print("[laus] planned series + mapped metric_id:")
-            for sid in series_ids:
-                print("  ", sid, "->", sid_to_rowmeta[sid]["metric_id"])
+
+    
 
     
     if not series_ids:
@@ -294,8 +303,8 @@ def main():
     );
     """)
 
-    # NEW: pass the distinct metric_ids we ingested so we add SA/NSA rows
-    ensure_dims(con, all_df["metric_id"])
+    ensure_dims(con, all_df["metric_id"].unique())
+
 
     
     con.register("mkts", mkts)
