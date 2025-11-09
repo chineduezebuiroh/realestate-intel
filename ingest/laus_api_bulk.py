@@ -398,11 +398,19 @@ def main():
             rows.append(r)
     
     print("[laus] planned series + mapped metric_id:")
+
+    # Load the la.series catalog once so we can auto-upgrade stale SIDs
+    la_series_df = load_la_series_index()
+
+    # helper to map our 'sa'/'nsa' to BLS single-letter codes used in la.series
+    def _to_bls_seasonal(sfx: str) -> str:
+        s = (sfx or "").strip().lower()
+        if s == "sa":  return "S"
+        if s == "nsa": return "U"
+        return "U"
+    
     for sid in series_ids:
         print(f"  {sid} -> {sid_to_rowmeta[sid]['metric_id']}")
-
-
-    
 
     
     if not series_ids:
@@ -412,8 +420,6 @@ def main():
 
     # batch up to 50 series per API call
     dfs = []
-    # load la.series once for remapping stale/retired series
-    la_series_df = load_la_series_index()
 
     for i in range(0, len(series_ids), 50):
         chunk = series_ids[i:i+50]
@@ -439,11 +445,26 @@ def main():
 
             # decide if this series is stale/empty
             if needs_refresh(n, first, last):
-                area_code, measure_code, seas = parse_sid(sid)
+                area_code, measure_code, _ = parse_sid(sid)
+                meta = sid_to_rowmeta.get(sid, {})
+                # prefer the CSV/meta seasonal ('sa'/'nsa'), else infer from SID
+                seas_u = _to_bls_seasonal(meta.get("seasonal") or suffix_from_sid(sid))
+                
                 new_sid = choose_latest_series(
-                    la_series_df, area_code, measure_code, seas,
+                    la_series_df,
+                    area_code=area_code,
+                    measure_code=measure_code,
+                    seasonal=seas_u,  # 'S' or 'U'
                     allow_sa_to_nsa_fallback=True
                 )
+                
+                # keep the master list consistent so later chunks/logs show the new SID
+                try:
+                    idx = series_ids.index(sid)
+                    series_ids[idx] = new_sid
+                except ValueError:
+                    pass
+                
                 if new_sid and new_sid != sid:
                     print(f"[laus] remapping stale {sid} → {new_sid} (n={n}, last={last.date() if last is not None else None})")
 
