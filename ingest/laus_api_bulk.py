@@ -49,6 +49,22 @@ def _http_get(url: str, timeout=60) -> bytes:
     return r.content
 
 
+LA_AREA_PATH = BLS_DIR / "la.area"
+
+def load_la_area() -> pd.DataFrame:
+    """Load la.area from the local cache (downloaded by your make target)."""
+    BLS_DIR.mkdir(parents=True, exist_ok=True)
+    text = LA_AREA_PATH.read_text(encoding="utf-8", errors="replace")
+    df = pd.read_csv(StringIO(text), sep=r"\t+", engine="python", dtype=str)
+    df.columns = [c.strip().lower() for c in df.columns]
+    # normalize
+    for c in ("area_code", "area_text"):
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+    return df
+
+
+
 
 def load_la_series_index() -> pd.DataFrame:
     """
@@ -122,6 +138,64 @@ def choose_latest_series(la_series_df, area_code, measure_code, seasonal, allow_
     cand = cand.sort_values(["end_year_fill","begin_year_fill"], ascending=[True, True])
     latest = cand.iloc[-1]  # last row after sort → newest span
     return latest["series_id"]
+
+
+
+def choose_latest_series_wide(
+    la_series_df: pd.DataFrame,
+    la_area_df: pd.DataFrame,
+    wanted_name: str | None,
+    measure_code: str,
+    seasonal_SU: str,     # 'S' or 'U'
+    area_code_family: str | None = None,
+):
+    """
+    Broader search for a successor when the *area_code* itself changed.
+    Strategy:
+      1) Join la.series ↔ la.area to get area_text.
+      2) Filter by measure_code + seasonal.
+      3) If we have a name, try exact (case-insensitive); if none, try contains().
+      4) If still empty and we have an area_code_family (old code with trailing zeros stripped),
+         use prefix match on area_code to find same 'family'.
+      5) Pick row with highest end_year, then lowest begin_year.
+    """
+    s = la_series_df.copy()
+    a = la_area_df[["area_code", "area_text"]].copy()
+    m = (s.merge(a, on="area_code", how="left"))
+    m["area_text_lc"] = m["area_text"].astype(str).str.strip().str.lower()
+
+    # normalize and filter
+    m = m[(m["measure_code"].str.zfill(3) == str(measure_code).zfill(3)) &
+          (m["seasonal"].str.upper().replace({"SA":"S","NSA":"U"}) == seasonal_SU)]
+
+    cands = pd.DataFrame()
+
+    target = (wanted_name or "").strip().lower()
+    if target:
+        # try exact name first
+        c1 = m[m["area_text_lc"] == target]
+        # then contains if exact empty
+        c2 = m[m["area_text_lc"].str.contains(target, na=False)] if c1.empty else pd.DataFrame()
+        cands = pd.concat([c1, c2], ignore_index=True)
+
+    # optional: prefix family match (strip trailing zeros from original area_code)
+    if (cands.empty) and area_code_family:
+        c3 = m[m["area_code"].str.startswith(area_code_family)]
+        cands = pd.concat([cands, c3], ignore_index=True)
+
+    if cands.empty:
+        return None
+
+    # rank newest
+    for c in ("begin_year", "end_year"):
+        if c in cands.columns:
+            cands[c] = pd.to_numeric(cands[c], errors="coerce")
+    cands["end_year_rank"] = cands["end_year"].fillna(9_999)
+    cands["begin_year_rank"] = cands["begin_year"].fillna(-1)
+    cands = cands.sort_values(["end_year_rank", "begin_year_rank"], ascending=[False, True])
+    return cands.iloc[0]["series_id"]
+
+
 
 def needs_refresh(n_rows: int, first_date: pd.Timestamp | None, last_date: pd.Timestamp | None) -> bool:
     # You already added a detector; keep your logic.
@@ -388,11 +462,15 @@ def main():
             metric_id = f"{base_csv}_{sfx}"
     
             series_ids.append(sid)
+
+            area_name = (r.get("name") or r.get("notes") or r.get("geo_id") or "").strip()
+            
             sid_to_rowmeta[sid] = {
                 "geo_id": geo_id,
                 "metric_id": metric_id,
                 "metric_base": base_csv,   # optional
                 "seasonal": sfx,           # optional ("sa"/"nsa")
+                "area_name": area_name, 
             }
             
             rows.append(r)
@@ -401,6 +479,8 @@ def main():
 
     # Load the la.series catalog once so we can auto-upgrade stale SIDs
     la_series_df = load_la_series_index()
+    la_area_df   = load_la_area()
+
 
     # helper to map our 'sa'/'nsa' to BLS single-letter codes used in la.series
     def _to_bls_seasonal(sfx: str) -> str:
@@ -445,49 +525,69 @@ def main():
 
             # decide if this series is stale/empty
             if needs_refresh(n, first, last):
-                area_code, measure_code, _ = parse_sid(sid)
+                area_code, measure_code, _old_seas = parse_sid(sid)
                 meta = sid_to_rowmeta.get(sid, {})
-                # prefer the CSV/meta seasonal ('sa'/'nsa'), else infer from SID
                 seas_u = _to_bls_seasonal(meta.get("seasonal") or suffix_from_sid(sid))
-                
+            
+                # 5a) Try same-area_code successor (your existing logic)
                 new_sid = choose_latest_series(
                     la_series_df,
                     area_code=area_code,
                     measure_code=measure_code,
-                    seasonal=seas_u,  # 'S' or 'U'
+                    seasonal=seas_u,
                     allow_sa_to_nsa_fallback=True
                 )
-                
-                # keep the master list consistent so later chunks/logs show the new SID
-                try:
-                    idx = series_ids.index(sid)
-                    series_ids[idx] = new_sid
-                except ValueError:
-                    pass
-                
+            
+                # 5b) If none or still stale (ends in 1990s), try WIDE search by name / family prefix
+                def _series_max_year(series_row):
+                    mons = [d for d in series_row.get("data", []) if str(d.get("period","")).startswith("M")]
+                    return max((int(d["year"]) for d in mons), default=-1)
+            
+                still_stale = True
+                if new_sid and new_sid != sid:
+                    # quick check the replacement’s max year
+                    test_block = fetch_series([new_sid]) or []
+                    if test_block and _series_max_year(test_block[0]) >= 2010:
+                        still_stale = False
+                    else:
+                        new_sid = None  # treat as not good enough; try wide
+            
+                if not new_sid:
+                    # strip trailing zeros to form a family prefix like 'CN51013'
+                    fam = area_code.rstrip("0")[:7] if area_code else None
+                    new_sid = choose_latest_series_wide(
+                        la_series_df=la_series_df,
+                        la_area_df=la_area_df,
+                        wanted_name=meta.get("area_name"),
+                        measure_code=measure_code,
+                        seasonal_SU=seas_u,
+                        area_code_family=fam
+                    )
+            
                 if new_sid and new_sid != sid:
                     print(f"[laus] remapping stale {sid} → {new_sid} (n={n}, last={last.date() if last is not None else None})")
-
-                    # pull replacement series
+                    # keep master list tidy (optional)
+                    try:
+                        idx = series_ids.index(sid)
+                        series_ids[idx] = new_sid
+                    except ValueError:
+                        pass
+            
                     repl_block = fetch_series([new_sid])
                     if repl_block:
-                        s = repl_block[0]  # use the new series data
-                        # transfer/update meta so rows get the correct metric_id
-                        meta = sid_to_rowmeta.pop(sid, {}).copy()
-                        # if seasonal changed (e.g., SA→NSA), update metric_id suffix
-                        old_sfx = (meta.get("seasonal") or "").lower()
+                        s = repl_block[0]
+                        meta_old = sid_to_rowmeta.pop(sid, {}).copy()
+                        old_sfx = (meta_old.get("seasonal") or "").lower()
                         new_sfx = suffix_from_sid(new_sid)
                         if new_sfx and new_sfx != old_sfx:
-                            base = meta.get("metric_base") or base_from_sid(new_sid)
-                            meta["metric_id"] = f"{base}_{new_sfx}"
-                            meta["seasonal"] = new_sfx
-                        sid_to_rowmeta[new_sid] = meta
-
-                        # re-count with replacement for logging
-                        monthly = [d for d in s.get("data", []) if str(d.get("period","")).startswith("M")]
-                        n = len(monthly)
+                            base = meta_old.get("metric_base") or base_from_sid(new_sid)
+                            meta_old["metric_id"] = f"{base}_{new_sfx}"
+                            meta_old["seasonal"] = new_sfx
+                        sid_to_rowmeta[new_sid] = meta_old
                     else:
                         print(f"[laus] WARNING: could not fetch replacement for {new_sid}; keeping original {sid}")
+
+
 
             # log final count for whichever SID we’re keeping
             keep_sid = s["seriesID"]
