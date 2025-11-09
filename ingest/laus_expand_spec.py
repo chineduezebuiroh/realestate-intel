@@ -4,33 +4,64 @@ from pathlib import Path
 import yaml
 import pandas as pd
 
+# --- BLS reference file fetcher (robust against 403) ---
+import time
 import requests
 
 BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
 BLS_FILES = ["la.area", "la.series", "la.measure", "la.area_type"]
 
+LA_AREA   = BLS_DIR / "la.area"
+LA_SERIES = BLS_DIR / "la.series"
+
+def _http_get(url: str, timeout=60) -> bytes:
+    # Try HTTPS with browser UA, then HTTP, with a short retry
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+    # 1) HTTPS
+    r = requests.get(url, headers=headers, timeout=timeout)
+    if r.status_code == 403:
+        # brief backoff + retry once
+        time.sleep(0.6)
+        r = requests.get(url, headers=headers, timeout=timeout)
+    if r.ok:
+        return r.content
+
+    # 2) fallback to HTTP (some CDNs gatekeep HTTPS without UA)
+    if url.startswith("https://"):
+        url_http = "http://" + url[len("https://"):]
+        r = requests.get(url_http, headers=headers, timeout=timeout)
+        if r.status_code == 403:
+            time.sleep(0.6)
+            r = requests.get(url_http, headers=headers, timeout=timeout)
+        r.raise_for_status()
+        return r.content
+
+    r.raise_for_status()
+    return r.content
+
 def ensure_bls_files():
     BLS_DIR.mkdir(parents=True, exist_ok=True)
     for fname in BLS_FILES:
         dest = BLS_DIR / fname
-        if not dest.exists() or dest.stat().st_size == 0:
-            url = f"{BLS_BASE}{fname}"
-            print(f"[laus:gen] fetching {url} → {dest}")
-            r = requests.get(url, timeout=60)
-            r.raise_for_status()
-            dest.write_bytes(r.content)
-
+        if dest.exists() and dest.stat().st_size > 0:
+            continue
+        url = f"{BLS_BASE}{fname}"
+        print(f"[laus:gen] fetching {url} → {dest}")
+        data = _http_get(url, timeout=60)
+        dest.write_bytes(data)
+# --- end fetcher ---
 
 SPEC = Path("config/laus_spec.yml")
 OUT_CSV = Path("config/laus_series.generated.csv")
 
-def main():
-    ensure_bls_files()
 
-# BLS lookup files (tab-delimited, standard LAUS formats)
-LA_AREA   = Path("config/bls/la.area")
-LA_SERIES = Path("config/bls/la.series")
 
 # 03–06 are the LAUS measures we ingest
 MEASURE_MAP = {
@@ -65,8 +96,10 @@ def seasonal_tag_from_sid(series_id: str) -> str:
 def load_lookup():
     # BLS files are tab-delimited with stable schemas.
     # We read as raw and only use the columns we need.
-    area = pd.read_csv(LA_AREA, sep="\t", dtype=str)
-    series = pd.read_csv(LA_SERIES, sep="\t", dtype=str)
+
+    area   = pd.read_csv(LA_AREA,   sep=r"\t+", engine="python", dtype=str)
+    series = pd.read_csv(LA_SERIES, sep=r"\t+", engine="python", dtype=str)
+
 
     # Normalize column names defensively
     area.columns = [c.strip().lower() for c in area.columns]
@@ -131,6 +164,9 @@ def resolve_area_code(area_df: pd.DataFrame, spec_area: dict) -> str:
                      f"Provide 'area_code' in YAML for: {spec_area}")
 
 def main():
+    # BLS lookup files (tab-delimited, standard LAUS formats)
+    ensure_bls_files()
+
     if not SPEC.exists():
         print(f"[laus:gen] missing {SPEC}")
         sys.exit(1)
