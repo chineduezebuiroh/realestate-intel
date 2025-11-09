@@ -59,19 +59,17 @@ transform_monthly: db
 
 
 
-
 .PHONY: laus_gen ingest_bls transform_bls
 
 laus_gen:
 	$(PY) ingest/laus_expand_spec.py
+	cp -f config/laus_series.generated.csv config/laus_series.csv
 
-ingest_bls: laus_gen
+ingest_bls: setup laus_gen
 	$(PY) ingest/laus_api_bulk.py
 
-transform_bls:
-	$(PY) utils/db.py --build
+transform_bls: db
 	$(PY) transform/laus_to_fact.py
-
 
 
 
