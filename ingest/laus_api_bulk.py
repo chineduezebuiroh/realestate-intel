@@ -51,18 +51,24 @@ def _http_get(url: str, timeout=60) -> bytes:
 
 LA_AREA_PATH = BLS_DIR / "la.area"
 
+
 def load_la_area() -> pd.DataFrame:
-    """Load la.area from the local cache (downloaded by your make target)."""
-    BLS_DIR.mkdir(parents=True, exist_ok=True)
-    text = LA_AREA_PATH.read_text(encoding="utf-8", errors="replace")
+    """
+    Load la.area from local cache (config/bls/la.area) written by ensure_bls_files().
+    Parse with tolerant tab regex and keep only the columns we need.
+    """
+    path = BLS_DIR / "la.area"
+    if not path.exists() or path.stat().st_size == 0:
+        # Reuse your robust fetcher
+        data = _http_get(BLS_BASE + "la.area", timeout=60)
+        path.write_bytes(data)
+    text = path.read_text(encoding="utf-8", errors="replace")
     df = pd.read_csv(StringIO(text), sep=r"\t+", engine="python", dtype=str)
     df.columns = [c.strip().lower() for c in df.columns]
-    # normalize
     for c in ("area_code", "area_text"):
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
-    return df
-
+    return df[["area_code", "area_text"]]
 
 
 
@@ -141,6 +147,80 @@ def choose_latest_series(la_series_df, area_code, measure_code, seasonal, allow_
 
 
 
+def _max_year_from_block(block) -> int:
+    """Get the max data year from a single-series API response block."""
+    if not block:
+        return -1
+    s = block[0]  # one series
+    mons = [d for d in s.get("data", []) if str(d.get("period","")).startswith("M")]
+    if not mons:
+        return -1
+    try:
+        return max(int(d["year"]) for d in mons if d.get("year"))
+    except Exception:
+        return -1
+
+def pick_by_api_max_year(series_ids: list[str]) -> tuple[str|None, int]:
+    """Fetch a small batch of candidate SIDs and return (best_sid, max_year)."""
+    if not series_ids:
+        return (None, -1)
+    # BLS allows batching; keep it small to be polite
+    block = fetch_series(series_ids[:50])
+    best_sid, best_year = None, -1
+    for s in block:
+        sid = s.get("seriesID")
+        my = _max_year_from_block([s])
+        if my > best_year:
+            best_sid, best_year = sid, my
+    return best_sid, best_year
+
+
+
+def _norm_area_name(x: str) -> str:
+    x = (x or "").lower()
+    x = x.replace(" city,", ",").replace(" county,", ",")
+    x = x.replace(" city", "").replace(" county", "")
+    return " ".join(x.split())
+
+def candidate_sids_wide(
+    la_series_df: pd.DataFrame,
+    la_area_df: pd.DataFrame,
+    wanted_name: str | None,
+    measure_code: str,
+    seasonal_SU: str,               # 'S' or 'U'
+    area_code_family: str | None
+) -> list[str]:
+    s = la_series_df.copy()
+    a = la_area_df.copy()
+    a["area_text_lc"] = a["area_text"].astype(str).str.strip().str.lower()
+    a["name_n"] = a["area_text_lc"].map(_norm_area_name)
+    s["measure_code"] = s["measure_code"].astype(str).str.zfill(3)
+    s["seasonal"] = s["seasonal"].astype(str).str.upper().replace({"SA":"S", "NSA":"U"})
+
+    m = s.merge(a[["area_code","area_text","area_text_lc","name_n"]], on="area_code", how="left")
+
+    cand = pd.DataFrame()
+    if wanted_name:
+        tn = _norm_area_name(wanted_name)
+        c1 = m[m["name_n"] == tn]
+        c2 = m[m["name_n"].str.contains(tn, na=False)] if c1.empty else pd.DataFrame()
+        cand = pd.concat([c1, c2], ignore_index=True)
+
+    if cand.empty and area_code_family:
+        cand = m[m["area_code"].str.startswith(area_code_family)]
+
+    # filter to the measure + seasonal we need
+    cand = cand[(cand["measure_code"] == str(measure_code).zfill(3)) &
+                (cand["seasonal"] == seasonal_SU)]
+
+    # de-dup and return SIDs
+    return list(dict.fromkeys(cand["series_id"].dropna().tolist()))
+
+
+
+    ### --- CAN I DELETE THIS BELOW? ---
+    # \/-\/-\/-\/-\/-\/-\/-\/-\/-\/-\/-\/
+
 def choose_latest_series_wide(
     la_series_df: pd.DataFrame,
     la_area_df: pd.DataFrame,
@@ -194,6 +274,9 @@ def choose_latest_series_wide(
     cands["begin_year_rank"] = cands["begin_year"].fillna(-1)
     cands = cands.sort_values(["end_year_rank", "begin_year_rank"], ascending=[False, True])
     return cands.iloc[0]["series_id"]
+
+    # /\-/\-/\-/\-/\-/\-/\-/\-/\-/\-/\-/\
+    ### --- CAN I DELETE THIS ABOVE? ---
 
 
 
@@ -481,13 +564,24 @@ def main():
     la_series_df = load_la_series_index()
     la_area_df   = load_la_area()
 
+    def _to_SU(sfx: str) -> str:
+        s = (sfx or "").strip().lower()
+        return "S" if s == "sa" else "U"
 
+
+    ### --- CAN I DELETE THIS BELOW? ---
+    # \/-\/-\/-\/-\/-\/-\/-\/-\/-\/-\/-\/
+    
     # helper to map our 'sa'/'nsa' to BLS single-letter codes used in la.series
     def _to_bls_seasonal(sfx: str) -> str:
         s = (sfx or "").strip().lower()
         if s == "sa":  return "S"
         if s == "nsa": return "U"
         return "U"
+
+    # /\-/\-/\-/\-/\-/\-/\-/\-/\-/\-/\-/\
+    ### --- CAN I DELETE THIS ABOVE? ---
+    
     
     for sid in series_ids:
         print(f"  {sid} -> {sid_to_rowmeta[sid]['metric_id']}")
@@ -505,102 +599,89 @@ def main():
         chunk = series_ids[i:i+50]
         print(f"[laus] fetching {len(chunk)} series…")
         series_block = fetch_series(chunk)
-
-        # --- stale detection + auto-remap to latest live series via la.series ---
-        # Build a new block with replacements as needed
+    
         new_block = []
         for s in series_block:
             sid = s["seriesID"]
-            # monthly rows only
             monthly = [d for d in s.get("data", []) if str(d.get("period","")).startswith("M")]
             n = len(monthly)
-
             first = last = None
             if monthly:
-                months = []
-                for d in monthly:
-                    y, p = int(d["year"]), int(d["period"][1:])
-                    months.append(pd.Timestamp(year=y, month=p, day=1))
-                first = min(months); last = max(months)
-
-            # decide if this series is stale/empty
+                months = [pd.Timestamp(int(d["year"]), int(d["period"][1:]), 1) for d in monthly]
+                first, last = min(months), max(months)
+    
             if needs_refresh(n, first, last):
-                area_code, measure_code, _old_seas = parse_sid(sid)
+                area_code, measure_code, _seas = parse_sid(sid)
                 meta = sid_to_rowmeta.get(sid, {})
-                seas_u = _to_bls_seasonal(meta.get("seasonal") or suffix_from_sid(sid))
-            
-                # 5a) Try same-area_code successor (your existing logic)
-                new_sid = choose_latest_series(
-                    la_series_df,
-                    area_code=area_code,
-                    measure_code=measure_code,
-                    seasonal=seas_u,
-                    allow_sa_to_nsa_fallback=True
-                )
-            
-                # 5b) If none or still stale (ends in 1990s), try WIDE search by name / family prefix
-                def _series_max_year(series_row):
-                    mons = [d for d in series_row.get("data", []) if str(d.get("period","")).startswith("M")]
-                    return max((int(d["year"]) for d in mons), default=-1)
-            
-                still_stale = True
-                if new_sid and new_sid != sid:
-                    # quick check the replacement’s max year
-                    test_block = fetch_series([new_sid]) or []
-                    if test_block and _series_max_year(test_block[0]) >= 2010:
-                        still_stale = False
-                    else:
-                        new_sid = None  # treat as not good enough; try wide
-            
-                if not new_sid:
-                    # strip trailing zeros to form a family prefix like 'CN51013'
+                seas_SU = _to_SU(meta.get("seasonal") or suffix_from_sid(sid))
+    
+                # 1) Try catalog successor at same area_code
+                cat_sid = choose_latest_series(la_series_df, area_code, measure_code, seas_SU, allow_sa_to_nsa_fallback=True)
+                chosen_sid, chosen_year = (None, -1)
+                if cat_sid:
+                    tb = fetch_series([cat_sid])
+                    y = _max_year_from_block(tb)
+                    if y >= 2010:
+                        chosen_sid, chosen_year = cat_sid, y
+    
+                # 2) If still not modern, scan "wide" by name + family
+                if not chosen_sid:
+                    # prefer note/name from your generated CSV; fall back to la.area text for this area_code
+                    area_name = meta.get("area_name")
+                    if not area_name:
+                        # derive name from la.area if possible
+                        nm = la_area_df.loc[la_area_df["area_code"] == area_code, "area_text"]
+                        area_name = nm.iloc[0] if len(nm) == 1 else None
                     fam = area_code.rstrip("0")[:7] if area_code else None
-                    new_sid = choose_latest_series_wide(
+                    cands = candidate_sids_wide(
                         la_series_df=la_series_df,
                         la_area_df=la_area_df,
-                        wanted_name=meta.get("area_name"),
+                        wanted_name=area_name,
                         measure_code=measure_code,
-                        seasonal_SU=seas_u,
+                        seasonal_SU=seas_SU,
                         area_code_family=fam
                     )
-            
-                if new_sid and new_sid != sid:
-                    print(f"[laus] remapping stale {sid} → {new_sid} (n={n}, last={last.date() if last is not None else None})")
-                    # keep master list tidy (optional)
+                    if cands:
+                        best_sid, best_year = pick_by_api_max_year(cands)
+                        if best_year >= 2010:
+                            chosen_sid, chosen_year = best_sid, best_year
+    
+                if chosen_sid and chosen_sid != sid:
+                    print(f"[laus] remapping stale {sid} → {chosen_sid} (prev last={last.date() if last is not None else None}, new last≈{chosen_year})")
+                    # swap in series_ids array so later duplicates use the new id
                     try:
                         idx = series_ids.index(sid)
-                        series_ids[idx] = new_sid
+                        series_ids[idx] = chosen_sid
                     except ValueError:
                         pass
-            
-                    repl_block = fetch_series([new_sid])
-                    if repl_block:
-                        s = repl_block[0]
+    
+                    # fetch replacement data for the block and update meta
+                    repl = fetch_series([chosen_sid])
+                    if repl:
+                        s = repl[0]
                         meta_old = sid_to_rowmeta.pop(sid, {}).copy()
                         old_sfx = (meta_old.get("seasonal") or "").lower()
-                        new_sfx = suffix_from_sid(new_sid)
+                        new_sfx = suffix_from_sid(chosen_sid)
                         if new_sfx and new_sfx != old_sfx:
-                            base = meta_old.get("metric_base") or base_from_sid(new_sid)
+                            base = meta_old.get("metric_base") or base_from_sid(chosen_sid)
                             meta_old["metric_id"] = f"{base}_{new_sfx}"
                             meta_old["seasonal"] = new_sfx
-                        sid_to_rowmeta[new_sid] = meta_old
+                        # capture a friendly name to help future wide lookups
+                        if "area_name" not in meta_old:
+                            meta_old["area_name"] = area_name
+                        sid_to_rowmeta[chosen_sid] = meta_old
                     else:
-                        print(f"[laus] WARNING: could not fetch replacement for {new_sid}; keeping original {sid}")
-
-
-
-            # log final count for whichever SID we’re keeping
+                        print(f"[laus] WARNING: could not fetch replacement for {chosen_sid}; keeping original {sid}")
+    
             keep_sid = s["seriesID"]
             print(f"[laus] fetched {len([d for d in s.get('data', []) if str(d.get('period','')).startswith('M')]):4d} "
                   f"monthly rows for {keep_sid} -> {sid_to_rowmeta.get(keep_sid,{}).get('metric_id')}")
-
             new_block.append(s)
-
-        # use possibly-remapped block
+    
         series_block = new_block
-        # -----------------------------------------------------------------------
         dfs.append(to_df(series_block, sid_to_rowmeta))
-        time.sleep(0.5)  # small courtesy pause
+        time.sleep(0.5)
+    
 
     
     all_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
