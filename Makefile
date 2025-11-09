@@ -59,28 +59,19 @@ transform_monthly: db
 
 
 
-.PHONY: bls_sync
+.PHONY: bls_sync laus_gen
+
 bls_sync:
 	. .venv/bin/activate; python - <<'PY'
-from ingest.laus_expand_spec import ensure_bls_files
-ensure_bls_files()
-print("[make] BLS reference files synced.")
-PY
+	from ingest.laus_expand_spec import ensure_bls_files
+	ensure_bls_files()
+	print("[make] BLS reference files synced.")
+	PY
 
-
-
-
-.PHONY: laus_gen ingest_bls transform_bls
-
-laus_gen:
-	$(PY) ingest/laus_expand_spec.py
-	cp -f config/laus_series.generated.csv config/laus_series.csv
-
-ingest_bls: setup laus_gen
-	$(PY) ingest/laus_api_bulk.py
-
-transform_bls: db
-	$(PY) transform/laus_to_fact.py
+laus_gen: bls_sync
+	. .venv/bin/activate; python ingest/laus_expand_spec.py
+	. .venv/bin/activate; python ingest/laus_api_bulk.py
+	. .venv/bin/activate; python transform/laus_to_fact.py
 
 
 
