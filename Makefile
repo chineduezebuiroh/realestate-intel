@@ -63,14 +63,14 @@ transform_monthly: db
 .PHONY: laus_gen ingest_bls transform_bls
 
 laus_gen:
-	(PY) ingest/laus_expand_spec.py
+	$(PY) ingest/laus_expand_spec.py
 
 ingest_bls: laus_gen
-	(PY) ingest/laus_api_bulk.py
+	$(PY) ingest/laus_api_bulk.py
 
 transform_bls:
-	(PY) utils/db.py --build
-	(PY) transform/laus_to_fact.py
+	$(PY) utils/db.py --build
+	$(PY) transform/laus_to_fact.py
 
 
 
