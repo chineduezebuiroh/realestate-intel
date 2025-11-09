@@ -7,6 +7,68 @@ from pathlib import Path
 
 from datetime import date
 
+# add near imports
+from io import StringIO
+
+LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
+
+def load_la_series_index():
+    # Download la.series once; it’s a tab-delimited file
+    r = requests.get(LA_SERIES_URL, timeout=60)
+    r.raise_for_status()
+    df = pd.read_csv(StringIO(r.text), sep="\t")
+    # normalize columns
+    df.columns = [c.strip().lower() for c in df.columns]
+    # trim whitespace in string cols
+    for c in ("series_id","area_code","measure_code","seasonal"):
+        df[c] = df[c].astype(str).str.strip()
+    # cast years if present
+    for c in ("begin_year","end_year"):
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df
+
+def parse_sid(sid: str):
+    sid = (sid or "").strip().upper()
+    area_code = sid[3:-3]           # after 'LAS'/'LAU' up to last 3 measure digits
+    measure_code = sid[-3:]
+    seasonal = "S" if sid.startswith("LAS") else "U"
+    return area_code, measure_code, seasonal
+
+def choose_latest_series(la_series_df, area_code, measure_code, seasonal, allow_sa_to_nsa_fallback=True):
+    # exact seasonal first
+    cand = la_series_df[
+        (la_series_df["area_code"] == area_code) &
+        (la_series_df["measure_code"] == measure_code) &
+        (la_series_df["seasonal"] == seasonal)
+    ].copy()
+    if cand.empty and (seasonal == "S") and allow_sa_to_nsa_fallback:
+        # fallback to NSA at the same area/measure
+        cand = la_series_df[
+            (la_series_df["area_code"] == area_code) &
+            (la_series_df["measure_code"] == measure_code) &
+            (la_series_df["seasonal"] == "U")
+        ].copy()
+    if cand.empty:
+        return None
+
+    # Prefer the one with the most recent end_year (treat NaN as "open-ended"/max)
+    # If end_year is missing, prefer the one with the most recent begin_year as tie-break.
+    cand["end_year_fill"] = cand["end_year"].fillna(9999)
+    cand["begin_year_fill"] = cand["begin_year"].fillna(-1)
+    cand = cand.sort_values(["end_year_fill","begin_year_fill"], ascending=[True, True])
+    latest = cand.iloc[-1]  # last row after sort → newest span
+    return latest["series_id"]
+
+def needs_refresh(n_rows: int, first_date: pd.Timestamp | None, last_date: pd.Timestamp | None) -> bool:
+    # You already added a detector; keep your logic.
+    if n_rows == 0:
+        return True
+    if last_date is not None and pd.Timestamp(last_date).year < 2000:
+        return True
+    return False
+
+
 def detect_stale_series(series_block):
     """Return a list of (sid, min_year, max_year, n_months) for series that don't cover the current year."""
     CY = date.today().year
@@ -287,25 +349,72 @@ def main():
 
     # batch up to 50 series per API call
     dfs = []
+    # load la.series once for remapping stale/retired series
+    la_series_df = load_la_series_index()
+
     for i in range(0, len(series_ids), 50):
         chunk = series_ids[i:i+50]
         print(f"[laus] fetching {len(chunk)} series…")
         series_block = fetch_series(chunk)
 
-        stale = detect_stale_series(series_block)
-        if stale:
-            print("[laus] WARNING — stale/retired series detected (likely old area codes):")
-            for sid, miny, maxy, n in stale:
-                print(f"  {sid}: {n} months, years {miny}-{maxy}")
-            print("  → Fix by updating area_stem in config/laus_spec.yml for these geos.")
-
-
-        # DEBUG: count data points per SID
+        # --- stale detection + auto-remap to latest live series via la.series ---
+        # Build a new block with replacements as needed
+        new_block = []
         for s in series_block:
             sid = s["seriesID"]
-            n = sum(1 for d in s.get("data", []) if str(d.get("period","")).startswith("M"))
-            print(f"[laus] fetched {n:4d} monthly rows for {sid} -> {sid_to_rowmeta.get(sid,{}).get('metric_id')}")
-        
+            # monthly rows only
+            monthly = [d for d in s.get("data", []) if str(d.get("period","")).startswith("M")]
+            n = len(monthly)
+
+            first = last = None
+            if monthly:
+                months = []
+                for d in monthly:
+                    y, p = int(d["year"]), int(d["period"][1:])
+                    months.append(pd.Timestamp(year=y, month=p, day=1))
+                first = min(months); last = max(months)
+
+            # decide if this series is stale/empty
+            if needs_refresh(n, first, last):
+                area_code, measure_code, seas = parse_sid(sid)
+                new_sid = choose_latest_series(
+                    la_series_df, area_code, measure_code, seas,
+                    allow_sa_to_nsa_fallback=True
+                )
+                if new_sid and new_sid != sid:
+                    print(f"[laus] remapping stale {sid} → {new_sid} (n={n}, last={last.date() if last is not None else None})")
+
+                    # pull replacement series
+                    repl_block = fetch_series([new_sid])
+                    if repl_block:
+                        s = repl_block[0]  # use the new series data
+                        # transfer/update meta so rows get the correct metric_id
+                        meta = sid_to_rowmeta.pop(sid, {}).copy()
+                        # if seasonal changed (e.g., SA→NSA), update metric_id suffix
+                        old_sfx = (meta.get("seasonal") or "").lower()
+                        new_sfx = suffix_from_sid(new_sid)
+                        if new_sfx and new_sfx != old_sfx:
+                            base = meta.get("metric_base") or base_from_sid(new_sid)
+                            meta["metric_id"] = f"{base}_{new_sfx}"
+                            meta["seasonal"] = new_sfx
+                        sid_to_rowmeta[new_sid] = meta
+
+                        # re-count with replacement for logging
+                        monthly = [d for d in s.get("data", []) if str(d.get("period","")).startswith("M")]
+                        n = len(monthly)
+                    else:
+                        print(f"[laus] WARNING: could not fetch replacement for {new_sid}; keeping original {sid}")
+
+            # log final count for whichever SID we’re keeping
+            keep_sid = s["seriesID"]
+            print(f"[laus] fetched {len([d for d in s.get('data', []) if str(d.get('period','')).startswith('M')]):4d} "
+                  f"monthly rows for {keep_sid} -> {sid_to_rowmeta.get(keep_sid,{}).get('metric_id')}")
+
+            new_block.append(s)
+
+        # use possibly-remapped block
+        series_block = new_block
+        # -----------------------------------------------------------------------
         dfs.append(to_df(series_block, sid_to_rowmeta))
         time.sleep(0.5)  # small courtesy pause
 
