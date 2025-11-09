@@ -24,26 +24,32 @@ def main():
         raise SystemExit(f"[laus:gen] Missing required key in {SPEC_PATH}: {e}")
 
     rows = []
+    # inside main(), after you read spec and before looping measures:
     for ar in areas:
         geo_id    = ar["geo_id"]
         area_stem = ar["area_stem"]
-        level_hr  = (ar.get("level") or "area").title()
-        area_name = ar.get("name") or geo_id
-        for seas in seasonals:                       # "S" (SA) or "U" (NSA)
-            seasonal_hr = "SA" if seas == "S" else "NSA"
-            for suf, meta in measures.items():       # "003","004","005","006", etc.
-                tail = str(suf).zfill(3)              # ensure 003/004/005/006
-                series_id = f"{prefix}{seas}{area_stem}{tail}"
-                metric_base = meta["base"]           # e.g., "laus_employment"
-                metric_name = meta["name"]           # e.g., "Employment"
+        level     = (ar.get("level") or "").lower()
+    
+        # SA is generally available for state/nation; sub-state is NSA-only
+        if level in {"state", "nation"}:
+            seasonals_for_area = ["S", "U"]
+        else:
+            seasonals_for_area = ["U"]
+    
+        for seas in seasonals_for_area:
+            for suf, meta in measures.items():
+                tail = str(suf).zfill(3)
+                series_id   = f"{prefix}{seas}{area_stem}{tail}"
+                seasonal_hr = "SA" if seas == "S" else "NSA"
                 rows.append({
-                    "geo_id":       geo_id,
-                    "series_id":    series_id,
-                    "metric_base":  metric_base,
-                    "seasonal":     seasonal_hr,
-                    "name":         f"{metric_name} ({level_hr}, {seasonal_hr})",
-                    "notes":        area_name,
+                    "geo_id": geo_id,
+                    "series_id": series_id,
+                    "metric_base": meta["base"],
+                    "seasonal": seasonal_hr,
+                    "name": f"{meta['name']} ({ar.get('level','area').title()}, {seasonal_hr})",
+                    "notes": ar.get("name") or geo_id,
                 })
+
 
     # Ensure destination directory exists
     out_path = Path(OUT_CSV)
