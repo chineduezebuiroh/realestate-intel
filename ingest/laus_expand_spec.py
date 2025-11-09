@@ -4,8 +4,29 @@ from pathlib import Path
 import yaml
 import pandas as pd
 
+import requests
+
+BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
+BLS_DIR  = Path("config/bls")
+BLS_FILES = ["la.area", "la.series", "la.measure", "la.area_type"]
+
+def ensure_bls_files():
+    BLS_DIR.mkdir(parents=True, exist_ok=True)
+    for fname in BLS_FILES:
+        dest = BLS_DIR / fname
+        if not dest.exists() or dest.stat().st_size == 0:
+            url = f"{BLS_BASE}{fname}"
+            print(f"[laus:gen] fetching {url} → {dest}")
+            r = requests.get(url, timeout=60)
+            r.raise_for_status()
+            dest.write_bytes(r.content)
+
+
 SPEC = Path("config/laus_spec.yml")
 OUT_CSV = Path("config/laus_series.generated.csv")
+
+def main():
+    ensure_bls_files()
 
 # BLS lookup files (tab-delimited, standard LAUS formats)
 LA_AREA   = Path("config/bls/la.area")
