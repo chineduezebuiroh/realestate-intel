@@ -12,21 +12,84 @@ from io import StringIO
 
 LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
 
-def load_la_series_index():
-    # Download la.series once; it’s a tab-delimited file
-    r = requests.get(LA_SERIES_URL, timeout=60)
+BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
+BLS_DIR  = Path("config/bls")
+LA_SERIES_PATH = BLS_DIR / "la.series"
+
+
+
+import time
+import requests
+
+def _http_get(url: str, timeout=60) -> bytes:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+    r = requests.get(url, headers=headers, timeout=timeout)
+    if r.status_code == 403:
+        time.sleep(0.6)
+        r = requests.get(url, headers=headers, timeout=timeout)
+    if r.ok:
+        return r.content
+
+    if url.startswith("https://"):
+        url_http = "http://" + url[len("https://"):]
+        r = requests.get(url_http, headers=headers, timeout=timeout)
+        if r.status_code == 403:
+            time.sleep(0.6)
+            r = requests.get(url_http, headers=headers, timeout=timeout)
+        r.raise_for_status()
+        return r.content
+
     r.raise_for_status()
-    df = pd.read_csv(StringIO(r.text), sep="\t")
-    # normalize columns
+    return r.content
+
+
+
+def load_la_series_index() -> pd.DataFrame:
+    """
+    Load la.series from local cache if present; otherwise fetch with a robust request.
+    Parse with a tolerant tab regex and normalize fields we rely on.
+    """
+    BLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if LA_SERIES_PATH.exists() and LA_SERIES_PATH.stat().st_size > 0:
+        text = LA_SERIES_PATH.read_text()
+    else:
+        data = _http_get(BLS_BASE + "la.series", timeout=60)
+        text = data.decode("utf-8", errors="replace")
+        LA_SERIES_PATH.write_text(text)
+
+    # Tolerant tab parsing; handles multiple tabs and stray spaces
+    df = pd.read_csv(StringIO(text), sep=r"\t+", engine="python", dtype=str)
     df.columns = [c.strip().lower() for c in df.columns]
-    # trim whitespace in string cols
-    for c in ("series_id","area_code","measure_code","seasonal"):
-        df[c] = df[c].astype(str).str.strip()
-    # cast years if present
-    for c in ("begin_year","end_year"):
+
+    # Trim + normalize key columns
+    for c in ("series_id", "area_code", "measure_code", "seasonal"):
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+
+    # ✅ pad measure codes to 3 digits so they match '003'..'006'
+    if "measure_code" in df.columns:
+        df["measure_code"] = df["measure_code"].str.zfill(3)
+
+    # Normalize seasonal to single-letter codes we filter against ('S'/'U')
+    if "seasonal" in df.columns:
+        df["seasonal"] = (df["seasonal"].str.upper()
+                          .replace({"SA": "S", "NSA": "U"}))
+
+    # Cast year columns if present
+    for c in ("begin_year", "end_year"):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
+
     return df
+
+
 
 def parse_sid(sid: str):
     sid = (sid or "").strip().upper()
