@@ -32,7 +32,8 @@ def main():
         for seas in seasonals:                       # "S" (SA) or "U" (NSA)
             seasonal_hr = "SA" if seas == "S" else "NSA"
             for suf, meta in measures.items():       # "003","004","005","006", etc.
-                series_id = f"{prefix}{seas}{area_stem}{suf}"
+                tail = str(suf).zfill(3)              # ensure 003/004/005/006
+                series_id = f"{prefix}{seas}{area_stem}{tail}"
                 metric_base = meta["base"]           # e.g., "laus_employment"
                 metric_name = meta["name"]           # e.g., "Employment"
                 rows.append({
