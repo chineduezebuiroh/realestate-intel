@@ -61,11 +61,12 @@ transform_monthly: db
 
 .PHONY: bls_sync
 bls_sync:
-	mkdir -p config/bls
-	curl -fsSLo config/bls/la.area       https://download.bls.gov/pub/time.series/la/la.area
-	curl -fsSLo config/bls/la.series     https://download.bls.gov/pub/time.series/la/la.series
-	curl -fsSLo config/bls/la.measure    https://download.bls.gov/pub/time.series/la/la.measure
-	curl -fsSLo config/bls/la.area_type  https://download.bls.gov/pub/time.series/la/la.area_type
+	. .venv/bin/activate; python - <<'PY'
+from ingest.laus_expand_spec import ensure_bls_files
+ensure_bls_files()
+print("[make] BLS reference files synced.")
+PY
+
 
 
 
