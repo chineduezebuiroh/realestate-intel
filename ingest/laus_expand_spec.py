@@ -93,36 +93,30 @@ def seasonal_tag_from_sid(series_id: str) -> str:
     # Defensive fallback; most LAUS series are LAS*/LAU*
     return "NSA"
 
-def load_lookup():
-    # BLS files are tab-delimited with stable schemas.
-    # We read as raw and only use the columns we need.
 
+
+def load_lookup():
     area   = pd.read_csv(LA_AREA,   sep=r"\t+", engine="python", dtype=str)
     series = pd.read_csv(LA_SERIES, sep=r"\t+", engine="python", dtype=str)
 
-
-    # Normalize column names defensively
-    area.columns = [c.strip().lower() for c in area.columns]
+    area.columns   = [c.strip().lower() for c in area.columns]
     series.columns = [c.strip().lower() for c in series.columns]
 
-    # Expected columns (with common names in BLS flat files):
-    # la.area   -> area_code, area_text (and sometimes state_code, county_code, etc.)
-    # la.series -> series_id, area_code, measure_code, seasonal, begin_year, end_year
-    must_area = {"area_code", "area_text"}
-    must_series = {"series_id", "area_code", "measure_code", "seasonal", "begin_year", "end_year"}
-    if not must_area.issubset(set(area.columns)) or not must_series.issubset(set(series.columns)):
-        raise SystemExit("[laus:gen] Could not find expected columns in la.area/la.series")
-
-    # Clean typical whitespace
+    # Trim
     for df in (area, series):
         for c in df.columns:
-            df[c] = df[c].astype(str).str.strip()
+            df[c] = df[c].astype(str).strip()
 
-    # Coerce years for ranking; missing -> -inf
+    # 👉 normalize measure_code to 3 digits so it matches "003"/"004"/"005"/"006"
+    series["measure_code"] = series["measure_code"].str.zfill(3)
+
+    # Years as numbers
     for c in ("begin_year", "end_year"):
         series[c] = pd.to_numeric(series[c], errors="coerce")
 
     return area, series
+
+
 
 def pick_latest_series(sdf: pd.DataFrame) -> pd.Series | None:
     """Pick the best row among candidate series:
