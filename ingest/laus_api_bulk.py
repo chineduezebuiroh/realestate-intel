@@ -5,6 +5,25 @@ import pandas as pd
 import duckdb
 from pathlib import Path
 
+from datetime import date
+
+def detect_stale_series(series_block):
+    """Return a list of (sid, min_year, max_year, n_months) for series that don't cover the current year."""
+    CY = date.today().year
+    out = []
+    for s in series_block:
+        sid = s.get("seriesID")
+        months = [d for d in s.get("data", []) if str(d.get("period","")).startswith("M")]
+        if not months:
+            out.append((sid, None, None, 0))
+            continue
+        years = [int(d["year"]) for d in months if d.get("year")]
+        miny, maxy = min(years), max(years)
+        n_months = len(months)
+        if maxy < CY - 1:  # lagging well behind present
+            out.append((sid, miny, maxy, n_months))
+    return out
+
 
 
 def suffix_from_sid(series_id: str) -> str:
@@ -272,6 +291,14 @@ def main():
         chunk = series_ids[i:i+50]
         print(f"[laus] fetching {len(chunk)} series…")
         series_block = fetch_series(chunk)
+
+        stale = detect_stale_series(series_block)
+        if stale:
+            print("[laus] WARNING — stale/retired series detected (likely old area codes):")
+            for sid, miny, maxy, n in stale:
+                print(f"  {sid}: {n} months, years {miny}-{maxy}")
+            print("  → Fix by updating area_stem in config/laus_spec.yml for these geos.")
+
 
         # DEBUG: count data points per SID
         for s in series_block:
