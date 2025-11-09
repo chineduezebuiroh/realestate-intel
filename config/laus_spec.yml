@@ -9,21 +9,21 @@ series:
 
 # For each area, store the **BLS LAUS area code stem** (everything after 'LAS'/'LAU')
 # Example: for DC state, full SA series is LASST110000000000003
-# The 'area_stem' here is "ST1100000000000"
+# The 'area_code' here is "ST1100000000000"
 areas:
  # --- STATES ---
  - geo_id: dc_state
-   area_stem: "ST110000000000"
+   area_code: "ST1100000000000"
    level: "state"
    name: "District of Columbia"
 
  - geo_id: md_state
-   area_stem: "ST240000000000"
+   area_code: "ST2400000000000"
    level: "state"
    name: "Maryland"
 
  - geo_id: va_state
-   area_stem: "ST510000000000"
+   area_code: "ST5100000000000"
    level: "state"
    name: "Virginia"
 
@@ -31,12 +31,12 @@ areas:
 
  # --- METROPOLITAN STATISTICAL AREA (MSA) ---
  - geo_id: dc_msa
-   area_stem: "MT114790000000"
+   area_code: "MT1147900000000"
    level: "metro_area"
    name: "Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
 
  - geo_id: baltimore_msa
-   area_stem: "MT241258000000"
+   area_code: "MT2412580000000"
    level: "metro_area"
    name: "Baltimore-Columbia-Towson, MD MSA"
 
@@ -44,12 +44,12 @@ areas:
 
  # --- METROPOLITAN DIVISIONS (MD) ---
  - geo_id: dc_msd
-   area_stem: "DV114776400000"
+   area_code: "DV1147764000000"
    level: "metro_division"
    name: "Washington, DC-MD MSD"
 
  - geo_id: arlington_msd
-   area_stem: "DV511169400000"
+   area_code: "DV5111694000000"
    level: "metro_division"
    name: "Arlington-Alexandria-Reston, VA-WV MSD"
 
@@ -57,7 +57,7 @@ areas:
 
  # --- COMBINED STATISTICAL AREA (CSA) ---
  - geo_id: dc_csa
-   area_stem: "CA115480000000"
+   area_code: "CA1154800000000"
    level: "combined_area"
    name: "Washington-Baltimore-Arlington, DC-MD-VA-WV-PA CSA"
 
@@ -65,42 +65,42 @@ areas:
 
  # --- COUNTIES ---
  - geo_id: montgomery_county_md
-   area_stem: "CN240310000000"
+   area_code: "CN2403100000000"
    level: "county"
    name: "Montgomery County, MD"
 
  - geo_id: prince_georges_county_md
-   area_stem: "CN240330000000"
+   area_code: "CN2403300000000"
    level: "county"
    name: "Prince George's County, MD"
 
  - geo_id: prince_william_county_md
-   area_stem: "CN511530000000"
+   area_code: "CN5115300000000"
    level: "county"
    name: "Prince William County, VA"
 
  - geo_id: arlington_county_va
-   area_stem: "CN510130000000"
+   area_code: "CN5101300000000"
    level: "county"
    name: "Arlington County, VA"
 
  - geo_id: alexandria_city
-   area_stem: "CN515100000000"
+   area_code: "CN5151000000000"
    level: "county"
    name: "Alexandria city, VA"
 
  - geo_id: dc_county
-   area_stem: "CN110010000000"
+   area_code: "CN1100100000000"
    level: "county"
    name: "District of Columbia"
 
  - geo_id: baltimore_county
-   area_stem: "CN240050000000"
+   area_code: "CN2400500000000"
    level: "county"
    name: "Baltimore County, MD"
 
  - geo_id: baltimore_city_county
-   area_stem: "CN245100000000"
+   area_code: "CN2451000000000"
    level: "county"
    name: "Baltimore city, MD"
 
@@ -108,26 +108,26 @@ areas:
 
  # --- CITIES ---
  - geo_id: dc_city
-   area_stem: "CT115000000000"
+   area_code: "CT1150000000000"
    level: "city"
    name: "Washington city, DC"
 
  - geo_id: baltimore_city
-   area_stem: "CT240400000000"
+   area_code: "CT2404000000000"
    level: "city"
    name: "Baltimore city, MD"
 
  - geo_id: bowie_city
-   area_stem: "CT240877500000"
+   area_code: "CT2408775000000"
    level: "city"
    name: "Bowie city, MD"
   
  - geo_id: rockville_city
-   area_stem: "CT246767500000"
+   area_code: "CT2467675000000"
    level: "city"
    name: "Rockville city, MD"
 
  - geo_id: alexandria_city
-   area_stem: "CT510100000000"
+   area_code: "CT5101000000000"
    level: "city"
    name: "Alexandria city, VA"
