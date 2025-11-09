@@ -12,8 +12,11 @@ BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
 BLS_FILES = ["la.area", "la.series", "la.measure", "la.area_type"]
 
-LA_AREA   = BLS_DIR / "la.area"
-LA_SERIES = BLS_DIR / "la.series"
+#LA_AREA   = BLS_DIR / "la.area"
+#LA_SERIES = BLS_DIR / "la.series"
+LA_AREA   = Path("config/bls/la.area")
+LA_SERIES = Path("config/bls/la.series")
+
 
 def _http_get(url: str, timeout=60) -> bytes:
     # Try HTTPS with browser UA, then HTTP, with a short retry
@@ -94,31 +97,43 @@ def seasonal_tag_from_sid(series_id: str) -> str:
     return "NSA"
 
 
-def load_lookup():
-    # Read with a tolerant parser; BLS files are tab-like but can have variable whitespace
-    area   = pd.read_csv(Path("config/bls/la.area"),   sep=r"\t+", engine="python", dtype=str)
-    series = pd.read_csv(Path("config/bls/la.series"), sep=r"\t+", engine="python", dtype=str)
+def load_lookup(area_path: Path = LA_AREA, series_path: Path = LA_SERIES):
+    # Use tolerant tab parsing: consecutive tabs, mixed whitespace, etc.
+    area = pd.read_csv(area_path,  sep=r"\t+", engine="python", dtype=str)
+    series = pd.read_csv(series_path, sep=r"\t+", engine="python", dtype=str)
 
-    # Normalize column names safely
-    area.columns   = area.columns.to_series().astype(str).str.strip().str.lower()
-    series.columns = series.columns.to_series().astype(str).str.strip().str.lower()
+    # Normalize columns
+    area.columns   = [c.strip().lower() for c in area.columns]
+    series.columns = [c.strip().lower() for c in series.columns]
 
-    # Strip whitespace only on object (string) columns to avoid .strip on non-strings
+    # Trim whitespace everywhere
     for df in (area, series):
-        obj_cols = df.select_dtypes(include=["object"]).columns
-        df[obj_cols] = df[obj_cols].apply(lambda col: col.str.strip())
+        for c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
 
-    # Expected columns
+    # ✅ CRITICAL: pad measure_code to 3 digits so it matches '003'..'006'
+    if "measure_code" in series.columns:
+        series["measure_code"] = series["measure_code"].str.strip().str.zfill(3)
+
+    # Normalize seasonal to the single-letter codes we filter on
+    if "seasonal" in series.columns:
+        series["seasonal"] = (series["seasonal"]
+                              .str.strip().str.upper()
+                              .replace({"SA":"S", "NSA":"U"}))
+
+    # Coerce years (so we can rank by recency)
+    for c in ("begin_year", "end_year"):
+        if c in series.columns:
+            series[c] = pd.to_numeric(series[c], errors="coerce")
+
+    # Schema sanity
     must_area   = {"area_code", "area_text"}
     must_series = {"series_id", "area_code", "measure_code", "seasonal", "begin_year", "end_year"}
-    if not must_area.issubset(area.columns) or not must_series.issubset(series.columns):
+    if not must_area.issubset(set(area.columns)) or not must_series.issubset(set(series.columns)):
         raise SystemExit("[laus:gen] Could not find expected columns in la.area/la.series")
 
-    # Coerce years for ranking
-    for c in ("begin_year", "end_year"):
-        series[c] = pd.to_numeric(series[c], errors="coerce")
-
     return area, series
+
 
 
 
