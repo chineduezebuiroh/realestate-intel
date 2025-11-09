@@ -9,12 +9,14 @@ from pathlib import Path
 
 def suffix_from_sid(series_id: str) -> str:
     sid = (series_id or "").upper().strip()
-    if sid.startswith("LASST"):  # Seasonally Adjusted
+    # Any 'LAS' prefix => Seasonally Adjusted; any 'LAU' => Not Seasonally Adjusted
+    if sid.startswith("LAS"):
         return "sa"
-    if sid.startswith("LAUST"):  # Not Seasonally Adjusted
+    if sid.startswith("LAU"):
         return "nsa"
-    # Fallback: use CSV seasonal field later
     return "nsa"
+
+
 
 def base_from_sid(series_id: str) -> str:
     # last 3 digits map the LAUS measure
@@ -46,11 +48,11 @@ def seasonal_suffix(series_id: str, seasonal_field: str | None) -> str:
     if s in ("NSA", "U"):
         return "nsa"
     sid = (series_id or "").strip().upper()
-    if sid.startswith("LASST"):  # Seasonally Adjusted
+    if sid.startswith("LAS"):
         return "sa"
-    if sid.startswith("LAUST"):  # Not Seasonally Adjusted
+    if sid.startswith("LAU"):
         return "nsa"
-    return "nsa"  # safe default
+    return "nsa"
 
 
 
