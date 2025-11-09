@@ -1,13 +1,11 @@
 series:
  prefix: "LA"            # LAUS series prefix
  seasonal: ["S","U"]     # S = SA, U = NSA
-  measures:               # measure suffix → our base metric + label
-   "03": { base: "laus_unemployment_rate", name: "Unemployment Rate" }
-   "04": { base: "laus_unemployment", name: "Unemployment" }
-   "05": { base: "laus_employment", name: "Employment" }
-   "06": { base: "laus_labor_force", name: "Labor Force" }
-   "07": { base: "employment_population_ratio", name: "Employment Population Ratio" }
-   "08": { base: "labor_force_participation_rate", name: "Labor Force Participation Rate" }
+ measures:               # measure suffix → our base metric + label
+   "003": { base: "laus_unemployment_rate", name: "Unemployment Rate" }
+   "004": { base: "laus_unemployment", name: "Unemployment" }
+   "005": { base: "laus_employment", name: "Employment" }
+   "006": { base: "laus_labor_force", name: "Labor Force" }
 
 # For each area, store the **BLS LAUS area code stem** (everything after 'LAS'/'LAU')
 # Example: for DC state, full SA series is LASST110000000000003
