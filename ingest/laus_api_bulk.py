@@ -3,6 +3,8 @@ import os, json, time, csv
 import requests
 import pandas as pd
 import duckdb
+from pathlib import Path
+
 
 
 def suffix_from_sid(series_id: str) -> str:
