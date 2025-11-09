@@ -94,23 +94,27 @@ def seasonal_tag_from_sid(series_id: str) -> str:
     return "NSA"
 
 
-
 def load_lookup():
-    area   = pd.read_csv(LA_AREA,   sep=r"\t+", engine="python", dtype=str)
-    series = pd.read_csv(LA_SERIES, sep=r"\t+", engine="python", dtype=str)
+    # Read with a tolerant parser; BLS files are tab-like but can have variable whitespace
+    area   = pd.read_csv(Path("config/bls/la.area"),   sep=r"\t+", engine="python", dtype=str)
+    series = pd.read_csv(Path("config/bls/la.series"), sep=r"\t+", engine="python", dtype=str)
 
-    area.columns   = [c.strip().lower() for c in area.columns]
-    series.columns = [c.strip().lower() for c in series.columns]
+    # Normalize column names safely
+    area.columns   = area.columns.to_series().astype(str).str.strip().str.lower()
+    series.columns = series.columns.to_series().astype(str).str.strip().str.lower()
 
-    # Trim
+    # Strip whitespace only on object (string) columns to avoid .strip on non-strings
     for df in (area, series):
-        for c in df.columns:
-            df[c] = df[c].astype(str).strip()
+        obj_cols = df.select_dtypes(include=["object"]).columns
+        df[obj_cols] = df[obj_cols].apply(lambda col: col.str.strip())
 
-    # 👉 normalize measure_code to 3 digits so it matches "003"/"004"/"005"/"006"
-    series["measure_code"] = series["measure_code"].str.zfill(3)
+    # Expected columns
+    must_area   = {"area_code", "area_text"}
+    must_series = {"series_id", "area_code", "measure_code", "seasonal", "begin_year", "end_year"}
+    if not must_area.issubset(area.columns) or not must_series.issubset(series.columns):
+        raise SystemExit("[laus:gen] Could not find expected columns in la.area/la.series")
 
-    # Years as numbers
+    # Coerce years for ranking
     for c in ("begin_year", "end_year"):
         series[c] = pd.to_numeric(series[c], errors="coerce")
 
