@@ -59,6 +59,16 @@ transform_monthly: db
 
 
 
+.PHONY: bls_sync
+bls_sync:
+	mkdir -p config/bls
+	curl -fsSLo config/bls/la.area       https://download.bls.gov/pub/time.series/la/la.area
+	curl -fsSLo config/bls/la.series     https://download.bls.gov/pub/time.series/la/la.series
+	curl -fsSLo config/bls/la.measure    https://download.bls.gov/pub/time.series/la/la.measure
+	curl -fsSLo config/bls/la.area_type  https://download.bls.gov/pub/time.series/la/la.area_type
+
+
+
 .PHONY: laus_gen ingest_bls transform_bls
 
 laus_gen:
