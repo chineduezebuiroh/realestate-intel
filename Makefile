@@ -62,11 +62,7 @@ transform_monthly: db
 .PHONY: bls_sync laus_gen
 
 bls_sync:
-	. .venv/bin/activate; python - <<'PY'
-	from ingest.laus_expand_spec import ensure_bls_files
-	ensure_bls_files()
-	print("[make] BLS reference files synced.")
-	PY
+	. .venv/bin/activate; python -c "from ingest.laus_expand_spec import ensure_bls_files; ensure_bls_files(); print('[make] BLS reference files synced.')"
 
 laus_gen: bls_sync
 	. .venv/bin/activate; python ingest/laus_expand_spec.py
