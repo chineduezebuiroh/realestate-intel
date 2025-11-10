@@ -16,6 +16,15 @@ BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
 LA_SERIES_PATH = BLS_DIR / "la.series"
 
+# --- Final-resort manual redirects for known stale area codes ---
+# Keyed by the exact area_code found in stale SIDs. Value is a *parent* area_code
+# we know is live (here: the Washington-Arlington-Alexandria MSA).
+MANUAL_AREA_REDIRECT = {
+    "CN5151000000000": "MT1147900000000",  # Alexandria city, VA -> DC-VA-MD-WV MSA
+    "CN5101300000000": "MT1147900000000",  # Arlington County, VA -> DC-VA-MD-WV MSA
+    # add more here if you bump into other legacy locals
+}
+
 
 
 import time
@@ -173,6 +182,20 @@ def pick_by_api_max_year(series_ids: list[str]) -> tuple[str|None, int]:
         if my > best_year:
             best_sid, best_year = sid, my
     return best_sid, best_year
+
+
+
+def pick_live_for_area_code(la_series_df: pd.DataFrame, area_code: str, measure_code: str, seasonal_SU: str) -> tuple[str|None, int]:
+    """Given an area_code, return (best_sid, max_year) chosen by actual API coverage."""
+    cand = la_series_df[
+        (la_series_df["area_code"] == area_code) &
+        (la_series_df["measure_code"].astype(str).str.zfill(3) == str(measure_code).zfill(3)) &
+        (la_series_df["seasonal"].astype(str).str.upper().replace({"SA":"S","NSA":"U"}) == seasonal_SU)
+    ]
+    sids = cand["series_id"].dropna().tolist()
+    if not sids:
+        return (None, -1)
+    return pick_by_api_max_year(sids)
 
 
 
@@ -546,15 +569,15 @@ def main():
     
             series_ids.append(sid)
 
-            area_name = (r.get("name") or r.get("notes") or r.get("geo_id") or "").strip()
-            
+            area_name = (r.get("notes") or r.get("name") or "").strip()
             sid_to_rowmeta[sid] = {
                 "geo_id": geo_id,
                 "metric_id": metric_id,
-                "metric_base": base_csv,   # optional
-                "seasonal": sfx,           # optional ("sa"/"nsa")
-                "area_name": area_name, 
+                "metric_base": base_csv,
+                "seasonal": sfx,
+                "area_name": area_name,   # helps wide search (already used in your code)
             }
+
             
             rows.append(r)
     
@@ -645,6 +668,18 @@ def main():
                         best_sid, best_year = pick_by_api_max_year(cands)
                         if best_year >= 2010:
                             chosen_sid, chosen_year = best_sid, best_year
+
+                # 3) Final resort: if still stale, redirect the *area_code* using our manual map,
+                #    then pick the best series by actual API coverage from that parent area.
+                if not chosen_sid:
+                    parent_area = MANUAL_AREA_REDIRECT.get(area_code)
+                    if parent_area:
+                        alt_sid, alt_year = pick_live_for_area_code(
+                            la_series_df, parent_area, measure_code, seas_SU
+                        )
+                        if alt_sid and alt_year >= 2010:
+                            chosen_sid, chosen_year = alt_sid, alt_year
+           
     
                 if chosen_sid and chosen_sid != sid:
                     print(f"[laus] remapping stale {sid} → {chosen_sid} (prev last={last.date() if last is not None else None}, new last≈{chosen_year})")
