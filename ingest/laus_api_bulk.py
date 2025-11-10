@@ -16,6 +16,31 @@ BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
 LA_SERIES_PATH = BLS_DIR / "la.series"
 
+LA_AREA_PATH = BLS_DIR / "la.area"
+
+def load_la_area() -> pd.DataFrame:
+    """
+    Load la.area from local cache if present; otherwise fetch with a robust request.
+    Parse with a tolerant tab regex and normalize fields we rely on.
+    """
+    BLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if LA_AREA_PATH.exists() and LA_AREA_PATH.stat().st_size > 0:
+        text = LA_AREA_PATH.read_text()
+    else:
+        data = _http_get(BLS_BASE + "la.area", timeout=60)
+        text = data.decode("utf-8", errors="replace")
+        LA_AREA_PATH.write_text(text)
+
+    df = pd.read_csv(StringIO(text), sep=r"\t+", engine="python", dtype=str)
+    df.columns = [c.strip().lower() for c in df.columns]
+    for c in ("area_code", "area_text"):
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+    return df
+
+
+
 # --- Final-resort manual redirects for known legacy locals ---
 # If an area_code has no modern coverage, fall back to a parent area_code we know is live.
 MANUAL_AREA_REDIRECT = {
@@ -102,39 +127,6 @@ def load_la_series_index() -> pd.DataFrame:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
     return df
-
-
-def load_la_area() -> pd.DataFrame:
-    data = _http_get(BLS_BASE + "la.area", timeout=60)
-    text = data.decode("utf-8", errors="replace")
-    df = pd.read_csv(StringIO(text), sep=r"\t+", engine="python", dtype=str)
-    df.columns = [c.strip().lower() for c in df.columns]
-    for c in ("area_code", "area_text"):
-        if c in df.columns:
-            df[c] = df[c].astype(str).str.strip()
-    return df
-
-
-#def load_la_area() -> pd.DataFrame:
-    """
-    Load la.area from local cache (config/bls/la.area) written by ensure_bls_files().
-    Parse with tolerant tab regex and keep only the columns we need.
-    """
-    """    
-    path = BLS_DIR / "la.area"
-    if not path.exists() or path.stat().st_size == 0:
-        # Reuse your robust fetcher
-        data = _http_get(BLS_BASE + "la.area", timeout=60)
-        path.write_bytes(data)
-    text = path.read_text(encoding="utf-8", errors="replace")
-    df = pd.read_csv(StringIO(text), sep=r"\t+", engine="python", dtype=str)
-    df.columns = [c.strip().lower() for c in df.columns]
-    for c in ("area_code", "area_text"):
-        if c in df.columns:
-            df[c] = df[c].astype(str).str.strip()
-    return df[["area_code", "area_text"]]
-    """
-
 
 
 
@@ -697,89 +689,63 @@ def main():
                 first = min(months)
                 last = max(months)
 
-            # default: keep the original series block unless we find a live successor
-            keep_record = s
-            keep_sid = sid
 
             if needs_refresh(n, first, last):
+                area_code, measure_code, seas_SU = parse_sid(sid)
                 print(f"[laus:remap] {sid} looks stale (n={n}, last={last.date() if last is not None else None})")
-                area_code, measure_code, seas = parse_sid(sid)
-                seas_SU = "S" if seas == "S" else "U"   # normalize to 'S'/'U'
-
                 print(f"[laus:remap] parsed -> area_code={area_code}, measure={measure_code}, seas={seas_SU}")
 
-                # IMPORTANT: always initialize these so we can log safely
+                # ensure defaults before logging/printing
                 wsid = None
                 alt_sid = None
                 alt_year = -1
 
-                # Optional: try a wide (name-based) search — may be None for slug-y geo_ids
-                # If your wanted_name isn't the BLS "area_text", this can legitimately return None.
+                # 2) wide search by area name (uses la_area_df you loaded earlier in main())
+                wanted_name = sid_to_rowmeta.get(sid, {}).get("name") or sid_to_rowmeta.get(sid, {}).get("geo_id", "")
                 try:
-                    from ingest.laus_api_bulk import load_la_area  # no-op if already imported
-                    la_area_df = load_la_area()
-                    wanted_name = sid_to_rowmeta.get(sid, {}).get("name") \
-                                  or sid_to_rowmeta.get(sid, {}).get("geo_id", "")
                     wsid = choose_latest_series_wide(
                         la_series_df, la_area_df,
                         wanted_name=wanted_name,
                         measure_code=measure_code,
                         seasonal_SU=seas_SU,
-                        area_code_family=None  # you can pass a prefix if you want to constrain search
+                        area_code_family=None
                     )
                 except Exception as e:
-                    print(f"[laus:remap] wide search skipped (helper not available): {e}")
+                    print(f"[laus:remap] wide search failed: {e}")
                     wsid = None
-
                 print(f"[laus:remap] (2) wide search -> {wsid or 'NONE'} (will API-check)")
 
-                # Always do per-area API-checked pick as the reliable path
+                # 3) per-area API-checked pick (reliable path)
                 try:
                     alt_sid, alt_year = pick_live_for_area_code(la_series_df, area_code, measure_code, seas_SU)
                 except Exception as e:
                     print(f"[laus:remap] per-area picker failed: {e}")
                     alt_sid, alt_year = None, -1
-
                 print(f"[laus:remap] (3) per-area picker -> {alt_sid or 'NONE'} (api_max_year={alt_year if alt_year >= 0 else 'NA'})")
 
-                new_sid = wsid or alt_sid
 
-                if new_sid and new_sid != sid:
-                    print(f"[laus:remap] replacing {sid} → {new_sid}")
-                    try:
-                        repl_block = fetch_series([new_sid])
-                        if repl_block:
-                            keep_record = repl_block[0]
-                            keep_sid = keep_record["seriesID"]
-
-                            # transfer/update meta so downstream rows get the correct metric_id
-                            old_meta = sid_to_rowmeta.pop(sid, {}).copy()
-                            new_meta = old_meta.copy()
-
-                            # If seasonal changed, adjust the metric_id suffix
-                            old_sfx = (old_meta.get("seasonal") or "").lower()
-                            new_sfx = suffix_from_sid(keep_sid)
-                            if new_sfx and new_sfx != old_sfx:
-                                base = new_meta.get("metric_base") or base_from_sid(keep_sid)
-                                new_meta["metric_id"] = f"{base}_{new_sfx}"
-                                new_meta["seasonal"] = new_sfx
-                            # always ensure mapping for the new SID exists
-                            sid_to_rowmeta[keep_sid] = new_meta
-
-                            # Recount for logging
-                            monthly2 = [d for d in keep_record.get("data", []) if str(d.get("period", "")).startswith("M")]
-                            print(f"[laus:remap] replacement {keep_sid} monthly rows = {len(monthly2)}")
-                        else:
-                            print(f"[laus:remap] WARNING: replacement fetch empty for {new_sid}; keeping original {sid}")
-                    except Exception as e:
-                        print(f"[laus:remap] WARNING: could not fetch replacement {new_sid}: {e}; keeping {sid}")
-
-            # log final count for whichever SID we're keeping
-            cnt_keep = len([d for d in keep_record.get("data", []) if str(d.get("period", "")).startswith("M")])
-            print(f"[laus] fetched {cnt_keep:4d} monthly rows for {keep_record['seriesID']} "
-                  f"-> {sid_to_rowmeta.get(keep_record['seriesID'], {}).get('metric_id')}")
-
-            new_block.append(keep_record)
+                # choose the best candidate to replace
+                replacement = alt_sid or wsid
+                if replacement and replacement != sid:
+                    repl_block = fetch_series([replacement])
+                    if repl_block:
+                        s = repl_block[0]
+                        # transfer/update meta so rows get the correct metric_id
+                        meta = sid_to_rowmeta.pop(sid, {}).copy()
+                        new_sfx = suffix_from_sid(replacement)
+                        if new_sfx and new_sfx != (meta.get("seasonal") or "").lower():
+                            base = meta.get("metric_base") or base_from_sid(replacement)
+                            meta["metric_id"] = f"{base}_{new_sfx}"
+                            meta["seasonal"] = new_sfx
+                        sid_to_rowmeta[replacement] = meta
+                    else:
+                        print(f"[laus:remap] WARNING: could not fetch replacement for {replacement}; keeping original {sid}")
+        
+            # log final count for whichever SID we’re keeping
+            keep_sid = s["seriesID"]
+            print(f"[laus] fetched {len([d for d in s.get('data', []) if str(d.get('period','')).startswith('M')]):4d} "
+                  f"monthly rows for {keep_sid} -> {sid_to_rowmeta.get(keep_sid,{}).get('metric_id')}")
+            new_block.append(s)
 
         # use possibly-remapped block
         series_block = new_block
