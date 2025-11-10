@@ -712,6 +712,9 @@ def main():
                     or (name_from_area or "").strip()
                     or (sid_to_rowmeta.get(sid, {}).get("geo_id", "").replace("_", " ").strip())
                 )
+                if geo_id := (sid_to_rowmeta.get(sid, {}) or {}).get("geo_id"):
+                    if geo_id in {"alexandria_city", "arlington_county_va"}:
+                        print(f"[debug] wanted_name for {geo_id} = '{wanted_name}'")
 
                 try:
                     wsid = choose_latest_series_wide(
