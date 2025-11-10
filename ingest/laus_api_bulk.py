@@ -614,14 +614,14 @@ def main():
     
             series_ids.append(sid)
 
-            #area_name = (r.get("notes") or r.get("name") or "").strip() #delete later? (handled below)
             sid_to_rowmeta[sid] = {
                 "geo_id": geo_id,
                 "metric_id": metric_id,
-                "metric_base": base_csv,
-                "seasonal": sfx,
-                "area_name": (r.get("notes") or r.get("name") or r.get("geo_id") or "").strip(),
+                "metric_base": base_csv,   # optional
+                "seasonal": sfx,           # optional ("sa"/"nsa")
+                "name": (r.get("name") or "").strip(),  # <-- add this
             }
+
 
             
             rows.append(r)
@@ -699,9 +699,20 @@ def main():
                 wsid = None
                 alt_sid = None
                 alt_year = -1
+                
+                name_from_csv = (sid_to_rowmeta.get(sid, {}) or {}).get("name")
+                name_from_area = None
+                try:
+                    name_from_area = la_area_df.loc[la_area_df["area_code"] == area_code, "area_text"].iloc[0]
+                except Exception:
+                    pass
+                
+                wanted_name = (
+                    (name_from_csv or "").strip()
+                    or (name_from_area or "").strip()
+                    or (sid_to_rowmeta.get(sid, {}).get("geo_id", "").replace("_", " ").strip())
+                )
 
-                # 2) wide search by area name (uses la_area_df you loaded earlier in main())
-                wanted_name = sid_to_rowmeta.get(sid, {}).get("name") or sid_to_rowmeta.get(sid, {}).get("geo_id", "")
                 try:
                     wsid = choose_latest_series_wide(
                         la_series_df, la_area_df,
