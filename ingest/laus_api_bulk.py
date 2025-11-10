@@ -563,6 +563,9 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
 
 
 def main():
+    RUN_ID = "laus_api_bulk v3–remap-wide+manual"
+    print(f"[laus] START {RUN_ID}")
+
     # prefer generated, fall back to hand-maintained
     cfg_path = "config/laus_series.generated.csv"
     if not Path(cfg_path).exists():
@@ -589,6 +592,16 @@ def main():
                 continue
     
             geo_id = (r.get("geo_id") or "").strip()
+
+            # 👇 add this block here
+            FILTER_GEOS = set(
+                g.strip().lower()
+                for g in (os.getenv("LAUS_FILTER_GEOS", "").split(",")
+                          if os.getenv("LAUS_FILTER_GEOS") else [])
+            )
+            if FILTER_GEOS and geo_id.lower() not in FILTER_GEOS:
+                continue
+            # 👆 end filter block
     
             # Robust metric resolution:
             # 1) infer base from series_id tail (003/004/005/006)
@@ -609,20 +622,23 @@ def main():
     
             series_ids.append(sid)
 
-            area_name = (r.get("notes") or r.get("name") or "").strip() #delete later? (handled below)
+            #area_name = (r.get("notes") or r.get("name") or "").strip() #delete later? (handled below)
             sid_to_rowmeta[sid] = {
                 "geo_id": geo_id,
                 "metric_id": metric_id,
                 "metric_base": base_csv,
                 "seasonal": sfx,
                 "area_name": (r.get("notes") or r.get("name") or r.get("geo_id") or "").strip(),
-
             }
 
             
             rows.append(r)
     
     print("[laus] planned series + mapped metric_id:")
+    # Load catalogs once, for remaps
+    la_series_df = load_la_series_index()
+    la_area_df   = load_la_area()
+
 
     def _to_SU(sfx: str) -> str:
         s = (sfx or "").strip().lower()
@@ -647,8 +663,8 @@ def main():
         print(f"  {sid} -> {sid_to_rowmeta[sid]['metric_id']}")
 
     # Load the la.series catalog once so we can auto-upgrade stale SIDs
-    la_series_df = load_la_series_index()
-    la_area_df   = load_la_area()
+    #la_series_df = load_la_series_index()
+    #la_area_df   = load_la_area()
     
     if not series_ids:
         raise SystemExit("[laus] no series_id entries found in config/laus_series.csv")
@@ -674,6 +690,9 @@ def main():
                 first, last = min(months), max(months)
 
             if needs_refresh(n, first, last):
+                print(f"[laus:remap] {sid} looks stale (n={n}, last={last.date() if last is not None else None})")
+                print(f"[laus:remap] parsed -> area_code={parse_sid(sid)[0]}, measure={parse_sid(sid)[1]}, seas={'S' if sid.startswith('LAS') else 'U'}")
+
                 area_code, measure_code, _seas = parse_sid(sid)
                 meta = sid_to_rowmeta.get(sid, {})
                 seas_SU = "S" if (meta.get("seasonal") or suffix_from_sid(sid)) == "sa" else "U"
@@ -683,6 +702,8 @@ def main():
                 # (1) Catalog successor at the SAME area_code (only accept if modern by API)
                 cat_sid = choose_latest_series(la_series_df, area_code, measure_code, seas_SU, allow_sa_to_nsa_fallback=True)
                 if cat_sid:
+                    print(f"[laus:remap] (1) catalog @same area_code -> {cat_sid or 'NONE'} (will API-check)")
+                    
                     tb = fetch_series([cat_sid])
                     y = _max_year_from_block(tb)
                     if y >= 2010:
@@ -690,6 +711,8 @@ def main():
         
                 # (2) Wide search by name/family (still keep same seasonality)
                 if not chosen_sid:
+                    print(f"[laus:remap] (2) wide search -> {wsid or 'NONE'} (will API-check)")
+
                     wanted_name = meta.get("area_name") or meta.get("geo_id")
                     fam = area_code[:2] if len(area_code) >= 2 else None   # e.g., 'CN', 'CT', 'DV', 'MT'
                     wsid = choose_latest_series_wide(
@@ -707,6 +730,8 @@ def main():
         
                 # (3) Final resort: manual area redirect (parent area_code)
                 if not chosen_sid:
+                    print(f"[laus:remap] (3) manual redirect -> parent={parent_area or 'NONE'} => {alt_sid or 'NONE'} (max_year={alt_year})")
+
                     parent_area = MANUAL_AREA_REDIRECT.get(area_code)
                     if parent_area:
                         alt_sid, alt_year = pick_live_for_area_code(la_series_df, parent_area, measure_code, seas_SU)
