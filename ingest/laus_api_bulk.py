@@ -13,6 +13,10 @@ from io import StringIO
 import time
 import requests
 
+# Remapping stale county/city SIDs to parent areas (disabled)
+REMAP_STALE = bool(int(os.getenv("LAUS_REMAP", "0")))
+
+
 LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
 
 # --- Final-resort manual redirects for known legacy locals ---
@@ -402,9 +406,6 @@ def main():
     
     print("[laus] planned series + mapped metric_id:")
     # Load catalogs once, for remaps
-    
-    
-    area_text_by_code = dict(zip(la_area_df["area_code"], la_area_df["area_text"]))
 
 
 
@@ -417,10 +418,6 @@ def main():
     
     for sid in series_ids:
         print(f"  {sid} -> {sid_to_rowmeta[sid]['metric_id']}")
-
-    # Load the la.series catalog once so we can auto-upgrade stale SIDs
-    #la_series_df = load_la_series_index()
-    #la_area_df   = load_la_area()
     
     if not series_ids:
         raise SystemExit("[laus] no series_id entries found in config/laus_series.csv")
@@ -432,48 +429,15 @@ def main():
         print(f"[laus] fetching {len(chunk)} series…")
         series_block = fetch_series(chunk)
     
-        fresh_block = []
+        # Just log counts; do NOT attempt remap.
         for s in series_block:
             sid = s["seriesID"]
-            monthly = [d for d in s.get("data", []) if str(d.get("period", "")).startswith("M")]
-            n = len(monthly)
-    
-            # derive first/last for diagnostics
-            first = last = None
-            if monthly:
-                months = []
-                for d in monthly:
-                    try:
-                        y, p = int(d["year"]), int(d["period"][1:])
-                        months.append(pd.Timestamp(year=y, month=p, day=1))
-                    except Exception:
-                        continue
-                if months:
-                    first = min(months)
-                    last  = max(months)
-    
-            # decide: keep or skip
-            if needs_refresh(n, first, last):
-                print(f"[laus:skip] {sid} is stale (n={n}, last={(last.date() if last is not None else None)}) — skipping")
-                continue
-    
-            # logging for kept series
-            print(f"[laus] fetched {n:4d} monthly rows for {sid} -> {sid_to_rowmeta.get(sid, {}).get('metric_id')}")
-            fresh_block.append(s)
-    
-        if not fresh_block:
-            print("[laus] all series in this chunk were stale — nothing to append")
-            continue
+            n = sum(1 for d in s.get("data", []) if str(d.get("period","")).startswith("M"))
+            print(f"[laus] fetched {n:4d} monthly rows for {sid} -> {sid_to_rowmeta.get(sid,{}).get('metric_id')}")
     
         dfs.append(to_df(fresh_block, sid_to_rowmeta))
         time.sleep(0.5)  # small courtesy pause
-    
 
-
-
-
-
-    
     
     all_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     print("[laus] sample of metric_id counts (pre-upsert):")
