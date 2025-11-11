@@ -29,69 +29,101 @@ from glob import glob
 
 
 
-def fetch_lau_from_files(series_ids: list[str]):
+def fetch_lau_from_files(series_ids: list[str]) -> list[dict]:
     """
-    Build an API-shaped block (Results.series) for LAU SIDs by reading the flat files
-    under config/bls/la.data.*.* that ensure_bls_files() synced.
+    Return BLS API-shaped blocks for the given series_ids by scanning local LAUS flat files.
+    Files must have been downloaded to config/bls via ensure_bls_files().
     """
-    # Lazy imports in case this fn is moved around later
-    import pandas as pd
-
-    # Find all la.data.*.* files (County, City, MSA, MetroDiv, CSA, etc.)
-    files = sorted(BLS_DIR.glob("la.data.*.*"))
-    if not files:
-        raise FileNotFoundError(f"No LAU data files found under {BLS_DIR} (expected la.data.*.*)")
-
-    # We’ll parse line-by-line; these are tab-delimited with a header row
-    wanted = set(s.strip() for s in series_ids)
+    wanted = [s.strip() for s in series_ids if s and s.strip()]
+    wanted_set = set(wanted)
     rows_by_sid = {sid: [] for sid in wanted}
 
-    for p in files:
-        with p.open("r", encoding="utf-8", errors="replace") as f:
-            header = True
-            for line in f:
-                if header:
-                    header = False
-                    continue
+    # Target only the LAU “big” files we care about
+    pools = [
+        BLS_DIR / "la.data.65.City",
+        BLS_DIR / "la.data.64.County",
+        BLS_DIR / "la.data.60.Metro",
+        BLS_DIR / "la.data.61.Division",
+        BLS_DIR / "la.data.63.Combined",
+    ]
+    any_file = False
+
+    for p in pools:
+        if not p.exists():
+            continue
+        any_file = True
+        with p.open("r", encoding="utf-8", errors="replace") as fh:
+            first = True
+            for line in fh:
+                # Some files have a header row, some don’t — detect & skip if present.
+                if first:
+                    first = False
+                    # If first row starts with 'series_id', it's a header
+                    if line.lower().startswith("series_id"):
+                        continue
+
                 line = line.rstrip("\n")
                 if not line:
                     continue
                 parts = line.split("\t")
-                # canonical columns: series_id, year, period, value, footnote_codes
+                # Expected: series_id, year, period, value, [footnote_codes]
                 if len(parts) < 4:
                     continue
+
                 sid = parts[0].strip()
-                if sid not in wanted:
+                if sid not in wanted_set:
                     continue
 
                 year   = parts[1].strip()
                 period = parts[2].strip()   # 'M01'..'M13'
                 value  = parts[3].strip()
 
-                # match the API’s “monthly only” behavior (skip annual average M13)
+                # Match API’s “monthly” behavior: skip annual average M13
                 if not period.startswith("M") or period == "M13":
                     continue
 
-                rows_by_sid[sid].append({
-                    "year":   year,
-                    "period": period,
-                    "value":  value,
-                })
+                rows_by_sid[sid].append({"year": year, "period": period, "value": value})
 
-    # Return API-shaped list
+    if not any_file:
+        raise FileNotFoundError(f"No LAU data files found under {BLS_DIR} "
+                                f"(expected la.data.60/61/63/64/65.*)")
+
+    # Build API-shaped blocks in the same order as requested
     out = []
-    for sid in series_ids:
-        out.append({
-            "seriesID": sid,
-            "data": rows_by_sid.get(sid, []),
-        })
+    for sid in wanted:
+        out.append({"seriesID": sid, "data": rows_by_sid.get(sid, [])})
     return out
 
 
 
-def fetch_series_any(series_ids: list[str]):
-    # For now: API-only. We'll reintroduce file ingestion later once we confirm BLS access pattern.
-    return fetch_series(series_ids)
+def fetch_series_any(series_ids: list[str]) -> list[dict]:
+    """
+    Try API first. For any SID missing or obviously short, fill with local LAU files.
+    """
+    blocks: list[dict] = []
+    have: set[str] = set()
+    # 1) API path
+    try:
+        api_blocks = fetch_series(series_ids)
+        blocks.extend(api_blocks)
+        have = {b.get("seriesID") for b in api_blocks if b.get("seriesID")}
+    except Exception as e:
+        print(f"[laus] API fetch error (will fallback to files): {e}")
+        have = set()
+
+    # 2) File fallback for missing or short SIDs
+    missing_or_short = [sid for sid in series_ids
+                        if sid not in have or _looks_short(blocks, sid)]
+    if missing_or_short:
+        try:
+            file_blocks = fetch_lau_from_files(missing_or_short)
+            # replace/append: remove any short blocks we had for these sids
+            keep = [b for b in blocks if b.get("seriesID") not in set(missing_or_short)]
+            blocks = keep + file_blocks
+        except FileNotFoundError as e:
+            print(f"[laus] File fallback unavailable: {e}")
+
+    return blocks
 
 
 
@@ -150,6 +182,27 @@ def needs_refresh(n_rows: int, first_date: pd.Timestamp | None, last_date: pd.Ti
     if last_date is not None and pd.Timestamp(last_date).year < 2000:
         return True
     return False
+
+
+
+def _looks_short(blocks: list[dict], sid: str) -> bool:
+    """
+    Return True if the block for sid looks truncated (e.g., ends in the 1990s).
+    """
+    for b in blocks:
+        if b.get("seriesID") != sid:
+            continue
+        months = [d for d in b.get("data", []) if str(d.get("period","")).startswith("M")]
+        if not months:
+            return True
+        try:
+            max_year = max(int(d["year"]) for d in months if d.get("year"))
+        except Exception:
+            return True
+        return max_year < 2000  # tweak if you want stricter logic
+    # no block found -> short
+    return True
+
 
 
 def detect_stale_series(series_block):
