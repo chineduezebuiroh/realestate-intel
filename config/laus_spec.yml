@@ -74,7 +74,7 @@ areas:
    level: "county"
    name: "Prince George's County, MD"
 
- - geo_id: prince_william_county_md
+ - geo_id: prince_william_county_va
    area_code: "CN5115300000000"
    level: "county"
    name: "Prince William County, VA"
