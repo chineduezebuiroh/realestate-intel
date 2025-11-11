@@ -13,6 +13,10 @@ from io import StringIO
 import time
 import requests
 
+# Where ensure_bls_files() writes the flat files
+BLS_DIR = Path("config/bls")
+
+
 # Remapping stale county/city SIDs to parent areas (disabled)
 REMAP_STALE = bool(int(os.getenv("LAUS_REMAP", "0")))
 
@@ -23,66 +27,81 @@ LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
 
 from glob import glob
 
-def fetch_lau_from_files(series_ids: list[str]) -> list[dict]:
-    """
-    Build an API-like series_block for LAU series using the flat files:
-    la.data.1.AllStates, la.data.2.AllMSA, la.data.3.AllCounties, la.data.4.City, la.data.5.MetroDiv, la.data.6.CSA
-    """
-    files = []
-    for name in ["la.data.1.AllStates","la.data.2.AllMSA","la.data.3.AllCounties","la.data.4.City","la.data.5.MetroDiv","la.data.6.CSA"]:
-        p = BLS_DIR / name
-        if p.exists():
-            files.append(str(p))
 
-    # Fallback: include anything matching la.data.* in case file names vary
+
+def fetch_lau_from_files(series_ids: list[str]):
+    """
+    Build an API-shaped block (Results.series) for LAU SIDs by reading the flat files
+    under config/bls/la.data.*.* that ensure_bls_files() synced.
+    """
+    # Lazy imports in case this fn is moved around later
+    import pandas as pd
+
+    # Find all la.data.*.* files (County, City, MSA, MetroDiv, CSA, etc.)
+    files = sorted(BLS_DIR.glob("la.data.*.*"))
     if not files:
-        files = glob(str(BLS_DIR / "la.data.*"))
+        raise FileNotFoundError(f"No LAU data files found under {BLS_DIR} (expected la.data.*.*)")
 
-    keep = set(s.upper().strip() for s in series_ids)
-    by_sid = {k: [] for k in keep}
+    # We’ll parse line-by-line; these are tab-delimited with a header row
+    wanted = set(s.strip() for s in series_ids)
+    rows_by_sid = {sid: [] for sid in wanted}
 
-    for path in files:
-        df = pd.read_csv(path, sep=r"\t+", engine="python", dtype=str)
-        df.columns = [c.strip().lower() for c in df.columns]
-        # expected cols: series_id, year, period, value, footnote_codes
-        df["series_id"] = df["series_id"].str.strip().str.upper()
-        df = df[df["series_id"].isin(keep)]
-        if df.empty:
-            continue
-        # sort newest→oldest like API; not required but nice
-        df["y"] = pd.to_numeric(df["year"], errors="coerce")
-        df["m"] = pd.to_numeric(df["period"].str[1:].where(df["period"].str.startswith("M")), errors="coerce")
-        df = df.sort_values(["series_id","y","m"], ascending=[True, False, False], na_position="last")
-        for sid, g in df.groupby("series_id"):
-            series = {"seriesID": sid, "data": []}
-            for _, r in g.iterrows():
-                series["data"].append({
-                    "year": str(r.get("year")),
-                    "period": str(r.get("period")),
-                    "value": str(r.get("value")),
+    for p in files:
+        with p.open("r", encoding="utf-8", errors="replace") as f:
+            header = True
+            for line in f:
+                if header:
+                    header = False
+                    continue
+                line = line.rstrip("\n")
+                if not line:
+                    continue
+                parts = line.split("\t")
+                # canonical columns: series_id, year, period, value, footnote_codes
+                if len(parts) < 4:
+                    continue
+                sid = parts[0].strip()
+                if sid not in wanted:
+                    continue
+
+                year   = parts[1].strip()
+                period = parts[2].strip()   # 'M01'..'M13'
+                value  = parts[3].strip()
+
+                # match the API’s “monthly only” behavior (skip annual average M13)
+                if not period.startswith("M") or period == "M13":
+                    continue
+
+                rows_by_sid[sid].append({
+                    "year":   year,
+                    "period": period,
+                    "value":  value,
                 })
-            by_sid[sid].extend(series["data"])
 
-    # Build API-like list
+    # Return API-shaped list
     out = []
-    for sid in keep:
-        out.append({"seriesID": sid, "data": by_sid.get(sid, [])})
+    for sid in series_ids:
+        out.append({
+            "seriesID": sid,
+            "data": rows_by_sid.get(sid, []),
+        })
     return out
 
 
 
-def fetch_series_any(series_ids: list[str]) -> list[dict]:
-    # Use file-based for LAU* (county/city/MSA/division/CSA); API for LAS* (states SA)
-    series_ids = [s.strip().upper() for s in series_ids]
-    lau = [s for s in series_ids if s.startswith("LAU")]
-    las = [s for s in series_ids if s.startswith("LAS")]
+def fetch_series_any(series_ids: list[str]):
+    """Route LAS* to API; route LAU* to flat files."""
+    las = [s for s in series_ids if s.upper().startswith("LAS")]
+    lau = [s for s in series_ids if s.upper().startswith("LAU")]
 
     blocks = []
     if las:
-        blocks.extend(fetch_series(las))             # existing API path
+        blocks.extend(fetch_series(las))             # existing API path for LAS
     if lau:
-        blocks.extend(fetch_lau_from_files(lau))     # new file-based path
+        blocks.extend(fetch_lau_from_files(lau))     # file-based path for LAU
     return blocks
+
+
 
 
 
