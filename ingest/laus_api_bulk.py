@@ -15,8 +15,6 @@ import requests
 
 LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
 
-LA_AREA_PATH = BLS_DIR / "la.area"
-
 # --- Final-resort manual redirects for known legacy locals ---
 # If an area_code has no modern coverage, fall back to a parent area_code we know is live.
 MANUAL_AREA_REDIRECT = {
@@ -27,9 +25,6 @@ MANUAL_AREA_REDIRECT = {
     # Arlington County
     "CN5101300000000": "MT1147900000000",
 }
-
-
-LA_AREA_PATH = BLS_DIR / "la.area"
 
 def _max_year_from_block(series_block) -> int:
     years = []
