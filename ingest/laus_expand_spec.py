@@ -99,12 +99,12 @@ def seasonal_tag_from_sid(series_id: str) -> str:
 
 def load_lookup(area_path: Path = LA_AREA, series_path: Path = LA_SERIES):
     # Use tolerant tab parsing: consecutive tabs, mixed whitespace, etc.
-    area = pd.read_csv(area_path,  sep=r"\t+", engine="python", dtype=str)
-    series = pd.read_csv(series_path, sep=r"\t+", engine="python", dtype=str)
-
-    # Normalize columns
-    area.columns   = [c.strip().lower() for c in area.columns]
+    area = pd.read_csv(LA_AREA, sep="\t", dtype=str)
+    series = pd.read_csv(LA_SERIES, sep="\t", dtype=str)
+    
+    area.columns = [c.strip().lower() for c in area.columns]
     series.columns = [c.strip().lower() for c in series.columns]
+
 
     # Trim whitespace everywhere
     for df in (area, series):
@@ -126,6 +126,7 @@ def load_lookup(area_path: Path = LA_AREA, series_path: Path = LA_SERIES):
         if c in series.columns:
             series[c] = pd.to_numeric(series[c], errors="coerce")
 
+
     # Schema sanity
     must_area   = {"area_code", "area_text"}
     must_series = {"series_id", "area_code", "measure_code", "seasonal", "begin_year", "end_year"}
@@ -136,19 +137,18 @@ def load_lookup(area_path: Path = LA_AREA, series_path: Path = LA_SERIES):
 
 
 
-
 def pick_latest_series(sdf: pd.DataFrame) -> pd.Series | None:
-    """Pick the best row among candidate series:
-       1) Highest end_year
-       2) If tie, lowest begin_year (longest span)
-    """
     if sdf.empty:
         return None
     sdf = sdf.copy()
-    sdf["end_year_rank"] = sdf["end_year"].fillna(-1_000_000)
-    sdf["begin_year_rank"] = sdf["begin_year"].fillna(9_999_999)
+    # Treat NaN end_year as "very new" to avoid picking legacy ends-at-1995 SIDs
+    sdf["end_year_rank"] = sdf["end_year"].fillna(9999)
+    # If tie, prefer smallest begin_year (longest span); treat NaN as very large
+    sdf["begin_year_rank"] = sdf["begin_year"].fillna(9999)
     sdf = sdf.sort_values(["end_year_rank", "begin_year_rank"], ascending=[False, True])
     return sdf.iloc[0]
+
+
 
 def resolve_area_code(area_df: pd.DataFrame, spec_area: dict) -> str:
     """
