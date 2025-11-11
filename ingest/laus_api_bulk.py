@@ -10,34 +10,15 @@ from datetime import date
 # add near imports
 from io import StringIO
 
+import time
+import requests
+
 LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
 
-BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
-BLS_DIR  = Path("config/bls")
-LA_SERIES_PATH = BLS_DIR / "la.series"
+
 
 LA_AREA_PATH = BLS_DIR / "la.area"
 
-def load_la_area() -> pd.DataFrame:
-    """
-    Load la.area from local cache if present; otherwise fetch with a robust request.
-    Parse with a tolerant tab regex and normalize fields we rely on.
-    """
-    BLS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if LA_AREA_PATH.exists() and LA_AREA_PATH.stat().st_size > 0:
-        text = LA_AREA_PATH.read_text()
-    else:
-        data = _http_get(BLS_BASE + "la.area", timeout=60)
-        text = data.decode("utf-8", errors="replace")
-        LA_AREA_PATH.write_text(text)
-
-    df = pd.read_csv(StringIO(text), sep=r"\t+", engine="python", dtype=str)
-    df.columns = [c.strip().lower() for c in df.columns]
-    for c in ("area_code", "area_text"):
-        if c in df.columns:
-            df[c] = df[c].astype(str).str.strip()
-    return df
 
 
 
@@ -54,88 +35,18 @@ MANUAL_AREA_REDIRECT = {
 
 
 
-import time
-import requests
 
-def _http_get(url: str, timeout=60) -> bytes:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-    r = requests.get(url, headers=headers, timeout=timeout)
-    if r.status_code == 403:
-        time.sleep(0.6)
-        r = requests.get(url, headers=headers, timeout=timeout)
-    if r.ok:
-        return r.content
 
-    if url.startswith("https://"):
-        url_http = "http://" + url[len("https://"):]
-        r = requests.get(url_http, headers=headers, timeout=timeout)
-        if r.status_code == 403:
-            time.sleep(0.6)
-            r = requests.get(url_http, headers=headers, timeout=timeout)
-        r.raise_for_status()
-        return r.content
 
-    r.raise_for_status()
-    return r.content
 
 
 LA_AREA_PATH = BLS_DIR / "la.area"
 
 
 
-def load_la_series_index() -> pd.DataFrame:
-    """
-    Load la.series from local cache if present; otherwise fetch with a robust request.
-    Parse with a tolerant tab regex and normalize fields we rely on.
-    """
-    BLS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if LA_SERIES_PATH.exists() and LA_SERIES_PATH.stat().st_size > 0:
-        text = LA_SERIES_PATH.read_text()
-    else:
-        data = _http_get(BLS_BASE + "la.series", timeout=60)
-        text = data.decode("utf-8", errors="replace")
-        LA_SERIES_PATH.write_text(text)
-
-    # Tolerant tab parsing; handles multiple tabs and stray spaces
-    df = pd.read_csv(StringIO(text), sep=r"\t+", engine="python", dtype=str)
-    df.columns = [c.strip().lower() for c in df.columns]
-
-    # Trim + normalize key columns
-    for c in ("series_id", "area_code", "measure_code", "seasonal"):
-        if c in df.columns:
-            df[c] = df[c].astype(str).str.strip()
-
-    # ✅ pad measure codes to 3 digits so they match '003'..'006'
-    if "measure_code" in df.columns:
-        df["measure_code"] = df["measure_code"].str.zfill(3)
-
-    # Normalize seasonal to single-letter codes we filter against ('S'/'U')
-    if "seasonal" in df.columns:
-        df["seasonal"] = (df["seasonal"].str.upper()
-                          .replace({"SA": "S", "NSA": "U"}))
-
-    # Cast year columns if present
-    for c in ("begin_year", "end_year"):
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-
-    return df
 
 
 
-def parse_sid(sid: str):
-    sid = (sid or "").strip().upper()
-    area_code = sid[3:-3]           # after 'LAS'/'LAU' up to last 3 measure digits
-    measure_code = sid[-3:]
-    seasonal = "S" if sid.startswith("LAS") else "U"
-    return area_code, measure_code, seasonal
 
 
 
@@ -167,101 +78,7 @@ def _max_year_from_block(series_block) -> int:
 
 
 
-#def pick_by_api_max_year(series_ids: list[str]) -> tuple[str|None, int]:
-    """Fetch a small batch of candidate SIDs and return (best_sid, max_year)."""
-    """
-    if not series_ids:
-        return (None, -1)
-    # BLS allows batching; keep it small to be polite
-    block = fetch_series(series_ids[:50])
-    best_sid, best_year = None, -1
-    for s in block:
-        sid = s.get("seriesID")
-        my = _max_year_from_block([s])
-        if my > best_year:
-            best_sid, best_year = sid, my
-    return best_sid, best_year
-    """
 
-def pick_by_api_max_year(series_ids: list[str]) -> tuple[str|None, int]:
-    """Among series_ids, fetch each quickly and return (sid, max_year) with the best (latest) coverage."""
-    best_sid, best_year = None, -1
-    for sid in series_ids:
-        blk = fetch_series([sid])
-        y = _max_year_from_block(blk)
-        if y > best_year:
-            best_sid, best_year = sid, y
-    return best_sid, best_year
-
-
-
-def choose_latest_series_wide(
-    la_series_df: pd.DataFrame,
-    la_area_df: pd.DataFrame,
-    wanted_name: str | None,
-    measure_code: str,
-    seasonal_SU: str,
-    area_code_family: str | None = None,
-) -> str | None:
-    """Search more broadly by area name/family for a better (newer) series."""
-    mc = str(measure_code).zfill(3)
-    su = (seasonal_SU or "U").upper().replace("SA","S").replace("NSA","U")
-
-    cand = la_series_df[
-        (la_series_df["measure_code"].astype(str).str.zfill(3) == mc) &
-        (la_series_df["seasonal"].astype(str).str.upper().replace({"SA":"S","NSA":"U"}) == su)
-    ].copy()
-
-    if area_code_family:
-        cand = cand[cand["area_code"].astype(str).str.startswith(area_code_family)]
-
-    la_area_tmp = la_area_df[["area_code","area_text"]].copy()
-    la_area_tmp["area_text_lc"] = la_area_tmp["area_text"].str.lower().str.strip()
-    cand = cand.merge(la_area_tmp, on="area_code", how="left")
-
-    if wanted_name:
-        target = wanted_name.lower().strip()
-        cand["score"] = cand["area_text_lc"].fillna("").apply(
-            lambda t: 3 if t == target else (2 if target in t else 0)
-        )
-        cand = cand[cand["score"] > 0]
-
-    sids = cand["series_id"].dropna().unique().tolist()
-    if not sids:
-        return None
-
-    sid, yr = pick_by_api_max_year(sids)
-    return sid if yr >= 2010 else None
-
-
-
-#def pick_live_for_area_code(la_series_df: pd.DataFrame, area_code: str, measure_code: str, seasonal_SU: str) -> tuple[str|None, int]:
-    """Given an area_code, return (best_sid, max_year) chosen by actual API coverage."""
-    """
-    cand = la_series_df[
-        (la_series_df["area_code"] == area_code) &
-        (la_series_df["measure_code"].astype(str).str.zfill(3) == str(measure_code).zfill(3)) &
-        (la_series_df["seasonal"].astype(str).str.upper().replace({"SA":"S","NSA":"U"}) == seasonal_SU)
-    ]
-    sids = cand["series_id"].dropna().tolist()
-    if not sids:
-        return (None, -1)
-    return pick_by_api_max_year(sids)
-    """
-    
-def pick_live_for_area_code(la_series_df: pd.DataFrame, area_code: str, measure_code: str, seasonal_SU: str) -> tuple[str|None, int]:
-    """Given a specific area_code, return (best_sid, max_year) by actual API coverage."""
-    mc = str(measure_code).zfill(3)
-    su = (seasonal_SU or "U").upper().replace("SA","S").replace("NSA","U")
-    cand = la_series_df[
-        (la_series_df["area_code"] == area_code) &
-        (la_series_df["measure_code"].astype(str).str.zfill(3) == mc) &
-        (la_series_df["seasonal"].astype(str).str.upper().replace({"SA":"S","NSA":"U"}) == su)
-    ]
-    sids = cand["series_id"].dropna().tolist()
-    if not sids:
-        return (None, -1)
-    return pick_by_api_max_year(sids)
 
 
 
@@ -628,8 +445,10 @@ def main():
     
     print("[laus] planned series + mapped metric_id:")
     # Load catalogs once, for remaps
-    la_series_df = load_la_series_index()
-    la_area_df   = load_la_area()
+    
+    
+    area_text_by_code = dict(zip(la_area_df["area_code"], la_area_df["area_text"]))
+
 
 
     def _to_SU(sfx: str) -> str:
@@ -637,18 +456,6 @@ def main():
         return "S" if s == "sa" else "U"
 
 
-    ### --- CAN I DELETE THIS BELOW? ---
-    # \/-\/-\/-\/-\/-\/-\/-\/-\/-\/-\/-\/
-    
-    # helper to map our 'sa'/'nsa' to BLS single-letter codes used in la.series
-    def _to_bls_seasonal(sfx: str) -> str:
-        s = (sfx or "").strip().lower()
-        if s == "sa":  return "S"
-        if s == "nsa": return "U"
-        return "U"
-
-    # /\-/\-/\-/\-/\-/\-/\-/\-/\-/\-/\-/\
-    ### --- CAN I DELETE THIS ABOVE? ---
     
     
     for sid in series_ids:
@@ -661,113 +468,55 @@ def main():
     if not series_ids:
         raise SystemExit("[laus] no series_id entries found in config/laus_series.csv")
 
-    
-
     # batch up to 50 series per API call
     dfs = []
-
     for i in range(0, len(series_ids), 50):
         chunk = series_ids[i:i+50]
         print(f"[laus] fetching {len(chunk)} series…")
         series_block = fetch_series(chunk)
     
-        # --- stale detection + auto-remap to latest live series via la.series ---
-        new_block = []
+        fresh_block = []
         for s in series_block:
             sid = s["seriesID"]
-
-            # monthly rows only
             monthly = [d for d in s.get("data", []) if str(d.get("period", "")).startswith("M")]
             n = len(monthly)
-
+    
+            # derive first/last for diagnostics
             first = last = None
             if monthly:
                 months = []
                 for d in monthly:
-                    y, p = int(d["year"]), int(d["period"][1:])
-                    months.append(pd.Timestamp(year=y, month=p, day=1))
-                first = min(months)
-                last = max(months)
-
-
+                    try:
+                        y, p = int(d["year"]), int(d["period"][1:])
+                        months.append(pd.Timestamp(year=y, month=p, day=1))
+                    except Exception:
+                        continue
+                if months:
+                    first = min(months)
+                    last  = max(months)
+    
+            # decide: keep or skip
             if needs_refresh(n, first, last):
-                area_code, measure_code, seas_SU = parse_sid(sid)
-                print(f"[laus:remap] {sid} looks stale (n={n}, last={last.date() if last is not None else None})")
-                print(f"[laus:remap] parsed -> area_code={area_code}, measure={measure_code}, seas={seas_SU}")
-
-                # ensure defaults before logging/printing
-                wsid = None
-                alt_sid = None
-                alt_year = -1
-                
-                name_from_csv = (sid_to_rowmeta.get(sid, {}) or {}).get("name")
-                name_from_area = None
-                try:
-                    name_from_area = la_area_df.loc[la_area_df["area_code"] == area_code, "area_text"].iloc[0]
-                except Exception:
-                    pass
-                
-                wanted_name = (
-                    (name_from_csv or "").strip()
-                    or (name_from_area or "").strip()
-                    or (sid_to_rowmeta.get(sid, {}).get("geo_id", "").replace("_", " ").strip())
-                )
-                if geo_id := (sid_to_rowmeta.get(sid, {}) or {}).get("geo_id"):
-                    if geo_id in {"alexandria_city", "arlington_county_va"}:
-                        print(f"[debug] wanted_name for {geo_id} = '{wanted_name}'")
-
-                try:
-                    wsid = choose_latest_series_wide(
-                        la_series_df, la_area_df,
-                        wanted_name=wanted_name,
-                        measure_code=measure_code,
-                        seasonal_SU=seas_SU,
-                        area_code_family=None
-                    )
-                except Exception as e:
-                    print(f"[laus:remap] wide search failed: {e}")
-                    wsid = None
-                print(f"[laus:remap] (2) wide search -> {wsid or 'NONE'} (will API-check)")
-
-                # 3) per-area API-checked pick (reliable path)
-                try:
-                    alt_sid, alt_year = pick_live_for_area_code(la_series_df, area_code, measure_code, seas_SU)
-                except Exception as e:
-                    print(f"[laus:remap] per-area picker failed: {e}")
-                    alt_sid, alt_year = None, -1
-                print(f"[laus:remap] (3) per-area picker -> {alt_sid or 'NONE'} (api_max_year={alt_year if alt_year >= 0 else 'NA'})")
-
-
-                # choose the best candidate to replace
-                replacement = alt_sid or wsid
-                if replacement and replacement != sid:
-                    repl_block = fetch_series([replacement])
-                    if repl_block:
-                        s = repl_block[0]
-                        # transfer/update meta so rows get the correct metric_id
-                        meta = sid_to_rowmeta.pop(sid, {}).copy()
-                        new_sfx = suffix_from_sid(replacement)
-                        if new_sfx and new_sfx != (meta.get("seasonal") or "").lower():
-                            base = meta.get("metric_base") or base_from_sid(replacement)
-                            meta["metric_id"] = f"{base}_{new_sfx}"
-                            meta["seasonal"] = new_sfx
-                        sid_to_rowmeta[replacement] = meta
-                    else:
-                        print(f"[laus:remap] WARNING: could not fetch replacement for {replacement}; keeping original {sid}")
-        
-            # log final count for whichever SID we’re keeping
-            keep_sid = s["seriesID"]
-            print(f"[laus] fetched {len([d for d in s.get('data', []) if str(d.get('period','')).startswith('M')]):4d} "
-                  f"monthly rows for {keep_sid} -> {sid_to_rowmeta.get(keep_sid,{}).get('metric_id')}")
-            new_block.append(s)
-
-        # use possibly-remapped block
-        series_block = new_block
-        # -----------------------------------------------------------------------
-        dfs.append(to_df(series_block, sid_to_rowmeta))
-        time.sleep(0.5)
+                print(f"[laus:skip] {sid} is stale (n={n}, last={(last.date() if last is not None else None)}) — skipping")
+                continue
+    
+            # logging for kept series
+            print(f"[laus] fetched {n:4d} monthly rows for {sid} -> {sid_to_rowmeta.get(sid, {}).get('metric_id')}")
+            fresh_block.append(s)
+    
+        if not fresh_block:
+            print("[laus] all series in this chunk were stale — nothing to append")
+            continue
+    
+        dfs.append(to_df(fresh_block, sid_to_rowmeta))
+        time.sleep(0.5)  # small courtesy pause
     
 
+
+
+
+
+    
     
     all_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     print("[laus] sample of metric_id counts (pre-upsert):")
@@ -833,6 +582,12 @@ def main():
       GROUP BY 1,2
       ORDER BY 1,2
     """).fetchdf())
+
+    print("[laus] session summary (inserted this run):")
+    print(all_df.groupby(["geo_id", "metric_id"])
+               .agg(first=("date", "min"), last=("date", "max"), n=("date", "size"))
+               .sort_values(["geo_id", "metric_id"])
+               .to_string())
 
     con.close()
 
