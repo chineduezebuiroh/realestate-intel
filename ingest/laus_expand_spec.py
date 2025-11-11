@@ -7,6 +7,7 @@ import pandas as pd
 # --- BLS reference file fetcher (robust against 403) ---
 import time
 import requests
+import re
 
 BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
@@ -50,39 +51,22 @@ def _http_get(url: str, timeout=60) -> bytes:
     return r.content
 
 
-import re
+
+# ingest/laus_expand_spec.py
+from pathlib import Path
+from ingest.laus_api_bulk import _http_get  # reuse your robust getter
 
 BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
-BLS_DIR = Path("config/bls")
+BLS_DIR  = Path("config/bls")
 
 def ensure_bls_files():
     BLS_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Fetch directory listing and download everything that starts with la.data.
-    idx = requests.get(BLS_BASE, timeout=60)
-    idx.raise_for_status()
-    listing = idx.text
-
-    # Basic link scrape for file names
-    files = set(re.findall(r'href="(la\.[^"]+)"', listing))
-
-    must_have = {"la.series", "la.area"}
-    data_like = {name for name in files if name.startswith("la.data.")}
-
-    wanted = sorted(must_have | data_like)
-    for name in wanted:
+    for name in ("la.series", "la.area"):
         out = BLS_DIR / name
         if out.exists() and out.stat().st_size > 0:
             continue
-        r = requests.get(BLS_BASE + name, timeout=120)
-        r.raise_for_status()
-        out.write_bytes(r.content)
-
-
-
-
-
-# --- end fetcher ---
+        data = _http_get(BLS_BASE + name, timeout=120)
+        out.write_bytes(data)
 
 SPEC = Path("config/laus_spec.yml")
 OUT_CSV = Path("config/laus_series.generated.csv")
