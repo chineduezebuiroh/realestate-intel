@@ -20,6 +20,72 @@ REMAP_STALE = bool(int(os.getenv("LAUS_REMAP", "0")))
 LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
 
 
+
+from glob import glob
+
+def fetch_lau_from_files(series_ids: list[str]) -> list[dict]:
+    """
+    Build an API-like series_block for LAU series using the flat files:
+    la.data.1.AllStates, la.data.2.AllMSA, la.data.3.AllCounties, la.data.4.City, la.data.5.MetroDiv, la.data.6.CSA
+    """
+    files = []
+    for name in ["la.data.1.AllStates","la.data.2.AllMSA","la.data.3.AllCounties","la.data.4.City","la.data.5.MetroDiv","la.data.6.CSA"]:
+        p = BLS_DIR / name
+        if p.exists():
+            files.append(str(p))
+
+    # Fallback: include anything matching la.data.* in case file names vary
+    if not files:
+        files = glob(str(BLS_DIR / "la.data.*"))
+
+    keep = set(s.upper().strip() for s in series_ids)
+    by_sid = {k: [] for k in keep}
+
+    for path in files:
+        df = pd.read_csv(path, sep=r"\t+", engine="python", dtype=str)
+        df.columns = [c.strip().lower() for c in df.columns]
+        # expected cols: series_id, year, period, value, footnote_codes
+        df["series_id"] = df["series_id"].str.strip().str.upper()
+        df = df[df["series_id"].isin(keep)]
+        if df.empty:
+            continue
+        # sort newest→oldest like API; not required but nice
+        df["y"] = pd.to_numeric(df["year"], errors="coerce")
+        df["m"] = pd.to_numeric(df["period"].str[1:].where(df["period"].str.startswith("M")), errors="coerce")
+        df = df.sort_values(["series_id","y","m"], ascending=[True, False, False], na_position="last")
+        for sid, g in df.groupby("series_id"):
+            series = {"seriesID": sid, "data": []}
+            for _, r in g.iterrows():
+                series["data"].append({
+                    "year": str(r.get("year")),
+                    "period": str(r.get("period")),
+                    "value": str(r.get("value")),
+                })
+            by_sid[sid].extend(series["data"])
+
+    # Build API-like list
+    out = []
+    for sid in keep:
+        out.append({"seriesID": sid, "data": by_sid.get(sid, [])})
+    return out
+
+
+
+def fetch_series_any(series_ids: list[str]) -> list[dict]:
+    # Use file-based for LAU* (county/city/MSA/division/CSA); API for LAS* (states SA)
+    series_ids = [s.strip().upper() for s in series_ids]
+    lau = [s for s in series_ids if s.startswith("LAU")]
+    las = [s for s in series_ids if s.startswith("LAS")]
+
+    blocks = []
+    if las:
+        blocks.extend(fetch_series(las))             # existing API path
+    if lau:
+        blocks.extend(fetch_lau_from_files(lau))     # new file-based path
+    return blocks
+
+
+
 def _max_year_from_block(series_block) -> int:
     years = []
     for s in series_block or []:
@@ -419,7 +485,8 @@ def main():
     for i in range(0, len(series_ids), 50):
         chunk = series_ids[i:i+50]
         print(f"[laus] fetching {len(chunk)} series…")
-        series_block = fetch_series(chunk)
+        series_block = fetch_series_any(chunk)
+
 
         for s in series_block:
             sid = s["seriesID"]
