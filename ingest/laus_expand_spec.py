@@ -13,7 +13,13 @@ BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
 BLS_DIR.mkdir(parents=True, exist_ok=True)
 
-BLS_FILES = ["la.area", "la.series", "la.measure", "la.area_type"]
+FILES = [
+    "la.area", "la.area_type", "la.series", "la.measure", "la.state_region_division",
+    "la.data.60.Metro", "la.data.61.Division", "la.data.62.Micro",
+    "la.data.63.Combined", "la.data.64.County", "la.data.65.City",
+    "la.data.2.AllStatesU", "la.data.3.AllStatesS",
+    "la.data.4.RegionDivisionU", "la.data.5.RegionDivisionS",
+]
 
 
 
