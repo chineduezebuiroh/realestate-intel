@@ -75,42 +75,7 @@ def _norm_area_name(x: str) -> str:
     x = x.replace(" city,", ",").replace(" county,", ",")
     x = x.replace(" city", "").replace(" county", "")
     return " ".join(x.split())
-
-def candidate_sids_wide(
-    la_series_df: pd.DataFrame,
-    la_area_df: pd.DataFrame,
-    wanted_name: str | None,
-    measure_code: str,
-    seasonal_SU: str,               # 'S' or 'U'
-    area_code_family: str | None
-) -> list[str]:
-    s = la_series_df.copy()
-    a = la_area_df.copy()
-    a["area_text_lc"] = a["area_text"].astype(str).str.strip().str.lower()
-    a["name_n"] = a["area_text_lc"].map(_norm_area_name)
-    s["measure_code"] = s["measure_code"].astype(str).str.zfill(3)
-    s["seasonal"] = s["seasonal"].astype(str).str.upper().replace({"SA":"S", "NSA":"U"})
-
-    m = s.merge(a[["area_code","area_text","area_text_lc","name_n"]], on="area_code", how="left")
-
-    cand = pd.DataFrame()
-    if wanted_name:
-        tn = _norm_area_name(wanted_name)
-        c1 = m[m["name_n"] == tn]
-        c2 = m[m["name_n"].str.contains(tn, na=False)] if c1.empty else pd.DataFrame()
-        cand = pd.concat([c1, c2], ignore_index=True)
-
-    if cand.empty and area_code_family:
-        cand = m[m["area_code"].str.startswith(area_code_family)]
-
-    # filter to the measure + seasonal we need
-    cand = cand[(cand["measure_code"] == str(measure_code).zfill(3)) &
-                (cand["seasonal"] == seasonal_SU)]
-
-    # de-dup and return SIDs
-    return list(dict.fromkeys(cand["series_id"].dropna().tolist()))
-
-
+    
 
 
 def needs_refresh(n_rows: int, first_date: pd.Timestamp | None, last_date: pd.Timestamp | None) -> bool:
