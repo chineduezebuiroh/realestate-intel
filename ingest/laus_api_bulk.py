@@ -90,18 +90,8 @@ def fetch_lau_from_files(series_ids: list[str]):
 
 
 def fetch_series_any(series_ids: list[str]):
-    """Route LAS* to API; route LAU* to flat files."""
-    las = [s for s in series_ids if s.upper().startswith("LAS")]
-    lau = [s for s in series_ids if s.upper().startswith("LAU")]
-
-    blocks = []
-    if las:
-        blocks.extend(fetch_series(las))             # existing API path for LAS
-    if lau:
-        blocks.extend(fetch_lau_from_files(lau))     # file-based path for LAU
-    return blocks
-
-
+    # For now: API-only. We'll reintroduce file ingestion later once we confirm BLS access pattern.
+    return fetch_series(series_ids)
 
 
 
@@ -362,6 +352,25 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids_needed):
 
 
 
+import pandas as pd
+
+def is_truncated_series(s_block_entry, min_ok_year=2010) -> bool:
+    # s_block_entry is one element from the API response "Results.series"
+    monthly = [d for d in s_block_entry.get("data", []) if str(d.get("period","")).startswith("M")]
+    if not monthly:
+        return True
+    years = []
+    for d in monthly:
+        try:
+            years.append(int(d.get("year")))
+        except:
+            pass
+    if not years:
+        return True
+    return max(years) < min_ok_year
+
+
+
 def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
     if df.empty:
         return
@@ -506,30 +515,27 @@ def main():
         print(f"[laus] fetching {len(chunk)} series…")
         series_block = fetch_series_any(chunk)
 
-
+        # Filter out legacy/truncated SIDs so we don't insert 1990–1995 junk
+        filtered_block = []
         for s in series_block:
             sid = s["seriesID"]
+            if is_truncated_series(s, min_ok_year=2010):
+                print(f"[laus] SKIP legacy/truncated {sid} "
+                      f"(max_year<{2010}) — not inserting; use MSA/state for coverage.")
+                continue
+            filtered_block.append(s)
         
-            # mirror to_df’s keep rules
-            months_by_year = {}
-            for d in s.get("data", []):
-                p = str(d.get("period",""))
-                if p.startswith("M") and p != "M13":
-                    y = int(d["year"])
-                    months_by_year[y] = months_by_year.get(y, 0) + 1
+        if not filtered_block:
+            print("[laus] NOTE: all SIDs in this chunk were legacy/truncated; nothing to insert from this chunk.")
+            continue
         
-            kept = 0
-            for d in s.get("data", []):
-                p = str(d.get("period",""))
-                if not p.startswith("M"):
-                    continue
-                if p == "M13" and months_by_year.get(int(d["year"]), 0) > 0:
-                    continue
-                kept += 1
+        # Log counts on kept series
+        for s in filtered_block:
+            sid = s["seriesID"]
+            n = sum(1 for d in s.get("data", []) if str(d.get("period","")).startswith("M"))
+            print(f"[laus] fetched {n:4d} monthly rows for {sid} -> {sid_to_rowmeta.get(sid,{}).get('metric_id')}")
         
-            print(f"[laus] fetched {kept:4d} rows used for {sid} -> {sid_to_rowmeta.get(sid,{}).get('metric_id')}")
-
-        dfs.append(to_df(series_block, sid_to_rowmeta))
+        dfs.append(to_df(filtered_block, sid_to_rowmeta))
         time.sleep(0.5)  # small courtesy pause
 
     all_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
