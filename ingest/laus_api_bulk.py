@@ -172,8 +172,9 @@ from datetime import date
 def fetch_series(series_ids):
     payload = {
         "seriesid": series_ids,
-        "startyear": "1976",           # LAUS has history back to 1976
+        "startyear": "1976",
         "endyear": str(date.today().year),
+        "annualaverage": True,   # <-- include annual averages (M13)
     }
     if BLS_KEY:
         payload["registrationkey"] = BLS_KEY
@@ -190,40 +191,59 @@ def fetch_series(series_ids):
 
 
 
-
 def to_df(series_block, sid_to_rowmeta):
     rows = []
+
     for s in series_block:
         sid = s["seriesID"]
         meta = sid_to_rowmeta.get(sid, {})
+
+        # Count true monthly rows per year so we can suppress M13 if months exist
+        months_by_year = {}
         for item in s.get("data", []):
-            period = item["period"]
-            if not period.startswith("M"):  # skip annual 'M13' etc
-                continue
-            month = int(period[1:])
-            year  = int(item["year"])
-            date = (pd.Timestamp(year=year, month=month, day=1)
-                      .to_period("M").to_timestamp("M").date())
+            p = str(item.get("period", ""))
+            if p.startswith("M") and p != "M13":
+                y = int(item["year"])
+                months_by_year[y] = months_by_year.get(y, 0) + 1
+
+        for item in s.get("data", []):
+            period = str(item.get("period", ""))
+            if not period.startswith("M"):
+                continue  # skip non-monthly-like rows
+
+            year = int(item["year"])
+
+            # Annual average rows
+            if period == "M13":
+                # Keep M13 only when there are no true monthly rows in that year
+                if months_by_year.get(year, 0) > 0:
+                    continue
+                dt = pd.Timestamp(year=year, month=12, day=31).date()
+            else:
+                # True monthly rows
+                month = int(period[1:])
+                if not (1 <= month <= 12):
+                    continue
+                dt = (pd.Timestamp(year=year, month=month, day=1)
+                        .to_period("M").to_timestamp("M").date())
+
             try:
                 val = float(item["value"])
-            except:
+            except Exception:
                 continue
 
-            # ✅ Use the metric_id we computed in main()
-            metric_id = meta.get("metric_id")
-            if not metric_id:
-                # ultra-safe fallback (shouldn’t happen once main() fills meta)
-                metric_id = "laus_unemployment_rate_nsa"
+            metric_id = meta.get("metric_id") or "laus_unemployment_rate_nsa"
 
             rows.append({
                 "geo_id":           meta.get("geo_id"),
                 "metric_id":        metric_id,
-                "date":             date,
+                "date":             dt,
                 "value":            val,
                 "source_id":        "laus",
                 "property_type_id": "all",
                 "series_id":        sid,
             })
+
     return pd.DataFrame(rows)
 
 
@@ -372,11 +392,27 @@ def main():
         print(f"[laus] fetching {len(chunk)} series…")
         series_block = fetch_series(chunk)
 
-        # Just log counts; no remap logic.
         for s in series_block:
             sid = s["seriesID"]
-            n = sum(1 for d in s.get("data", []) if str(d.get("period","")).startswith("M"))
-            print(f"[laus] fetched {n:4d} monthly rows for {sid} -> {sid_to_rowmeta.get(sid,{}).get('metric_id')}")
+        
+            # mirror to_df’s keep rules
+            months_by_year = {}
+            for d in s.get("data", []):
+                p = str(d.get("period",""))
+                if p.startswith("M") and p != "M13":
+                    y = int(d["year"])
+                    months_by_year[y] = months_by_year.get(y, 0) + 1
+        
+            kept = 0
+            for d in s.get("data", []):
+                p = str(d.get("period",""))
+                if not p.startswith("M"):
+                    continue
+                if p == "M13" and months_by_year.get(int(d["year"]), 0) > 0:
+                    continue
+                kept += 1
+        
+            print(f"[laus] fetched {kept:4d} rows used for {sid} -> {sid_to_rowmeta.get(sid,{}).get('metric_id')}")
 
         dfs.append(to_df(series_block, sid_to_rowmeta))
         time.sleep(0.5)  # small courtesy pause
