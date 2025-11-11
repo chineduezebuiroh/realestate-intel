@@ -16,16 +16,21 @@ import requests
 # Where ensure_bls_files() writes the flat files
 BLS_DIR = Path("config/bls")
 
-
 # Remapping stale county/city SIDs to parent areas (disabled)
 REMAP_STALE = bool(int(os.getenv("LAUS_REMAP", "0")))
-
 
 LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
 
 
 
 from glob import glob
+
+
+
+def _max_year_from_block_entry(b: dict) -> int:
+    months = [d for d in (b or {}).get("data", []) if str(d.get("period","")).startswith("M")]
+    years = [int(d["year"]) for d in months if str(d.get("year","")).isdigit()]
+    return max(years) if years else -1
 
 
 
@@ -96,9 +101,10 @@ def fetch_lau_from_files(series_ids: list[str]) -> list[dict]:
 
 
 
-def fetch_series_any(series_ids: list[str]) -> list[dict]:
+#def fetch_series_any(series_ids: list[str]) -> list[dict]:
     """
     Try API first. For any SID missing or obviously short, fill with local LAU files.
+    """
     """
     blocks: list[dict] = []
     have: set[str] = set()
@@ -127,6 +133,38 @@ def fetch_series_any(series_ids: list[str]) -> list[dict]:
             # replace any short/missing entries with file-backed
             keep = [b for b in blocks if b.get("seriesID") not in set(need_files)]
             blocks = keep + file_blocks
+        except FileNotFoundError as e:
+            print(f"[laus] File fallback unavailable: {e}")
+
+    return blocks
+    """
+
+def fetch_series_any(series_ids: list[str]) -> list[dict]:
+    blocks: list[dict] = []
+    have: set[str] = set()
+
+    # 1) API path
+    try:
+        api_blocks = fetch_series(series_ids)
+        blocks.extend(api_blocks)
+        have = {b.get("seriesID") for b in api_blocks if b.get("seriesID")}
+    except Exception as e:
+        print(f"[laus] API fetch error (will fallback to files): {e}")
+        have = set()
+
+    # 2) File fallback for MISSING or SHORT SIDs
+    missing_or_short = [
+        sid for sid in series_ids
+        if sid not in have or _looks_short(blocks, sid, min_ok_year=2010)
+    ]
+    if missing_or_short:
+        try:
+            file_blocks = fetch_lau_from_files(missing_or_short)
+            # replace any existing entries for those SIDs with the file-backed ones
+            replace = set(missing_or_short)
+            keep = [b for b in blocks if b.get("seriesID") not in replace]
+            blocks = keep + file_blocks
+            print(f"[laus] filled {len(file_blocks)} missing/short series from local LAU files.")
         except FileNotFoundError as e:
             print(f"[laus] File fallback unavailable: {e}")
 
@@ -192,9 +230,10 @@ def needs_refresh(n_rows: int, first_date: pd.Timestamp | None, last_date: pd.Ti
 
 
 
-def _looks_short(blocks: list[dict], sid: str) -> bool:
+#def _looks_short(blocks: list[dict], sid: str) -> bool:
     """
     Return True if the block for sid looks truncated (e.g., ends in the 1990s).
+    """
     """
     for b in blocks:
         if b.get("seriesID") != sid:
@@ -208,6 +247,14 @@ def _looks_short(blocks: list[dict], sid: str) -> bool:
             return True
         return max_year < 2000  # tweak if you want stricter logic
     # no block found -> short
+    return True
+    """
+
+def _looks_short(blocks: list[dict], sid: str, min_ok_year: int = 2010) -> bool:
+    for b in blocks:
+        if b.get("seriesID") == sid:
+            return _max_year_from_block_entry(b) < min_ok_year
+    # if we didn’t even get a block for the sid, treat as short/missing
     return True
 
 
@@ -579,9 +626,21 @@ def main():
         filtered_block = []
         for s in series_block:
             sid = s["seriesID"]
+
+            # BEFORE writing row(s) for this sid in the df build loop:
             if is_truncated_series(s, min_ok_year=2010):
-                print(f"[laus] SKIP legacy/truncated {sid} "
-                      f"(max_year<{2010}) — not inserting; use MSA/state for coverage.")
+                sid = s.get("seriesID")
+                try:
+                    fb = fetch_lau_from_files([sid])
+                    if fb and _max_year_from_block_entry(fb[0]) >= 2010:
+                        print(f"[laus] replaced truncated API block for {sid} with file-backed history.")
+                        s = fb[0]  # use the long file-backed block
+                    else:
+                        print(f"[laus] SKIP legacy/truncated {sid} (max_year<2010) — not inserting; use MSA/state for coverage.")
+                        continue
+                except FileNotFoundError:
+                    print(f"[laus] SKIP legacy/truncated {sid} (no file fallback available).")
+                    continue
                 continue
             filtered_block.append(s)
         
