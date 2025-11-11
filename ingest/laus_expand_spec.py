@@ -13,14 +13,65 @@ BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
 BLS_DIR.mkdir(parents=True, exist_ok=True)
 
+
 FILES = [
-    "la.area", "la.area_type", "la.series", "la.measure", "la.state_region_division",
-    "la.data.60.Metro", "la.data.61.Division", "la.data.62.Micro",
-    "la.data.63.Combined", "la.data.64.County", "la.data.65.City",
-    "la.data.2.AllStatesU", "la.data.3.AllStatesS",
-    "la.data.4.RegionDivisionU", "la.data.5.RegionDivisionS",
+    # metadata
+    "la.area",
+    "la.area_type",
+    "la.series",
+    "la.measure",
+    "la.state_region_division",  # may 403 sometimes; we’ll treat as optional
+
+    # BIG data files (the fallback source we need)
+    "la.data.60.Metro",
+    "la.data.61.Division",
+    "la.data.62.Micro",
+    "la.data.63.Combined",
+    "la.data.64.County",
+    "la.data.65.City",
+
+    # states/regions (optional but nice to have)
+    "la.data.2.AllStatesU",
+    "la.data.3.AllStatesS",
+    "la.data.4.RegionDivisionU",
+    "la.data.5.RegionDivisionS",
 ]
 
+
+
+def _robust_get(url: str, timeout=120, max_retries=3, retry_sleep=1.0) -> bytes:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/121.0.0.0 Safari/537.36"
+        ),
+        "Accept": "*/*",
+        "Connection": "close",
+    }
+    last_err = None
+
+    # try HTTPS first, then HTTP fallback each attempt
+    for attempt in range(1, max_retries + 1):
+        for scheme in ("https://", "http://"):
+            u = url if url.startswith("http") else (scheme + url.lstrip("/"))
+            try:
+                r = requests.get(u, headers=headers, timeout=timeout)
+                if r.status_code in (403, 429, 503):  # typical CDN/ratelimit responses
+                    # brief pause and retry
+                    last_err = requests.HTTPError(f"{r.status_code} for {u}")
+                    time.sleep(retry_sleep * attempt)
+                    continue
+                r.raise_for_status()
+                return r.content
+            except Exception as e:
+                last_err = e
+                time.sleep(retry_sleep * attempt)
+
+    # if totally failed
+    if last_err:
+        raise last_err
+    raise RuntimeError(f"Failed to fetch {url}")
 
 
 
@@ -62,27 +113,45 @@ def _http_get(url: str, timeout=60) -> bytes:
 
 
 
-# ingest/laus_expand_spec.py
-from pathlib import Path
-#from ingest.laus_api_bulk import _http_get  # reuse your robust getter
+import os
 
-
+OPTIONAL_FILES = {
+    "la.state_region_division",
+    "la.data.2.AllStatesU",
+    "la.data.3.AllStatesS",
+    "la.data.4.RegionDivisionU",
+    "la.data.5.RegionDivisionS",
+}
 
 def ensure_bls_files():
     BLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # allow skipping specific files if needed: LAUS_SKIP_FILES="la.state_region_division,la.data.5.RegionDivisionS"
+    skip = set(s.strip() for s in os.getenv("LAUS_SKIP_FILES","").split(",") if s.strip())
+
     for name in FILES:
-        url = BLS_BASE + name
+        if name in skip:
+            print(f"[bls] skipping {name} (env LAUS_SKIP_FILES)")
+            continue
+
         p = BLS_DIR / name
         if p.exists() and p.stat().st_size > 0:
             continue
+
+        url = BLS_BASE + name
         print(f"[bls] downloading {url} → {p}")
-        r = requests.get(url, timeout=120, headers={"User-Agent": "Mozilla/5.0"})
-        if r.status_code == 403:
-            time.sleep(2)
-            r = requests.get(url, timeout=120, headers={"User-Agent": "Mozilla/5.0"})
-        r.raise_for_status()
-        with open(p, "wb") as f:
-            f.write(r.content)
+        try:
+            data = _robust_get(url, timeout=120, max_retries=4, retry_sleep=1.0)
+            with open(p, "wb") as f:
+                f.write(data)
+        except Exception as e:
+            if name in OPTIONAL_FILES:
+                print(f"[bls] WARNING: could not fetch optional file {name}: {e} — continuing.")
+                continue
+            else:
+                # For the critical big LAU files, bail loudly
+                raise
+
 
 
 SPEC = Path("config/laus_spec.yml")
