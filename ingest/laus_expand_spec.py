@@ -62,32 +62,27 @@ def _http_get(url: str, timeout=60) -> bytes:
 
 
 
-
-
 # ingest/laus_expand_spec.py
 from pathlib import Path
 #from ingest.laus_api_bulk import _http_get  # reuse your robust getter
 
-BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
-BLS_DIR  = Path("config/bls")
-
 
 
 def ensure_bls_files():
-    # index files
-    for name in ["la.series", "la.area"]:
+    BLS_DIR.mkdir(parents=True, exist_ok=True)
+    for name in FILES:
+        url = BLS_BASE + name
         p = BLS_DIR / name
-        if not p.exists() or p.stat().st_size == 0:
-            data = _http_get(BLS_BASE + name, timeout=60)
-            p.write_text(data.decode("utf-8", errors="replace"))
-
-    # data files (pull at least the “all data” superset; add others if you like)
-    for name in ["la.data.3.AllData"]:
-        p = BLS_DIR / name
-        if not p.exists() or p.stat().st_size == 0:
-            data = _http_get(BLS_BASE + name, timeout=120)
-            p.write_text(data.decode("utf-8", errors="replace"))
-
+        if p.exists() and p.stat().st_size > 0:
+            continue
+        print(f"[bls] downloading {url} → {p}")
+        r = requests.get(url, timeout=120, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code == 403:
+            time.sleep(2)
+            r = requests.get(url, timeout=120, headers={"User-Agent": "Mozilla/5.0"})
+        r.raise_for_status()
+        with open(p, "wb") as f:
+            f.write(r.content)
 
 
 SPEC = Path("config/laus_spec.yml")
