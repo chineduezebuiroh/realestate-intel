@@ -49,16 +49,39 @@ def _http_get(url: str, timeout=60) -> bytes:
     r.raise_for_status()
     return r.content
 
+
+import re
+
+BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
+BLS_DIR = Path("config/bls")
+
 def ensure_bls_files():
     BLS_DIR.mkdir(parents=True, exist_ok=True)
-    for fname in BLS_FILES:
-        dest = BLS_DIR / fname
-        if dest.exists() and dest.stat().st_size > 0:
+
+    # Fetch directory listing and download everything that starts with la.data.
+    idx = requests.get(BLS_BASE, timeout=60)
+    idx.raise_for_status()
+    listing = idx.text
+
+    # Basic link scrape for file names
+    files = set(re.findall(r'href="(la\.[^"]+)"', listing))
+
+    must_have = {"la.series", "la.area"}
+    data_like = {name for name in files if name.startswith("la.data.")}
+
+    wanted = sorted(must_have | data_like)
+    for name in wanted:
+        out = BLS_DIR / name
+        if out.exists() and out.stat().st_size > 0:
             continue
-        url = f"{BLS_BASE}{fname}"
-        print(f"[laus:gen] fetching {url} → {dest}")
-        data = _http_get(url, timeout=60)
-        dest.write_bytes(data)
+        r = requests.get(BLS_BASE + name, timeout=120)
+        r.raise_for_status()
+        out.write_bytes(r.content)
+
+
+
+
+
 # --- end fetcher ---
 
 SPEC = Path("config/laus_spec.yml")
