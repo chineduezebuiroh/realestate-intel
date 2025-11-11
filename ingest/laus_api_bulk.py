@@ -102,6 +102,7 @@ def fetch_series_any(series_ids: list[str]) -> list[dict]:
     """
     blocks: list[dict] = []
     have: set[str] = set()
+
     # 1) API path
     try:
         api_blocks = fetch_series(series_ids)
@@ -111,14 +112,20 @@ def fetch_series_any(series_ids: list[str]) -> list[dict]:
         print(f"[laus] API fetch error (will fallback to files): {e}")
         have = set()
 
-    # 2) File fallback for missing or short SIDs
-    missing_or_short = [sid for sid in series_ids
-                        if sid not in have or _looks_short(blocks, sid)]
-    if missing_or_short:
+    # 2) Decide which SIDs need file-fallback (missing or truncated)
+    def _looks_short(blocks_list: list[dict], sid: str) -> bool:
+        for b in blocks_list:
+            if b.get("seriesID") == sid and b.get("data"):
+                # reuse your existing logic
+                return is_truncated_series(b, min_ok_year=2010)
+        return True  # no data at all → treat as short
+
+    need_files = [sid for sid in series_ids if sid not in have or _looks_short(blocks, sid)]
+    if need_files:
         try:
-            file_blocks = fetch_lau_from_files(missing_or_short)
-            # replace/append: remove any short blocks we had for these sids
-            keep = [b for b in blocks if b.get("seriesID") not in set(missing_or_short)]
+            file_blocks = fetch_lau_from_files(need_files)
+            # replace any short/missing entries with file-backed
+            keep = [b for b in blocks if b.get("seriesID") not in set(need_files)]
             blocks = keep + file_blocks
         except FileNotFoundError as e:
             print(f"[laus] File fallback unavailable: {e}")
