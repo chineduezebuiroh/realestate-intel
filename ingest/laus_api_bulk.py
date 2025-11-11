@@ -19,16 +19,6 @@ REMAP_STALE = bool(int(os.getenv("LAUS_REMAP", "0")))
 
 LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
 
-# --- Final-resort manual redirects for known legacy locals ---
-# If an area_code has no modern coverage, fall back to a parent area_code we know is live.
-MANUAL_AREA_REDIRECT = {
-    # Alexandria city
-    "CN5151000000000": "MT1147900000000",  # -> Washington–Arlington–Alexandria MSA
-    "CT5101000000000": "MT1147900000000",  # some SIDs use CT for the city
-
-    # Arlington County
-    "CN5101300000000": "MT1147900000000",
-}
 
 def _max_year_from_block(series_block) -> int:
     years = []
@@ -298,19 +288,27 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
 
 
 def main():
-    RUN_ID = "laus_api_bulk v3–remap-wide+manual"
-    print(f"[laus] START {RUN_ID}")
+    print("[laus] START laus_api_bulk")
 
     # prefer generated, fall back to hand-maintained
     cfg_path = "config/laus_series.generated.csv"
     if not Path(cfg_path).exists():
         cfg_path = "config/laus_series.csv"
+    print(f"[laus] using config: {cfg_path}")
 
+    # optional: env-driven subset filter (handy for debugging)
+    FILTER_GEOS = set(
+        g.strip().lower()
+        for g in (os.getenv("LAUS_FILTER_GEOS", "").split(",")
+                  if os.getenv("LAUS_FILTER_GEOS") else [])
+    )
+    if FILTER_GEOS:
+        print(f"[laus] FILTER_GEOS active -> {sorted(FILTER_GEOS)}")
 
     # read config and group intended rows by series id
     rows, series_ids = [], []
     sid_to_rowmeta = {}
-    
+
     with open(cfg_path, newline="") as f:
         rdr = csv.DictReader(f)
         for r in rdr:
@@ -320,24 +318,18 @@ def main():
             if (r.get("geo_id","").strip().startswith("#")
                 or r.get("series_id","").strip().startswith("#")):
                 continue
-    
+
             sid = (r.get("series_id") or "").strip()
             if not sid:
                 print(f"[laus] skip row with empty series_id: {r}")
                 continue
-    
+
             geo_id = (r.get("geo_id") or "").strip()
 
-            # 👇 add this block here
-            FILTER_GEOS = set(
-                g.strip().lower()
-                for g in (os.getenv("LAUS_FILTER_GEOS", "").split(",")
-                          if os.getenv("LAUS_FILTER_GEOS") else [])
-            )
+            # apply optional geo filter
             if FILTER_GEOS and geo_id.lower() not in FILTER_GEOS:
                 continue
-            # 👆 end filter block
-    
+
             # Robust metric resolution:
             # 1) infer base from series_id tail (003/004/005/006)
             base_auto = base_from_sid(sid)
@@ -347,45 +339,31 @@ def main():
                 "laus_unemployment_rate","laus_unemployment","laus_employment","laus_labor_force"
             }:
                 base_csv = base_auto
-    
-            # 3) SA/NSA from series_id (LASST/LAUST); fallback to CSV `seasonal`
+
+            # 3) SA/NSA from series_id (LAS*/LAU*); fallback to CSV `seasonal`
             sfx = suffix_from_sid(sid)
             if sfx not in ("sa","nsa"):
                 sfx = sfx_from_csv(r.get("seasonal"))
-    
-            metric_id = f"{base_csv}_{sfx}"
-    
-            series_ids.append(sid)
 
+            metric_id = f"{base_csv}_{sfx}"
+
+            series_ids.append(sid)
             sid_to_rowmeta[sid] = {
                 "geo_id": geo_id,
                 "metric_id": metric_id,
-                "metric_base": base_csv,   # optional
-                "seasonal": sfx,           # optional ("sa"/"nsa")
-                "name": (r.get("name") or "").strip(),  # <-- add this
+                "metric_base": base_csv,     # optional
+                "seasonal": sfx,             # optional ("sa"/"nsa")
+                "name": (r.get("name") or "").strip(),  # optional
             }
-
-
-            
             rows.append(r)
-    
+
+    if not series_ids:
+        raise SystemExit("[laus] no series_id entries found in config CSV")
+
     print("[laus] planned series + mapped metric_id:")
-    # Load catalogs once, for remaps
-
-
-
-    def _to_SU(sfx: str) -> str:
-        s = (sfx or "").strip().lower()
-        return "S" if s == "sa" else "U"
-
-
-    
-    
     for sid in series_ids:
         print(f"  {sid} -> {sid_to_rowmeta[sid]['metric_id']}")
-    
-    if not series_ids:
-        raise SystemExit("[laus] no series_id entries found in config/laus_series.csv")
+    print(f"[laus] total series planned: {len(series_ids)}")
 
     # batch up to 50 series per API call
     dfs = []
@@ -393,24 +371,22 @@ def main():
         chunk = series_ids[i:i+50]
         print(f"[laus] fetching {len(chunk)} series…")
         series_block = fetch_series(chunk)
-    
-        # Just log counts; do NOT attempt remap.
+
+        # Just log counts; no remap logic.
         for s in series_block:
             sid = s["seriesID"]
             n = sum(1 for d in s.get("data", []) if str(d.get("period","")).startswith("M"))
             print(f"[laus] fetched {n:4d} monthly rows for {sid} -> {sid_to_rowmeta.get(sid,{}).get('metric_id')}")
-    
-        dfs.append(to_df(fresh_block, sid_to_rowmeta))
+
+        dfs.append(to_df(series_block, sid_to_rowmeta))
         time.sleep(0.5)  # small courtesy pause
 
-    
     all_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     print("[laus] sample of metric_id counts (pre-upsert):")
-    print(all_df.groupby("metric_id").size().sort_index().to_string())
-
     if all_df.empty:
         print("[laus] no rows returned.")
         return
+    print(all_df.groupby("metric_id").size().sort_index().to_string())
 
     # ensure markets exist minimally (name fallback)
     mkts = (
@@ -440,8 +416,6 @@ def main():
 
     ensure_dims(con, all_df["metric_id"].unique())
 
-
-    
     con.register("mkts", mkts)
     con.execute("""
     INSERT INTO dim_market(geo_id,name,type,fips)
@@ -449,7 +423,7 @@ def main():
     WHERE geo_id NOT IN (SELECT geo_id FROM dim_market)
     """)
 
-    # … after building all_df …
+    # de-dupe just in case
     all_df = (
         all_df.sort_values(["geo_id","metric_id","date","property_type_id"])
               .drop_duplicates(
@@ -479,3 +453,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
