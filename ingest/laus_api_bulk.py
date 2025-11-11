@@ -15,12 +15,7 @@ import requests
 
 LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
 
-
-
 LA_AREA_PATH = BLS_DIR / "la.area"
-
-
-
 
 # --- Final-resort manual redirects for known legacy locals ---
 # If an area_code has no modern coverage, fall back to a parent area_code we know is live.
@@ -34,36 +29,7 @@ MANUAL_AREA_REDIRECT = {
 }
 
 
-
-
-
-
-
-
 LA_AREA_PATH = BLS_DIR / "la.area"
-
-
-
-
-
-
-
-
-
-#def _max_year_from_block(block) -> int:
-    """Get the max data year from a single-series API response block."""
-    """
-    if not block:
-        return -1
-    s = block[0]  # one series
-    mons = [d for d in s.get("data", []) if str(d.get("period","")).startswith("M")]
-    if not mons:
-        return -1
-    try:
-        return max(int(d["year"]) for d in mons if d.get("year"))
-    except Exception:
-        return -1
-    """
 
 def _max_year_from_block(series_block) -> int:
     years = []
@@ -75,10 +41,6 @@ def _max_year_from_block(series_block) -> int:
                 except:
                     pass
     return max(years) if years else -1
-
-
-
-
 
 
 
