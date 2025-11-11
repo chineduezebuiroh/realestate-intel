@@ -11,7 +11,12 @@ import re
 
 BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
+BLS_DIR.mkdir(parents=True, exist_ok=True)
+
 BLS_FILES = ["la.area", "la.series", "la.measure", "la.area_type"]
+
+
+
 
 #LA_AREA   = BLS_DIR / "la.area"
 #LA_SERIES = BLS_DIR / "la.series"
@@ -19,8 +24,10 @@ LA_AREA   = Path("config/bls/la.area")
 LA_SERIES = Path("config/bls/la.series")
 
 
+import requests, time
+from pathlib import Path
+
 def _http_get(url: str, timeout=60) -> bytes:
-    # Try HTTPS with browser UA, then HTTP, with a short retry
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -28,16 +35,13 @@ def _http_get(url: str, timeout=60) -> bytes:
             "Chrome/120.0.0.0 Safari/537.36"
         )
     }
-    # 1) HTTPS
     r = requests.get(url, headers=headers, timeout=timeout)
     if r.status_code == 403:
-        # brief backoff + retry once
         time.sleep(0.6)
         r = requests.get(url, headers=headers, timeout=timeout)
     if r.ok:
         return r.content
 
-    # 2) fallback to HTTP (some CDNs gatekeep HTTPS without UA)
     if url.startswith("https://"):
         url_http = "http://" + url[len("https://"):]
         r = requests.get(url_http, headers=headers, timeout=timeout)
@@ -52,21 +56,33 @@ def _http_get(url: str, timeout=60) -> bytes:
 
 
 
+
+
 # ingest/laus_expand_spec.py
 from pathlib import Path
-from ingest.laus_api_bulk import _http_get  # reuse your robust getter
+#from ingest.laus_api_bulk import _http_get  # reuse your robust getter
 
 BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
 
+
+
 def ensure_bls_files():
-    BLS_DIR.mkdir(parents=True, exist_ok=True)
-    for name in ("la.series", "la.area"):
-        out = BLS_DIR / name
-        if out.exists() and out.stat().st_size > 0:
-            continue
-        data = _http_get(BLS_BASE + name, timeout=120)
-        out.write_bytes(data)
+    # index files
+    for name in ["la.series", "la.area"]:
+        p = BLS_DIR / name
+        if not p.exists() or p.stat().st_size == 0:
+            data = _http_get(BLS_BASE + name, timeout=60)
+            p.write_text(data.decode("utf-8", errors="replace"))
+
+    # data files (pull at least the “all data” superset; add others if you like)
+    for name in ["la.data.3.AllData"]:
+        p = BLS_DIR / name
+        if not p.exists() or p.stat().st_size == 0:
+            data = _http_get(BLS_BASE + name, timeout=120)
+            p.write_text(data.decode("utf-8", errors="replace"))
+
+
 
 SPEC = Path("config/laus_spec.yml")
 OUT_CSV = Path("config/laus_series.generated.csv")
