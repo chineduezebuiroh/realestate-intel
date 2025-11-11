@@ -308,53 +308,56 @@ def main():
     # Validate measures: keep only 003..006 and map to our base metric names
     valid_measures = {m for m in measures.keys() if m in MEASURE_MAP}
 
+
     rows = []
     for ar in areas:
         level = (ar.get("level") or "area").strip().lower()
-        allowed_seasonals = LEVEL_TO_SEASONALS.get(level, ("U",))  # default NSA only
+
         try:
             area_code = resolve_area_code(area_df, ar)
         except SystemExit as e:
             print(e)
             sys.exit(1)
 
-        # For each required measure, pick the best series among allowed seasonals
+        # For states we want TWO outputs per measure: NSA and SA.
+        # For all other levels, only NSA.
+        if level == "state":
+            seasonal_sets = [("U",), ("S",)]   # NSA first, then SA
+        else:
+            seasonal_sets = [("U",)]          # NSA only for sub-state geos
+
         for mcode in sorted(valid_measures):
             base_metric, default_name = MEASURE_MAP[mcode]
-            # Search candidates in la.series
-            cand = series_df[
-                (series_df["area_code"] == area_code) &
-                (series_df["measure_code"] == mcode) &
-                (series_df["seasonal"].isin(list(allowed_seasonals)))
-            ]
 
-            # If all candidates are missing years, try to drop known legacy-only prefixes
-            if not cand.empty and cand["end_year"].isna().all():
-                # Some very old series used geography definitions that ended in the 90s;
-                # they often have matching replacements with the same area_code/measure but
-                # different internal lineage. When years are all NaN, keep everything and let
-                # the ranker treat NaN end_year as 'new'; otherwise, lightly prefer SIDs that
-                # do not look like early legacy. This heuristic is intentionally mild.
-                pass  # (the pick_latest_series handles NaN-as-new already)
+            for seasonals in seasonal_sets:
+                # Search candidates in la.series limited to this seasonal set
+                cand = series_df[
+                    (series_df["area_code"] == area_code) &
+                    (series_df["measure_code"] == mcode) &
+                    (series_df["seasonal"].isin(list(seasonals)))
+                ]
 
-            best = pick_latest_series(cand)
-            if best is None:
-                print(f"[laus:gen] WARNING: no series for area_code={area_code} "
-                      f"({ar.get('name') or ar.get('geo_id')}), measure={mcode}, "
-                      f"seasonals={allowed_seasonals} — skipping.")
-                continue
+                best = pick_latest_series(cand)
+                if best is None:
+                    # Only warn if we're a state (we expect both NSA & SA);
+                    # sub-state geos legitimately won't have SA.
+                    if level == "state":
+                        print(f"[laus:gen] WARNING: no state series for area_code={area_code} "
+                              f"({ar.get('name') or ar.get('geo_id')}), measure={mcode}, "
+                              f"seasonals={seasonals} — skipping that seasonal.")
+                    continue
 
-            sid = best["series_id"]
-            seas_hr = seasonal_tag_from_sid(sid)  # "SA"/"NSA"
+                sid = best["series_id"]
+                seas_hr = seasonal_tag_from_sid(sid)  # "SA" or "NSA"
 
-            rows.append({
-                "geo_id":      ar["geo_id"],
-                "series_id":   sid,
-                "metric_base": base_metric,
-                "seasonal":    seas_hr,  # "SA" or "NSA" (not "S"/"U")
-                "name":        f"{default_name} ({(ar.get('level','area')).title()}, {seas_hr})",
-                "notes":       ar.get("name") or ar["geo_id"],
-            })
+                rows.append({
+                    "geo_id":      ar["geo_id"],
+                    "series_id":   sid,
+                    "metric_base": base_metric,
+                    "seasonal":    seas_hr,  # "SA"/"NSA"
+                    "name":        f"{default_name} ({(ar.get('level','area')).title()}, {seas_hr})",
+                    "notes":       ar.get("name") or ar["geo_id"],
+                })
 
     if not rows:
         print("[laus:gen] No rows generated — check your spec or lookup files.")
