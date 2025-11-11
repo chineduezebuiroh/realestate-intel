@@ -138,14 +138,30 @@ def load_lookup(area_path: Path = LA_AREA, series_path: Path = LA_SERIES):
 
 
 def pick_latest_series(sdf: pd.DataFrame) -> pd.Series | None:
+    """
+    Choose the 'best' series among candidates:
+      - Prefer the one with the most recent end_year.
+      - If end_year is NaN (open-ended), treat as very new.
+      - Hard reject obvious legacy windows (end_year <= 1995) when any newer exists.
+    """
     if sdf.empty:
         return None
     sdf = sdf.copy()
-    # Treat NaN end_year as "very new" to avoid picking legacy ends-at-1995 SIDs
-    sdf["end_year_rank"] = sdf["end_year"].fillna(9999)
-    # If tie, prefer smallest begin_year (longest span); treat NaN as very large
-    sdf["begin_year_rank"] = sdf["begin_year"].fillna(9999)
+
+    # Normalize numbers
+    for c in ("begin_year", "end_year"):
+        sdf[c] = pd.to_numeric(sdf.get(c), errors="coerce")
+
+    # 1) If there are any candidates with end_year >= 2000 or NaN, drop <= 1995 ones
+    modern = sdf[(sdf["end_year"].isna()) | (sdf["end_year"] >= 2000)]
+    if not modern.empty:
+        sdf = modern
+
+    # 2) Rank: newer end_year first; if tie, earliest begin_year (longest span)
+    sdf["end_year_rank"] = sdf["end_year"].fillna(9999)       # NaN -> very new
+    sdf["begin_year_rank"] = sdf["begin_year"].fillna(9999)   # NaN -> push down
     sdf = sdf.sort_values(["end_year_rank", "begin_year_rank"], ascending=[False, True])
+
     return sdf.iloc[0]
 
 
@@ -218,6 +234,15 @@ def main():
                 (series_df["measure_code"] == mcode) &
                 (series_df["seasonal"].isin(list(allowed_seasonals)))
             ]
+
+            # If all candidates are missing years, try to drop known legacy-only prefixes
+            if not cand.empty and cand["end_year"].isna().all():
+                # Some very old series used geography definitions that ended in the 90s;
+                # they often have matching replacements with the same area_code/measure but
+                # different internal lineage. When years are all NaN, keep everything and let
+                # the ranker treat NaN end_year as 'new'; otherwise, lightly prefer SIDs that
+                # do not look like early legacy. This heuristic is intentionally mild.
+                pass  # (the pick_latest_series handles NaN-as-new already)
 
             best = pick_latest_series(cand)
             if best is None:
