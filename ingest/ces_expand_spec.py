@@ -31,40 +31,43 @@ TARGET_DATA_TYPE = {"01"}
 TARGET_SEASONAL = {"S", "U"}
 
 
+
 def load_ces_geo_targets():
     """
-    Return dict[area_code] -> (geo_id, geo_name) for rows where include_ces=1
-    and bls_ces_area_code is present.
+    Return dict[area_key_variant] -> (geo_id, geo_name) for rows where include_ces=1.
+    We store multiple key variants so that '110000', '0110000', and '1100000' all map.
     """
+    def variants(code: str) -> set[str]:
+        code = re.sub(r"\D", "", code or "")
+        if not code:
+            return set()
+        v = set()
+        # raw and no-leading-zeros
+        v.add(code)
+        v.add(code.lstrip("0"))
+        # left-pad to common lengths used in CES
+        for w in (5, 6, 7):
+            v.add(code.zfill(w))
+        # if the manifest used 6-digit state-like codes (e.g., 110000),
+        # also add a *trailing* zero to match the state+area '1100000'
+        if len(code) == 6:
+            v.add(code + "0")
+        return {x for x in v if x}
+
     out = {}
     with GEO_MANIFEST.open("r", newline="", encoding="utf-8") as f:
         rdr = csv.DictReader(f)
         for r in rdr:
             if (r.get("include_ces") or "0").strip() not in ("1", "true", "True"):
                 continue
-            area = (r.get("bls_ces_area_code") or "").strip()
-            #if area and geo:
-                #out[area] = (geo, name)
-
-            area_raw = (r.get("bls_ces_area_code") or "").strip()
             geo  = (r.get("geo_id") or "").strip()
             name = (r.get("geo_name") or "").strip()
-            
-            # keep digits only
-            area_digits = re.sub(r"\D", "", area_raw)
-            
-            # Build tolerant keys so 110000 and 0110000 both work
-            keys = set()
-            if area_digits:
-                keys.add(area_digits)               # as-is (e.g., 110000)
-                keys.add(area_digits.lstrip("0"))   # without leading zeros
-                keys.add(area_digits.zfill(7))      # force 7-digit (e.g., 0110000)
-            
-            for k in keys:
-                if k:
-                    out[k] = (geo, name)
-    
+            raw  = (r.get("bls_ces_area_code") or "").strip()
+            for k in variants(raw):
+                out[k] = (geo, name)
     return out
+
+
 
 # Loaded once for lookups
 CES_AREA_MAP = load_ces_geo_targets()
@@ -210,36 +213,46 @@ def generate_csv(sm_series_rows, out_path: Path):
         # area_code, series_title, footnote_codes, begin_year, begin_period, end_year, end_period
         series_id = (r.get("series_id") or "").strip()
         seasonal = (r.get("seasonal") or "").strip()
+
+        state_code = (r.get("state_code") or "").strip()
+        area_code  = (r.get("area_code")  or "").strip()
+        sd = re.sub(r"\D", "", state_code)
+        ad = re.sub(r"\D", "", area_code)
         
-        area_code = (r.get("area_code") or "").strip()
-        area_code_norm = re.sub(r"\D", "", area_code)
-
-        industry_code = (r.get("industry_code") or "").strip()
-        data_type_code = (r.get("data_type_code") or "").strip()
-        series_title = (r.get("series_title") or "").strip()
-
-        if not series_id or not area_code:
-            continue
-
-        if seasonal not in TARGET_SEASONAL:
-            continue
-        if industry_code not in TARGET_INDUSTRY:
-            continue
-        if data_type_code not in TARGET_DATA_TYPE:
-            continue
-
-        # --- DEBUG: loosen & log ---
-        if area_code in {"110000", "240000", "510000"}:
-            print(f"[ces:gen][debug] saw state row: area_code={area_code} "
-                  f"seasonal={seasonal} industry={industry_code} dtype={data_type_code} title={series_title!r}")
-        # --------------------------------------------------------------
-
-        # add a 7-digit variant to be safe
-        geo_id, area_name = _pick_geo(area_code_norm) or _pick_geo(area_code_norm.zfill(7))
-
+        # Build candidates in the same way BLS encodes states: state_code + area_code (e.g., 11 + 00000 = 1100000)
+        candidates = []
+        if ad:
+            candidates.append(ad)  # raw area_code (e.g., MSA 47900)
+        if sd and ad:
+            candidates.append(sd + ad)  # state rows look like 1100000, 2400000, 5100000
+        
+        def expand_keys(code: str) -> list[str]:
+            out = set()
+            out.add(code)
+            out.add(code.lstrip("0"))
+            for w in (5, 6, 7):
+                out.add(code.zfill(w))
+            # if we got a 6-digit like 110000, also try 1100000
+            if len(code) == 6:
+                out.add(code + "0")
+            return [k for k in out if k]
+        
+        geo_id, area_name = (None, None)
+        for cand in candidates:
+            for key in expand_keys(cand):
+                geo_id, area_name = _pick_geo(key)
+                if geo_id:
+                    break
+            if geo_id:
+                break
         
         if not geo_id:
             continue
+
+        #industry_code = (r.get("industry_code") or "").strip()
+        #data_type_code = (r.get("data_type_code") or "").strip()
+        #series_title = (r.get("series_title") or "").strip()
+        
 
         want.append({
             "geo_id": geo_id,
