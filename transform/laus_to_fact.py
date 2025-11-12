@@ -3,7 +3,14 @@ import os, sys, csv, duckdb
 from collections import defaultdict
 
 DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
-CFG_PATH = "config/laus_series.csv"
+
+CFG_PATHS = ("config/laus_series.generated.csv", "config/laus_series.csv")
+def _pick_cfg_path():
+    for p in CFG_PATHS:
+        if os.path.exists(p):
+            return p
+    return None
+
 STRICT = os.getenv("LAUS_STRICT", "0") not in ("0", "", "false", "False", "no", "No")
 
 BASE_NAMES = {
@@ -29,6 +36,22 @@ def sfx_from_sid(sid: str) -> str:
     if sid.startswith("LASST"): return "sa"
     if sid.startswith("LAUST"): return "nsa"
     return "nsa"
+
+
+
+def _geos_from_cfg(cfg_path: str) -> list[str]:
+    geos = set()
+    with open(cfg_path, newline="") as f:
+        for r in csv.DictReader(f):
+            if not r:
+                continue
+            g = (r.get("geo_id") or "").strip()
+            sid = (r.get("series_id") or "").strip()
+            if g and sid and not g.startswith("#") and not sid.startswith("#"):
+                geos.add(g)
+    return sorted(geos)
+
+
 
 def load_expected_metric_ids():
     """Read config/laus_series.csv and produce the set of expected metric_ids per geo."""
@@ -62,8 +85,9 @@ def main():
         con.close()
         sys.exit(0)
 
-    # Build expectations from config
-    #expected = load_expected_metric_ids()
+    # Build expectations per-geo, based on simple rule:
+    #   - *_state => needs SA + NSA for all four bases
+    #   - everything else => NSA only
     BASES = [
         "laus_employment",
         "laus_labor_force",
@@ -71,13 +95,21 @@ def main():
         "laus_unemployment_rate",
     ]
     
-    if _expect_sa_for_geo(geo_id):
-        # states: SA + NSA
-        expected = [f"{b}_nsa" for b in BASES] + [f"{b}_sa" for b in BASES]
-    else:
-        # sub-state: NSA only
-        expected = [f"{b}_nsa" for b in BASES]
-
+    cfg_path = _pick_cfg_path()
+    if not cfg_path:
+        print("[laus:transform] No config CSV found (looked for generated and hand CSV).")
+        con.close()
+        sys.exit(0)
+    
+    geos = _geos_from_cfg(cfg_path)
+    
+    expected = {}  # dict[geo_id] -> set(metric_ids)
+    for geo_id in geos:
+        if _expect_sa_for_geo(geo_id):
+            exp = [f"{b}_nsa" for b in BASES] + [f"{b}_sa" for b in BASES]
+        else:
+            exp = [f"{b}_nsa" for b in BASES]
+        expected[geo_id] = set(exp)
 
     # What’s actually present?
     present = con.execute("""
