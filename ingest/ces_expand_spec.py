@@ -26,7 +26,7 @@ SM_DATA_ALL_URL = "https://download.bls.gov/pub/time.series/sm/sm.data.1.AllData
 # - industry_code = '000000' (Total Nonfarm)
 # - data_type_code = '01' (All Employees)
 # - seasonal in {'S','U'} (Seasonally adjusted / Not seasonally adjusted)
-TARGET_INDUSTRY = {"000000"}
+TARGET_INDUSTRY = {"00000000"}
 TARGET_DATA_TYPE = {"01"}
 TARGET_SEASONAL = {"S", "U"}
 
