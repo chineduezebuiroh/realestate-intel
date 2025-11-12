@@ -5,6 +5,15 @@ import re
 from pathlib import Path
 import requests
 
+# Metric base label used downstream
+METRIC_BASE = "ces_total_nonfarm"
+
+GEO_MANIFEST = Path("config/geo_manifest.csv")
+
+# 🔧 Populated at runtime in main()
+CES_AREA_MAP = {}
+
+
 BLS_DIR = Path("config/bls")
 GEN_PATH = Path("config/ces_series.generated.csv")
 
@@ -21,10 +30,6 @@ TARGET_INDUSTRY = {"000000"}
 TARGET_DATA_TYPE = {"01"}
 TARGET_SEASONAL = {"S", "U"}
 
-# Metric base label used downstream
-METRIC_BASE = "ces_total_nonfarm"
-
-GEO_MANIFEST = Path("config/geo_manifest.csv")
 
 def load_ces_geo_targets():
     """
@@ -43,9 +48,6 @@ def load_ces_geo_targets():
             if area and geo:
                 out[area] = (geo, name)
     return out
-
-# Loaded once for lookups
-CES_AREA_MAP = _load_geo_targets_for_ces(GEO_CFG)
 
 
 
@@ -92,6 +94,7 @@ def _read_sm_series(path: Path):
 def _pick_geo(area_code: str):
     """Map sm.series area_code to (geo_id, display_name) via config file."""
     return CES_AREA_MAP.get(area_code, (None, None))
+
 
 
 
@@ -162,8 +165,10 @@ def generate_csv(sm_series_rows, out_path: Path):
 
 def main():
     ensure_bls_files()
+    global CES_AREA_MAP
+    CES_AREA_MAP = load_ces_geo_targets()
     if not CES_AREA_MAP:
-        print("[ces:gen] NOTE: No CES geos enabled in config/bls_geo_targets.csv (include_ces=1).")
+        print("[ces:gen] NOTE: No CES geos enabled in config/geo_manifest.csv (include_ces=1).")
     rows = _read_sm_series(BLS_DIR / "sm.series")
     generate_csv(rows, GEN_PATH)
 
