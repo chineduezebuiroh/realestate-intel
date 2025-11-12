@@ -112,26 +112,62 @@ def ensure_bls_files():
     _download(SM_DATA_ALL_URL, BLS_DIR / "sm.data.1.AllData")
 
 
+
 def _read_sm_series(path: Path):
     """
     Read sm.series in a whitespace-robust way.
-    Returns list of dicts with keys from the header.
+    If there is no header line, synthesize one using the observed column order:
+    series_id, area_code, (pad1), (pad2), industry_code, data_type_code, seasonal,
+    end_year?, begin_year, begin_period, end_year, end_period
     """
     rows = []
+    default_header = [
+        "series_id",
+        "area_code",
+        "pad1",
+        "pad2",
+        "industry_code",
+        "data_type_code",
+        "seasonal",
+        "pad3",
+        "begin_year",
+        "begin_period",
+        "end_year",
+        "end_period",
+    ]
     with path.open("r", encoding="utf-8", errors="replace") as fh:
         header = None
-        for line in fh:
-            line = line.rstrip("\n")
+        first_line_buffer = None
+        for raw in fh:
+            line = raw.rstrip("\n")
             if not line:
                 continue
             parts = re.split(r"\s*\t\s*|\s{2,}|\s+", line.strip())
+
+            # Detect header: only treat as header if the first token literally says "series_id"
             if header is None:
-                header = [c.strip().lower() for c in parts]
-                continue
-            if len(parts) < len(header):
-                # Pad if needed (rare)
-                parts += [""] * (len(header) - len(parts))
-            row = dict(zip(header, parts))
+                if parts and parts[0].lower() == "series_id":
+                    header = [c.strip().lower() for c in parts]
+                    continue
+                else:
+                    header = default_header[:]          # no header present → use default
+                    first_line_buffer = parts           # keep this first data line
+                    # FALL THROUGH to row handling below after we have a header
+
+            # if the first data line was buffered, process it first
+            if first_line_buffer is not None:
+                parts_use = first_line_buffer
+                first_line_buffer = None
+            else:
+                parts_use = parts
+
+            # pad/truncate to header length
+            if len(parts_use) < len(header):
+                parts_use += [""] * (len(header) - len(parts_use))
+            elif len(parts_use) > len(header):
+                parts_use = parts_use[:len(header)]
+
+            row = dict(zip(header, parts_use))
             rows.append(row)
     return rows
 
