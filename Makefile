@@ -59,15 +59,27 @@ transform_monthly: db
 
 
 
-.PHONY: bls_sync laus_gen
+.PHONY: ingest_ces transform_ces bls_sync laus_gen
 
+ingest_ces:
+	$(PY) ingest/ces_expand_spec.py
+	$(PY) ingest/ces_api_bulk.py
+
+transform_ces:
+	$(PY) transform/ces_to_fact.py
+
+# one big BLS pipeline: LAUS + CES
 bls_sync:
 	$(PY) -c "from ingest.laus_expand_spec import ensure_bls_files; ensure_bls_files(); print('[make] BLS reference files synced.')"
-
-laus_gen: bls_sync
 	$(PY) ingest/laus_expand_spec.py
 	$(PY) ingest/laus_api_bulk.py
 	$(PY) transform/laus_to_fact.py
+	$(PY) ingest/ces_expand_spec.py
+	$(PY) ingest/ces_api_bulk.py
+	$(PY) transform/ces_to_fact.py
+
+# optional alias: keep laus_gen as a “full run” target
+laus_gen: bls_sync
 
 
 
