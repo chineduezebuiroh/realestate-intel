@@ -29,6 +29,9 @@ SM_DATA_ALL_URL = "https://download.bls.gov/pub/time.series/sm/sm.data.1.AllData
 TARGET_INDUSTRY = {"00000000"}
 TARGET_DATA_TYPE = {"01"}
 TARGET_SEASONAL = {"S", "U"}
+# Add near the other TARGET_* constants
+TARGET_SUPERSECTOR = {"00"}
+
 
 
 
@@ -192,52 +195,73 @@ def _seasonal_tag(s: str) -> str:
     return "NSA"
 
 
+
 def generate_csv(sm_series_rows, out_path: Path):
     """
     Filter sm.series to DMV + Total Nonfarm (All Employees) and write the generator CSV.
     """
     want = []
-    # --- DEBUG: confirm state area_code presence in sm.series ---
-    state_codes = {"110000", "240000", "510000"}
-    present_state_codes = set(r.get("area_code","").strip() for r in sm_series_rows if r.get("area_code"))
-    missing_in_series = sorted(code for code in state_codes if code not in present_state_codes)
-    if missing_in_series:
-        print(f"[ces:gen][debug] these state area_code(s) not found in sm.series: {missing_in_series}")
+
+    # --- DEBUG: confirm state presence using state_code+area_code form ---
+    # State series use state_code + '00000' in sm.series (e.g., 11 + 00000 -> 1100000)
+    state_pairs = {("11","00000"), ("24","00000"), ("51","00000")}
+    seen_pairs = {( (r.get("state_code") or "").strip(), (r.get("area_code") or "").strip() )
+                  for r in sm_series_rows}
+    missing_pairs = sorted([sc+ac for sc,ac in state_pairs if (sc,ac) not in seen_pairs])
+    if missing_pairs:
+        print(f"[ces:gen][debug] state pairs not found in sm.series (state_code+area_code): {missing_pairs}")
     else:
-        print("[ces:gen][debug] all state area_code(s) appear in sm.series")
-    # ------------------------------------------------------------
+        print("[ces:gen][debug] state pairs present in sm.series")
+    # --------------------------------------------------------------------
 
     for r in sm_series_rows:
-        # Expected fields in sm.series:
-        # series_id, seasonal, supersector_code, industry_code, data_type_code,
-        # area_code, series_title, footnote_codes, begin_year, begin_period, end_year, end_period
-        series_id = (r.get("series_id") or "").strip()
-        seasonal = (r.get("seasonal") or "").strip()
+        # Pull fields (robust to absent columns)
+        series_id        = (r.get("series_id") or "").strip()
+        seasonal         = (r.get("seasonal") or "").strip()
+        supersector_code = (r.get("supersector_code") or "").strip()
+        industry_code    = (r.get("industry_code") or "").strip()
+        data_type_code   = (r.get("data_type_code") or "").strip()
+        series_title     = (r.get("series_title") or "").strip()
+        state_code       = (r.get("state_code") or "").strip()
+        area_code        = (r.get("area_code") or "").strip()
 
-        state_code = (r.get("state_code") or "").strip()
-        area_code  = (r.get("area_code")  or "").strip()
+        if not series_id or not area_code:
+            continue
+
+        # STRICT CES filter: Total nonfarm (supersector 00, industry 00000000) & All Employees (01)
+        if seasonal not in TARGET_SEASONAL:
+            continue
+        if supersector_code not in TARGET_SUPERSECTOR:
+            continue
+        if industry_code not in TARGET_INDUSTRY:   # expect "00000000"
+            continue
+        if data_type_code not in TARGET_DATA_TYPE: # expect "01"
+            continue
+
+        # Map to our geo_id using tolerant keys:
+        # - raw area_code (e.g. "47900" for MSAs)
+        # - state_code+area_code for states (e.g. "11" + "00000" -> "1100000")
+        # - zero-stripped and zero-filled variants
         sd = re.sub(r"\D", "", state_code)
         ad = re.sub(r"\D", "", area_code)
-        
-        # Build candidates in the same way BLS encodes states: state_code + area_code (e.g., 11 + 00000 = 1100000)
-        candidates = []
-        if ad:
-            candidates.append(ad)  # raw area_code (e.g., MSA 47900)
-        if sd and ad:
-            candidates.append(sd + ad)  # state rows look like 1100000, 2400000, 5100000
-        
+
         def expand_keys(code: str) -> list[str]:
             out = set()
             out.add(code)
             out.add(code.lstrip("0"))
             for w in (5, 6, 7):
                 out.add(code.zfill(w))
-            # if we got a 6-digit like 110000, also try 1100000
             if len(code) == 6:
-                out.add(code + "0")
+                out.add(code + "0")  # 110000 -> 1100000
             return [k for k in out if k]
-        
+
         geo_id, area_name = (None, None)
+        candidates = []
+        if ad:
+            candidates.append(ad)             # pure area_code (MSA/CSA/city)
+        if sd and ad:
+            candidates.append(sd + ad)        # state rows look like 1100000, 2400000, 5100000
+
         for cand in candidates:
             for key in expand_keys(cand):
                 geo_id, area_name = _pick_geo(key)
@@ -245,33 +269,26 @@ def generate_csv(sm_series_rows, out_path: Path):
                     break
             if geo_id:
                 break
-        
         if not geo_id:
             continue
-
-        industry_code = (r.get("industry_code") or "").strip()
-        data_type_code = (r.get("data_type_code") or "").strip()
-        series_title = (r.get("series_title") or "").strip()
-        
 
         want.append({
             "geo_id": geo_id,
             "series_id": series_id,
             "metric_base": METRIC_BASE,
             "seasonal": _seasonal_tag(seasonal),
-            "name": series_title,
+            "name": series_title,   # may be empty for your file; that's fine
             "area": area_name
         })
 
     # De-dup and stable sort
-    dedup = {(w["geo_id"], w["series_id"]): w for w in want}
+    dedup = {(w["geo_id"], w["seasonal"]): w for w in want}
     rows = sorted(dedup.values(), key=lambda d: (d["geo_id"], d["series_id"]))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding="utf-8") as f:
         wr = csv.DictWriter(
-            f,
-            fieldnames=["geo_id", "series_id", "metric_base", "seasonal", "name", "area"]
+            f, fieldnames=["geo_id", "series_id", "metric_base", "seasonal", "name", "area"]
         )
         wr.writeheader()
         wr.writerows(rows)
