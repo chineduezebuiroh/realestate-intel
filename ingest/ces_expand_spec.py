@@ -249,9 +249,9 @@ def generate_csv(sm_series_rows, out_path: Path):
         if not geo_id:
             continue
 
-        #industry_code = (r.get("industry_code") or "").strip()
-        #data_type_code = (r.get("data_type_code") or "").strip()
-        #series_title = (r.get("series_title") or "").strip()
+        industry_code = (r.get("industry_code") or "").strip()
+        data_type_code = (r.get("data_type_code") or "").strip()
+        series_title = (r.get("series_title") or "").strip()
         
 
         want.append({
