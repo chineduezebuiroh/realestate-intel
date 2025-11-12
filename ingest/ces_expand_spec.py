@@ -45,8 +45,21 @@ def load_ces_geo_targets():
             area = (r.get("bls_ces_area_code") or "").strip()
             geo  = (r.get("geo_id") or "").strip()
             name = (r.get("geo_name") or "").strip()
-            if area and geo:
-                out[area] = (geo, name)
+            #if area and geo:
+                #out[area] = (geo, name)
+            area_raw = (r.get("bls_ces_area_code") or "").strip()
+            area = re.sub(r"\D", "", area_raw)  # keep digits only
+            
+            # Build tolerant keys: raw, no-leading-zero, 7-digit (leading zero)
+            keys = set()
+            if area:
+                keys.add(area)
+                keys.add(area.lstrip("0"))
+                keys.add(area.zfill(7))   # '110000' -> '0110000'
+            for k in keys:
+                if k:
+                    out[k] = (geo, name)
+    
     return out
 
 # Loaded once for lookups
@@ -170,7 +183,10 @@ def generate_csv(sm_series_rows, out_path: Path):
         # area_code, series_title, footnote_codes, begin_year, begin_period, end_year, end_period
         series_id = (r.get("series_id") or "").strip()
         seasonal = (r.get("seasonal") or "").strip()
+        
         area_code = (r.get("area_code") or "").strip()
+        area_code_norm = re.sub(r"\D", "", area_code)
+
         industry_code = (r.get("industry_code") or "").strip()
         data_type_code = (r.get("data_type_code") or "").strip()
         series_title = (r.get("series_title") or "").strip()
@@ -191,7 +207,9 @@ def generate_csv(sm_series_rows, out_path: Path):
                   f"seasonal={seasonal} industry={industry_code} dtype={data_type_code} title={series_title!r}")
         # --------------------------------------------------------------
 
-        geo_id, area_name = _pick_geo(area_code)
+        #geo_id, area_name = _pick_geo(area_code)
+        geo_id, area_name = _pick_geo(area_code_norm)
+        
         if not geo_id:
             continue
 
