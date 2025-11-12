@@ -4,6 +4,7 @@ import requests
 import pandas as pd
 import duckdb
 from pathlib import Path
+import re
 
 from datetime import date
 
