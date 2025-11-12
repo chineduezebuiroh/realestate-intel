@@ -105,12 +105,14 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
     FROM df_stage
     """)
 
-def fetch_series(series_ids: list[str]) -> list[dict]:
-    """Call BLS timeseries endpoint. Include annualaverage=True then drop M13 later."""
+
+
+def fetch_series_window(series_ids: list[str], y1: int, y2: int) -> list[dict]:
+    """Fetch a single ≤20-year window for the given series IDs."""
     payload = {
         "seriesid": series_ids,
-        "startyear": "1990",                # CES typically starts ~1990/1991 for locals
-        "endyear": str(date.today().year),
+        "startyear": str(y1),
+        "endyear": str(y2),
         "annualaverage": True,
     }
     if BLS_KEY:
@@ -125,6 +127,15 @@ def fetch_series(series_ids: list[str]) -> list[dict]:
     if j.get("status") != "REQUEST_SUCCEEDED":
         raise RuntimeError(f"BLS error: {j}")
     return j["Results"]["series"]
+
+
+def year_windows(start_year: int, end_year: int, span: int = 20):
+    y = start_year
+    while y <= end_year:
+        yield (y, min(y + span - 1, end_year))
+        y += span
+
+
 
 def to_df(series_block: list[dict], sid_to_meta: dict) -> pd.DataFrame:
     rows = []
@@ -216,23 +227,28 @@ def main():
         return
 
     print(f"[ces] total series planned: {len(series_ids)}")
-    # Fetch in chunks of 50
+
+    START_Y = int(os.getenv("CES_START_YEAR", "1990"))
+    END_Y   = int(os.getenv("CES_END_YEAR",   str(date.today().year)))
+
     dfs = []
-    for i in range(0, len(series_ids), 50):
-        chunk = series_ids[i:i+50]
-        print(f"[ces] fetching {len(chunk)} series …")
-        series_block = fetch_series(chunk)
+    for (y1, y2) in year_windows(START_Y, END_Y, span=20):
+        print(f"[ces] fetching {len(series_ids)} series for window {y1}-{y2} …")
+        for i in range(0, len(series_ids), 50):
+            chunk = series_ids[i:i+50]
+            series_block = fetch_series_window(chunk, y1, y2)
 
-        # logging count
-        for s in series_block:
-            sid = s["seriesID"]
-            n = sum(1 for d in s.get("data", []) if str(d.get("period","")).startswith("M"))
-            print(f"[ces] fetched {n:4d} rows for {sid} -> {sid_to_meta.get(sid,{}).get('metric_id')}")
+            # logging count per series per window
+            for s in series_block:
+                sid = s["seriesID"]
+                n = sum(1 for d in s.get("data", []) if str(d.get("period","")).startswith("M"))
+                print(f"[ces] {y1}-{y2}: {n:4d} rows for {sid} -> {sid_to_meta.get(sid,{}).get('metric_id')}")
 
-        dfs.append(to_df(series_block, sid_to_meta))
-        time.sleep(0.5)
+            dfs.append(to_df(series_block, sid_to_meta))
+            time.sleep(0.3)  # gentle on API
 
     all_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+    
     if all_df.empty:
         print("[ces] no rows returned.")
         return
