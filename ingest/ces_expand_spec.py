@@ -11,7 +11,7 @@ METRIC_BASE = "ces_total_nonfarm"
 GEO_MANIFEST = Path("config/geo_manifest.csv")
 
 # 🔧 Populated at runtime in main()
-CES_AREA_MAP = {}
+#CES_AREA_MAP = {}
 
 
 BLS_DIR = Path("config/bls")
@@ -43,19 +43,23 @@ def load_ces_geo_targets():
             if (r.get("include_ces") or "0").strip() not in ("1", "true", "True"):
                 continue
             area = (r.get("bls_ces_area_code") or "").strip()
-            geo  = (r.get("geo_id") or "").strip()
-            name = (r.get("geo_name") or "").strip()
             #if area and geo:
                 #out[area] = (geo, name)
+
             area_raw = (r.get("bls_ces_area_code") or "").strip()
-            area = re.sub(r"\D", "", area_raw)  # keep digits only
+            geo  = (r.get("geo_id") or "").strip()
+            name = (r.get("geo_name") or "").strip()
             
-            # Build tolerant keys: raw, no-leading-zero, 7-digit (leading zero)
+            # keep digits only
+            area_digits = re.sub(r"\D", "", area_raw)
+            
+            # Build tolerant keys so 110000 and 0110000 both work
             keys = set()
-            if area:
-                keys.add(area)
-                keys.add(area.lstrip("0"))
-                keys.add(area.zfill(7))   # '110000' -> '0110000'
+            if area_digits:
+                keys.add(area_digits)               # as-is (e.g., 110000)
+                keys.add(area_digits.lstrip("0"))   # without leading zeros
+                keys.add(area_digits.zfill(7))      # force 7-digit (e.g., 0110000)
+            
             for k in keys:
                 if k:
                     out[k] = (geo, name)
@@ -65,19 +69,6 @@ def load_ces_geo_targets():
 # Loaded once for lookups
 CES_AREA_MAP = load_ces_geo_targets()
 
-
-
-
-#def _download(url: str, dest: Path):
-"""
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    # Only download if missing (idempotent). Force with CES_FORCE=1
-    if dest.exists() and os.getenv("CES_FORCE", "0") not in ("1", "true", "True"):
-        return
-    r = requests.get(url, timeout=60)
-    r.raise_for_status()
-    dest.write_bytes(r.content)
-"""
 
 def _download(url: str, dest: Path):
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -207,8 +198,9 @@ def generate_csv(sm_series_rows, out_path: Path):
                   f"seasonal={seasonal} industry={industry_code} dtype={data_type_code} title={series_title!r}")
         # --------------------------------------------------------------
 
-        #geo_id, area_name = _pick_geo(area_code)
-        geo_id, area_name = _pick_geo(area_code_norm)
+        # add a 7-digit variant to be safe
+        geo_id, area_name = _pick_geo(area_code_norm) or _pick_geo(area_code_norm.zfill(7))
+
         
         if not geo_id:
             continue
