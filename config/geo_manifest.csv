@@ -1,0 +1,8 @@
+geo_id,level,geo_name,bls_ces_area_code,include_ces,bls_laus_area_code,include_laus,redfin_region_id,include_redfin,census_fips,include_census
+dc_state,state,District of Columbia,110000,1,11,1,,1,11001,1
+md_state,state,Maryland,240000,1,24,1,,1,,1
+va_state,state,Virginia,510000,1,51,1,,1,,1
+dc_msa,msa,Washington–Arlington–Alexandria,47900,1,47900,1,,1,,1
+baltimore_msa,msa,Baltimore–Columbia–Towson,12580,1,12580,1,,1,,1
+alexandria_city,city,Alexandria,,,,,,51510,1
+arlington_county_va,county,Arlington County,,,,,,51013,1
