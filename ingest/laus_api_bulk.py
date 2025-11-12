@@ -35,24 +35,29 @@ def _max_year_from_block_entry(b: dict) -> int:
 
 
 def fetch_lau_from_files(series_ids: list[str]) -> list[dict]:
-    """
-    Return BLS API-shaped blocks for the given series_ids by scanning local LAUS flat files.
-    Files must have been downloaded to config/bls via ensure_bls_files().
-    """
     wanted = [s.strip() for s in series_ids if s and s.strip()]
     wanted_set = set(wanted)
     rows_by_sid = {sid: [] for sid in wanted}
 
-    # Target only the LAU “big” files we care about
-    pools = [
-        BLS_DIR / "la.data.65.City",
-        BLS_DIR / "la.data.64.County",
+    # Build pools dynamically: include AllStates for state SIDs, plus the usual sub-state files
+    pools = []
+    # If any requested SID is a state NSA (LAUST...), include AllStatesU
+    if any(sid.startswith("LAUST") for sid in wanted):
+        pools.append(BLS_DIR / "la.data.2.AllStatesU")
+    # If any requested SID is a state SA (LASST...), include AllStatesS
+    if any(sid.startswith("LASST") for sid in wanted):
+        pools.append(BLS_DIR / "la.data.3.AllStatesS")
+
+    # Always include the sub-state big files (Metro/Division/Combined/County/City)
+    pools.extend([
         BLS_DIR / "la.data.60.Metro",
         BLS_DIR / "la.data.61.Division",
         BLS_DIR / "la.data.63.Combined",
-    ]
-    any_file = False
+        BLS_DIR / "la.data.64.County",
+        BLS_DIR / "la.data.65.City",
+    ])
 
+    any_file = False
     for p in pools:
         if not p.exists():
             continue
@@ -60,30 +65,23 @@ def fetch_lau_from_files(series_ids: list[str]) -> list[dict]:
         with p.open("r", encoding="utf-8", errors="replace") as fh:
             first = True
             for line in fh:
-                # Some files have a header row, some don’t — detect & skip if present.
                 if first:
                     first = False
-                    # If first row starts with 'series_id', it's a header
+                    # Some have a header line
                     if line.lower().startswith("series_id"):
                         continue
-
                 line = line.rstrip("\n")
                 if not line:
                     continue
-                parts = line.split("\t")
-                # Expected: series_id, year, period, value, [footnote_codes]
+
+                # Use whitespace-agnostic split because some files mix tabs/spaces
+                parts = re.split(r"\s+", line.strip())
                 if len(parts) < 4:
                     continue
 
-                sid = parts[0].strip()
+                sid, year, period, value = parts[0], parts[1], parts[2], parts[3]
                 if sid not in wanted_set:
                     continue
-
-                year   = parts[1].strip()
-                period = parts[2].strip()   # 'M01'..'M13'
-                value  = parts[3].strip()
-
-                # Match API’s “monthly” behavior: skip annual average M13
                 if not period.startswith("M") or period == "M13":
                     continue
 
@@ -91,14 +89,12 @@ def fetch_lau_from_files(series_ids: list[str]) -> list[dict]:
 
     if not any_file:
         raise FileNotFoundError(f"No LAU data files found under {BLS_DIR} "
-                                f"(expected la.data.60/61/63/64/65.*)")
+                                f"(expected la.data.2/3 and la.data.60/61/63/64/65.*)")
 
-    # Build API-shaped blocks in the same order as requested
     out = []
     for sid in wanted:
         out.append({"seriesID": sid, "data": rows_by_sid.get(sid, [])})
     return out
-
 
 
 
