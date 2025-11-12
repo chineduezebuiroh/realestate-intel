@@ -12,6 +12,14 @@ BASE_NAMES = {
     "005": "laus_employment",
     "006": "laus_labor_force",
 }
+
+
+def _expect_sa_for_geo(geo_id: str) -> bool:
+    # Treat *_state as states; everything else is sub-state (city/county/MSA/etc.)
+    return str(geo_id or "").endswith("_state")
+
+
+
 def tail(sid: str) -> str:
     sid = (sid or "").strip()
     return sid[-3:] if len(sid) >= 3 else ""
@@ -55,7 +63,21 @@ def main():
         sys.exit(0)
 
     # Build expectations from config
-    expected = load_expected_metric_ids()
+    #expected = load_expected_metric_ids()
+    BASES = [
+        "laus_employment",
+        "laus_labor_force",
+        "laus_unemployment",
+        "laus_unemployment_rate",
+    ]
+    
+    if _expect_sa_for_geo(geo_id):
+        # states: SA + NSA
+        expected = [f"{b}_nsa" for b in BASES] + [f"{b}_sa" for b in BASES]
+    else:
+        # sub-state: NSA only
+        expected = [f"{b}_nsa" for b in BASES]
+
 
     # What’s actually present?
     present = con.execute("""
