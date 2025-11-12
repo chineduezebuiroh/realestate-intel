@@ -49,6 +49,10 @@ def load_ces_geo_targets():
                 out[area] = (geo, name)
     return out
 
+# Loaded once for lookups
+CES_AREA_MAP = load_ces_geo_targets()
+
+
 
 
 #def _download(url: str, dest: Path):
@@ -150,6 +154,16 @@ def generate_csv(sm_series_rows, out_path: Path):
     Filter sm.series to DMV + Total Nonfarm (All Employees) and write the generator CSV.
     """
     want = []
+    # --- DEBUG: confirm state area_code presence in sm.series ---
+    state_codes = {"110000", "240000", "510000"}
+    present_state_codes = set(r.get("area_code","").strip() for r in sm_series_rows if r.get("area_code"))
+    missing_in_series = sorted(code for code in state_codes if code not in present_state_codes)
+    if missing_in_series:
+        print(f"[ces:gen][debug] these state area_code(s) not found in sm.series: {missing_in_series}")
+    else:
+        print("[ces:gen][debug] all state area_code(s) appear in sm.series")
+    # ------------------------------------------------------------
+
     for r in sm_series_rows:
         # Expected fields in sm.series:
         # series_id, seasonal, supersector_code, industry_code, data_type_code,
@@ -170,6 +184,12 @@ def generate_csv(sm_series_rows, out_path: Path):
             continue
         if data_type_code not in TARGET_DATA_TYPE:
             continue
+
+        # --- DEBUG: loosen & log ---
+        if area_code in {"110000", "240000", "510000"}:
+            print(f"[ces:gen][debug] saw state row: area_code={area_code} "
+                  f"seasonal={seasonal} industry={industry_code} dtype={data_type_code} title={series_title!r}")
+        # --------------------------------------------------------------
 
         geo_id, area_name = _pick_geo(area_code)
         if not geo_id:
