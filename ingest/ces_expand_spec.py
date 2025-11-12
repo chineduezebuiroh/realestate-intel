@@ -56,7 +56,7 @@ CES_AREA_MAP = load_ces_geo_targets()
 
 
 #def _download(url: str, dest: Path):
-    """
+"""
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Only download if missing (idempotent). Force with CES_FORCE=1
     if dest.exists() and os.getenv("CES_FORCE", "0") not in ("1", "true", "True"):
@@ -64,7 +64,7 @@ CES_AREA_MAP = load_ces_geo_targets()
     r = requests.get(url, timeout=60)
     r.raise_for_status()
     dest.write_bytes(r.content)
-    """
+"""
 
 def _download(url: str, dest: Path):
     dest.parent.mkdir(parents=True, exist_ok=True)
