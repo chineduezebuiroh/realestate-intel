@@ -175,6 +175,9 @@ def census_request(
     return None
 
 
+# ---------- main ----------
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(
         description="Bulk ACS Census ingestion based on geo_manifest."
