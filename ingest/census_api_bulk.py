@@ -41,9 +41,10 @@ YEAR_END = 2023  # adjust as you like
 ACS_VARS: Dict[str, str] = {
     # total population
     "census_pop_total": "B01003_001E",
-    # you can add more later, e.g.:
-    # "census_median_household_income": "B19013_001E",
+    # median household income in the past 12 months (inflation-adjusted)
+    "census_median_household_income": "B19013_001E",
 }
+
 
 # ---------------------------------------------------------------------
 
