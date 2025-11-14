@@ -195,22 +195,37 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     total_calls = 0
 
-    for _, geo in gm.iterrows():
-        geo_id = geo["geo_id"]
-        level = geo["level"]
-        code = geo["census_code"]
+    skipped = 0
 
-        try:
-            geo_params = build_census_geo_params(level, code)
-        except ValueError as e:
-            print(e)
+    for row in gm.itertuples():
+        geo_id = row.geo_id
+        level = (row.level or "").strip().lower()
+        census_code = (row.census_code or "").strip()
+    
+        geo_params = build_census_geo_params(level, census_code)
+
+        if geo_params is None:
+            print(
+                f"[census] skipping geo_id={geo_id}, level={level} — "
+                f"no valid Census params for census_code={census_code!r}"
+            )
+            skipped += 1
             continue
 
-        for year in range(YEAR_START, YEAR_END + 1):
-            total_calls += 1
-            if args.dry_run and total_calls > 5:
-                # keep it super light in dry-run mode
-                break
+        for year in YEARS:
+            try:
+                resp = fetch_acs5_year(
+                    year=year,
+                    for_param=geo_params["for"],
+                    in_param=geo_params.get("in"),
+                    vars=VARS,
+                )
+            except Exception as e:
+                print(
+                    f"[census] ERROR for geo_id={geo_id}, level={level}, "
+                    f"year={year}: {e}"
+                )
+                continue
 
             resp = census_request(
                 year=year,
@@ -259,6 +274,9 @@ def main(argv: Optional[list[str]] = None) -> None:
         print(df.head(10))
         print(f"[census] total rows (sample): {len(df)}")
         return
+
+    print(f"[census] total rows: {len(rows)}")
+    print(f"[census] skipped geo rows (no valid params): {skipped}")
 
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT_CSV, index=False)
