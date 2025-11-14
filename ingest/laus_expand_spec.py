@@ -289,7 +289,7 @@ def resolve_area_code(area_df: pd.DataFrame, spec_area: dict, geo_map: dict[str,
 
 
 def main():
-    # Ensure BLS reference files are present
+    # BLS lookup files (tab-delimited, standard LAUS formats)
     ensure_bls_files()
 
     if not SPEC.exists():
@@ -302,23 +302,35 @@ def main():
         print("[laus:gen] failed to load BLS lookup files:", e)
         sys.exit(1)
 
+    # 1) Load YAML spec (for levels, names, etc.)
     with open(SPEC, "r") as f:
         spec = yaml.safe_load(f)
 
     measures = spec["series"]["measures"]  # expects keys "003".."006"
     areas = spec["areas"]
 
+    # 2) Load geo_manifest-based mapping: bls_laus_area_code -> geo_id
+    geo_map = load_laus_geo_map()  # uses config/geo_manifest.csv
+
+    # Validate measures: keep only 003..006 and map to our base metric names
     valid_measures = {m for m in measures.keys() if m in MEASURE_MAP}
 
-    # NEW: load geo_id -> bls_laus_area_code from geo_manifest
-    geo_map = load_laus_geo_map()
-
     rows = []
+
     for ar in areas:
+        # Work on a copy so we don't mutate the original YAML structures
+        ar = dict(ar)
+
         level = (ar.get("level") or "area").strip().lower()
+        gid   = ar.get("geo_id")
+
+        # If geo_manifest has a code for this geo_id, trust that over YAML
+        if gid in geo_map:
+            ar["area_code"] = geo_map[gid]
 
         try:
-            area_code = resolve_area_code(area_df, ar, geo_map)
+            # This will now fast-path return ar["area_code"]
+            area_code = resolve_area_code(area_df, ar)
         except SystemExit as e:
             print(e)
             sys.exit(1)
@@ -334,14 +346,17 @@ def main():
             base_metric, default_name = MEASURE_MAP[mcode]
 
             for seasonals in seasonal_sets:
+                # Search candidates in la.series limited to this seasonal set
                 cand = series_df[
-                    (series_df["area_code"] == area_code)
-                    & (series_df["measure_code"] == mcode)
-                    & (series_df["seasonal"].isin(list(seasonals)))
+                    (series_df["area_code"] == area_code) &
+                    (series_df["measure_code"] == mcode) &
+                    (series_df["seasonal"].isin(list(seasonals)))
                 ]
 
                 best = pick_latest_series(cand)
                 if best is None:
+                    # Only warn if we're a state (we expect both NSA & SA);
+                    # sub-state geos legitimately won't have SA.
                     if level == "state":
                         print(
                             f"[laus:gen] WARNING: no state series for area_code={area_code} "
@@ -357,7 +372,7 @@ def main():
                     "geo_id":      ar["geo_id"],
                     "series_id":   sid,
                     "metric_base": base_metric,
-                    "seasonal":    seas_hr,
+                    "seasonal":    seas_hr,  # "SA"/"NSA"
                     "name":        f"{default_name} ({(ar.get('level','area')).title()}, {seas_hr})",
                     "notes":       ar.get("name") or ar["geo_id"],
                 })
@@ -370,13 +385,9 @@ def main():
     with open(OUT_CSV, "w", newline="") as f:
         w = csv.DictWriter(
             f,
-            fieldnames=["geo_id", "series_id", "metric_base", "seasonal", "name", "notes"],
+            fieldnames=["geo_id","series_id","metric_base","seasonal","name","notes"]
         )
         w.writeheader()
         w.writerows(rows)
 
     print(f"[laus:gen] wrote {len(rows)} series rows → {OUT_CSV}")
-
-
-if __name__ == "__main__":
-    main()
