@@ -143,24 +143,24 @@ def ensure_bls_files():
 
 def load_laus_geo_map() -> dict[str, str]:
     """
-    Build a mapping from geo_id -> laus_area_code using config/geo_manifest.csv.
-    Only rows with a non-empty laus_area_code are included.
+    Build a mapping from geo_id -> bls_laus_area_code using config/geo_manifest.csv.
+    Only rows with a non-empty bls_laus_area_code are included.
     """
     if not GEO_MANIFEST.exists():
         raise SystemExit("[laus:gen] missing config/geo_manifest.csv")
 
     gm = pd.read_csv(GEO_MANIFEST, dtype=str)
 
-    if "laus_area_code" not in gm.columns:
-        raise SystemExit("[laus:gen] geo_manifest.csv missing 'laus_area_code' column")
+    if "bls_laus_area_code" not in gm.columns:
+        raise SystemExit("[laus:gen] geo_manifest.csv missing 'bls_laus_area_code' column")
 
-    df = gm[["geo_id", "laus_area_code"]].dropna(subset=["laus_area_code"])
+    df = gm[["geo_id", "bls_laus_area_code"]].dropna(subset=["bls_laus_area_code"])
     df["geo_id"] = df["geo_id"].astype(str).str.strip()
-    df["laus_area_code"] = df["laus_area_code"].astype(str).str.strip()
-    df = df[df["laus_area_code"] != ""]
+    df["bls_laus_area_code"] = df["bls_laus_area_code"].astype(str).str.strip()
+    df = df[df["bls_laus_area_code"] != ""]
     df = df[df["geo_id"] != ""]
 
-    mapping = dict(zip(df["geo_id"], df["laus_area_code"]))
+    mapping = dict(zip(df["geo_id"], df["bls_laus_area_code"]))
 
     print(f"[laus:gen] loaded {len(mapping)} LAUS geo mappings from geo_manifest.csv")
     return mapping
@@ -247,13 +247,13 @@ def pick_latest_series(sdf: pd.DataFrame) -> pd.Series | None:
 def resolve_area_code(area_df: pd.DataFrame, spec_area: dict, geo_map: dict[str, str]) -> str:
     """
     Resolve area_code for a given spec 'area':
-      1. If geo_manifest has laus_area_code for this geo_id, use that.
+      1. If geo_manifest has bls_laus_area_code for this geo_id, use that.
       2. Else, if YAML provides `area_code`, use it (fast path).
       3. Else, try exact match on name -> area_text (case-insensitive).
       4. Else, try contains-match fallback.
       5. Else, fail with a clear message.
     """
-    # 1) manifest-driven mapping: geo_id -> laus_area_code
+    # 1) manifest-driven mapping: geo_id -> bls_laus_area_code
     gid = (spec_area.get("geo_id") or "").strip()
     if gid and gid in geo_map:
         ac = (geo_map[gid] or "").strip()
@@ -281,7 +281,7 @@ def resolve_area_code(area_df: pd.DataFrame, spec_area: dict, geo_map: dict[str,
     # 5) Give up
     raise SystemExit(
         f"[laus:gen] Could not resolve area_code for '{target}'. "
-        f"Provide 'laus_area_code' in geo_manifest.csv or 'area_code' in YAML for: {spec_area}"
+        f"Provide 'bls_laus_area_code' in geo_manifest.csv or 'area_code' in YAML for: {spec_area}"
     )
 
 
@@ -310,7 +310,7 @@ def main():
 
     valid_measures = {m for m in measures.keys() if m in MEASURE_MAP}
 
-    # NEW: load geo_id -> laus_area_code from geo_manifest
+    # NEW: load geo_id -> bls_laus_area_code from geo_manifest
     geo_map = load_laus_geo_map()
 
     rows = []
