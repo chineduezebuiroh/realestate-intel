@@ -176,8 +176,14 @@ def census_request(
 
 
 def main(argv: Optional[list[str]] = None) -> None:
-    parser = argparse.ArgumentParser(description="Bulk ACS Census ingestion based on geo_manifest.")
-    parser.add_argument("--dry-run", action="store_true", help="Fetch only a few rows and print sample, no file output.")
+    parser = argparse.ArgumentParser(
+        description="Bulk ACS Census ingestion based on geo_manifest."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Fetch only a few rows and print sample, no file output.",
+    )
     args = parser.parse_args(argv)
 
     gm = load_geo_manifest_for_census()
@@ -187,21 +193,23 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     api_key = os.getenv("CENSUS_API_KEY")
     if not api_key:
-        print("[census] WARNING: CENSUS_API_KEY not set — small volumes may still work, but key is recommended.")
+        print(
+            "[census] WARNING: CENSUS_API_KEY not set — small volumes may still work, "
+            "but key is recommended."
+        )
 
     rows: List[Dict[str, Any]] = []
     var_codes = list(ACS_VARS.values())
     var_by_code = {v: k for k, v in ACS_VARS.items()}
 
     total_calls = 0
-
     skipped = 0
 
     for row in gm.itertuples():
         geo_id = row.geo_id
         level = (row.level or "").strip().lower()
         census_code = (row.census_code or "").strip()
-    
+
         geo_params = build_census_geo_params(level, census_code)
 
         if geo_params is None:
@@ -212,21 +220,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             skipped += 1
             continue
 
-        for year in YEARS:
-            try:
-                resp = fetch_acs5_year(
-                    year=year,
-                    for_param=geo_params["for"],
-                    in_param=geo_params.get("in"),
-                    vars=VARS,
-                )
-            except Exception as e:
-                print(
-                    f"[census] ERROR for geo_id={geo_id}, level={level}, "
-                    f"year={year}: {e}"
-                )
-                continue
-
+        for year in range(YEAR_START, YEAR_END + 1):
             resp = census_request(
                 year=year,
                 dataset=CENSUS_DATASET,
@@ -235,8 +229,13 @@ def main(argv: Optional[list[str]] = None) -> None:
                 in_param=geo_params.get("in"),
                 api_key=api_key,
             )
+            total_calls += 1
+
             if not resp:
-                print(f"[census] no data for geo_id={geo_id}, level={level}, year={year}")
+                print(
+                    f"[census] no data for geo_id={geo_id}, "
+                    f"level={level}, year={year}"
+                )
                 continue
 
             # Convert each requested variable into a metric row
@@ -244,7 +243,11 @@ def main(argv: Optional[list[str]] = None) -> None:
                 metric_id = var_by_code[var_code]
                 raw_val = resp.get(var_code)
                 try:
-                    val = float(raw_val) if raw_val not in (None, "", "null") else None
+                    val = (
+                        float(raw_val)
+                        if raw_val not in (None, "", "null")
+                        else None
+                    )
                 except ValueError:
                     val = None
 
@@ -252,7 +255,7 @@ def main(argv: Optional[list[str]] = None) -> None:
                     {
                         "geo_id": geo_id,
                         "level": level,
-                        "census_code": code,
+                        "census_code": census_code,
                         "year": year,
                         "date": f"{year}-12-31",
                         "metric_id": metric_id,
@@ -260,11 +263,13 @@ def main(argv: Optional[list[str]] = None) -> None:
                     }
                 )
 
-        if args.dry_run and total_calls > 5:
+        # For dry-run, bail after a few API calls so you get a quick preview
+        if args.dry_run and total_calls >= 5:
             break
 
     if not rows:
         print("[census] no rows fetched.")
+        print(f"[census] skipped geo rows (no valid params): {skipped}")
         return
 
     df = pd.DataFrame(rows)
@@ -273,6 +278,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         print("[census] DRY RUN — sample of fetched data:")
         print(df.head(10))
         print(f"[census] total rows (sample): {len(df)}")
+        print(f"[census] skipped geo rows (no valid params): {skipped}")
         return
 
     print(f"[census] total rows: {len(rows)}")
@@ -283,7 +289,6 @@ def main(argv: Optional[list[str]] = None) -> None:
     print(f"[census] wrote {len(df)} rows → {OUT_CSV}")
     print("[census] sample:")
     print(df.head(10))
-
 
 if __name__ == "__main__":
     main()
