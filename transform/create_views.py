@@ -2,8 +2,10 @@
 """
 Create convenience tables/views in DuckDB for analysis and dashboards.
 
-- dim_geo:   basic geo dimension from config/geo_manifest.csv
+- dim_geo:                 basic geo dimension from config/geo_manifest.csv
+- dim_metric:              metric metadata from config/metric_metadata.csv
 - v_fact_timeseries_enriched: fact_timeseries joined with dim_geo
+- v_latest_metric_by_geo:  latest value per geo & metric_id
 """
 
 import os
@@ -13,26 +15,34 @@ import duckdb
 
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 GEO_MANIFEST = Path("config/geo_manifest.csv")
+METRIC_META = Path("config/metric_metadata.csv")
 
 
 def main() -> None:
     if not GEO_MANIFEST.exists():
         raise SystemExit(f"[views] missing {GEO_MANIFEST}")
+    if not METRIC_META.exists():
+        raise SystemExit(f"[views] missing {METRIC_META}")
 
     con = duckdb.connect(DUCKDB_PATH)
 
-    # 1) dim_geo from geo_manifest
-    # We just materialize the CSV as-is; you can refine columns later.
+    # 1) dim_geo
     con.execute("""
         CREATE OR REPLACE TABLE dim_geo AS
         SELECT *
         FROM read_csv_auto(?, header=True)
     """, [str(GEO_MANIFEST)])
-
     print("[views] dim_geo created from geo_manifest.")
 
-    # 2) Enriched fact view: join facts with geo attributes
-    # This keeps the fact table raw, but gives you a nicer surface to query.
+    # 2) dim_metric
+    con.execute("""
+        CREATE OR REPLACE TABLE dim_metric AS
+        SELECT *
+        FROM read_csv_auto(?, header=True)
+    """, [str(METRIC_META)])
+    print("[views] dim_metric created from metric_metadata.")
+
+    # 3) enriched fact view (same as before)
     con.execute("""
         CREATE OR REPLACE VIEW v_fact_timeseries_enriched AS
         SELECT
@@ -45,15 +55,13 @@ def main() -> None:
             g.include_ces,
             g.include_laus,
             g.include_census
-            -- add more geo columns here if/when you have them
         FROM fact_timeseries f
         LEFT JOIN dim_geo g
           ON f.geo_id = g.geo_id
     """)
-
     print("[views] v_fact_timeseries_enriched created.")
 
-    # 3) Latest snapshot per geo + metric_id
+    # 4) latest snapshot per geo+metric
     con.execute("""
         CREATE OR REPLACE VIEW v_latest_metric_by_geo AS
         SELECT *
@@ -68,11 +76,9 @@ def main() -> None:
         )
         WHERE rn = 1
     """)
-
     print("[views] v_latest_metric_by_geo created.")
 
-
-    # Optional: quick summary printout
+    # quick summary
     df = con.execute("""
         SELECT
             metric_id,
