@@ -12,7 +12,7 @@ arlington_msd,metro_division,"Arlington-Alexandria-Reston, VA-WV MSD",11694,1,51
 
 dc_csa,combined_area,"Washington-Baltimore-Arlington, DC-MD-VA-WV-PA CSA",47764,1,1154800000000,1,,1,47764,1
 
-alexandria_city,county,"Alexandria, VA (county)",51510,1,5151000000000,1,,1,51510,1
+alexandria_city_county,county,"Alexandria, VA (county)",51510,1,5151000000000,1,,1,51510,1
 arlington_county_va,county,"Arlington County, VA",51013,1,5101300000000,1,,1,51013,1
 montgomery_county_md,county,"Montgomery County, MD",240310,1,2403100000000,1,,1,24031,1
 prince_georges_county_md,county,"Prince George's County, MD",240330,1,2403300000000,1,,1,24033,1
