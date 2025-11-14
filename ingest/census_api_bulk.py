@@ -91,11 +91,12 @@ def build_census_geo_params(level: str, code: str) -> dict[str, str] | None:
         return None
 
     # Top-level states: only `for=state:XX`, NO `in` parameter.
-    if level == "state":
+    if level in ("state", "state_equiv"):
         return {"for": f"state:{code}"}
 
-    # Counties: `for=county:XXX&in=state:YY`
-    if level == "county":
+    # Counties (and county-equivalent independent cities):
+    # expect 5-digit state+county FIPS: SSCCC (e.g. 24031).
+    if level in ("county", "county_equiv", "independent_city"):
         if len(code) != 5:
             return None
         state_fips = code[:2]
@@ -105,7 +106,7 @@ def build_census_geo_params(level: str, code: str) -> dict[str, str] | None:
             "in": f"state:{state_fips}",
         }
 
-    # Places (cities etc.): `for=place:PPPPP&in=state:YY`
+    # Places (cities, towns, etc.): 7-digit state+place: SSPPPPP (e.g. 1150000).
     if level in ("city", "place"):
         if len(code) != 7:
             return None
@@ -116,21 +117,26 @@ def build_census_geo_params(level: str, code: str) -> dict[str, str] | None:
             "in": f"state:{state_fips}",
         }
 
-    # Metro/micro areas: `for=metropolitan statistical area/micropolitan statistical area:XXXXX`
-    if level == "msa":
+    # Metro/micro areas (MSA): 5-digit code
+    if level in ("msa", "metro_area", "metro"):
         return {
             "for": f"metropolitan statistical area/micropolitan statistical area:{code}"
         }
 
-    # Combined statistical areas: `for=combined statistical area:XXXXX`
-    if level == "csa":
+    # Combined statistical areas (CSA): 5-digit code
+    if level in ("csa", "combined_area"):
         return {
             "for": f"combined statistical area:{code}"
         }
 
+    # Metro divisions
+    if level in ("metro_division", "msd"):
+        return {
+            "for": f"metropolitan division:{code}"
+        }
+
     # If we don’t know how to map this level yet, skip it.
     return None
-
 
 
 def census_request(
