@@ -27,15 +27,22 @@ from typing import Dict, Any, Optional, List
 
 import requests
 import pandas as pd
+import datetime as _dt  # add this near the other imports
 
 GEO_MANIFEST = Path("config/geo_manifest.csv")
 OUT_CSV = Path("data/census_acs5_timeseries.csv")
 
 # ---- BASIC CONFIG (you can move this into a YAML later if you want) ----
 
+
 CENSUS_DATASET = "acs/acs5"
-YEAR_START = 2010
-YEAR_END = 2023  # adjust as you like
+
+YEAR_START = 2000  # you’ll adjust this manually
+CURRENT_YEAR = _dt.date.today().year
+YEAR_END = CURRENT_YEAR - 1  # use last full year as “max likely available”
+
+YEARS = list(range(YEAR_START, YEAR_END + 1))
+
 
 # metric_id -> Census variable name
 ACS_VARS: Dict[str, str] = {
@@ -122,19 +129,33 @@ def build_census_geo_params(level: str, code: str) -> dict[str, str] | None:
         return {
             "for": f"metropolitan statistical area/micropolitan statistical area:{code}"
         }
-
+    """
     # Combined statistical areas (CSA): 5-digit code
     if level in ("csa", "combined_area"):
         return {
             "for": f"combined statistical area:{code}"
         }
-
+    """
+    
+    # Combined statistical areas — your `census_code` values (like 47764)
+    # are BLS-style and don’t work against ACS directly. Skip for now.
+    if level in ("csa", "combined_area"):
+        return None
+    
+    """
     # Metro divisions
     if level in ("metro_division", "msd"):
         return {
             "for": f"metropolitan division:{code}"
         }
+    """
 
+    # Metro divisions — ACS 5-year doesn’t expose these as a direct `for=` geo
+    # with these codes (they’re BLS/OMB-oriented codes).
+    # For now, we skip them; you still have MSA + counties for DMV coverage.
+    if level in ("metro_division", "msd"):
+        return None
+    
     # If we don’t know how to map this level yet, skip it.
     return None
 
@@ -230,7 +251,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             skipped += 1
             continue
 
-        for year in range(YEAR_START, YEAR_END + 1):
+        for year in YEARS:
             resp = census_request(
                 year=year,
                 dataset=CENSUS_DATASET,
