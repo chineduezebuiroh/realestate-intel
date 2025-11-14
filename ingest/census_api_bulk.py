@@ -79,46 +79,57 @@ def load_geo_manifest_for_census() -> pd.DataFrame:
     return gm
 
 
-def build_census_geo_params(level: str, code: str) -> Dict[str, str]:
+def build_census_geo_params(level: str, code: str) -> dict[str, str] | None:
     """
-    Translate (level, census_code) -> { "for": ..., "in": ... } for the Census API.
-
-    Assumed encodings for census_code:
-      - state: 2-digit state FIPS, e.g. "11"
-      - county: 5-digit state+county FIPS "SSCCC"
-      - place: 7-digit state+place code "SSPPPPP"
-      - msa: CBSA code
-      - csa: CSA code
+    Map our geo_manifest level + census_code to Census API `for`/`in` params.
     """
     level = (level or "").strip().lower()
+    code = (code or "").strip()
 
+    if not code:
+        return None
+
+    # Top-level states: only `for=state:XX`, NO `in` parameter.
     if level == "state":
-        # e.g. '11' for DC
-        return {"for": f"state:{code}", "in": "us:1"}
+        return {"for": f"state:{code}"}
 
+    # Counties: `for=county:XXX&in=state:YY`
     if level == "county":
-        if len(code) != 5 or not code.isdigit():
-            raise ValueError(f"[census] county census_code must be 5-digit SSCCC, got '{code}'")
-        state = code[:2]
-        county = code[2:]
-        return {"for": f"county:{county}", "in": f"state:{state}"}
+        if len(code) != 5:
+            return None
+        state_fips = code[:2]
+        county_fips = code[2:]
+        return {
+            "for": f"county:{county_fips}",
+            "in": f"state:{state_fips}",
+        }
 
-    if level == "place":
-        if len(code) != 7 or not code.isdigit():
-            raise ValueError(f"[census] place census_code must be 7-digit SSPPPPP, got '{code}'")
-        state = code[:2]
-        place = code[2:]
-        return {"for": f"place:{place}", "in": f"state:{state}"}
+    # Places (cities etc.): `for=place:PPPPP&in=state:YY`
+    if level in ("city", "place"):
+        if len(code) != 7:
+            return None
+        state_fips = code[:2]
+        place_fips = code[2:]
+        return {
+            "for": f"place:{place_fips}",
+            "in": f"state:{state_fips}",
+        }
 
-    if level in {"msa", "cbsa"}:
-        # ACS uses this verbose name for metro/micro areas
-        return {"for": f"metropolitan statistical area/micropolitan statistical area:{code}"}
+    # Metro/micro areas: `for=metropolitan statistical area/micropolitan statistical area:XXXXX`
+    if level == "msa":
+        return {
+            "for": f"metropolitan statistical area/micropolitan statistical area:{code}"
+        }
 
+    # Combined statistical areas: `for=combined statistical area:XXXXX`
     if level == "csa":
-        return {"for": f"combined statistical area:{code}"}
+        return {
+            "for": f"combined statistical area:{code}"
+        }
 
-    # Fallback: user can extend this as needed
-    raise ValueError(f"[census] unsupported level '{level}' for census ingestion")
+    # If we don’t know how to map this level yet, skip it.
+    return None
+
 
 
 def census_request(
