@@ -53,6 +53,25 @@ def main() -> None:
 
     print("[views] v_fact_timeseries_enriched created.")
 
+    # 3) Latest snapshot per geo + metric_id
+    con.execute("""
+        CREATE OR REPLACE VIEW v_latest_metric_by_geo AS
+        SELECT *
+        FROM (
+            SELECT
+                v.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY v.geo_id, v.metric_id
+                    ORDER BY v.date DESC
+                ) AS rn
+            FROM v_fact_timeseries_enriched v
+        )
+        WHERE rn = 1
+    """)
+
+    print("[views] v_latest_metric_by_geo created.")
+
+
     # Optional: quick summary printout
     df = con.execute("""
         SELECT
