@@ -2,13 +2,20 @@
 import os, csv, time, json
 from pathlib import Path
 from datetime import date
+import csv
 
 import requests
 import pandas as pd
 import duckdb
 
+from typing import Dict, Optional
+from ingest.census_geo_map import load_census_geo_map
+
 GEN_PATH = Path("config/ces_series.generated.csv")
 DB_PATH  = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+
+CENSUS_BASE = "https://api.census.gov/data"
+OUT_CSV = Path("data/census_raw.csv")
 
 BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
@@ -19,6 +26,104 @@ FILTER_GEOS = set(
     for g in (os.getenv("CES_FILTER_GEOS", "").split(",")
               if os.getenv("CES_FILTER_GEOS") else [])
 )
+
+
+
+def fetch_census_acs(
+    dataset: str,
+    year: int,
+    variables: list[str],
+    for_param: str,
+    in_param: str | None,
+    api_key: str | None = None,
+) -> list[list[str]]:
+    """
+    Fetch one Census ACS endpoint for a single geography.
+    Returns list-of-rows (including header).
+    """
+    params = {
+        "get": ",".join(variables + ["NAME"]),
+        "for": for_param,
+    }
+    if in_param:
+        params["in"] = in_param
+    if api_key:
+        params["key"] = api_key
+
+    url = f"{CENSUS_BASE}/{year}/{dataset}"
+    r = requests.get(url, params=params, timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
+
+def build_census_geo_query(geo_info: Dict[str, str]) -> Dict[str, Optional[str]]:
+    """
+    Given one row from load_census_geo_map(), return the 'for' and 'in'
+    parameter pieces for Census API.
+
+    Assumes:
+      - 'level'     is one of: state, county, place, msa, cbsa, metro, csa
+      - 'census_code' is:
+          state:  SS
+          county: SSCCC
+          place:  SSPPPPP
+          msa/cbsa/metro: CCCCC (CBSA)
+          csa:   CCCCC (CSA)
+
+    Returns dict with keys:
+      - "for_": e.g. "state:11" or "county:001"
+      - "in":   e.g. "state:11" or None
+      - "geo_type": Census geo type string (for debugging/logging)
+    """
+    level = geo_info["level"].lower()
+    code  = geo_info["census_code"]
+
+    if level == "state":
+        return {
+            "for_": f"state:{code}",
+            "in": None,
+            "geo_type": "state",
+        }
+
+    if level == "county":
+        if len(code) < 5:
+            raise ValueError(f"[census:geo] county code '{code}' must be SSCCC")
+        st, ct = code[:2], code[2:]
+        return {
+            "for_": f"county:{ct}",
+            "in": f"state:{st}",
+            "geo_type": "county",
+        }
+
+    if level in {"place", "city"}:
+        # Assume SSPPPPP: 2-digit state + 5-digit place
+        if len(code) < 7:
+            raise ValueError(f"[census:geo] place code '{code}' must be SSPPPPP")
+        st, pl = code[:2], code[2:]
+        return {
+            "for_": f"place:{pl}",
+            "in": f"state:{st}",
+            "geo_type": "place",
+        }
+
+    if level in {"msa", "cbsa", "metro"}:
+        # ACS uses "metropolitan statistical area/micropolitan statistical area"
+        return {
+            "for_": f"metropolitan statistical area/micropolitan statistical area:{code}",
+            "in": None,
+            "geo_type": "cbsa",
+        }
+
+    if level == "csa":
+        return {
+            "for_": f"combined statistical area:{code}",
+            "in": None,
+            "geo_type": "csa",
+        }
+
+    raise ValueError(f"[census:geo] unsupported level '{level}' for code '{code}'")
+
 
 # ---------- helpers ----------
 
@@ -191,105 +296,45 @@ def to_df(series_block: list[dict], sid_to_meta: dict) -> pd.DataFrame:
 
 # ---------- main ----------
 
+
 def main():
-    print("[ces] START ces_api_bulk")
+    api_key = os.getenv("CENSUS_API_KEY")
+    census_geos = load_census_geo_map()
 
-    if not GEN_PATH.exists():
-        raise SystemExit("[ces] missing config/ces_series.generated.csv — run ces_expand_spec.py first.")
+    # Example: ACS 5-year, total population + median household income
+    dataset = "acs/acs5"
+    years = [2010, 2020, 2023]
+    variables = ["B01003_001E", "B19013_001E"]  # pop total, median hh income
 
-    # Read the generated CES config and prepare series/meta
-    rows, series_ids = [], []
-    sid_to_meta = {}
+    OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
 
-    with GEN_PATH.open(newline="", encoding="utf-8") as f:
-        rdr = csv.DictReader(f)
-        for r in rdr:
-            if not r: continue
-            sid   = (r.get("series_id") or "").strip()
-            geo   = (r.get("geo_id") or "").strip()
-            if not sid or not geo:
-                continue
-            if FILTER_GEOS and geo.lower() not in FILTER_GEOS:
-                continue
+    with open(OUT_CSV, "w", newline="") as f:
+        writer = csv.writer(f)
+        header_written = False
 
-            # prefer seasonal from series_id, fallback to CSV
-            sfx = seasonal_suffix_from_sid(sid)
-            if sfx not in ("sa","nsa"):
-                sfx = (r.get("seasonal") or "NSA").strip().lower()
+        for geo_id, info in census_geos.items():
+            q = build_census_geo_query(info)
 
-            mid = metric_id_from_row("SA" if sfx=="sa" else "NSA")
+            for year in years:
+                rows = fetch_census_acs(
+                    dataset=dataset,
+                    year=year,
+                    variables=variables,
+                    for_param=q["for_"],
+                    in_param=q["in"],
+                    api_key=api_key,
+                )
 
-            series_ids.append(sid)
-            sid_to_meta[sid] = {
-                "geo_id": geo,
-                "metric_id": mid,
-            }
-            rows.append(r)
+                if not header_written:
+                    writer.writerow(["geo_id", "year"] + rows[0])
+                    header_written = True
 
-    if not series_ids:
-        print("[ces] no series to fetch (check include flags or filters).")
-        return
+                for row in rows[1:]:
+                    writer.writerow([geo_id, year] + row)
 
-    print(f"[ces] total series planned: {len(series_ids)}")
+                print(f"[census] {year} {geo_id} ({q['geo_type']}) OK")
 
-    START_Y = int(os.getenv("CES_START_YEAR", "1990"))
-    END_Y   = int(os.getenv("CES_END_YEAR",   str(date.today().year)))
-
-    dfs = []
-    for (y1, y2) in year_windows(START_Y, END_Y, span=20):
-        print(f"[ces] fetching {len(series_ids)} series for window {y1}-{y2} …")
-        for i in range(0, len(series_ids), 50):
-            chunk = series_ids[i:i+50]
-            series_block = fetch_series_window(chunk, y1, y2)
-
-            # logging count per series per window
-            for s in series_block:
-                sid = s["seriesID"]
-                n = sum(1 for d in s.get("data", []) if str(d.get("period","")).startswith("M"))
-                print(f"[ces] {y1}-{y2}: {n:4d} rows for {sid} -> {sid_to_meta.get(sid,{}).get('metric_id')}")
-
-            dfs.append(to_df(series_block, sid_to_meta))
-            time.sleep(0.3)  # gentle on API
-
-    all_df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
-    
-    if all_df.empty:
-        print("[ces] no rows returned.")
-        return
-
-    # create basic dims/tables + upsert
-    con = duckdb.connect(DB_PATH)
-    ensure_dims(con, all_df["metric_id"].unique().tolist())
-
-    # ensure dim_market minimal entries
-    con.execute("""
-    CREATE TABLE IF NOT EXISTS dim_market(geo_id TEXT PRIMARY KEY, name TEXT, type TEXT, fips TEXT);
-    """)
-    mkts = (
-        all_df[["geo_id"]].drop_duplicates()
-        .assign(name=lambda d: d["geo_id"], type=None, fips=None)
-    )
-    con.register("mkts", mkts)
-    con.execute("""
-    INSERT INTO dim_market(geo_id,name,type,fips)
-    SELECT geo_id,name,type,fips FROM mkts
-    WHERE geo_id NOT IN (SELECT geo_id FROM dim_market)
-    """)
-
-    upsert(con, all_df)
-
-    # summary
-    print(con.execute("""
-      SELECT geo_id, metric_id, MIN(date) AS first, MAX(date) AS last, COUNT(*) AS n
-      FROM fact_timeseries
-      WHERE metric_id LIKE 'ces_%'
-      GROUP BY 1,2
-      ORDER BY 1,2
-    """).fetchdf())
-
-    print("[ces] DONE")
-
-    con.close()
+    print(f"[census] wrote raw ACS rows → {OUT_CSV}")
 
 if __name__ == "__main__":
     main()
