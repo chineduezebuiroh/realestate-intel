@@ -21,8 +21,8 @@ dc_county,county,District of Columbia (county),11001,1,1100100000000,1,,1,11001,
 baltimore_county,county,"Baltimore County, MD",24005,1,2400500000000,1,,1,24005,1
 baltimore_city_county,county,"Baltimore City, MD (county)",24510,1,2451000000000,1,,1,24510,1
 
-dc_city,city,"Washington, DC (city)",11500,1,1150000000000,1,,1,11500,1
-baltimore_city,city,"Baltimore City, MD",24040,1,2404000000000,1,,1,24040,1
+dc_city,city,"Washington, DC (city)",11500,1,1150000000000,1,,1,1150000,1
+baltimore_city,city,"Baltimore City, MD",24040,1,2404000000000,1,,1,2404000,1
 bowie_city,city,"Bowie City, MD",2408775,1,2408775000000,1,,1,2408775,1
 rockville_city,city,"Rockville, MD",2467675,1,2467675000000,1,,1,2467675,1
-alexandria_city,city,"Alexandria, VA (city)",510100,1,5101000000000,1,,1,51510,1
+alexandria_city,city,"Alexandria, VA (city)",510100,1,5101000000000,1,,1,5101000,1
