@@ -5,6 +5,7 @@ from typing import List
 import duckdb
 import pandas as pd
 import streamlit as st
+import altair as alt
 
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 
@@ -15,7 +16,7 @@ def get_connection():
 
 
 @st.cache_data
-def get_geo_options() -> pd.DataFrame:
+def get_geo_table() -> pd.DataFrame:
     con = get_connection()
     return con.execute("""
         SELECT DISTINCT geo_id, level
@@ -25,30 +26,50 @@ def get_geo_options() -> pd.DataFrame:
 
 
 @st.cache_data
-def get_metric_options() -> List[str]:
+def get_metric_table() -> pd.DataFrame:
     con = get_connection()
     return con.execute("""
-        SELECT DISTINCT metric_id
-        FROM v_fact_timeseries_enriched
-        ORDER BY metric_id
-    """).fetchdf()["metric_id"].tolist()
+        SELECT metric_id, display_name, family, unit, seasonal_adj, frequency, description
+        FROM dim_metric
+        ORDER BY family, display_name
+    """).fetchdf()
 
 
 @st.cache_data
-def load_series(geo_id: str, metric_id: str) -> pd.DataFrame:
+def load_series_multi(geo_ids: List[str], metric_id: str) -> pd.DataFrame:
+    if not geo_ids:
+        return pd.DataFrame(columns=["date", "geo_id", "value"])
+
     con = get_connection()
+    # DuckDB `IN` uses list; streamlit passes list of strings
     df = con.execute("""
         SELECT
             date,
+            geo_id,
             value
         FROM v_fact_timeseries_enriched
-        WHERE geo_id = ?
+        WHERE geo_id IN ({})
           AND metric_id = ?
         ORDER BY date
-    """, [geo_id, metric_id]).fetchdf()
+    """.format(",".join(["?"] * len(geo_ids))), [*geo_ids, metric_id]).fetchdf()
 
-    # Ensure date is datetime for plotting
     df["date"] = pd.to_datetime(df["date"])
+    return df
+
+
+@st.cache_data
+def load_latest_multi(geo_ids: List[str], metric_id: str) -> pd.DataFrame:
+    if not geo_ids:
+        return pd.DataFrame(columns=["geo_id", "date", "value"])
+
+    con = get_connection()
+    df = con.execute("""
+        SELECT geo_id, date, value
+        FROM v_latest_metric_by_geo
+        WHERE geo_id IN ({})
+          AND metric_id = ?
+        ORDER BY geo_id
+    """.format(",".join(["?"] * len(geo_ids))), [*geo_ids, metric_id]).fetchdf()
     return df
 
 
@@ -60,81 +81,96 @@ def main():
 
     st.title("📈 Market Intel – Time Series Explorer")
 
-    st.markdown(
-        "Use the controls in the sidebar to pick a geography and metric "
-        "from LAUS, CES, and Census."
-    )
+    geo_table = get_geo_table()
+    metric_table = get_metric_table()
 
-    # ---- Sidebar controls ----
+    # ---- Sidebar: GEO selection (multi) ----
     st.sidebar.header("Filters")
 
-    geos = get_geo_options()
-    metrics = get_metric_options()
+    geo_options = geo_table["geo_id"].tolist()
+    # nice DMV default if available
+    default_geos = [g for g in ["dc_state", "md_state", "va_state"] if g in geo_options]
+    if not default_geos:
+        default_geos = geo_options[:3]
 
-    # Geo selector
-    default_geo = "dc_state" if "dc_state" in set(geos["geo_id"]) else geos["geo_id"].iloc[0]
-    selected_geo = st.sidebar.selectbox(
-        "Geography (geo_id)",
-        options=geos["geo_id"].tolist(),
-        index=geos["geo_id"].tolist().index(default_geo)
-        if default_geo in geos["geo_id"].tolist()
-        else 0,
-        format_func=lambda g: f"{g} ({geos.loc[geos['geo_id'] == g, 'level'].iloc[0]})",
+    selected_geos = st.sidebar.multiselect(
+        "Geographies (geo_id)",
+        options=geo_options,
+        default=default_geos,
+        format_func=lambda g: f"{g} ({geo_table.loc[geo_table['geo_id'] == g, 'level'].iloc[0]})",
     )
 
-    # Metric selector (grouped by family)
-    metric_families = {
-        "Census": [m for m in metrics if m.startswith("census_")],
-        "CES": [m for m in metrics if m.startswith("ces_")],
-        "LAUS": [m for m in metrics if m.startswith("laus_")],
+    # ---- Sidebar: Metric selection powered by dim_metric ----
+    families = metric_table["family"].unique().tolist()
+    family = st.sidebar.selectbox("Metric family", options=families)
+
+    family_metrics = metric_table[metric_table["family"] == family].reset_index(drop=True)
+
+    metric_display_to_id = {
+        f"{row['display_name']} [{row['metric_id']}]": row["metric_id"]
+        for _, row in family_metrics.iterrows()
     }
 
-    family = st.sidebar.selectbox("Metric family", options=list(metric_families.keys()))
-    family_metrics = metric_families[family] or metrics  # fallback
-
-    selected_metric = st.sidebar.selectbox(
+    selected_display = st.sidebar.selectbox(
         "Metric",
-        options=family_metrics,
+        options=list(metric_display_to_id.keys()),
     )
+    selected_metric = metric_display_to_id[selected_display]
+
+    metric_meta = family_metrics[family_metrics["metric_id"] == selected_metric].iloc[0]
 
     # ---- Load data ----
-    df = load_series(selected_geo, selected_metric)
+    df = load_series_multi(selected_geos, selected_metric)
 
     if df.empty:
-        st.warning("No data for this geo + metric combination.")
+        st.warning("No data for this combination of geographies + metric.")
         return
 
-    st.subheader(f"{selected_metric} – {selected_geo}")
-    st.caption(
-        "Source: LAUS (BLS), CES (BLS), and ACS 5-year (Census), via your DuckDB `fact_timeseries`."
-    )
+    # ---- Title + description ----
+    left, right = st.columns([3, 2])
+    with left:
+        st.subheader(f"{metric_meta['display_name']} ({metric_meta['family']})")
+        st.caption(metric_meta["description"])
+    with right:
+        st.markdown(f"**Unit:** {metric_meta['unit']}  ")
+        st.markdown(f"**Seasonal adj.:** {metric_meta['seasonal_adj']}  ")
+        st.markdown(f"**Frequency:** {metric_meta['frequency']}")
 
-    # ---- Chart ----
-    st.line_chart(
-        df.set_index("date")["value"],
-        use_container_width=True,
-    )
-
-    # ---- Latest snapshot (from the latest view) ----
-    con = get_connection()
-    latest = con.execute("""
-        SELECT date, value
-        FROM v_latest_metric_by_geo
-        WHERE geo_id = ?
-          AND metric_id = ?
-    """, [selected_geo, selected_metric]).fetchdf()
-
-    if not latest.empty:
-        st.metric(
-            label="Latest value",
-            value=f"{latest['value'].iloc[0]:,.2f}",
-            delta=None,
-            help=f"As of {latest['date'].iloc[0]}",
+    # ---- Altair line chart with auto y-axis ----
+    # Altair auto-scales the y-axis; we add nice=True to make it pretty.
+    chart = (
+        alt.Chart(df)
+        .mark_line()
+        .encode(
+            x=alt.X("date:T", title="Date"),
+            y=alt.Y(
+                "value:Q",
+                title=f"Value ({metric_meta['unit']})" if metric_meta["unit"] else "Value",
+                scale=alt.Scale(nice=True),
+            ),
+            color=alt.Color("geo_id:N", title="Geography"),
+            tooltip=["date:T", "geo_id:N", "value:Q"],
         )
+        .properties(
+            width="container",
+            height=400,
+        )
+        .interactive()
+    )
 
-    # Raw data preview
-    with st.expander("Show raw data"):
-        st.dataframe(df, use_container_width=True)
+    st.altair_chart(chart, use_container_width=True)
+
+    # ---- Latest values table ----
+    latest = load_latest_multi(selected_geos, selected_metric)
+    if not latest.empty:
+        st.markdown("### Latest values")
+        # join in geo level for context
+        latest = latest.merge(geo_table, on="geo_id", how="left")
+        st.dataframe(latest, use_container_width=True)
+
+    # ---- Raw data ----
+    with st.expander("Show raw timeseries data"):
+        st.dataframe(df.sort_values(["geo_id", "date"]), use_container_width=True)
 
 
 if __name__ == "__main__":
