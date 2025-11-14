@@ -279,9 +279,6 @@ def to_df(series_block: list[dict], sid_to_meta: dict) -> pd.DataFrame:
             except Exception:
                 continue
 
-            # ✅ Normalize CES (thousands) → persons
-            val *= 1000.0
-
             rows.append({
                 "geo_id":           meta.get("geo_id"),
                 "metric_id":        meta.get("metric_id"),
@@ -291,7 +288,6 @@ def to_df(series_block: list[dict], sid_to_meta: dict) -> pd.DataFrame:
                 "property_type_id": "all",
                 "series_id":        sid,
             })
-
     return pd.DataFrame(rows)
 
 # ---------- main ----------
