@@ -37,9 +37,9 @@ OUT_CSV = Path("data/census_acs5_timeseries.csv")
 
 CENSUS_DATASET = "acs/acs5"
 
-YEAR_START = 2000  # you’ll adjust this manually
 CURRENT_YEAR = _dt.date.today().year
 YEAR_END = CURRENT_YEAR - 1  # use last full year as “max likely available”
+YEAR_START = CURRENT_YEAR - 15  
 
 YEARS = list(range(YEAR_START, YEAR_END + 1))
 
