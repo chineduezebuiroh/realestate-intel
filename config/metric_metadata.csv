@@ -1,0 +1,13 @@
+metric_id,display_name,family,unit,seasonal_adj,frequency,description
+census_pop_total,Total Population,Census,people,NA,annual,ACS 5-year estimate of total population.
+census_median_household_income,Median Household Income,Census,USD,NA,annual,ACS 5-year estimate of median household income (inflation-adjusted dollars).
+ces_total_nonfarm_nsa,Total Nonfarm Employment (NSA),CES,people,NSA,monthly,Current Employment Statistics (not seasonally adjusted).
+ces_total_nonfarm_sa,Total Nonfarm Employment (SA),CES,people,SA,monthly,Current Employment Statistics (seasonally adjusted).
+laus_employment_nsa,Employment (NSA),LAUS,people,NSA,monthly,Local Area Unemployment Statistics employment (not seasonally adjusted).
+laus_employment_sa,Employment (SA),LAUS,people,SA,monthly,Local Area Unemployment Statistics employment (seasonally adjusted).
+laus_labor_force_nsa,Labor Force (NSA),LAUS,people,NSA,monthly,Local Area Unemployment Statistics labor force (not seasonally adjusted).
+laus_labor_force_sa,Labor Force (SA),LAUS,people,SA,monthly,Local Area Unemployment Statistics labor force (seasonally adjusted).
+laus_unemployment_nsa,Unemployment (NSA),LAUS,people,NSA,monthly,Local Area Unemployment Statistics unemployment (not seasonally adjusted).
+laus_unemployment_sa,Unemployment (SA),LAUS,people,SA,monthly,Local Area Unemployment Statistics unemployment (seasonally adjusted).
+laus_unemployment_rate_nsa,Unemployment Rate (NSA),LAUS,percent,NSA,monthly,Local Area Unemployment Statistics unemployment rate (not seasonally adjusted).
+laus_unemployment_rate_sa,Unemployment Rate (SA),LAUS,percent,SA,monthly,Local Area Unemployment Statistics unemployment rate (seasonally adjusted).
