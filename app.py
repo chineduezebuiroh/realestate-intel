@@ -171,8 +171,8 @@ def make_line_with_points(
         y=alt.Y(
             f"{y_field}:Q",
             title=y_title,
-            # Key part: don't force y to start at 0
-            scale=alt.Scale(zero=False, nice=True, domainPadding=5),
+            # Don't force y to start at 0; small padding for readability
+            scale=alt.Scale(zero=False, nice=True, padding=5),
         ),
     )
 
@@ -218,7 +218,7 @@ def make_dual_axis_chart(
             y=alt.Y(
                 "value:Q",
                 title=meta_left["label"],
-                scale=alt.Scale(zero=False, nice=True, domainPadding=5),
+                scale=alt.Scale(zero=False, nice=True, Padding=5),
             ),
             color=alt.value("#1f77b4"),  # you can drop explicit colors if you prefer
         )
@@ -230,7 +230,7 @@ def make_dual_axis_chart(
             x="date:T",
             y=alt.Y(
                 "value:Q",
-                scale=alt.Scale(zero=False, nice=True, domainPadding=5),
+                scale=alt.Scale(zero=False, nice=True, Padding=5),
             ),
             color=alt.value("#1f77b4"),
         )
@@ -245,7 +245,7 @@ def make_dual_axis_chart(
                 "value:Q",
                 title=meta_right["label"],
                 axis=alt.Axis(orient="right"),
-                scale=alt.Scale(zero=False, nice=True, domainPadding=5),
+                scale=alt.Scale(zero=False, nice=True, Padding=5),
             ),
             color=alt.value("#ff7f0e"),
         )
@@ -258,7 +258,7 @@ def make_dual_axis_chart(
             y=alt.Y(
                 "value:Q",
                 axis=alt.Axis(orient="right"),
-                scale=alt.Scale(zero=False, nice=True, domainPadding=5),
+                scale=alt.Scale(zero=False, nice=True, Padding=5),
             ),
             color=alt.value("#ff7f0e"),
         )
