@@ -568,8 +568,20 @@ with tabs[2]:
 with tabs[2]:
     st.subheader("Compare geos vs a baseline")
 
+    import duckdb
+    import os
+
+    # --- DB connection ---
+    DUCKDB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+    con = duckdb.connect(DUCKDB_PATH)
+
     # 1) Pick metric
-    metric_options = sorted(df["metric_id"].unique())
+    #metric_options = sorted(df["metric_id"].unique())
+    metric_options = con.execute("""
+        SELECT DISTINCT metric_id
+        FROM v_fact_timeseries_enriched
+        ORDER BY metric_id
+    """).fetchdf()["metric_id"].tolist()
     metric_id = st.selectbox("Metric", metric_options, index=0)
 
     # 2) Pick baseline geo
@@ -606,4 +618,3 @@ with tabs[2]:
         baseline_geo_id = baseline_geo_ids[0]
         chart = make_baseline_compare_chart(df_metric, pinned_geo_id=baseline_geo_id)
         st.altair_chart(chart, use_container_width=True)
-
