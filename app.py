@@ -252,6 +252,51 @@ def make_dual_axis_chart(df_left, df_right, metric1_label, metric2_label):
     return chart
 
 
+def make_baseline_compare_chart(df, pinned_geo_id: str) -> alt.Chart:
+    """
+    Compare one 'pinned' geo against a set of other geos for a single metric.
+    Expects columns: date, value, geo_id, geo_name, metric_id.
+    """
+    df = df.copy()
+    df["is_pinned"] = df["geo_id"] == pinned_geo_id
+
+    base = alt.Chart(df).encode(
+        x=alt.X(
+            "date:T",
+            title="Date"
+        ),
+        y=alt.Y(
+            "value:Q",
+            title="Value",
+            scale=alt.Scale(zero=False, nice=True)  # auto-scale, no forced zero
+        ),
+        color=alt.Color(
+            "geo_name:N",
+            legend=alt.Legend(title="Geography"),
+        ),
+        opacity=alt.condition(
+            alt.datum.is_pinned,
+            alt.value(1.0),
+            alt.value(0.4),
+        ),
+        size=alt.condition(
+            alt.datum.is_pinned,
+            alt.value(3),
+            alt.value(1.5),
+        ),
+        tooltip=[
+            alt.Tooltip("geo_name:N", title="Geo"),
+            alt.Tooltip("date:T", title="Date"),
+            alt.Tooltip("value:Q", title="Value"),
+            alt.Tooltip("metric_id:N", title="Metric ID"),
+        ],
+    )
+
+    line = base.mark_line()
+    points = base.mark_point()
+
+    return (line + points).interactive()
+
 
 # -------------------------------------------------------------------
 # App layout
@@ -389,6 +434,7 @@ with tabs[1]:
 # -------------------------------------------------------------------
 # TAB 3: Benchmark compare
 # -------------------------------------------------------------------
+"""
 with tabs[2]:
     st.subheader("Benchmark comparison")
 
@@ -471,3 +517,49 @@ with tabs[2]:
                 chart = chart_bench
 
             st.altair_chart(chart, use_container_width=True)
+
+"""
+
+
+with tabs[2]:
+    st.subheader("Compare geos vs a baseline")
+
+    # 1) Pick metric
+    metric_options = sorted(df["metric_id"].unique())
+    metric_id = st.selectbox("Metric", metric_options, index=0)
+
+    # 2) Pick baseline geo
+    geo_options = sorted(df["geo_name"].unique())
+    default_baseline = "Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"  # adjust to your actual label if you want
+    baseline_geo_name = st.selectbox(
+        "Baseline geography",
+        geo_options,
+        index=geo_options.index(default_baseline) if default_baseline in geo_options else 0,
+    )
+
+    # 3) Pick comparison geos
+    compare_geo_names = st.multiselect(
+        "Compare against",
+        options=[g for g in geo_options if g != baseline_geo_name],
+        default=[],
+        help="Leave empty to show only the baseline geo.",
+    )
+
+    selected_geo_names = [baseline_geo_name] + compare_geo_names
+
+    df_metric = df[df["metric_id"] == metric_id].copy()
+    df_metric = df_metric[df_metric["geo_name"].isin(selected_geo_names)]
+
+    # Get baseline geo_id
+    baseline_geo_ids = (
+        df_metric.loc[df_metric["geo_name"] == baseline_geo_name, "geo_id"]
+        .drop_duplicates()
+        .tolist()
+    )
+    if not baseline_geo_ids:
+        st.warning("No data found for selected baseline geography.")
+    else:
+        baseline_geo_id = baseline_geo_ids[0]
+        chart = make_baseline_compare_chart(df_metric, pinned_geo_id=baseline_geo_id)
+        st.altair_chart(chart, use_container_width=True)
+
