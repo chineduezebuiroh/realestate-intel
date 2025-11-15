@@ -12,63 +12,6 @@ RAW_REDFIN_PATH = "data/redfin/raw/redfin_metro_market_tracker.tsv000"
 GEO_MANIFEST_PATH = "config/geo_manifest.csv"
 OUTPUT_PATH = "data/redfin/redfin_metro_timeseries.csv"
 
-"""
-RAW_REDFIN_PATH = Path("data/redfin/raw/redfin_metro_market_tracker.tsv000")
-OUT_PATH = Path("data/redfin_timeseries.csv")
-GEO_MANIFEST_PATH = Path("config/geo_manifest.csv")  # adjust if different
-"""
-
-"""
-# Redfin metric column -> canonical metric_id
-METRIC_COLUMNS = {
-    "property_type": "redfin_property_type",
-    "property_type_id": "redfin_property_type_id",
-    "median_sale_price": "redfin_median_sale_price",
-    "median_sale_price_mom": "redfin_median_sale_price_mom",
-    "median_sale_price_yoy": "redfin_median_sale_price_yoy",
-    "median_list_price": "redfin_median_list_price",
-    "median_list_price_mom": "redfin_median_list_price_mom",
-    "median_list_price_yoy": "redfin_median_list_price_yoy",
-    "median_ppsf": "redfin_median_ppsf",
-    "median_ppsf_mom": "redfin_median_ppsf_mom",
-    "median_ppsf_yoy": "redfin_median_ppsf_yoy",
-    "median_list_ppsf": "redfin_median_list_ppsf",
-    "median_list_ppsf_mom": "redfin_median_list_ppsf_mom",
-    "median_list_ppsf_yoy": "redfin_median_list_ppsf_yoy",
-    "homes_sold": "redfin_homes_sold",
-    "homes_sold_mom": "redfin_homes_sold_mom",
-    "homes_sold_yoy": "redfin_homes_sold_yoy",
-    "pending_sales": "redfin_pending_sales",
-    "pending_sales_mom": "redfin_pending_sales_mom",
-    "pending_sales_yoy": "redfin_pending_sales_yoy",
-    "new_listings": "redfin_new_listings",
-    "new_listings_mom": "redfin_new_listings_mom",
-    "new_listings_yoy": "redfin_new_listings_yoy",
-    "inventory": "redfin_inventory",
-    "inventory_mom": "redfin_inventory_mom",
-    "inventory_yoy": "redfin_inventory_yoy",
-    "months_of_supply": "redfin_months_of_supply",
-    "months_of_supply_mom": "redfin_months_of_supply_mom",
-    "months_of_supply_yoy": "redfin_months_of_supply_yoy",
-    "median_dom": "redfin_median_dom",
-    "median_dom_mom": "redfin_median_dom_mom",
-    "median_dom_yoy": "redfin_median_dom_yoy",
-    "avg_sale_to_list": "redfin_avg_sale_to_list",
-    "avg_sale_to_list_mom": "redfin_avg_sale_to_list_mom",
-    "avg_sale_to_list_yoy": "redfin_avg_sale_to_list_yoy",
-    "sold_above_list": "redfin_sold_above_list",
-    "sold_above_list_mom": "redfin_sold_above_list_mom",
-    "sold_above_list_yoy": "redfin_sold_above_list_yoy",
-    "price_drops": "redfin_price_drops",
-    "price_drops_mom": "redfin_price_drops_mom",
-    "price_drops_yoy": "redfin_price_drops_yoy",
-    "off_market_in_two_weeks": "redfin_off_market_in_two_weeks",
-    "off_market_in_two_weeks_mom": "redfin_off_market_in_two_weeks_mom",
-    "off_market_in_two_weeks_yoy": "redfin_off_market_in_two_weeks_yoy",
-    
-    # add more as needed
-}
-"""
 
 # -------------------------------------------------------------------
 # Main
@@ -108,10 +51,9 @@ def main():
     if "geo_id" not in geo.columns:
         raise ValueError("geo_manifest.csv must contain a 'geo_id' column.")
 
-    # Optional include flag, if you've added one (ignore if it doesn't exist)
+    # Optional include flag, if you've added one
     if "include_redfin" in geo.columns:
         geo = geo[geo["include_redfin"].fillna(0).astype(int) == 1]
-
 
     # Only rows with a non-null redfin_code
     geo = geo[geo["redfin_code"].notna()]
@@ -158,12 +100,15 @@ def main():
         raise ValueError("No rows remain after seasonality filter.")
 
     # --- 5) Prepare for melt: id_vars vs value columns ----------------------------
-    # Core identifiers we want to keep
+    # Core identifiers we want to keep (NOT melted)
     id_vars = ["geo_id", date_col, "property_type", "property_type_id"]
 
+    # Optionally keep some descriptive columns around in the long_df phase
     for col in ["region", "city", "state", "state_code"]:
-        if col in merged.columns:
+        if col in merged.columns and col not in id_vars:
             id_vars.append(col)
+
+    print("[redfin] id_vars:", id_vars)
 
     # Columns that are NOT metrics (to exclude from melt)
     exclude_cols = set(
@@ -208,9 +153,11 @@ def main():
     long_df[date_col] = pd.to_datetime(long_df[date_col])
     long_df["date"] = long_df[date_col].dt.date
 
-    # Final tidy frame
-    ts = long_df[["geo_id", "date", "metric_id", "value"]].copy()
-    ts = ts.sort_values(["geo_id", "metric_id", "date"])
+    print("[redfin] long_df columns:", long_df.columns.tolist())
+
+    # Final tidy frame — KEEP property_type + property_type_id
+    ts = long_df[["geo_id", "date", "property_type", "property_type_id", "metric_id", "value"]].copy()
+    ts = ts.sort_values(["geo_id", "property_type", "metric_id", "date"])
 
     # --- 7) Write to CSV ----------------------------------------------------------
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
