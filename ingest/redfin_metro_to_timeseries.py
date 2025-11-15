@@ -2,11 +2,23 @@
 
 from pathlib import Path
 import pandas as pd
+import os
 
+# -------------------------------------------------------------------
+# Config
+# -------------------------------------------------------------------
+
+RAW_REDFIN_PATH = "data/redfin/raw/redfin_metro_market_tracker.tsv000"
+GEO_MANIFEST_PATH = "config/geo_manifest.csv"
+OUTPUT_PATH = "data/redfin/redfin_metro_timeseries.csv"
+
+"""
 RAW_REDFIN_PATH = Path("data/redfin/raw/redfin_metro_market_tracker.tsv000")
 OUT_PATH = Path("data/redfin_timeseries.csv")
 GEO_MANIFEST_PATH = Path("config/geo_manifest.csv")  # adjust if different
+"""
 
+"""
 # Redfin metric column -> canonical metric_id
 METRIC_COLUMNS = {
     "property_type": "redfin_property_type",
@@ -56,126 +68,159 @@ METRIC_COLUMNS = {
     
     # add more as needed
 }
+"""
 
-# 👇 this is where we translate your `level` → Redfin `region_type`
-LEVEL_TO_REDFIN_REGION_TYPE = {
-    "state": "state",
-    "metro_area": "metro",   # or "metro" if that's what you see in the CSV
-    "county": "county",
-    "city": "city",
-    # add others later if you ingest them (zip, neighborhood, etc.)
-}
-
-
-def load_redfin_geo_mapping() -> pd.DataFrame:
-    """
-    Load geo_manifest and build a mapping from
-    (redfin_region_name, derived_region_type) -> geo_id
-    for rows with include_redfin = 1.
-    """
-    if not GEO_MANIFEST_PATH.exists():
-        raise FileNotFoundError(f"geo_manifest not found at {GEO_MANIFEST_PATH}")
-
-    g = pd.read_csv(GEO_MANIFEST_PATH)
-
-    required_cols = ["geo_id", "level", "include_redfin", "redfin_region_name"]
-    missing = [c for c in required_cols if c not in g.columns]
-    if missing:
-        raise ValueError(f"geo_manifest missing columns: {missing}")
-
-    g = g[g["include_redfin"] == 1].copy()
-    g["level"] = g["level"].str.lower()
-
-    # derive the Redfin region_type from our level
-    g["redfin_region_type"] = g["level"].map(LEVEL_TO_REDFIN_REGION_TYPE)
-
-    # sanity check
-    if g["redfin_region_type"].isna().any():
-        bad_levels = g.loc[g["redfin_region_type"].isna(), "level"].unique()
-        raise ValueError(
-            f"Unmapped levels in geo_manifest for Redfin: {bad_levels}. "
-            f"Update LEVEL_TO_REDFIN_REGION_TYPE."
-        )
-
-    return g[["geo_id", "redfin_region_name", "redfin_region_type"]]
-
+# -------------------------------------------------------------------
+# Main
+# -------------------------------------------------------------------
 
 def main():
-    if not RAW_REDFIN_PATH.exists():
-        raise FileNotFoundError(
-            f"Raw Redfin file not found at {RAW_REDFIN_PATH}. "
-            "Download the metro CSV and put it there."
+    if not os.path.exists(RAW_REDFIN_PATH):
+        raise FileNotFoundError(f"Redfin raw file not found at: {RAW_REDFIN_PATH}")
+
+    if not os.path.exists(GEO_MANIFEST_PATH):
+        raise FileNotFoundError(f"geo_manifest not found at: {GEO_MANIFEST_PATH}")
+
+    # --- 1) Load Redfin file and normalize columns --------------------------------
+    df = pd.read_csv(RAW_REDFIN_PATH, sep="\t")
+    df.columns = df.columns.str.lower()
+
+    # Choose date column: prefer period_end, else period_begin
+    if "period_end" in df.columns:
+        date_col = "period_end"
+    elif "period_begin" in df.columns:
+        date_col = "period_begin"
+    else:
+        raise ValueError(
+            "Expected 'period_end' or 'period_begin' in Redfin file.\n"
+            f"Available columns: {df.columns.tolist()}"
         )
 
-    df = pd.read_csv(RAW_REDFIN_PATH)
+    # --- 2) Load geo_manifest with redfin_code ------------------------------------
+    geo = pd.read_csv(GEO_MANIFEST_PATH)
 
-    # Normalize date
-    if "period_end" in df.columns:
-        df["date"] = pd.to_datetime(df["period_end"])
-    elif "period_begin" in df.columns:
-        df["date"] = pd.to_datetime(df["period_begin"])
-    else:
-        raise ValueError("Expected 'period_end' or 'period_begin' in Redfin file.")
+    if "redfin_code" not in geo.columns:
+        raise ValueError(
+            "geo_manifest.csv must contain a 'redfin_code' column "
+            "to join with Redfin's 'table_id'."
+        )
 
-    # Redfin geography columns
-    if "region_type" not in df.columns or "region" not in df.columns:
-        raise ValueError("Expected 'region_type' and 'region' columns in Redfin file.")
+    if "geo_id" not in geo.columns:
+        raise ValueError("geo_manifest.csv must contain a 'geo_id' column.")
 
-    df["region_type"] = df["region_type"].str.lower()
+    # Optional include flag, if you've added one (ignore if it doesn't exist)
+    if "include_redfin" in geo.columns:
+        geo = geo[geo["include_redfin"].fillna(False)]
 
-    # (Optional) debug: see what region types are present
-    # print("Redfin region_type values:", sorted(df["region_type"].unique()))
+    # Only rows with a non-null redfin_code
+    geo = geo[geo["redfin_code"].notna()]
 
-    geo_map = load_redfin_geo_mapping()
+    # --- 3) Join Redfin rows to geo_manifest on table_id ↔ redfin_code -----------
+    if "table_id" not in df.columns:
+        raise ValueError(
+            "Redfin file is missing 'table_id' column.\n"
+            f"Available columns: {df.columns.tolist()}"
+        )
 
-    # Join Redfin rows to manifest-derived mapping
     merged = df.merge(
-        geo_map,
-        left_on=["region", "region_type"],
-        right_on=["redfin_region_name", "redfin_region_type"],
+        geo[["geo_id", "redfin_code"]],
+        left_on="table_id",
+        right_on="redfin_code",
         how="inner",
     )
 
     if merged.empty:
         raise ValueError(
-            "No Redfin rows matched any geo_manifest rows with include_redfin=1.\n"
-            "Check that redfin_region_name in geo_manifest matches 'region' in the "
-            "Redfin CSV, and that LEVEL_TO_REDFIN_REGION_TYPE is correct."
+            "No rows matched between Redfin data and geo_manifest on "
+            "'table_id' ↔ 'redfin_code'.\n"
+            "Check that geo_manifest.redfin_code values match those in "
+            "Redfin's table_id column."
         )
 
-    # Keep only the metric columns we care about
-    expected = list(METRIC_COLUMNS.keys())
-    missing_metrics = [c for c in expected if c not in merged.columns]
-    if missing_metrics:
-        print("[redfin] WARNING: missing expected metric columns:", missing_metrics)
+    print(f"[redfin] matched {merged['geo_id'].nunique()} geos from geo_manifest.")
+    print("[redfin] example matches:")
+    print(
+        merged[["geo_id", "region", "state", "table_id"]]
+        .drop_duplicates()
+        .head(10)
+    )
 
-    keep_metrics = [c for c in expected if c in merged.columns]
-    keep_cols = ["date", "geo_id"] + keep_metrics
-    merged = merged[keep_cols]
+    # --- 4) Optional: filter to non-seasonally adjusted -----
+    if "is_seasonally_adjusted" in merged.columns:
+        before = len(merged)
+        # 0 = not seasonally adjusted in most Redfin extracts
+        merged = merged[merged["is_seasonally_adjusted"] == 0]
+        after = len(merged)
+        print(f"[redfin] filtered to is_seasonally_adjusted=0: {before} → {after} rows")
 
-    # wide → long
-    long = (
-        merged.melt(
-            id_vars=["date", "geo_id"],
-            var_name="raw_metric",
-            value_name="value",
+    if merged.empty:
+        raise ValueError("No rows remain after seasonality filter.")
+
+    # --- 5) Prepare for melt: id_vars vs value columns ----------------------------
+    # Core identifiers we want to keep
+    id_vars = ["geo_id", date_col, "property_type", "property_type_id"]
+
+    for col in ["region", "city", "state", "state_code"]:
+        if col in merged.columns:
+            id_vars.append(col)
+
+    # Columns that are NOT metrics (to exclude from melt)
+    exclude_cols = set(
+        id_vars
+        + [
+            "table_id",
+            "redfin_code",
+            "period_begin",
+            "period_end",
+            "period_duration",
+            "is_seasonally_adjusted",
+            "region_type",
+            "region_type_id",
+            "parent_metro_region",
+            "parent_metro_region_metro_code",
+            "last_updated",
+        ]
+    )
+
+    value_cols = [c for c in merged.columns if c not in exclude_cols]
+
+    if not value_cols:
+        raise ValueError(
+            "No metric columns detected to melt. "
+            "Check Redfin schema and exclude_cols list."
         )
-        .dropna(subset=["value"])
-        .copy()
+
+    print(f"[redfin] metric columns (sample): {value_cols[:15]}")
+
+    # --- 6) Melt to long format ---------------------------------------------------
+    long_df = merged[id_vars + value_cols].melt(
+        id_vars=id_vars,
+        value_vars=value_cols,
+        var_name="metric_id",
+        value_name="value",
     )
 
-    long["metric_id"] = long["raw_metric"].map(METRIC_COLUMNS).fillna(long["raw_metric"])
+    # Drop rows with no value
+    long_df = long_df.dropna(subset=["value"])
 
-    long = long[["geo_id", "date", "metric_id", "value"]].sort_values(
-        ["geo_id", "metric_id", "date"]
-    )
+    # Normalize date to a standard 'date' column
+    long_df[date_col] = pd.to_datetime(long_df[date_col])
+    long_df["date"] = long_df[date_col].dt.date
 
-    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    long.to_csv(OUT_PATH, index=False)
+    # Final tidy frame
+    ts = long_df[["geo_id", "date", "metric_id", "value"]].copy()
+    ts = ts.sort_values(["geo_id", "metric_id", "date"])
 
-    print(f"[redfin] wrote {len(long):,} rows → {OUT_PATH}")
+    # --- 7) Write to CSV ----------------------------------------------------------
+    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+    ts.to_csv(OUTPUT_PATH, index=False)
+
+    # --- 8) Log summary -----------------------------------------------------------
+    print(f"[redfin] wrote {len(ts)} rows → {OUTPUT_PATH}")
     print("[redfin] sample:")
-    print(long.head(10))
+    print(ts.head(10))
+    print("[redfin] metrics (first 30):")
+    print(sorted(ts["metric_id"].unique())[:30])
 
 
 if __name__ == "__main__":
