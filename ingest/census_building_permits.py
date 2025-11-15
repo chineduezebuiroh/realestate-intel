@@ -26,18 +26,28 @@ OUT_TIMESERIES_PATH = Path("data/census/census_bps_timeseries.csv")
 
 # Column mapping for BPS
 COLUMN_MAP = {
+    # time
     "year": "year",
     "month": "month",
-    "state_fips": "state_fips",
-    "county_fips": "county_fips",
-    "place_fips": "place_fips",
+
+    # geography keys
+    # state FIPS (2-digit)
+    "state_fips": "state_code",
+    # county FIPS (5-digit combined)
+    "county_fips": "fips_county_5_digits",
+    # place FIPS (should be 7-digit, but here it's the place code;
+    # we still treat it as our place key)
+    "place_fips": "fips_place_code",
+    # CBSA / MSA
     "cbsa_code": "cbsa_code",
 
-    "units_1": "units_1",
-    "units_2": "units_2",
-    "units_3_4": "units_3_4",
-    "units_5plus": "units_5plus",
+    # units by structure size
+    "units_1": "units_1_unit",
+    "units_2": "units_2_units",
+    "units_3_4": "units_3_4_units",
+    "units_5plus": "units_5_units",
 }
+
 
 # -------------------------------------------------------------------
 # HELPERS
