@@ -172,7 +172,8 @@ def make_line_with_points(
             f"{y_field}:Q",
             title=y_title,
             # Don't force y to start at 0; small padding for readability
-            scale=alt.Scale(zero=False, nice=True, padding=5),
+            scale=alt.Scale(zero=False, nice=True#, padding=5
+                           ),
         ),
     )
 
@@ -182,7 +183,7 @@ def make_line_with_points(
         )
 
     line = base.mark_line()
-    points = base.mark_point(size=40)
+    points = base.mark_point(size=20)
 
     chart = (line + points).properties(
         width="container",
@@ -192,86 +193,64 @@ def make_line_with_points(
     return chart
 
 
-def make_dual_axis_chart(
-    df_left: pd.DataFrame,
-    df_right: pd.DataFrame,
-    metric_left: str,
-    metric_right: str,
-) -> alt.Chart:
-    """
-    Dual-axis chart: one geo, two metrics, independent y scales.
-    """
-    meta_left = _metric_meta(metric_left)
-    meta_right = _metric_meta(metric_right)
 
-    # ensure date is datetime
-    if not df_left.empty:
-        df_left["date"] = pd.to_datetime(df_left["date"])
-    if not df_right.empty:
-        df_right["date"] = pd.to_datetime(df_right["date"])
+def make_dual_axis_chart(df_left, df_right, metric1_label, metric2_label):
+    """
+    df_left  -> first metric (left axis)
+    df_right -> second metric (right axis)
+    Both dataframes should have: date, value, geo_name
+    """
+    import altair as alt
 
+    # Left axis series
     left = (
         alt.Chart(df_left)
-        .mark_line()
+        .mark_line(point=True)
         .encode(
             x=alt.X("date:T", title="Date"),
             y=alt.Y(
                 "value:Q",
-                title=meta_left["label"],
-                scale=alt.Scale(zero=False, nice=True, padding=5),
-            ),
-            color=alt.value("#1f77b4"),  # you can drop explicit colors if you prefer
-        )
-    )
-    left_points = (
-        alt.Chart(df_left)
-        .mark_point(size=40)
-        .encode(
-            x="date:T",
-            y=alt.Y(
-                "value:Q",
-                scale=alt.Scale(zero=False, nice=True, padding=5),
+                axis=alt.Axis(title=metric1_label),
+                scale=alt.Scale(zero=False, nice=True),
             ),
             color=alt.value("#1f77b4"),
+            tooltip=[
+                alt.Tooltip("date:T", title="Date"),
+                alt.Tooltip("geo_name:N", title="Geo"),
+                alt.Tooltip("value:Q", title=metric1_label, format=",.2f"),
+            ],
         )
     )
 
+    # Right axis series
     right = (
         alt.Chart(df_right)
-        .mark_line(strokeDash=[4, 2])
+        .mark_line(point=True)
         .encode(
             x=alt.X("date:T", title="Date"),
             y=alt.Y(
                 "value:Q",
-                title=meta_right["label"],
-                axis=alt.Axis(orient="right"),
-                scale=alt.Scale(zero=False, nice=True, padding=5),
+                axis=alt.Axis(title=metric2_label, orient="right"),
+                scale=alt.Scale(zero=False, nice=True),
             ),
             color=alt.value("#ff7f0e"),
-        )
-    )
-    right_points = (
-        alt.Chart(df_right)
-        .mark_point(size=40)
-        .encode(
-            x="date:T",
-            y=alt.Y(
-                "value:Q",
-                axis=alt.Axis(orient="right"),
-                scale=alt.Scale(zero=False, nice=True, padding=5),
-            ),
-            color=alt.value("#ff7f0e"),
+            tooltip=[
+                alt.Tooltip("date:T", title="Date"),
+                alt.Tooltip("geo_name:N", title="Geo"),
+                alt.Tooltip("value:Q", title=metric2_label, format=",.2f"),
+            ],
         )
     )
 
-    chart = (left + left_points + right + right_points).properties(
-        width="container",
-        height=400,
-    ).resolve_scale(
-        y="independent"
-    ).interactive()
+    # Layer + independent y scales
+    chart = (
+        alt.layer(left, right)
+        .resolve_scale(y="independent")
+        .properties(height=400)
+    )
 
     return chart
+
 
 
 # -------------------------------------------------------------------
