@@ -1,12 +1,12 @@
 import os
-from typing import List, Tuple
+from typing import List
 
 import altair as alt
 import duckdb
 import pandas as pd
 import streamlit as st
 
-import re
+import re  # currently unused but harmless
 
 # -------------------------------------------------------------------
 # DB helpers
@@ -36,6 +36,9 @@ def load_geo_options() -> pd.DataFrame:
 
 @st.cache_data
 def load_metric_options() -> List[str]:
+    """
+    Get distinct metric_ids from the enriched view.
+    """
     con = get_connection()
     df = con.execute("""
         SELECT DISTINCT metric_id
@@ -202,9 +205,8 @@ def make_line_with_points(
         y=alt.Y(
             f"{y_field}:Q",
             title=y_title,
-            # Don't force y to start at 0; small padding for readability
-            scale=alt.Scale(zero=False, nice=True#, padding=5
-                           ),
+            # Don't force y to start at 0; let Vega-Lite choose a tight range
+            scale=alt.Scale(zero=False, nice=True),
         ),
     )
 
@@ -224,15 +226,12 @@ def make_line_with_points(
     return chart
 
 
-
 def make_dual_axis_chart(df_left, df_right, metric1_label, metric2_label):
     """
     df_left  -> first metric (left axis)
     df_right -> second metric (right axis)
     Both dataframes should have: date, value, geo_name
     """
-    import altair as alt
-
     # Left axis series
     left = (
         alt.Chart(df_left)
@@ -294,12 +293,12 @@ def make_baseline_compare_chart(df, pinned_geo_id: str) -> alt.Chart:
     base = alt.Chart(df).encode(
         x=alt.X(
             "date:T",
-            title="Date"
+            title="Date",
         ),
         y=alt.Y(
             "value:Q",
             title="Value",
-            scale=alt.Scale(zero=False, nice=True)  # auto-scale, no forced zero
+            scale=alt.Scale(zero=False, nice=True),
         ),
         color=alt.Color(
             "geo_name:N",
@@ -365,13 +364,12 @@ with tabs[0]:
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        # NEW: choose metric family first
+        # Choose metric family first
         family = st.selectbox("Metric family", METRIC_FAMILIES, index=0)
 
-        # NEW: filter the metric list by that family
+        # Filter the metric list by that family
         filtered_metric_options = filter_metrics_by_family(metric_options, family)
 
-        # use filtered_metric_options instead of metric_options
         metric_id = st.selectbox("Metric", filtered_metric_options, index=0)
 
         meta = _metric_meta(metric_id)
@@ -404,7 +402,7 @@ with tabs[0]:
             ],
         )
 
-    # map labels back to geo_ids
+    # map labels back to geo_ids (global for other tabs too)
     label_to_id = dict(zip(geo_df["label"], geo_df["geo_id"]))
     selected_geos = [label_to_id[l] for l in selected_labels]
 
@@ -457,9 +455,13 @@ with tabs[1]:
         metric2 = None if metric2_raw == "(none)" else metric2_raw
 
     with col2:
+        # For the dual-axis helper we need geo_name; reuse label as geo_name
         df_left = load_series_for_geo_metric(geo_id, metric1)
+        df_left["geo_name"] = geo_label
+
         if metric2:
             df_right = load_series_for_geo_metric(geo_id, metric2)
+            df_right["geo_name"] = geo_label
             chart = make_dual_axis_chart(df_left, df_right, metric1, metric2)
         else:
             meta_left = _metric_meta(metric1)
@@ -475,43 +477,54 @@ with tabs[1]:
 
         st.altair_chart(chart, use_container_width=True)
 
+
 # -------------------------------------------------------------------
-# TAB 3: Benchmark compare
+# TAB 3: Benchmark compare (flexible baseline)
 # -------------------------------------------------------------------
-"""
 with tabs[2]:
-    st.subheader("Benchmark comparison")
+    st.subheader("Compare geos vs a baseline")
 
     col1, col2 = st.columns([1, 2])
 
     with col1:
+        # Metric family filter here too (separate keys so widgets don't clash)
+        family_bench = st.selectbox(
+            "Metric family",
+            METRIC_FAMILIES,
+            index=0,
+            key="bench_family",
+        )
+
+        bench_metric_options = filter_metrics_by_family(metric_options, family_bench)
+
         metric_bench = st.selectbox(
             "Metric",
-            options=metric_options,
-            index=metric_options.index("laus_unemployment_rate_sa") if "laus_unemployment_rate_sa" in metric_options else 0,
+            options=bench_metric_options,
+            index=0,
+            key="bench_metric",
         )
         meta_bench = _metric_meta(metric_bench)
 
-        # choose benchmark geo (single)
-        benchmark_default_geo = "dc_state" if "dc_state" in geo_df["geo_id"].values else geo_df["geo_id"].iloc[0]
-        benchmark_default_label = geo_df.loc[geo_df["geo_id"] == benchmark_default_geo, "label"].iloc[0]
+        # choose baseline geo (single, always included)
+        default_bench_geo_id = "dc_msa" if "dc_msa" in geo_df["geo_id"].values else geo_df["geo_id"].iloc[0]
+        default_bench_label = geo_df.loc[geo_df["geo_id"] == default_bench_geo_id, "label"].iloc[0]
 
         benchmark_label = st.selectbox(
-            "Benchmark geography (always included)",
+            "Baseline geography (always shown)",
             options=geo_df["label"].tolist(),
-            index=geo_df["label"].tolist().index(benchmark_default_label),
+            index=geo_df["label"].tolist().index(default_bench_label),
+            key="bench_baseline_geo",
         )
-        benchmark_geo = label_to_id[benchmark_label]
+        benchmark_geo_id = label_to_id[benchmark_label]
 
-        # other comparison geos
+        # Other comparison geos
         other_default_ids = [
             g for g in [
                 "md_state",
                 "va_state",
-                "dc_msa",
                 "baltimore_msa",
             ]
-            if g in geo_df["geo_id"].values and g != benchmark_geo
+            if g in geo_df["geo_id"].values and g != benchmark_geo_id
         ]
         other_default_labels = [
             geo_df.loc[geo_df["geo_id"] == g, "label"].iloc[0]
@@ -522,99 +535,22 @@ with tabs[2]:
             "Other geographies to compare",
             options=[l for l in geo_df["label"].tolist() if l != benchmark_label],
             default=other_default_labels,
+            key="bench_other_geos",
         )
 
     with col2:
-        other_geos = [label_to_id[l] for l in other_labels]
-        all_geos = [benchmark_geo] + [g for g in other_geos if g != benchmark_geo]
+        other_geo_ids = [label_to_id[l] for l in other_labels]
+        all_geo_ids = [benchmark_geo_id] + [g for g in other_geo_ids if g != benchmark_geo_id]
 
-        df = load_series_for_metric(all_geos, metric_bench)
+        df_metric = load_series_for_metric(all_geo_ids, metric_bench)
 
-        if df.empty:
+        if df_metric.empty:
             st.warning("No data for this metric + geo selection.")
         else:
-            # make benchmark visually distinct: layered chart
-            df_bench = df[df["geo_id"] == benchmark_geo]
-            df_others = df[df["geo_id"] != benchmark_geo]
+            # attach geo_name from geo_df.label
+            geo_names = geo_df[["geo_id", "label"]].rename(columns={"label": "geo_name"})
+            df_metric = df_metric.merge(geo_names, on="geo_id", how="left")
+            df_metric["metric_id"] = metric_bench
 
-            base_title = f"Value ({meta_bench['unit']})" if meta_bench["unit"] else "Value"
-
-            chart_bench = make_line_with_points(
-                df_bench,
-                x_field="date",
-                y_field="value",
-                color_field=None,
-                y_title=base_title,
-            ).encode(color=alt.value("#000000"))
-
-            if not df_others.empty:
-                chart_others = make_line_with_points(
-                    df_others,
-                    x_field="date",
-                    y_field="value",
-                    color_field="geo_id",
-                    y_title=base_title,
-                    color_title="Comparison geos",
-                )
-                chart = (chart_bench + chart_others).resolve_scale(y="shared")
-            else:
-                chart = chart_bench
-
+            chart = make_baseline_compare_chart(df_metric, pinned_geo_id=benchmark_geo_id)
             st.altair_chart(chart, use_container_width=True)
-
-"""
-
-
-with tabs[2]:
-    st.subheader("Compare geos vs a baseline")
-
-    import duckdb
-    import os
-
-    # --- DB connection ---
-    DUCKDB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
-    con = duckdb.connect(DUCKDB_PATH)
-
-    # 1) Pick metric
-    #metric_options = sorted(df["metric_id"].unique())
-    metric_options = con.execute("""
-        SELECT DISTINCT metric_id
-        FROM v_fact_timeseries_enriched
-        ORDER BY metric_id
-    """).fetchdf()["metric_id"].tolist()
-    metric_id = st.selectbox("Metric", metric_options, index=0)
-
-    # 2) Pick baseline geo
-    geo_options = sorted(df["geo_name"].unique())
-    default_baseline = "Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"  # adjust to your actual label if you want
-    baseline_geo_name = st.selectbox(
-        "Baseline geography",
-        geo_options,
-        index=geo_options.index(default_baseline) if default_baseline in geo_options else 0,
-    )
-
-    # 3) Pick comparison geos
-    compare_geo_names = st.multiselect(
-        "Compare against",
-        options=[g for g in geo_options if g != baseline_geo_name],
-        default=[],
-        help="Leave empty to show only the baseline geo.",
-    )
-
-    selected_geo_names = [baseline_geo_name] + compare_geo_names
-
-    df_metric = df[df["metric_id"] == metric_id].copy()
-    df_metric = df_metric[df_metric["geo_name"].isin(selected_geo_names)]
-
-    # Get baseline geo_id
-    baseline_geo_ids = (
-        df_metric.loc[df_metric["geo_name"] == baseline_geo_name, "geo_id"]
-        .drop_duplicates()
-        .tolist()
-    )
-    if not baseline_geo_ids:
-        st.warning("No data found for selected baseline geography.")
-    else:
-        baseline_geo_id = baseline_geo_ids[0]
-        chart = make_baseline_compare_chart(df_metric, pinned_geo_id=baseline_geo_id)
-        st.altair_chart(chart, use_container_width=True)
