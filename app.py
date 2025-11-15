@@ -6,6 +6,7 @@ import duckdb
 import pandas as pd
 import streamlit as st
 
+import re
 
 # -------------------------------------------------------------------
 # DB helpers
@@ -145,6 +146,22 @@ def load_series_for_geo_metric(geo_id: str, metric_id: str) -> pd.DataFrame:
         df["date"] = pd.to_datetime(df["date"])
     return df
 
+
+METRIC_FAMILIES = ["All", "Census", "CES", "LAUS"]
+
+def filter_metrics_by_family(df: pd.DataFrame, family: str) -> list[str]:
+    all_metrics = sorted(df["metric_id"].unique())
+
+    if family == "All":
+        return all_metrics
+    if family == "Census":
+        return sorted([m for m in all_metrics if m.startswith("census_")])
+    if family == "CES":
+        return sorted([m for m in all_metrics if m.startswith("ces_")])
+    if family == "LAUS":
+        return sorted([m for m in all_metrics if m.startswith("laus_")])
+
+    return all_metrics
 
 # -------------------------------------------------------------------
 # Chart helpers
@@ -327,15 +344,27 @@ tabs = st.tabs(
 # -------------------------------------------------------------------
 # TAB 1: Multi-geo, single metric
 # -------------------------------------------------------------------
+
 with tabs[0]:
     st.subheader("Compare geographies for one metric")
 
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        metric_id = st.selectbox("Metric", metric_options, index=0)
+        # NEW: choose metric family first
+        family = st.selectbox("Metric family", METRIC_FAMILIES, index=0)
+
+        # NEW: filter the metric list by that family
+        filtered_metric_options = filter_metrics_by_family(metric_options, family)
+
+        # use filtered_metric_options instead of metric_options
+        metric_id = st.selectbox("Metric", filtered_metric_options, index=0)
+
         meta = _metric_meta(metric_id)
-        st.caption(f"**Metric:** {meta['label']}  \n**Unit:** {meta['unit'] or '—'}")
+        st.caption(
+            f"**Metric:** {meta['label']}  \n"
+            f"**Unit:** {meta['unit'] or '—'}"
+        )
 
         # multi-select geos
         # default: a few key ones if present in data
@@ -376,6 +405,7 @@ with tabs[0]:
             color_title="Geography",
         )
         st.altair_chart(chart, use_container_width=True)
+
 
 # -------------------------------------------------------------------
 # TAB 2: Single geo, up to 2 metrics (dual axis)
