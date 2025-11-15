@@ -149,19 +149,33 @@ def load_series_for_geo_metric(geo_id: str, metric_id: str) -> pd.DataFrame:
 
 METRIC_FAMILIES = ["All", "Census", "CES", "LAUS"]
 
-def filter_metrics_by_family(df: pd.DataFrame, family: str) -> list[str]:
-    all_metrics = sorted(df["metric_id"].unique())
+
+def filter_metrics_by_family(metric_ids, family: str):
+    """
+    Filter a list of metric_ids by family prefix.
+
+    metric_ids: list of metric_id strings
+    family: one of METRIC_FAMILIES
+    """
+    if not metric_ids:
+        return []
+
+    metric_ids = sorted(metric_ids)
 
     if family == "All":
-        return all_metrics
-    if family == "Census":
-        return sorted([m for m in all_metrics if m.startswith("census_")])
-    if family == "CES":
-        return sorted([m for m in all_metrics if m.startswith("ces_")])
-    if family == "LAUS":
-        return sorted([m for m in all_metrics if m.startswith("laus_")])
+        return metric_ids
+    elif family == "Census":
+        prefix = "census_"
+    elif family == "CES":
+        prefix = "ces_"
+    elif family == "LAUS":
+        prefix = "laus_"
+    else:
+        # fallback — don’t filter
+        return metric_ids
 
-    return all_metrics
+    return [m for m in metric_ids if m.startswith(prefix)]
+
 
 # -------------------------------------------------------------------
 # Chart helpers
