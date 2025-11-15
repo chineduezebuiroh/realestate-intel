@@ -110,7 +110,7 @@ def main():
 
     # Optional include flag, if you've added one (ignore if it doesn't exist)
     if "include_redfin" in geo.columns:
-        geo = geo[geo["include_redfin"].fillna(False)]
+        geo = geo[geo["include_redfin"].fillna(0)]
 
     # Only rows with a non-null redfin_code
     geo = geo[geo["redfin_code"].notna()]
