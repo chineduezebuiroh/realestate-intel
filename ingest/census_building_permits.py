@@ -224,13 +224,13 @@ def load_geo_manifest() -> pd.DataFrame:
 
 """
 def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
-    """
-    Map BPS rows to geo_manifest rows via census_code depending on geo level:
-      state → state_fips
-      county → county_fips
-      city/place → place_fips
-      metro_area → cbsa_code
-    """
+    
+    #Map BPS rows to geo_manifest rows via census_code depending on geo level:
+      #state → state_fips
+      #county → county_fips
+      #city/place → place_fips
+      #metro_area → cbsa_code
+    #
     df = df_long.copy()
     df["geo_id"] = None  # placeholder
 
