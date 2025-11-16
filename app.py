@@ -48,6 +48,35 @@ def load_metric_options() -> List[str]:
     return df["metric_id"].tolist()
 
 
+@st.cache_data
+def load_redfin_property_types() -> pd.DataFrame:
+    """
+    Distinct property types from Redfin metrics.
+    """
+    con = get_connection()
+    df = con.execute("""
+        SELECT DISTINCT property_type_id, property_type
+        FROM v_fact_timeseries_enriched
+        WHERE source_id = 'redfin'
+        ORDER BY property_type_id
+    """).fetchdf()
+
+    if df.empty:
+        return df
+
+    # Nice label: "Single Family (sf)" etc.
+    df["label"] = df.apply(
+        lambda r: (
+            f"{r['property_type']} ({r['property_type_id']})"
+            if pd.notna(r.get("property_type"))
+            else r["property_type_id"]
+        ),
+        axis=1,
+    )
+    return df
+
+
+
 def _metric_meta(metric_id: str) -> dict:
     """
     Minimal metric metadata mapping.
@@ -171,61 +200,114 @@ def _metric_meta(metric_id: str) -> dict:
     }
     return meta.get(metric_id, {"label": metric_id, "unit": ""})
 
-
+"""
 @st.cache_data
 def load_series_for_metric(geo_ids: List[str], metric_id: str) -> pd.DataFrame:
-    """
-    Load a single metric for one or more geos (long format).
-    """
+    
+    #Load a single metric for one or more geos (long format).
+    
     if not geo_ids:
         return pd.DataFrame(columns=["date", "geo_id", "value"])
 
     con = get_connection()
     placeholders = ",".join(["?"] * len(geo_ids))
-    sql = f"""
+    #sql = f
         SELECT date, geo_id, value
         FROM v_fact_timeseries_enriched
         WHERE metric_id = ?
           AND geo_id IN ({placeholders})
         ORDER BY date, geo_id
-    """
+    
     params = [metric_id] + geo_ids
     df = con.execute(sql, params).fetchdf()
 
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"])
     return df
-
+"""
 
 @st.cache_data
-def load_series_for_geo_metric(geo_id: str, metric_id: str) -> pd.DataFrame:
-    """
-    Load a single metric for a single geo.
-    """
-    con = get_connection()
-    df = con.execute("""
-        SELECT date, value
-        FROM v_fact_timeseries_enriched
-        WHERE geo_id = ?
-          AND metric_id = ?
-        ORDER BY date
-    """, [geo_id, metric_id]).fetchdf()
+def load_series_for_metric(geo_ids: List[str], metric_id: str, property_type_id: str | None = None) -> pd.DataFrame:
+    if not geo_ids:
+        return pd.DataFrame(columns=["date", "geo_id", "value"])
 
+    con = get_connection()
+    placeholders = ",".join(["?"] * len(geo_ids))
+
+    sql = f"""
+        SELECT date, geo_id, value
+        FROM v_fact_timeseries_enriched
+        WHERE metric_id = ?
+          AND geo_id IN ({placeholders})
+    """
+    params = [metric_id] + geo_ids
+
+    if property_type_id is not None:
+        sql += " AND property_type_id = ?"
+        params.append(property_type_id)
+
+    sql += " ORDER BY date, geo_id"
+
+    df = con.execute(sql, params).fetchdf()
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"])
     return df
 
 
-METRIC_FAMILIES = ["All", "Census", "CES", "LAUS"]
+"""
+@st.cache_data
+def load_series_for_geo_metric(geo_id: str, metric_id: str) -> pd.DataFrame:
+    
+    #Load a single metric for a single geo.
+    
+    con = get_connection()
+    df = con.execute(
+        SELECT date, value
+        FROM v_fact_timeseries_enriched
+        WHERE geo_id = ?
+          AND metric_id = ?
+        ORDER BY date
+    , [geo_id, metric_id]).fetchdf()
+
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"])
+    return df
+"""
+
+@st.cache_data
+def load_series_for_geo_metric(geo_id: str, metric_id: str, property_type_id: str | None = None) -> pd.DataFrame:
+    con = get_connection()
+    sql = """
+        SELECT date, value
+        FROM v_fact_timeseries_enriched
+        WHERE geo_id = ?
+          AND metric_id = ?
+    """
+    params = [geo_id, metric_id]
+
+    if property_type_id is not None:
+        sql += " AND property_type_id = ?"
+        params.append(property_type_id)
+
+    sql += " ORDER BY date"
+
+    df = con.execute(sql, params).fetchdf()
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
+
+METRIC_FAMILIES = ["All", "Census", "CES", "LAUS", "Redfin"]
+
+"""
 def filter_metrics_by_family(metric_ids, family: str):
-    """
-    Filter a list of metric_ids by family prefix.
+    
+    #Filter a list of metric_ids by family prefix.
 
-    metric_ids: list of metric_id strings
-    family: one of METRIC_FAMILIES
-    """
+    #metric_ids: list of metric_id strings
+    #family: one of METRIC_FAMILIES
+    
     if not metric_ids:
         return []
 
@@ -244,6 +326,29 @@ def filter_metrics_by_family(metric_ids, family: str):
         return metric_ids
 
     return [m for m in metric_ids if m.startswith(prefix)]
+"""
+
+def filter_metrics_by_family(metric_ids, family: str):
+    if not metric_ids:
+        return []
+
+    metric_ids = sorted(metric_ids)
+
+    if family == "All":
+        return metric_ids
+    elif family == "Census":
+        prefix = "census_"
+    elif family == "CES":
+        prefix = "ces_"
+    elif family == "LAUS":
+        prefix = "laus_"
+    elif family == "Redfin":
+        prefix = "redfin_"
+    else:
+        return metric_ids
+
+    return [m for m in metric_ids if m.startswith(prefix)]
+
 
 
 # -------------------------------------------------------------------
@@ -444,6 +549,29 @@ with tabs[0]:
             f"**Unit:** {meta['unit'] or '—'}"
         )
 
+        # Redfin property type selector
+        redfin_property_type_id = None
+        if metric_id.startswith("redfin_"):
+            pt_df = load_redfin_property_types()
+            if not pt_df.empty:
+                # Default to 'all' if present, else first
+                if "all" in pt_df["property_type_id"].values:
+                    default_idx = pt_df.index[
+                        pt_df["property_type_id"] == "all"
+                    ][0]
+                else:
+                    default_idx = 0
+
+                prop_label = st.selectbox(
+                    "Property type",
+                    options=pt_df["label"].tolist(),
+                    index=default_idx,
+                    key="tab1_redfin_property_type",
+                )
+                redfin_property_type_id = pt_df.loc[
+                    pt_df["label"] == prop_label, "property_type_id"
+                ].iloc[0]
+
         # multi-select geos
         # default: a few key ones if present in data
         default_geo_ids = [
@@ -473,7 +601,9 @@ with tabs[0]:
     selected_geos = [label_to_id[l] for l in selected_labels]
 
     with col2:
-        df = load_series_for_metric(selected_geos, metric_id)
+        #df = load_series_for_metric(selected_geos, metric_id)
+        df = load_series_for_metric(selected_geos, metric_id, property_type_id=redfin_property_type_id)
+        
         chart = make_line_with_points(
             df,
             x_field="date",
@@ -520,8 +650,32 @@ with tabs[1]:
         )
         metric2 = None if metric2_raw == "(none)" else metric2_raw
 
+        # Redfin property type selector (applies to any Redfin metric here)
+        redfin_property_type_id_tab2 = None
+        if metric1.startswith("redfin_") or (metric2 and metric2.startswith("redfin_")):
+            pt_df = load_redfin_property_types()
+            if not pt_df.empty:
+                if "all" in pt_df["property_type_id"].values:
+                    default_idx = pt_df.index[
+                        pt_df["property_type_id"] == "all"
+                    ][0]
+                else:
+                    default_idx = 0
+
+                prop_label2 = st.selectbox(
+                    "Property type (Redfin metrics)",
+                    options=pt_df["label"].tolist(),
+                    index=default_idx,
+                    key="tab2_redfin_property_type",
+                )
+                redfin_property_type_id_tab2 = pt_df.loc[
+                    pt_df["label"] == prop_label2, "property_type_id"
+                ].iloc[0]
+
+
     with col2:
         # For the dual-axis helper we need geo_name; reuse label as geo_name
+        """
         df_left = load_series_for_geo_metric(geo_id, metric1)
         df_left["geo_name"] = geo_label
 
@@ -529,6 +683,16 @@ with tabs[1]:
             df_right = load_series_for_geo_metric(geo_id, metric2)
             df_right["geo_name"] = geo_label
             chart = make_dual_axis_chart(df_left, df_right, metric1, metric2)
+        """
+
+        df_left = load_series_for_geo_metric(geo_id, metric1, property_type_id=redfin_property_type_id_tab2 if metric1.startswith("redfin_") else None)
+        df_left["geo_name"] = geo_label
+
+        if metric2:
+            df_right = load_series_for_geo_metric(geo_id, metric2, property_type_id=redfin_property_type_id_tab2 if metric2.startswith("redfin_") else None)
+            df_right["geo_name"] = geo_label
+            chart = make_dual_axis_chart(df_left, df_right, metric1, metric2)
+        
         else:
             meta_left = _metric_meta(metric1)
             df_plot = df_left.copy()
@@ -569,6 +733,27 @@ with tabs[2]:
             index=0,
             key="bench_metric",
         )
+        redfin_property_type_id_tab3 = None
+        if metric_bench.startswith("redfin_"):
+            pt_df = load_redfin_property_types()
+            if not pt_df.empty:
+                if "all" in pt_df["property_type_id"].values:
+                    default_idx = pt_df.index[
+                        pt_df["property_type_id"] == "all"
+                    ][0]
+                else:
+                    default_idx = 0
+
+                prop_label3 = st.selectbox(
+                    "Property type (Redfin)",
+                    options=pt_df["label"].tolist(),
+                    index=default_idx,
+                    key="tab3_redfin_property_type",
+                )
+                redfin_property_type_id_tab3 = pt_df.loc[
+                    pt_df["label"] == prop_label3, "property_type_id"
+                ].iloc[0]
+
         meta_bench = _metric_meta(metric_bench)
 
         # choose baseline geo (single, always included)
@@ -608,7 +793,8 @@ with tabs[2]:
         other_geo_ids = [label_to_id[l] for l in other_labels]
         all_geo_ids = [benchmark_geo_id] + [g for g in other_geo_ids if g != benchmark_geo_id]
 
-        df_metric = load_series_for_metric(all_geo_ids, metric_bench)
+        #df_metric = load_series_for_metric(all_geo_ids, metric_bench)
+        df_metric = load_series_for_metric(all_geo_ids, metric_bench, property_type_id=redfin_property_type_id_tab3)
 
         if df_metric.empty:
             st.warning("No data for this metric + geo selection.")
