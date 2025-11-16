@@ -102,6 +102,72 @@ def _metric_meta(metric_id: str) -> dict:
             "label": "Unemployment Rate (SA)",
             "unit": "percent",
         },
+                # --- Census BPS: Units ---
+        "census_bp_total_units": {
+            "label": "Building Permits – Total Units",
+            "unit": "units",
+        },
+        "census_bp_1_unit": {
+            "label": "Building Permits – 1-Unit Structures (Units)",
+            "unit": "units",
+        },
+        "census_bp_2_units": {
+            "label": "Building Permits – 2-Unit Structures (Units)",
+            "unit": "units",
+        },
+        "census_bp_3_4_units": {
+            "label": "Building Permits – 3–4 Unit Structures (Units)",
+            "unit": "units",
+        },
+        "census_bp_5plus_units": {
+            "label": "Building Permits – 5+ Unit Structures (Units)",
+            "unit": "units",
+        },
+
+        # --- Census BPS: Buildings ---
+        "census_bp_total_bldgs": {
+            "label": "Building Permits – Total Buildings",
+            "unit": "buildings",
+        },
+        "census_bp_1_unit_bldgs": {
+            "label": "Building Permits – 1-Unit Structures (Buildings)",
+            "unit": "buildings",
+        },
+        "census_bp_2_units_bldgs": {
+            "label": "Building Permits – 2-Unit Structures (Buildings)",
+            "unit": "buildings",
+        },
+        "census_bp_3_4_units_bldgs": {
+            "label": "Building Permits – 3–4 Unit Structures (Buildings)",
+            "unit": "buildings",
+        },
+        "census_bp_5plus_units_bldgs": {
+            "label": "Building Permits – 5+ Unit Structures (Buildings)",
+            "unit": "buildings",
+        },
+
+        # --- Census BPS: Valuation ($) ---
+        "census_bp_total_value": {
+            "label": "Building Permits – Total Value",
+            "unit": "USD",
+        },
+        "census_bp_1_unit_value": {
+            "label": "Building Permits – 1-Unit Structures (Value)",
+            "unit": "USD",
+        },
+        "census_bp_2_units_value": {
+            "label": "Building Permits – 2-Unit Structures (Value)",
+            "unit": "USD",
+        },
+        "census_bp_3_4_units_value": {
+            "label": "Building Permits – 3–4 Unit Structures (Value)",
+            "unit": "USD",
+        },
+        "census_bp_5plus_units_value": {
+            "label": "Building Permits – 5+ Unit Structures (Value)",
+            "unit": "USD",
+        },
+
     }
     return meta.get(metric_id, {"label": metric_id, "unit": ""})
 
