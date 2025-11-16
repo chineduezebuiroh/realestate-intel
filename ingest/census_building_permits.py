@@ -120,7 +120,7 @@ def compute_total_units(df: pd.DataFrame) -> pd.DataFrame:
     )
     return df
 
-
+"""
 def normalize_geo_keys(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
@@ -142,6 +142,44 @@ def normalize_geo_keys(df: pd.DataFrame) -> pd.DataFrame:
         df["cbsa_code"] = zp(df["cbsa_code"], 5)
 
     return df
+"""
+
+
+def normalize_geo_keys(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize FIPS / CBSA code columns so they match geo_manifest.census_code.
+
+    Strategy:
+    - Coerce to numeric (handles 11.0, 24031.0, etc.).
+    - Round and cast to Int64 (preserve NA).
+    - Convert to string.
+    - Zero-pad to standard widths:
+        state_fips  -> 2
+        county_fips -> 5
+        place_fips  -> 7
+        cbsa_code   -> 5
+    """
+    df = df.copy()
+
+    for col in ["state_fips", "county_fips", "place_fips", "cbsa_code"]:
+        if col not in df.columns:
+            df[col] = pd.NA
+
+        # Coerce to numeric, then to Int64 to keep NA
+        s = pd.to_numeric(df[col], errors="coerce")
+        s = s.round().astype("Int64")
+        df[col] = s.astype("string")
+
+    def zp(series: pd.Series, width: int) -> pd.Series:
+        return series.where(series.notna(), None).str.zfill(width)
+
+    df["state_fips"]  = zp(df["state_fips"], 2)
+    df["county_fips"] = zp(df["county_fips"], 5)
+    df["place_fips"]  = zp(df["place_fips"], 7)
+    df["cbsa_code"]   = zp(df["cbsa_code"], 5)
+
+    return df
+
 
 
 def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
@@ -184,7 +222,7 @@ def load_geo_manifest() -> pd.DataFrame:
     gm["census_code"] = gm["census_code"].str.strip()
     return gm
 
-
+"""
 def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
     """
     Map BPS rows to geo_manifest rows via census_code depending on geo level:
@@ -217,6 +255,45 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
 
     df = df[df["geo_id"].notna()].copy()
     return df
+"""
+
+
+def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
+    """
+    Map BPS rows to geo_manifest rows via census_code depending on geo level:
+      state      → state_fips
+      county     → county_fips
+      city/place → place_fips
+      metro_area → cbsa_code
+    """
+    df = df_long.copy()
+    df["geo_id"] = None  # placeholder
+
+    for row in gm.itertuples():
+        geo = row.geo_id
+        level = row.level
+        code = row.census_code
+
+        if level == "state":
+            mask = df["state_fips"] == code
+        elif level == "county":
+            mask = df["county_fips"] == code
+        elif level == "city":
+            mask = df["place_fips"] == code
+        elif level in ("metro_area", "msa", "metro"):
+            mask = df["cbsa_code"] == code
+        else:
+            # MSD / CSA / others → no BPS coverage
+            continue
+
+        count = mask.sum()
+        if count > 0:
+            print(f"[bps] matched {count} rows for geo_id={geo}, level={level}, census_code={code}")
+        df.loc[mask, "geo_id"] = geo
+
+    df = df[df["geo_id"].notna()].copy()
+    return df
+
 
 
 # -------------------------------------------------------------------
