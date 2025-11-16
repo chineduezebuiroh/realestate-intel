@@ -25,6 +25,7 @@ import duckdb
 DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 CENSUS_CSV = Path("data/census_acs5_timeseries.csv")
 
+SOURCE_ID = "census_acs"
 
 def main() -> None:
     if not CENSUS_CSV.exists():
@@ -57,12 +58,14 @@ def main() -> None:
     # Insert from the CSV directly.
     con.execute(
         """
-        INSERT INTO fact_timeseries (geo_id, metric_id, date, value)
+        INSERT INTO fact_timeseries (geo_id, metric_id, date, value, source_id, property_type_id)
         SELECT
             geo_id,
             metric_id,
             CAST(date AS DATE) AS date,
-            value
+            value,
+            SOURCE_ID,
+            "all"
         FROM read_csv_auto(?, header=True)
         WHERE value IS NOT NULL
         """,
@@ -73,7 +76,7 @@ def main() -> None:
     summary = con.execute(
         """
         SELECT
-            metric_id,
+            metric_id, source_id,
             MIN(date) AS first,
             MAX(date) AS last,
             COUNT(*)  AS rows
