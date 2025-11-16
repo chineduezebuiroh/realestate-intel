@@ -222,50 +222,16 @@ def load_geo_manifest() -> pd.DataFrame:
     gm["census_code"] = gm["census_code"].str.strip()
     return gm
 
+
 """
 def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
     
     #Map BPS rows to geo_manifest rows via census_code depending on geo level:
-      #state → state_fips
-      #county → county_fips
-      #city/place → place_fips
-      #metro_area → cbsa_code
-    #
-    df = df_long.copy()
-    df["geo_id"] = None  # placeholder
-
-    for row in gm.itertuples():
-        geo = row.geo_id
-        level = row.level
-        code = row.census_code
-
-        if level == "state":
-            mask = df["state_fips"] == code
-        elif level == "county":
-            mask = df["county_fips"] == code
-        elif level == "city":
-            mask = df["place_fips"] == code
-        elif level in ("metro_area", "msa", "metro"):
-            mask = df["cbsa_code"] == code
-        else:
-            # MSD / CSA / others → no BPS coverage
-            continue
-
-        df.loc[mask, "geo_id"] = geo
-
-    df = df[df["geo_id"].notna()].copy()
-    return df
-"""
-
-
-def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
-    """
-    Map BPS rows to geo_manifest rows via census_code depending on geo level:
-      state      → state_fips
-      county     → county_fips
-      city/place → place_fips
-      metro_area → cbsa_code
-    """
+    #  state      → state_fips
+    #  county     → county_fips
+    #  city/place → place_fips
+    #  metro_area → cbsa_code
+    
     df = df_long.copy()
     df["geo_id"] = None  # placeholder
 
@@ -293,7 +259,54 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
 
     df = df[df["geo_id"].notna()].copy()
     return df
+"""
 
+
+def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
+    """
+    Correct mapping of BPS rows to geo_manifest geos using location_type.
+
+    - Only match rows whose `location_type` matches the geo's true level.
+    - Prevents duplication and stops incorrect cascading matches.
+    """
+
+    df = df_long.copy()
+    df["geo_id"] = None
+
+    for row in gm.itertuples():
+        geo = row.geo_id
+        level = row.level
+        code = row.census_code
+
+        if level == "state":
+            # Match ONLY state rows
+            mask = (df["location_type"] == "State") & (df["state_fips"] == code)
+
+        elif level == "county":
+            # Match ONLY county rows
+            mask = (df["location_type"] == "County") & (df["county_fips"] == code)
+
+        elif level == "city":
+            # Match ONLY place rows
+            mask = (df["location_type"] == "Place") & (df["place_fips"] == code)
+
+        elif level in ("metro_area", "msa", "metro"):
+            # Match ONLY metro (CBSA) rows
+            mask = (df["location_type"] == "Metro") & (df["cbsa_code"] == code)
+
+        else:
+            # No BPS coverage for: metro_division, csa, region, country, micro
+            continue
+
+        count = mask.sum()
+        if count > 0:
+            print(f"[bps] matched {count} authoritative rows for {geo} ({level})")
+        df.loc[mask, "geo_id"] = geo
+
+    # Keep only rows successfully mapped
+    df = df[df["geo_id"].notna()].copy()
+    df = df.reset_index(drop=True)
+    return df
 
 
 # -------------------------------------------------------------------
