@@ -7,6 +7,8 @@ import pandas as pd
 REDFIN_TS_PATH = "data/redfin/redfin_metro_timeseries.csv"
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 
+SOURCE_ID = "redfin"
+
 def main():
     if not os.path.exists(REDFIN_TS_PATH):
         raise FileNotFoundError(f"Redfin timeseries not found at: {REDFIN_TS_PATH}")
@@ -42,14 +44,15 @@ def main():
 
     # Insert, including the new columns
     con.execute("""
-        INSERT INTO fact_timeseries (geo_id, date, metric_id, value, property_type_id, property_type)
+        INSERT INTO fact_timeseries (geo_id, date, metric_id, value, property_type_id, property_type, source_id)
         SELECT
             geo_id,
             CAST(date AS DATE) AS date,
             metric_id,
             value,
             property_type_id,
-            property_type
+            property_type,
+            SOURCE_ID
         FROM redfin_df;
     """)
 
