@@ -120,30 +120,6 @@ def compute_total_units(df: pd.DataFrame) -> pd.DataFrame:
     )
     return df
 
-"""
-def normalize_geo_keys(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-
-    def zp(s: pd.Series, width: int):
-        return (
-            s.astype("string").str.strip().where(s.notna(), None).str.zfill(width)
-        )
-
-    if "state_fips" in df.columns:
-        df["state_fips"] = zp(df["state_fips"], 2)
-
-    if "county_fips" in df.columns:
-        df["county_fips"] = zp(df["county_fips"], 5)
-
-    if "place_fips" in df.columns:
-        df["place_fips"] = zp(df["place_fips"], 7)
-
-    if "cbsa_code" in df.columns:
-        df["cbsa_code"] = zp(df["cbsa_code"], 5)
-
-    return df
-"""
-
 
 def normalize_geo_keys(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -181,7 +157,7 @@ def normalize_geo_keys(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-
+"""
 def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
@@ -207,6 +183,57 @@ def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
     df_long = df_long.drop(columns=["unit_col"])
     df_long = df_long[df_long["date"].notna()].copy()
     df_long = df_long[df_long["units"].notna()].copy()
+    return df_long
+"""
+
+def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert unit counts to long format by 'unit_size_band', e.g.:
+
+        unit_size_band ∈ ["1", "2", "3_4", "5plus", "total"]
+        units          = count
+
+    Keeps `location_type` so we can correctly map to geo_manifest.
+    """
+    df = df.copy()
+
+    id_cols = [
+        "date",
+        "year",
+        "month",
+        "state_fips",
+        "county_fips",
+        "place_fips",
+        "cbsa_code",
+    ]
+
+    # 🔑 This is the piece that was missing:
+    if "location_type" in df.columns:
+        id_cols.append("location_type")
+    else:
+        print("[bps] WARNING: location_type column missing before melt; mapping will fail")
+
+    value_cols = {
+        "units_1": "1",
+        "units_2": "2",
+        "units_3_4": "3_4",
+        "units_5plus": "5plus",
+        "total_units": "total",
+    }
+    existing_value_cols = [c for c in value_cols.keys() if c in df.columns]
+
+    df_long = df.melt(
+        id_vars=id_cols,
+        value_vars=existing_value_cols,
+        var_name="unit_col",
+        value_name="units",
+    )
+    df_long["unit_size_band"] = df_long["unit_col"].map(value_cols)
+    df_long = df_long.drop(columns=["unit_col"])
+
+    df_long = df_long[df_long["date"].notna()].copy()
+    df_long = df_long[df_long["units"].notna()].copy()
+
     return df_long
 
 
@@ -270,6 +297,9 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
     - Prevents duplication and stops incorrect cascading matches.
     """
 
+    if "location_type" not in df_long.columns:
+        raise SystemExit("[bps] ERROR: location_type missing in df_long; check reshape_long()")
+    
     df = df_long.copy()
     df["geo_id"] = None
 
