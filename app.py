@@ -200,34 +200,13 @@ def _metric_meta(metric_id: str) -> dict:
     }
     return meta.get(metric_id, {"label": metric_id, "unit": ""})
 
-"""
-@st.cache_data
-def load_series_for_metric(geo_ids: List[str], metric_id: str) -> pd.DataFrame:
-    
-    #Load a single metric for one or more geos (long format).
-    
-    if not geo_ids:
-        return pd.DataFrame(columns=["date", "geo_id", "value"])
-
-    con = get_connection()
-    placeholders = ",".join(["?"] * len(geo_ids))
-    #sql = f
-        SELECT date, geo_id, value
-        FROM v_fact_timeseries_enriched
-        WHERE metric_id = ?
-          AND geo_id IN ({placeholders})
-        ORDER BY date, geo_id
-    
-    params = [metric_id] + geo_ids
-    df = con.execute(sql, params).fetchdf()
-
-    if not df.empty:
-        df["date"] = pd.to_datetime(df["date"])
-    return df
-"""
 
 @st.cache_data
-def load_series_for_metric(geo_ids: List[str], metric_id: str, property_type_id: str | None = None) -> pd.DataFrame:
+def load_series_for_metric(
+    geo_ids: List[str],
+    metric_id: str,
+    property_type_id: str | None = None,
+) -> pd.DataFrame:
     if not geo_ids:
         return pd.DataFrame(columns=["date", "geo_id", "value"])
 
@@ -254,28 +233,12 @@ def load_series_for_metric(geo_ids: List[str], metric_id: str, property_type_id:
     return df
 
 
-"""
 @st.cache_data
-def load_series_for_geo_metric(geo_id: str, metric_id: str) -> pd.DataFrame:
-    
-    #Load a single metric for a single geo.
-    
-    con = get_connection()
-    df = con.execute(
-        SELECT date, value
-        FROM v_fact_timeseries_enriched
-        WHERE geo_id = ?
-          AND metric_id = ?
-        ORDER BY date
-    , [geo_id, metric_id]).fetchdf()
-
-    if not df.empty:
-        df["date"] = pd.to_datetime(df["date"])
-    return df
-"""
-
-@st.cache_data
-def load_series_for_geo_metric(geo_id: str, metric_id: str, property_type_id: str | None = None) -> pd.DataFrame:
+def load_series_for_geo_metric(
+    geo_id: str,
+    metric_id: str,
+    property_type_id: str | None = None,
+) -> pd.DataFrame:
     con = get_connection()
     sql = """
         SELECT date, value
@@ -297,36 +260,7 @@ def load_series_for_geo_metric(geo_id: str, metric_id: str, property_type_id: st
     return df
 
 
-
 METRIC_FAMILIES = ["All", "Census", "CES", "LAUS", "Redfin"]
-
-"""
-def filter_metrics_by_family(metric_ids, family: str):
-    
-    #Filter a list of metric_ids by family prefix.
-
-    #metric_ids: list of metric_id strings
-    #family: one of METRIC_FAMILIES
-    
-    if not metric_ids:
-        return []
-
-    metric_ids = sorted(metric_ids)
-
-    if family == "All":
-        return metric_ids
-    elif family == "Census":
-        prefix = "census_"
-    elif family == "CES":
-        prefix = "ces_"
-    elif family == "LAUS":
-        prefix = "laus_"
-    else:
-        # fallback — don’t filter
-        return metric_ids
-
-    return [m for m in metric_ids if m.startswith(prefix)]
-"""
 
 def filter_metrics_by_family(metric_ids, family: str):
     if not metric_ids:
@@ -348,7 +282,6 @@ def filter_metrics_by_family(metric_ids, family: str):
         return metric_ids
 
     return [m for m in metric_ids if m.startswith(prefix)]
-
 
 
 # -------------------------------------------------------------------
