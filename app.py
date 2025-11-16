@@ -12,6 +12,24 @@ import re  # currently unused but harmless
 # DB helpers
 # -------------------------------------------------------------------
 
+@st.cache_data
+def load_metric_source_map() -> dict:
+    """
+    Map metric_id -> source_id (e.g., 'census_acs', 'census_bps', 'ces', 'laus', 'redfin').
+    """
+    con = get_connection()
+    df = con.execute("""
+        SELECT DISTINCT metric_id, source_id
+        FROM v_fact_timeseries_enriched
+    """).fetchdf()
+    return dict(zip(df["metric_id"], df["source_id"]))
+
+
+def is_redfin_metric(metric_id: str) -> bool:
+    src_map = load_metric_source_map()
+    return src_map.get(metric_id) == "redfin"
+
+
 @st.cache_resource
 def get_connection():
     db_path = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
@@ -260,28 +278,40 @@ def load_series_for_geo_metric(
     return df
 
 
-METRIC_FAMILIES = ["All", "Census", "CES", "LAUS", "Redfin"]
+METRIC_FAMILIES = [
+    "All",
+    "Census (ACS)",
+    "Census (Permits)",
+    "CES",
+    "LAUS",
+    "Redfin",
+]
+
 
 def filter_metrics_by_family(metric_ids, family: str):
     if not metric_ids:
         return []
 
     metric_ids = sorted(metric_ids)
-
     if family == "All":
         return metric_ids
-    elif family == "Census":
-        prefix = "census_"
-    elif family == "CES":
-        prefix = "ces_"
-    elif family == "LAUS":
-        prefix = "laus_"
-    elif family == "Redfin":
-        prefix = "redfin_"
-    else:
+
+    src_map = load_metric_source_map()
+
+    # Adjust these strings to match your actual source_ids
+    FAMILY_SOURCES = {
+        "Census (ACS)": {"census_acs"},      # or "census_acs5", etc.
+        "Census (Permits)": {"census_bps"},
+        "CES": {"ces"},
+        "LAUS": {"laus"},
+        "Redfin": {"redfin"},
+    }
+
+    allowed_sources = FAMILY_SOURCES.get(family)
+    if not allowed_sources:
         return metric_ids
 
-    return [m for m in metric_ids if m.startswith(prefix)]
+    return [m for m in metric_ids if src_map.get(m) in allowed_sources]
 
 
 # -------------------------------------------------------------------
