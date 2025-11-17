@@ -32,11 +32,12 @@ def seasonal_suffix_from_sid(series_id: str) -> str:
     # Default conservative
     return "nsa"
 
-def metric_id_from_row(seasonal_tag: str) -> str:
-    """Only one CES base metric in this phase: total nonfarm, all employees."""
-    base = "ces_total_nonfarm"
-    sfx  = "_sa" if (seasonal_tag or "").lower() == "sa" else "_nsa"
-    return base + sfx
+"""
+def metric_id_from_row(metric_base: str, seasonal_tag: str) -> str:
+    sfx = "_sa" if (seasonal_tag or "").lower() == "sa" else "_nsa"
+    return metric_base + sfx
+"""
+
 
 def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids: list[str]):
     # Source (idempotent)
@@ -185,7 +186,7 @@ def main():
     # Read the generated CES config and prepare series/meta
     rows, series_ids = [], []
     sid_to_meta = {}
-
+    """
     with GEN_PATH.open(newline="", encoding="utf-8") as f:
         rdr = csv.DictReader(f)
         for r in rdr:
@@ -210,6 +211,36 @@ def main():
                 "metric_id": mid,
             }
             rows.append(r)
+    """
+
+    with GEN_PATH.open(newline="", encoding="utf-8") as f:
+        rdr = csv.DictReader(f)
+        for r in rdr:
+            if not r:
+                continue
+
+            sid         = (r.get("series_id") or "").strip()
+            geo         = (r.get("geo_id") or "").strip()
+            metric_base = (r.get("metric_base") or "").strip()
+            if not sid or not geo or not metric_base:
+                continue
+            if FILTER_GEOS and geo.lower() not in FILTER_GEOS:
+                continue
+
+            # Prefer seasonal from series_id; fallback to CSV
+            sfx = seasonal_suffix_from_sid(sid)   # "sa" / "nsa"
+            if sfx not in ("sa", "nsa"):
+                sfx = (r.get("seasonal") or "NSA").strip().lower()
+
+            metric_id = f"{metric_base}_{sfx}"   # e.g. ces_construction_sa
+
+            series_ids.append(sid)
+            sid_to_meta[sid] = {
+                "geo_id": geo,
+                "metric_id": metric_id,
+            }
+            rows.append(r)
+    
 
     if not series_ids:
         print("[ces] no series to fetch (check include flags or filters).")
