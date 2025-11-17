@@ -5,14 +5,10 @@ import re
 from pathlib import Path
 import requests
 
-# Metric base label used downstream
-METRIC_BASE = "ces_total_nonfarm"
-
 GEO_MANIFEST = Path("config/geo_manifest.csv")
 
 # 🔧 Populated at runtime in main()
 #CES_AREA_MAP = {}
-
 
 BLS_DIR = Path("config/bls")
 GEN_PATH = Path("config/ces_series.generated.csv")
@@ -21,7 +17,6 @@ GEN_PATH = Path("config/ces_series.generated.csv")
 SM_SERIES_URL = "https://download.bls.gov/pub/time.series/sm/sm.series"
 SM_DATA_ALL_URL = "https://download.bls.gov/pub/time.series/sm/sm.data.1.AllData"
 
-
 # We’re targeting:
 # - industry_code = '000000' (Total Nonfarm)
 # - data_type_code = '01' (All Employees)
@@ -29,10 +24,26 @@ SM_DATA_ALL_URL = "https://download.bls.gov/pub/time.series/sm/sm.data.1.AllData
 TARGET_INDUSTRY = {"00000000"}
 TARGET_DATA_TYPE = {"01"}
 TARGET_SEASONAL = {"S", "U"}
-# Add near the other TARGET_* constants
-TARGET_SUPERSECTOR = {"00"}
 
+# Map supersector_code -> metric_base used downstream.
+# (You can prune this list later if you only care about a few sectors.)
+SUPERSECTOR_TO_METRIC_BASE = {
+    "00": "ces_total_nonfarm",             # Total nonfarm
+    "05": "ces_total_private",             # Total private
+    "10": "ces_mining_logging",
+    "20": "ces_construction",
+    "30": "ces_manufacturing",
+    "40": "ces_trade_transport_utilities",
+    "50": "ces_information",
+    "55": "ces_financial_activities",
+    "60": "ces_prof_business_services",
+    "65": "ces_education_health_services",
+    "70": "ces_leisure_hospitality",
+    "80": "ces_other_services",
+    "90": "ces_government",
+}
 
+TARGET_SUPERSECTOR = set(SUPERSECTOR_TO_METRIC_BASE.keys())
 
 
 def load_ces_geo_targets():
@@ -184,8 +195,6 @@ def _pick_geo(area_code: str):
     return CES_AREA_MAP.get(area_code, (None, None))
 
 
-
-
 def _seasonal_tag(s: str) -> str:
     s = (s or "").upper()
     if s == "S":
@@ -193,7 +202,6 @@ def _seasonal_tag(s: str) -> str:
     if s == "U":
         return "NSA"
     return "NSA"
-
 
 
 def generate_csv(sm_series_rows, out_path: Path):
@@ -228,7 +236,7 @@ def generate_csv(sm_series_rows, out_path: Path):
         if not series_id or not area_code:
             continue
 
-        # STRICT CES filter: Total nonfarm (supersector 00, industry 00000000) & All Employees (01)
+        # STRICT CES filter: headline supersector totals & All Employees (01)
         if seasonal not in TARGET_SEASONAL:
             continue
         if supersector_code not in TARGET_SUPERSECTOR:
@@ -236,6 +244,11 @@ def generate_csv(sm_series_rows, out_path: Path):
         if industry_code not in TARGET_INDUSTRY:   # expect "00000000"
             continue
         if data_type_code not in TARGET_DATA_TYPE: # expect "01"
+            continue
+
+        # Map supersector to our metric_base (e.g., "ces_construction")
+        metric_base = SUPERSECTOR_TO_METRIC_BASE.get(supersector_code)
+        if not metric_base:
             continue
 
         # Map to our geo_id using tolerant keys:
@@ -275,15 +288,16 @@ def generate_csv(sm_series_rows, out_path: Path):
         want.append({
             "geo_id": geo_id,
             "series_id": series_id,
-            "metric_base": METRIC_BASE,
+            "metric_base": metric_base,
             "seasonal": _seasonal_tag(seasonal),
             "name": series_title,   # may be empty for your file; that's fine
             "area": area_name
         })
+    
 
     # De-dup and stable sort
-    dedup = {(w["geo_id"], w["seasonal"]): w for w in want}
-    rows = sorted(dedup.values(), key=lambda d: (d["geo_id"], d["series_id"]))
+    dedup = {(w["geo_id"], w["metric_base"], w["seasonal"]): w for w in want}
+    rows = sorted(dedup.values(), key=lambda d: (d["geo_id"], d["metric_base"], d["series_id"]))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding="utf-8") as f:
