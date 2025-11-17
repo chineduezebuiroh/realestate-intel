@@ -202,12 +202,12 @@ def _seasonal_tag(s: str) -> str:
         return "NSA"
     return "NSA"
 
-
+"""
 def generate_csv(sm_series_rows, out_path: Path):
-    """
-    Filter sm.series to CES supersector headline series (All Employees)
-    and write config/ces_series.generated.csv.
-    """
+    
+    #Filter sm.series to CES supersector headline series (All Employees)
+    #and write config/ces_series.generated.csv.
+    
     want = []
 
     def expand_keys(code: str) -> list[str]:
@@ -227,7 +227,7 @@ def generate_csv(sm_series_rows, out_path: Path):
     print(f"[ces:gen][debug] CES_AREA_MAP keys sample:", list(CES_AREA_MAP.keys())[:10])
 
     for r in sm_series_rows:
-        """
+        
         series_id      = (r.get("series_id") or "").strip()
         seasonal_code  = (r.get("seasonal") or "").strip().upper()
         supersector_code = (r.get("supersector_code") or "").strip()
@@ -259,7 +259,7 @@ def generate_csv(sm_series_rows, out_path: Path):
         metric_base = SUPERSECTOR_TO_METRIC_BASE.get(supersector_code)
         if not metric_base:
             continue        
-        """
+        
 
         series_id      = (r.get("series_id") or "").strip()
         seasonal_code  = (r.get("seasonal") or "").strip().upper()
@@ -341,6 +341,138 @@ def generate_csv(sm_series_rows, out_path: Path):
         wr.writerows(rows)
 
     print(f"[ces:gen] wrote {len(rows)} series rows → {out_path}")
+"""
+
+
+
+def generate_csv(sm_series_rows, out_path: Path):
+    """
+    Filter sm.series to CES supersector headline series (All Employees)
+    and write config/ces_series.generated.csv.
+
+    For each (geo_id, metric_base, seasonal) we pick the series with the
+    latest end_year / end_period so we keep the active series that runs
+    through 2025 rather than older, discontinued ones.
+    """
+    # small debug
+    print(f"[ces:gen][debug] CES_AREA_MAP keys sample:", list(CES_AREA_MAP.keys())[:10])
+
+    def expand_keys(code: str) -> list[str]:
+        code = re.sub(r"\D", "", code or "")
+        if not code:
+            return []
+        out = set()
+        out.add(code)
+        out.add(code.lstrip("0"))
+        for w in (5, 6, 7):
+            out.add(code.zfill(w))
+        if len(code) == 6:
+            out.add(code + "0")  # e.g. 110000 -> 1100000
+        return [k for k in out if k]
+
+    # best[(geo_id, metric_base, seasonal)] = row with max (end_year, end_period)
+    best = {}
+
+    for r in sm_series_rows:
+        series_id        = (r.get("series_id") or "").strip()
+        seasonal         = (r.get("seasonal") or "").strip().upper()
+        supersector_code = (r.get("supersector_code") or "").strip()
+        industry_code    = (r.get("industry_code") or "").strip()
+        data_type_code   = (r.get("data_type_code") or "").strip()
+        series_title     = (r.get("series_title") or "").strip()
+        state_code       = (r.get("state_code") or "").strip()
+        area_code        = (r.get("area_code") or "").strip()
+        end_year_raw     = (r.get("end_year") or "").strip()
+        end_period       = (r.get("end_period") or "").strip()
+
+        if not series_id or not area_code:
+            continue
+
+        # Filters: seasonal, supersector, headline industry, all employees
+        if seasonal not in TARGET_SEASONAL:
+            continue
+        if supersector_code not in TARGET_SUPERSECTOR:
+            continue
+        if data_type_code not in TARGET_DATA_TYPE:   # "01" = All Employees
+            continue
+
+        # Keep the industry filter fairly tight but not *overly* restrictive.
+        # You can relax this if needed:
+        if industry_code and not industry_code.endswith("0000"):
+            continue
+
+        metric_base = SUPERSECTOR_TO_METRIC_BASE.get(supersector_code)
+        if not metric_base:
+            continue
+
+        # Map to geo_id (same logic as before)
+        sd = re.sub(r"\D", "", state_code)
+        ad = re.sub(r"\D", "", area_code)
+
+        geo_id, area_name = (None, None)
+        candidates = []
+        if ad:
+            candidates.append(ad)
+        if sd and ad:
+            candidates.append(sd + ad)
+
+        for cand in candidates:
+            for key in expand_keys(cand):
+                geo_id, area_name = _pick_geo(key)
+                if geo_id:
+                    break
+            if geo_id:
+                break
+
+        if not geo_id:
+            continue
+
+        # parse end_year for comparison
+        try:
+            end_year = int(end_year_raw) if end_year_raw else 0
+        except ValueError:
+            end_year = 0
+
+        key = (geo_id, metric_base, seasonal)
+        prev = best.get(key)
+
+        # choose the series with the latest (end_year, end_period)
+        if prev is None or (end_year, end_period) > (prev["end_year"], prev["end_period"]):
+            best[key] = {
+                "geo_id":      geo_id,
+                "series_id":   series_id,
+                "metric_base": metric_base,
+                "seasonal":    seasonal,
+                "name":        series_title,
+                "area":        area_name,
+                "end_year":    end_year,
+                "end_period":  end_period,
+            }
+
+    # Final rows to write (drop end_year / end_period helper fields)
+    rows = []
+    for w in best.values():
+        rows.append({
+            "geo_id":      w["geo_id"],
+            "series_id":   w["series_id"],
+            "metric_base": w["metric_base"],
+            "seasonal":    w["seasonal"],
+            "name":        w["name"],
+            "area":        w["area"],
+        })
+
+    rows = sorted(rows, key=lambda d: (d["geo_id"], d["metric_base"], d["series_id"]))
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", newline="", encoding="utf-8") as f:
+        wr = csv.DictWriter(
+            f, fieldnames=["geo_id", "series_id", "metric_base", "seasonal", "name", "area"]
+        )
+        wr.writeheader()
+        wr.writerows(rows)
+
+    print(f"[ces:gen] wrote {len(rows)} series rows → {out_path}")
+
 
 
 
