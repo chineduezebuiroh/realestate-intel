@@ -227,6 +227,7 @@ def generate_csv(sm_series_rows, out_path: Path):
     print(f"[ces:gen][debug] CES_AREA_MAP keys sample:", list(CES_AREA_MAP.keys())[:10])
 
     for r in sm_series_rows:
+        """
         series_id      = (r.get("series_id") or "").strip()
         seasonal_code  = (r.get("seasonal") or "").strip().upper()
         supersector_code = (r.get("supersector_code") or "").strip()
@@ -258,6 +259,43 @@ def generate_csv(sm_series_rows, out_path: Path):
         metric_base = SUPERSECTOR_TO_METRIC_BASE.get(supersector_code)
         if not metric_base:
             continue        
+        """
+
+        series_id      = (r.get("series_id") or "").strip()
+        seasonal_code  = (r.get("seasonal") or "").strip().upper()
+        industry_code  = (r.get("industry_code") or "").strip()
+        data_type_code = (r.get("data_type_code") or "").strip()
+        series_title   = (r.get("series_title") or "").strip()
+        state_code     = (r.get("state_code") or "").strip()
+        area_code      = (r.get("area_code") or "").strip()
+
+        if not series_id or not area_code:
+            continue
+
+        # Only All Employees, SA/NSA
+        if seasonal_code not in TARGET_SEASONAL:
+            continue
+        if data_type_code not in TARGET_DATA_TYPE:
+            continue
+
+        # Parse CES industry_code: first 2 digits = sector, last 6 digits = detail
+        norm_ind = re.sub(r"\D", "", industry_code)
+        if len(norm_ind) != 8:
+            continue
+
+        sector_code = norm_ind[:2]       # e.g. "00", "05", "20", "40", "60", etc.
+        detail_part = norm_ind[2:]       # e.g. "000000"
+
+        # Only headline series within each sector: xxxx000000
+        if detail_part != "000000":
+            continue
+
+        # Map sector to metric_base using our lookup table
+        metric_base = SUPERSECTOR_TO_METRIC_BASE.get(sector_code)
+        if not metric_base:
+            continue
+
+        
 
         # Map to geo_id (same logic you had before)
         sd = re.sub(r"\D", "", state_code)
