@@ -110,7 +110,7 @@ def fetch_series(series_ids: list[str]) -> list[dict]:
     """Call BLS timeseries endpoint. Include annualaverage=True then drop M13 later."""
     payload = {
         "seriesid": series_ids,
-        "startyear": "1990",                # CES typically starts ~1990/1991 for locals
+        "startyear": "2000",                # CES typically starts ~1990/1991 for locals
         "endyear": str(date.today().year),
         "annualaverage": True,
     }
