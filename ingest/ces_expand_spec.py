@@ -39,10 +39,8 @@ SUPERSECTOR_TO_METRIC_BASE = {
 TARGET_SUPERSECTOR = set(SUPERSECTOR_TO_METRIC_BASE.keys())
 
 # We’re targeting:
-# - industry_code = '000000' (Total Nonfarm)
 # - data_type_code = '01' (All Employees)
 # - seasonal in {'S','U'} (Seasonally adjusted / Not seasonally adjusted)
-TARGET_INDUSTRY = {"00000000"}
 TARGET_DATA_TYPE = {"01"}
 TARGET_SEASONAL = {"S", "U"}
 
@@ -229,31 +227,37 @@ def generate_csv(sm_series_rows, out_path: Path):
     print(f"[ces:gen][debug] CES_AREA_MAP keys sample:", list(CES_AREA_MAP.keys())[:10])
 
     for r in sm_series_rows:
-        series_id        = (r.get("series_id") or "").strip()
-        seasonal         = (r.get("seasonal") or "").strip().upper()
+        series_id      = (r.get("series_id") or "").strip()
+        seasonal_code  = (r.get("seasonal") or "").strip().upper()
         supersector_code = (r.get("supersector_code") or "").strip()
-        industry_code    = (r.get("industry_code") or "").strip()
-        data_type_code   = (r.get("data_type_code") or "").strip()
-        series_title     = (r.get("series_title") or "").strip()
-        state_code       = (r.get("state_code") or "").strip()
-        area_code        = (r.get("area_code") or "").strip()
+        industry_code  = (r.get("industry_code") or "").strip()
+        data_type_code = (r.get("data_type_code") or "").strip()
+        series_title   = (r.get("series_title") or "").strip()
+        state_code     = (r.get("state_code") or "").strip()
+        area_code      = (r.get("area_code") or "").strip()
 
         if not series_id or not area_code:
             continue
 
-        # Filters: seasonal, supersector, headline industry, all employees
-        if seasonal not in TARGET_SEASONAL:
-            continue
-        if supersector_code not in TARGET_SUPERSECTOR:
-            continue
-        if industry_code not in TARGET_INDUSTRY:
+        # Only All Employees, SA/NSA
+        if seasonal_code not in TARGET_SEASONAL:
             continue
         if data_type_code not in TARGET_DATA_TYPE:
             continue
 
+        # Only supersectors we care about (00, 05, 10, 20, 30, 40, 50, 55, 60, 65, 70, 80, 90)
+        if supersector_code not in TARGET_SUPERSECTOR:
+            continue
+
+        # Only "headline" supersector series: CES industry code ends in 000000
+        # (e.g. 00000000, 05000000, 20000000, etc.)
+        norm_ind = re.sub(r"\D", "", industry_code)
+        if not norm_ind.endswith("000000"):
+            continue
+
         metric_base = SUPERSECTOR_TO_METRIC_BASE.get(supersector_code)
         if not metric_base:
-            continue
+            continue        
 
         # Map to geo_id (same logic you had before)
         sd = re.sub(r"\D", "", state_code)
