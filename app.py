@@ -513,8 +513,13 @@ with tabs[0]:
         )
 
         # Redfin property type selector
+        """
         redfin_property_type_id = None
         if metric_id.startswith("redfin_"):
+            pt_df = load_redfin_property_types()
+        """
+        redfin_property_type_id = None
+        if is_redfin_metric(metric_id):
             pt_df = load_redfin_property_types()
             if not pt_df.empty:
                 # Default to 'all' if present, else first
@@ -614,8 +619,13 @@ with tabs[1]:
         metric2 = None if metric2_raw == "(none)" else metric2_raw
 
         # Redfin property type selector (applies to any Redfin metric here)
+        """
         redfin_property_type_id_tab2 = None
         if metric1.startswith("redfin_") or (metric2 and metric2.startswith("redfin_")):
+            pt_df = load_redfin_property_types()
+        """
+        redfin_property_type_id_tab2 = None
+        if is_redfin_metric(metric1) or (metric2 and is_redfin_metric(metric2)):
             pt_df = load_redfin_property_types()
             if not pt_df.empty:
                 if "all" in pt_df["property_type_id"].values:
@@ -648,11 +658,19 @@ with tabs[1]:
             chart = make_dual_axis_chart(df_left, df_right, metric1, metric2)
         """
 
-        df_left = load_series_for_geo_metric(geo_id, metric1, property_type_id=redfin_property_type_id_tab2 if metric1.startswith("redfin_") else None)
+        df_left = load_series_for_geo_metric(
+            geo_id,
+            metric1,
+            property_type_id=redfin_property_type_id_tab2 if is_redfin_metric(metric1) else None,
+        )
         df_left["geo_name"] = geo_label
 
         if metric2:
-            df_right = load_series_for_geo_metric(geo_id, metric2, property_type_id=redfin_property_type_id_tab2 if metric2.startswith("redfin_") else None)
+            df_right = load_series_for_geo_metric(
+                geo_id,
+                metric2,
+                property_type_id=redfin_property_type_id_tab2 if (metric2 and is_redfin_metric(metric2)) else None,
+            )
             df_right["geo_name"] = geo_label
             chart = make_dual_axis_chart(df_left, df_right, metric1, metric2)
         
@@ -696,8 +714,13 @@ with tabs[2]:
             index=0,
             key="bench_metric",
         )
+        """
         redfin_property_type_id_tab3 = None
         if metric_bench.startswith("redfin_"):
+            pt_df = load_redfin_property_types()
+        """
+        redfin_property_type_id_tab3 = None
+        if is_redfin_metric(metric_bench):
             pt_df = load_redfin_property_types()
             if not pt_df.empty:
                 if "all" in pt_df["property_type_id"].values:
