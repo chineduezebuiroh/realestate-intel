@@ -285,7 +285,7 @@ def generate_csv(sm_series_rows, out_path: Path):
             "geo_id": geo_id,
             "series_id": series_id,
             "metric_base": metric_base,
-            "seasonal": _seasonal_tag(seasonal),
+            "seasonal": _seasonal_tag(seasonal_code),
             "name": series_title,
             "area": area_name,
         })
