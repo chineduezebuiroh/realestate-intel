@@ -388,17 +388,15 @@ def generate_csv(sm_series_rows, out_path: Path):
         if not series_id or not area_code:
             continue
 
-        # Filters: seasonal, supersector, headline industry, all employees
+        # Filters: seasonal, supersector, all employees
         if seasonal not in TARGET_SEASONAL:
             continue
         if supersector_code not in TARGET_SUPERSECTOR:
             continue
-        if data_type_code not in TARGET_DATA_TYPE:   # "01" = All Employees
-            continue
-
-        # Keep the industry filter fairly tight but not *overly* restrictive.
-        # You can relax this if needed:
-        if industry_code and not industry_code.endswith("0000"):
+        # IMPORTANT: do NOT filter by industry_code here.
+        # Newer supersector series use different industry_code patterns,
+        # and restricting to "00000000" cuts them off at 2009.
+        if data_type_code not in TARGET_DATA_TYPE:
             continue
 
         metric_base = SUPERSECTOR_TO_METRIC_BASE.get(supersector_code)
