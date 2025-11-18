@@ -12,17 +12,27 @@ arlington_msd,metro_division,"Arlington-Alexandria-Reston, VA-WV MSD",11694,1,51
 
 dc_csa,combined_area,"Washington-Baltimore-Arlington, DC-MD-VA-WV-PA CSA",47764,1,1154800000000,1,,,47764,1
 
-alexandria_city_county,county,"Alexandria, VA (county)",51510,1,5151000000000,1,,,51510,1
-arlington_county_va,county,"Arlington County, VA",51013,1,5101300000000,1,,,51013,1
-montgomery_county_md,county,"Montgomery County, MD",240310,1,2403100000000,1,,,24031,1
-prince_georges_county_md,county,"Prince George's County, MD",240330,1,2403300000000,1,,,24033,1
-prince_william_county_va,county,"Prince William County, VA",511530,1,5115300000000,1,,,51153,1
+alexandria_city_county,county,"Alexandria, VA (county)",51510,1,5151000000000,1,3032,1,51510,1
+arlington_county_va,county,"Arlington County, VA",51013,1,5101300000000,1,2943,1,51013,1
+montgomery_county_md,county,"Montgomery County, MD",240310,1,2403100000000,1,1324,1,24031,1
+prince_georges_county_md,county,"Prince George's County, MD",240330,1,2403300000000,1,1325,1,24033,1
+prince_william_county_va,county,"Prince William County, VA",511530,1,5115300000000,1,3009,1,51153,1
 dc_county,county,District of Columbia (county),11001,1,1100100000000,1,,,11001,1
-baltimore_county,county,"Baltimore County, MD",24005,1,2400500000000,1,,,24005,1
-baltimore_city_county,county,"Baltimore City, MD (county)",24510,1,2451000000000,1,,,24510,1
+baltimore_county,county,"Baltimore County, MD",24005,1,2400500000000,1,1312,1,24005,1
+baltimore_city_county,county,"Baltimore City, MD (county)",24510,1,2451000000000,1,1333,1,24510,1
 
 dc_city,city,"Washington, DC (city)",11500,1,1150000000000,1,,,1150000,1
 baltimore_city,city,"Baltimore City, MD",24040,1,2404000000000,1,,,2404000,1
 bowie_city,city,"Bowie City, MD",2408775,1,2408775000000,1,,,2408775,1
 rockville_city,city,"Rockville, MD",2467675,1,2467675000000,1,,,2467675,1
 alexandria_city,city,"Alexandria, VA (city)",510100,1,5101000000000,1,,,5101000,1
+
+northeast_boundary_dc,neighborhood,"Washington, DC - Northeast Boundary",,,,,125479,1,,
+marshall_heights_dc,neighborhood,"Washington, DC - Marshall Heights",,,,,547650,1,,
+kenilworth_eastland_gardens_dc,neighborhood,"Washington, DC - Kenilworth / Eastland Gardens",,,,,1412,1,,
+deanwoood_dc,neighborhood,"Washington, DC - Kenilworth / Eastland Gardens",,,,,125450,1,,
+cleveland_park_dc,neighborhood,"Washington, DC - Cleveland Park",,,,,18558,1,,
+
+20019_dc,zip_code,"Zip Code: 20019",,,,,7764,1,,
+20020_dc,zip_code,"Zip Code: 20020",,,,,7765,1,,
+20016_dc,zip_code,"Zip Code: 20016",,,,,7761,1,,
