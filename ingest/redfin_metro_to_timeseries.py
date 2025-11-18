@@ -7,10 +7,17 @@ import os
 # -------------------------------------------------------------------
 # Config
 # -------------------------------------------------------------------
-
+"""
 RAW_REDFIN_PATH = "data/redfin/raw/redfin_metro_market_tracker.tsv000"
 GEO_MANIFEST_PATH = "config/geo_manifest.csv"
 OUTPUT_PATH = "data/redfin/redfin_metro_timeseries.csv"
+"""
+
+RAW_REDFIN_DIR = Path("data/redfin/raw")
+RAW_REDFIN_PATHS = sorted(RAW_REDFIN_DIR.glob("*.tsv*"))
+
+GEO_MANIFEST_PATH = "config/geo_manifest.csv"
+OUTPUT_PATH = "data/redfin/redfin_timeseries.csv"
 
 
 # -------------------------------------------------------------------
@@ -18,12 +25,13 @@ OUTPUT_PATH = "data/redfin/redfin_metro_timeseries.csv"
 # -------------------------------------------------------------------
 
 def main():
-    if not os.path.exists(RAW_REDFIN_PATH):
-        raise FileNotFoundError(f"Redfin raw file not found at: {RAW_REDFIN_PATH}")
+    if not os.path.exists(RAW_REDFIN_DIR):
+        raise FileNotFoundError(f"Redfin raw file not found at: {RAW_REDFIN_DIR}")
 
     if not os.path.exists(GEO_MANIFEST_PATH):
         raise FileNotFoundError(f"geo_manifest not found at: {GEO_MANIFEST_PATH}")
 
+    """
     # --- 1) Load Redfin file and normalize columns --------------------------------
     df = pd.read_csv(RAW_REDFIN_PATH, sep="\t")
     df.columns = df.columns.str.lower()
@@ -38,6 +46,40 @@ def main():
             "Expected 'period_end' or 'period_begin' in Redfin file.\n"
             f"Available columns: {df.columns.tolist()}"
         )
+    """
+
+    # --- 1) Load ALL Redfin TSVs and normalize columns ---------------------------
+    frames = []
+    
+    for path in RAW_REDFIN_PATHS:
+        print(f"[redfin] loading {path}")
+        tmp = pd.read_csv(path, sep="\t")
+        tmp.columns = tmp.columns.str.lower()
+    
+        # Choose date column: prefer period_end, else period_begin
+        if "period_end" in tmp.columns:
+            date_col = "period_end"
+        elif "period_begin" in tmp.columns:
+            date_col = "period_begin"
+        else:
+            raise ValueError(
+                f"[redfin] Expected 'period_end' or 'period_begin' in file {path}.\n"
+                f"Available columns: {tmp.columns.tolist()}"
+            )
+    
+        # Standardize to a single 'date' column
+        tmp["date"] = pd.to_datetime(tmp[date_col]).dt.to_period("M").dt.to_timestamp("M")
+    
+        frames.append(tmp)
+    
+    if not frames:
+        raise ValueError("[redfin] No Redfin files loaded. Check RAW_REDFIN_PATHS / glob pattern.")
+    
+    df = pd.concat(frames, ignore_index=True)
+    
+    # Optional: dedupe if multiple files contain overlapping rows
+    df = df.drop_duplicates()
+    
 
     # --- 2) Load geo_manifest with redfin_code ------------------------------------
     geo = pd.read_csv(GEO_MANIFEST_PATH)
