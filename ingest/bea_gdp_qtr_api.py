@@ -100,72 +100,60 @@ def parse_quarter_to_date(qstr: str) -> pd.Timestamp:
    return pd.Timestamp(year=year, month=month, day=1).to_period("M").to_timestamp("M")
 
 
-def bea_get(params: Dict[str, str]) -> List[Dict[str, str]]:
-   """
-   Call BEA API with given params.
-   label is just for logging: 'Regional' vs 'GDPbyIndustry'
-   """
-   # Make sure API key is present
-   api_key = BEA_API_KEY
-   if not api_key:
-      raise RuntimeError("[bea] Missing BEA_API_KEY in environment.")
 
-   params = {
+
+def bea_get(params: Dict[str, str], label: str = "") -> List[Dict[str, str]]:
+    """
+    Call BEA API with given params and return the rows from Results.Data.
+
+    label is just for logging: 'Regional' vs 'GDPbyIndustry', etc.
+    """
+    api_key = BEA_API_KEY
+    if not api_key:
+        raise RuntimeError("[bea] Missing BEA_API_KEY in environment.")
+
+    all_params = {
         "UserID": api_key,
         "method": "GetData",
-        **params,
         "ResultFormat": "JSON",
-   }
+        **params,
+    }
 
-   print(f"[bea:{label}] calling with params:")
-   for k, v in params.items():
+    prefix = f"[bea:{label}]" if label else "[bea]"
+    print(f"{prefix} calling with params:")
+    for k, v in all_params.items():
         print(f"  {k}={v}")
 
-   r = requests.get(BEA_API_URL, params=params, timeout=60)
-   r.raise_for_status()
-   j = r.json()
+    r = requests.get(BEA_API_URL, params=all_params, timeout=60)
+    r.raise_for_status()
+    js = r.json()
 
-
-   # Top-level BEA wrapper
-   api = j.get("BEAAPI", {})
-   if not api:
-        print(f"[bea:{label}] Unexpected response (no BEAAPI): {j}")
+    api = js.get("BEAAPI", {})
+    if not api:
+        print(f"{prefix} Unexpected response (no BEAAPI): {js}")
         return []
 
-   #New
-   if "BEAAPI" not in js:
-      print("[bea] Unexpected response shape:", js)
-      return None
-
-   # If there's an error section, print it
-   if "Error" in api:
-        print(f"[bea:{label}] ERROR:", api["Error"])
+    if "Error" in api:
+        print(f"{prefix} ERROR: {api['Error']}")
         return []
 
-   results = api.get("Results", {})
-   data = results.get("Data", [])
-   note = results.get("Note")
+    results = api.get("Results", {})
+    data = results.get("Data", [])
+    note = results.get("Note")
+
+    if not data:
+        print(f"{prefix} returned no data.")
+        if note:
+            print(f"{prefix} Note from BEA:", note)
+        else:
+            print(f"{prefix} Raw Results object:", results)
+        return []
+
+    print(f"{prefix} got {len(data)} rows.")
+    return data
 
 
-   root = js["BEAAPI"]
 
-   if "Error" in root:
-      print("[bea] API error:", root["Error"])
-      return None
-
-   return root
-
-
-   if not data:
-      print(f"[bea:{label}] returned no data.")
-      if note:
-         print(f"[bea:{label}] Note from BEA:", note)
-      else:
-         print(f"[bea:{label}] Raw Results object:", results)
-         return []
-
-   print(f"[bea:{label}] got {len(data)} rows.")
-   return data
 
 
 
@@ -318,7 +306,7 @@ def fetch_regional_state_gdp(geo_map: Dict[str, Tuple[str, str]]) -> Tuple[pd.Da
         "GeoFips": geo_fips_param,
     }
 
-    data = bea_get(params)
+    data = bea_get(params, label="regional")
     if not data:
         print("[bea] Regional returned no data.")
         return pd.DataFrame(), {}
@@ -408,7 +396,7 @@ def fetch_us_sector_gdp(us_geo_id: str) -> Tuple[pd.DataFrame, Dict[str, Dict[st
         "Industry": GDPBYIND_INDUSTRY,
     }
 
-    data = bea_get(params)
+    data = bea_get(params, label="gdpbyindustry")
     if not data:
         print("[bea] GDPbyIndustry returned no data.")
         return pd.DataFrame(), {}
