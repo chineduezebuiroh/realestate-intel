@@ -35,17 +35,19 @@ def main():
     # Clear any existing Redfin rows if you've loaded them before
     # Here I'm assuming all Redfin metrics start with something like 'median_' / 'homes_sold' etc.
     # If you later prefix them with 'redfin_', you can tighten this to `WHERE metric_id LIKE 'redfin_%'`.
-    con.execute("""
+    con.execute(
+"""
     
         #DELETE FROM fact_timeseries
         #WHERE metric_id IN (
             #SELECT DISTINCT metric_id FROM redfin_df
         #);
-    
-    """)
+
+""")
 
     # Insert, including the new columns
-    con.execute("""
+    con.execute(
+"""
         #INSERT INTO fact_timeseries (geo_id, date, metric_id, value, property_type_id, property_type, source_id)
         #SELECT
             #geo_id,
@@ -56,10 +58,11 @@ def main():
             #property_type,
             #SOURCE_ID
         #FROM redfin_df;
-    """)
+""")
 
     # Quick summary
-    summary = con.execute("""
+    summary = con.execute(
+"""
         #SELECT metric_id,
                #MIN(date) AS first,
                #MAX(date) AS last,
@@ -70,7 +73,7 @@ def main():
         #)
         #GROUP BY 1
         #ORDER BY 1
-    """).fetchdf()
+"""    ).fetchdf()
 
     print("[redfin_to_fact] loaded metrics:")
     print(summary)
