@@ -30,6 +30,65 @@ def is_redfin_metric(metric_id: str) -> bool:
     return src_map.get(metric_id) == "redfin"
 
 
+def render_metric_help(metric_id: str | None):
+    """
+    Show a small help/tooltip-style note about data coverage for the
+    selected metric. Called in each tab after the user picks a metric.
+    """
+    if not metric_id:
+        st.caption(
+            "ℹ️ Not all metrics are available for all geographies. "
+            "If a chart is blank, try a broader geography (e.g., state or MSA) "
+            "or choose a different metric."
+        )
+        return
+
+    src_map = load_metric_source_map()
+    source_id = src_map.get(metric_id)
+
+    # Base note (applies everywhere)
+    notes = [
+        "Not all metrics are available for all geographies. "
+        "If a chart is blank or very short, try a broader geography "
+        "(state, MSA, CSA) or a different metric."
+    ]
+
+    # CES-specific nuance (your new supersector logic)
+    if source_id == "ces":
+        notes.append(
+            "Sector-level CES payroll metrics (e.g., construction, "
+            "manufacturing, leisure & hospitality) are only published for "
+            "states, metro areas (MSAs/MDs), CSAs, and a few large cities. "
+            "Counties and smaller cities usually do not have CES data."
+        )
+
+    # Redfin nuance (current state: MSA-only)
+    if source_id == "redfin":
+        notes.append(
+            "Redfin metrics in this version are loaded primarily at the MSA level. "
+            "Other geography levels (state, county, city, ZIP, neighborhood) may "
+            "have partial or no coverage until you expand the ingest."
+        )
+
+    # Census BPS nuance
+    if source_id == "census_bps":
+        notes.append(
+            "Census Building Permits data is only reported for selected geographies "
+            "(states, large metros, and certain permit-issuing places). "
+            "Some smaller counties or cities may not appear."
+        )
+
+    # Generic Census ACS (if you label those as census_acs later)
+    if source_id == "census_acs":
+        notes.append(
+            "ACS metrics are typically available for states, counties, and large cities, "
+            "but small geos can be suppressed or have higher sampling noise."
+        )
+
+    st.caption("ℹ️ " + " ".join(notes))
+
+
+
 @st.cache_resource
 def get_connection():
     db_path = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
@@ -503,7 +562,7 @@ with tabs[0]:
 
         # Filter the metric list by that family
         filtered_metric_options = filter_metrics_by_family(metric_options, family)
-
+        
         metric_id = st.selectbox("Metric", filtered_metric_options, index=0)
 
         meta = _metric_meta(metric_id)
@@ -511,6 +570,10 @@ with tabs[0]:
             f"**Metric:** {meta['label']}  \n"
             f"**Unit:** {meta['unit'] or '—'}"
         )
+        
+        # Tooltip-style help for availability / coverage
+        render_metric_help(metric_id)
+
 
         # Redfin property type selector
         """
@@ -618,6 +681,9 @@ with tabs[1]:
         )
         metric2 = None if metric2_raw == "(none)" else metric2_raw
 
+        # Help text based on Metric 1's source (CES / Redfin / etc.)
+        render_metric_help(metric1)
+
         # Redfin property type selector (applies to any Redfin metric here)
         """
         redfin_property_type_id_tab2 = None
@@ -714,11 +780,10 @@ with tabs[2]:
             index=0,
             key="bench_metric",
         )
-        """
-        redfin_property_type_id_tab3 = None
-        if metric_bench.startswith("redfin_"):
-            pt_df = load_redfin_property_types()
-        """
+
+        # Help text / tooltip for benchmark metric
+        render_metric_help(metric_bench)
+
         redfin_property_type_id_tab3 = None
         if is_redfin_metric(metric_bench):
             pt_df = load_redfin_property_types()
