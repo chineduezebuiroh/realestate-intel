@@ -13,6 +13,14 @@ DB_PATH  = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
 
+
+# At top-level (near other constants), you can add:
+YEAR_RANGES = [
+    (str(date.today().year) - 59, str(date.today().year) - 40),
+    (str(date.today().year) - 39, str(date.today().year) - 20),
+    (str(date.today().year) - 19, str(date.today().year)),
+]
+
 # Optional: handy filter while debugging, comma-sep geo_id list
 FILTER_GEOS = set(
     g.strip().lower()
@@ -106,8 +114,10 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
     FROM df_stage
     """)
 
+
+"""
 def fetch_series(series_ids: list[str]) -> list[dict]:
-    """Call BLS timeseries endpoint. Include annualaverage=True then drop M13 later."""
+    #Call BLS timeseries endpoint. Include annualaverage=True then drop M13 later.
     payload = {
         "seriesid": series_ids,
         "startyear": "2000",                # CES typically starts ~1990/1991 for locals
@@ -126,6 +136,63 @@ def fetch_series(series_ids: list[str]) -> list[dict]:
     if j.get("status") != "REQUEST_SUCCEEDED":
         raise RuntimeError(f"BLS error: {j}")
     return j["Results"]["series"]
+"""
+
+
+def fetch_series(series_ids: list[str]) -> list[dict]:
+    """
+    Call BLS timeseries endpoint for multiple non-overlapping year windows
+    and merge the results per seriesID.
+
+    We do this because BLS effectively caps us at ~20 years of history
+    per request. By splitting 1990–current into chunks, we get the full
+    series instead of just the earliest 20 years after `startyear`.
+    """
+    all_by_sid: dict[str, dict] = {}
+
+    if BLS_KEY:
+        print(f"[ces] using BLS key: yes (len={len(BLS_KEY)})")
+    else:
+        print("[ces] using BLS key: no (public quota)")
+
+    for startyear, endyear in YEAR_RANGES:
+        payload = {
+            "seriesid": series_ids,
+            "startyear": startyear,
+            "endyear": endyear,
+            "annualaverage": True,
+        }
+        if BLS_KEY:
+            payload["registrationkey"] = BLS_KEY
+
+        print(f"[ces]  requesting window {startyear}–{endyear} for {len(series_ids)} series …")
+        r = requests.post(BLS_API, json=payload, timeout=60)
+        r.raise_for_status()
+        j = r.json()
+        if j.get("status") != "REQUEST_SUCCEEDED":
+            raise RuntimeError(f"BLS error for {startyear}-{endyear}: {j}")
+
+        window_series = j["Results"]["series"]
+        for s in window_series:
+            sid = s.get("seriesID")
+            if not sid:
+                continue
+
+            # Initialize a minimal structure if first time seeing this series
+            if sid not in all_by_sid:
+                all_by_sid[sid] = {
+                    "seriesID": sid,
+                    # We'll just aggregate all data points here
+                    "data": [],
+                }
+
+            # Extend the data list with this window's data
+            all_by_sid[sid]["data"].extend(s.get("data", []))
+
+    # Return as a list of series dicts, similar to a single BLS response
+    return list(all_by_sid.values())
+
+
 
 def to_df(series_block: list[dict], sid_to_meta: dict) -> pd.DataFrame:
     rows = []
