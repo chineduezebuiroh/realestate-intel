@@ -14,13 +14,6 @@ BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
 
 
-# At top-level (near other constants), you can add:
-YEAR_RANGES = [
-    (str(date.today().year) - 59, str(date.today().year) - 40),
-    (str(date.today().year) - 39, str(date.today().year) - 20),
-    (str(date.today().year) - 19, str(date.today().year)),
-]
-
 # Optional: handy filter while debugging, comma-sep geo_id list
 FILTER_GEOS = set(
     g.strip().lower()
@@ -139,15 +132,13 @@ def fetch_series(series_ids: list[str]) -> list[dict]:
 """
 
 
+
 def fetch_series(series_ids: list[str]) -> list[dict]:
     """
-    Call BLS timeseries endpoint for multiple non-overlapping year windows
+    Call BLS timeseries endpoint in multiple non-overlapping ~20-year windows
     and merge the results per seriesID.
-
-    We do this because BLS effectively caps us at ~20 years of history
-    per request. By splitting 1990–current into chunks, we get the full
-    series instead of just the earliest 20 years after `startyear`.
     """
+
     all_by_sid: dict[str, dict] = {}
 
     if BLS_KEY:
@@ -155,7 +146,22 @@ def fetch_series(series_ids: list[str]) -> list[dict]:
     else:
         print("[ces] using BLS key: no (public quota)")
 
-    for startyear, endyear in YEAR_RANGES:
+    # Build dynamic ~20-year windows from 1990 → current year
+    current_year = date.today().year
+    start_year = current_year - 59
+    window_span = 20  # years per window
+
+    year_ranges: list[tuple[str, str]] = []
+    y = start_year
+    while y <= current_year:
+        end = min(y + window_span - 1, current_year)
+        year_ranges.append((str(y), str(end)))
+        y += window_span
+
+    # Example with current_year=2025:
+    # [('1990','2009'), ('2010','2029')] → but 2nd window gets trimmed to 2025
+
+    for startyear, endyear in year_ranges:
         payload = {
             "seriesid": series_ids,
             "startyear": startyear,
@@ -178,19 +184,16 @@ def fetch_series(series_ids: list[str]) -> list[dict]:
             if not sid:
                 continue
 
-            # Initialize a minimal structure if first time seeing this series
             if sid not in all_by_sid:
                 all_by_sid[sid] = {
                     "seriesID": sid,
-                    # We'll just aggregate all data points here
                     "data": [],
                 }
 
-            # Extend the data list with this window's data
             all_by_sid[sid]["data"].extend(s.get("data", []))
 
-    # Return as a list of series dicts, similar to a single BLS response
     return list(all_by_sid.values())
+
 
 
 
