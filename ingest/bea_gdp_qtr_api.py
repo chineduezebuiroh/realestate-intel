@@ -21,6 +21,9 @@ may need to be confirmed against BEA docs:
     https://apps.bea.gov/developers/
 """
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import csv
 from pathlib import Path
@@ -41,10 +44,10 @@ BEA_API_URL = "https://apps.bea.gov/api/data"
 BEA_API_KEY = (os.getenv("BEA_API_KEY") or os.getenv("BEA_API_USER_ID") or "").strip()
 
 if not BEA_API_KEY:
-    raise SystemExit(
-        "BEA_API_KEY (or BEA_API_USER_ID) not set in env. "
-        "Get a key at https://apps.bea.gov/API/signup/"
-    )
+   raise SystemExit(
+      "BEA_API_KEY (or BEA_API_USER_ID) not set in env. "
+      "Get a key at https://apps.bea.gov/API/signup/"
+   )
 
 # ---- Regional quarterly real GDP by state/etc. ----
 REGIONAL_DATASET = "Regional"
@@ -84,44 +87,86 @@ QEND_YEAR = date.today().year
 # -------------- Helpers / plumbing --------------
 
 def parse_quarter_to_date(qstr: str) -> pd.Timestamp:
-    """
-    Convert BEA 'TimePeriod' like '2005Q1' to a quarter-end date (month-end).
-    """
-    m = re.fullmatch(r"(\d{4})Q([1-4])", qstr)
-    if not m:
-        raise ValueError(f"Unexpected TimePeriod format: {qstr}")
-    year = int(m.group(1))
-    q = int(m.group(2))
-    month = {1: 3, 2: 6, 3: 9, 4: 12}[q]
-    # Use month-end for consistency with your monthly series style
-    return pd.Timestamp(year=year, month=month, day=1).to_period("M").to_timestamp("M")
+   """
+   Convert BEA 'TimePeriod' like '2005Q1' to a quarter-end date (month-end).
+   """
+   m = re.fullmatch(r"(\d{4})Q([1-4])", qstr)
+   if not m:
+      raise ValueError(f"Unexpected TimePeriod format: {qstr}")
+   year = int(m.group(1))
+   q = int(m.group(2))
+   month = {1: 3, 2: 6, 3: 9, 4: 12}[q]
+   # Use month-end for consistency with your monthly series style
+   return pd.Timestamp(year=year, month=month, day=1).to_period("M").to_timestamp("M")
 
 
 def bea_get(params: Dict[str, str]) -> List[Dict[str, str]]:
-    """
-    Call BEA API GetData and return the raw 'Data' rows list.
-    Raises if BEA reports an error.
-    """
-    base_params = {
-        "UserID": BEA_API_KEY,
+   """
+   Call BEA API with given params.
+   label is just for logging: 'Regional' vs 'GDPbyIndustry'
+   """
+   # Make sure API key is present
+   api_key = BEA_API_KEY
+   if not api_key:
+      raise RuntimeError("[bea] Missing BEA_API_KEY in environment.")
+
+   params = {
+        "UserID": api_key,
         "method": "GetData",
-        "ResultFormat": "json",
-    }
-    all_params = {**base_params, **params}
-    r = requests.get(BEA_API_URL, params=all_params, timeout=60)
-    r.raise_for_status()
-    j = r.json()
+        **params,
+        "ResultFormat": "JSON",
+   }
 
-    if "BEAAPI" not in j:
-        raise RuntimeError(f"Unexpected BEA response: {j}")
+   print(f"[bea:{label}] calling with params:")
+   for k, v in params.items():
+        print(f"  {k}={v}")
 
-    # Handle API-level errors if present
-    results = j["BEAAPI"].get("Results", {})
-    if "Error" in results:
-        raise RuntimeError(f"BEA error: {results['Error']}")
+   r = requests.get(BEA_API_URL, params=params, timeout=60)
+   r.raise_for_status()
+   j = r.json()
 
-    data = results.get("Data") or []
-    return data
+
+   # Top-level BEA wrapper
+   api = j.get("BEAAPI", {})
+   if not api:
+        print(f"[bea:{label}] Unexpected response (no BEAAPI): {j}")
+        return []
+
+   #New
+   if "BEAAPI" not in js:
+      print("[bea] Unexpected response shape:", js)
+      return None
+
+   # If there's an error section, print it
+   if "Error" in api:
+        print(f"[bea:{label}] ERROR:", api["Error"])
+        return []
+
+   results = api.get("Results", {})
+   data = results.get("Data", [])
+   note = results.get("Note")
+
+
+   root = js["BEAAPI"]
+
+   if "Error" in root:
+      print("[bea] API error:", root["Error"])
+      return None
+
+   return root
+
+
+   if not data:
+      print(f"[bea:{label}] returned no data.")
+      if note:
+         print(f"[bea:{label}] Note from BEA:", note)
+      else:
+         print(f"[bea:{label}] Raw Results object:", results)
+         return []
+
+   print(f"[bea:{label}] got {len(data)} rows.")
+   return data
+
 
 
 def load_bea_geo_targets() -> Dict[str, Tuple[str, str]]:
