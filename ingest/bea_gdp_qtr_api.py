@@ -51,12 +51,11 @@ if not BEA_API_KEY:
 
 # ---- Regional quarterly real GDP by state/etc. ----
 REGIONAL_DATASET = "Regional"
-# Real GDP by state, quarterly, chained 2017 dollars.
-# This table name is based on BEA conventions (SQ* = quarterly, *9N = real GDP).
-# If BEA has changed naming, adjust here.
-REGIONAL_TABLE = "SQGDP9N"
-# LineCode=1 is usually "All industry total" in these tables.
+# SQGDP9  - "Real GDP by state" (quarterly, chained 2017 dollars)
+REGIONAL_TABLE = "SQGDP9"
+# LineCode=1 is "All industry total" for this table.
 REGIONAL_LINECODE_TOTAL = 1
+
 
 # ---- GDP by industry, quarterly, real, U.S. total ----
 GDPBYIND_DATASET = "GDPbyIndustry"
