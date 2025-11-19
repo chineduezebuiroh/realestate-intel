@@ -23,6 +23,33 @@ def main():
     if missing:
         raise SystemExit(f"Missing required columns in {REDFIN_TS_PATH}: {missing}")
 
+    # --- Debug & clean 'value' column ---------------------------------------
+    if "value" not in df.columns:
+        raise SystemExit(
+            "[redfin:transform] 'value' column is missing from the Redfin timeseries CSV.\n"
+            f"Columns present: {df.columns.tolist()}"
+        )
+    
+    print("[redfin:transform] value dtype BEFORE cleanup:", df["value"].dtype)
+    
+    # Look for clearly non-numeric values in 'value'
+    non_numeric_mask = pd.to_numeric(df["value"], errors="coerce").isna() & df["value"].notna()
+    if non_numeric_mask.any():
+        print("[redfin:transform] Sample non-numeric 'value' rows:")
+        print(
+            df.loc[non_numeric_mask, ["geo_id", "date", "metric_id", "property_type_id", "value"]]
+            .head(20)
+            .to_string(index=False)
+        )
+    
+    # Coerce to numeric and drop rows that still aren't numeric
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    before = len(df)
+    df = df.dropna(subset=["value"])
+    dropped = before - len(df)
+    print(f"[redfin:transform] Dropped {dropped} rows with non-numeric value.")
+    print("[redfin:transform] value dtype AFTER cleanup:", df["value"].dtype)
+
     df["source_id"] = "redfin"
 
     con = duckdb.connect(DB_PATH)
