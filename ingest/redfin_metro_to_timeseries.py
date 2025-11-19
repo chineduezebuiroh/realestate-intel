@@ -214,6 +214,7 @@ def main():
             "is_seasonally_adjusted",
             "region_type",
             "region_type_id",
+            "region_type_norm",
             "parent_metro_region",
             "parent_metro_region_metro_code",
             "last_updated",
