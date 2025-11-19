@@ -80,11 +80,12 @@ def render_metric_help(metric_id: str | None):
     # Redfin nuance (multi-level + 90-day windows)
     if source_id == "redfin":
         notes.append(
-            "Redfin metrics are available for multiple geography levels "
-            "(MSA, state, county, city, ZIP, neighborhood), but coverage "
-            "varies. Some series use rolling ~90-day windows rather than "
-            "strict calendar months, so spikes and timing may differ from "
-            "other monthly data sources."
+            "Redfin metrics are currently loaded for metro areas, states, counties, "
+            "cities, ZIP codes, and neighborhoods (primarily in the DC / Baltimore "
+            "region). Some series use rolling ~90-day windows rather than strict " 
+            "calendar months, so spikes and timing may differ from other monthly "
+            "data sources. Some geographies outside that footprint may still have "
+            "partial or no coverage."
         )
 
     # Census BPS nuance
