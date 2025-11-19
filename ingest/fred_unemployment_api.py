@@ -87,23 +87,25 @@ def load_unemp_targets() -> Dict[str, str]:
 
 
 def fetch_monthly_unemp(series_id: str, fred: Fred) -> pd.DataFrame:
-    """
-    Fetch monthly unemployment rate series from FRED and normalize to month-end.
-    Returns columns: date, value
-    """
-    s = fred.get_series(series_id)
+    try:
+        s = fred.get_series(series_id)
+    except ValueError as e:
+        print(f"[fred-unemp] ERROR fetching {series_id}: {e}")
+        return pd.DataFrame(columns=["date", "value"])
+
     if s is None or s.empty:
+        print(f"[fred-unemp] No data returned for {series_id}")
         return pd.DataFrame(columns=["date", "value"])
 
     df = s.to_frame("value").dropna()
-    # FRED monthly dates are usually month-begin; normalize to month-end
-    idx = pd.to_datetime(df.index).tz_localize(None)
-    idx = idx.to_period("M").to_timestamp("M")
-    df.index = idx
+    df.index = pd.to_datetime(df.index).tz_localize(None)
 
+    # Just normalize the index → "date" column
     df = df.reset_index().rename(columns={"index": "date"})
     df["date"] = pd.to_datetime(df["date"]).dt.date
+
     return df[["date", "value"]]
+
 
 
 def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
