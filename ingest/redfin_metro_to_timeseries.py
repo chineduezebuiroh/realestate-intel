@@ -31,23 +31,6 @@ def main():
     if not os.path.exists(GEO_MANIFEST_PATH):
         raise FileNotFoundError(f"geo_manifest not found at: {GEO_MANIFEST_PATH}")
 
-    """
-    # --- 1) Load Redfin file and normalize columns --------------------------------
-    df = pd.read_csv(RAW_REDFIN_PATH, sep="\t")
-    df.columns = df.columns.str.lower()
-
-    # Choose date column: prefer period_end, else period_begin
-    if "period_end" in df.columns:
-        date_col = "period_end"
-    elif "period_begin" in df.columns:
-        date_col = "period_begin"
-    else:
-        raise ValueError(
-            "Expected 'period_end' or 'period_begin' in Redfin file.\n"
-            f"Available columns: {df.columns.tolist()}"
-        )
-    """
-
     # --- 1) Load ALL Redfin TSVs and normalize columns ---------------------------
     frames = []
     
@@ -69,7 +52,12 @@ def main():
     
         # Standardize to a single 'date' column
         tmp["date"] = pd.to_datetime(tmp[date_col]).dt.to_period("M").dt.to_timestamp("M")
-    
+
+        # Optional: drop original period_* columns now that we have 'date'
+        for c in ["period_begin", "period_end"]:
+            if c in tmp.columns:
+                tmp.drop(columns=c, inplace=True)
+
         frames.append(tmp)
     
     if not frames:
@@ -100,37 +88,6 @@ def main():
     # Only rows with a non-null redfin_code
     geo = geo[geo["redfin_code"].notna()]
     
-    """
-    # --- 3) Join Redfin rows to geo_manifest on table_id ↔ redfin_code -----------
-    if "table_id" not in df.columns:
-        raise ValueError(
-            "Redfin file is missing 'table_id' column.\n"
-            f"Available columns: {df.columns.tolist()}"
-        )
-
-    merged = df.merge(
-        geo[["geo_id", "redfin_code"]],
-        left_on="table_id",
-        right_on="redfin_code",
-        how="inner",
-    )
-
-    if merged.empty:
-        raise ValueError(
-            "No rows matched between Redfin data and geo_manifest on "
-            "'table_id' ↔ 'redfin_code'.\n"
-            "Check that geo_manifest.redfin_code values match those in "
-            "Redfin's table_id column."
-        )
-
-    print(f"[redfin] matched {merged['geo_id'].nunique()} geos from geo_manifest.")
-    print("[redfin] example matches:")
-    print(
-        merged[["geo_id", "region", "state", "table_id"]]
-        .drop_duplicates()
-        .head(10)
-    )
-    """
 
     # --- 3) Join Redfin rows to geo_manifest on (table_id, region_type) ↔ (redfin_code, level)
     required_geo_cols = {"geo_id", "redfin_code", "level"}
@@ -228,9 +185,14 @@ def main():
     if merged.empty:
         raise ValueError("No rows remain after seasonality filter.")
 
+
     # --- 5) Prepare for melt: id_vars vs value columns ----------------------------
     # Core identifiers we want to keep (NOT melted)
-    id_vars = ["geo_id", date_col, "property_type", "property_type_id"]
+    # IMPORTANT: use the normalized 'date' column, not the original period_* column
+    if "date" not in merged.columns:
+        raise ValueError("[redfin] Expected a normalized 'date' column before melt.")
+
+    id_vars = ["geo_id", "date", "property_type", "property_type_id"]
 
     # Optionally keep some descriptive columns around in the long_df phase
     for col in ["region", "city", "state", "state_code"]:
@@ -239,14 +201,15 @@ def main():
 
     print("[redfin] id_vars:", id_vars)
 
+
+
+    
     # Columns that are NOT metrics (to exclude from melt)
     exclude_cols = set(
         id_vars
         + [
             "table_id",
             "redfin_code",
-            "period_begin",
-            "period_end",
             "period_duration",
             "is_seasonally_adjusted",
             "region_type",
@@ -278,9 +241,10 @@ def main():
     # Drop rows with no value
     long_df = long_df.dropna(subset=["value"])
 
-    # Normalize date to a standard 'date' column
-    long_df[date_col] = pd.to_datetime(long_df[date_col])
-    long_df["date"] = long_df[date_col].dt.date
+
+    # Normalize date to a standard 'date' column (just ensure it's date type)
+    long_df["date"] = pd.to_datetime(long_df["date"]).dt.date
+
 
     print("[redfin] long_df columns:", long_df.columns.tolist())
 
