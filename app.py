@@ -112,12 +112,21 @@ def render_metric_help(metric_id: str | None):
             "Series appear as quarter-end dates (e.g., March 31 for Q1)."
         )
 
-    # FRED / other macro nuance
-    if source_id == "fred":
+    # FRED Macro Rates & CPI
+    if source_id == "fred_macro":
         notes.append(
-            "FRED macro series may be national or regional; some are monthly, "
-            "others quarterly or higher frequency. Check the series metadata "
-            "for exact coverage and units."
+            "FRED macro metrics (mortgage rates, Treasury yields, federal funds, CPI, "
+            "and yield spreads) are loaded only at the U.S. national level "
+            "(geo_id = 'us_nation'). Charts will be blank if you select a different "
+            "geography."
+        )
+
+    # FRED Unemployment
+    if source_id == "fred_unemp":
+        notes.append(
+            "FRED unemployment metrics currently cover the U.S. total and a limited "
+            "set of states (DC, Maryland, Virginia). Other geographies will not have "
+            "FRED unemployment data yet."
         )
 
     st.caption("ℹ️ " + " ".join(notes))
@@ -313,6 +322,78 @@ def _metric_meta(metric_id: str) -> dict:
             "label": "Real GDP (Total, chained 2017 dollars)",
             "unit": "millions of chained 2017 USD",
         },
+
+        
+        # --- FRED macro: mortgage rates ---
+        "fred_mortgage_30y_avg": {
+            "label": "30Y Mortgage Rate (FRED, monthly avg)",
+            "unit": "percent",
+        },
+        "fred_mortgage_15y_avg": {
+            "label": "15Y Mortgage Rate (FRED, monthly avg)",
+            "unit": "percent",
+        },
+        "fred_mortgage_5y_arm_avg": {
+            "label": "5/1 ARM Mortgage Rate (FRED, monthly avg)",
+            "unit": "percent",
+        },
+
+        # --- FRED macro: Treasury yields & fed funds ---
+        "fred_gs2": {
+            "label": "2Y Treasury Yield (Constant Maturity)",
+            "unit": "percent",
+        },
+        "fred_gs10": {
+            "label": "10Y Treasury Yield (Constant Maturity)",
+            "unit": "percent",
+        },
+        "fred_gs30": {
+            "label": "30Y Treasury Yield (Constant Maturity)",
+            "unit": "percent",
+        },
+        "fred_fedfunds": {
+            "label": "Effective Federal Funds Rate",
+            "unit": "percent",
+        },
+
+        # --- FRED macro: CPI (price level) ---
+        "fred_cpi_urban_sa_index": {
+            "label": "CPI-U All Items (Urban Consumers, SA Index)",
+            "unit": "index",
+        },
+
+        # --- FRED macro: yield spreads ---
+        "fred_spread_2y_10y": {
+            "label": "Yield Spread: 2Y – 10Y",
+            "unit": "percent",
+        },
+        "fred_spread_2y_30y": {
+            "label": "Yield Spread: 2Y – 30Y",
+            "unit": "percent",
+        },
+        "fred_spread_10y_30y": {
+            "label": "Yield Spread: 10Y – 30Y",
+            "unit": "percent",
+        },
+        "fred_spread_2y_fedfunds": {
+            "label": "Yield Spread: 2Y – Fed Funds",
+            "unit": "percent",
+        },
+        "fred_spread_10y_fedfunds": {
+            "label": "Yield Spread: 10Y – Fed Funds",
+            "unit": "percent",
+        },
+        "fred_spread_30y_fedfunds": {
+            "label": "Yield Spread: 30Y – Fed Funds",
+            "unit": "percent",
+        },
+
+        # --- FRED unemployment (if metric_id matches) ---
+        "fred_unemp_rate_sa": {
+            "label": "Unemployment Rate (FRED, SA)",
+            "unit": "percent",
+        },
+        
     }
     return meta.get(metric_id, {"label": metric_id, "unit": ""})
 
@@ -385,7 +466,8 @@ METRIC_FAMILIES = [
     "LAUS (Labor)",
     "BEA – GDP (Quarterly)",
     "Redfin (Housing)",
-    "FRED / Other Macro",
+    "FRED (Macro Rates & CPI)",
+    "FRED (Unemployment)",
 ]
 
 
@@ -407,8 +489,9 @@ def filter_metrics_by_family(metric_ids, family: str):
         "LAUS (Labor)": {"laus"},
         "BEA – GDP (Quarterly)": {"bea_gdp_qtr"},
         "Redfin (Housing)": {"redfin"},
-        "FRED / Other Macro": {"fred"},
-    }
+        "FRED (Macro Rates & CPI)": {"fred_macro"},
+        "FRED (Unemployment)": {"fred_unemp"},
+    }    
 
     allowed_sources = FAMILY_SOURCES.get(family)
     if not allowed_sources:
