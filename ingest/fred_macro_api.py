@@ -204,7 +204,7 @@ def fetch_monthly_avg(series_id: str, fred: Fred) -> pd.DataFrame:
     df = s.to_frame("value").dropna()
     df.index = to_month_end_index(df.index)
     monthly = (
-        df.resample("M")
+        df.resample("ME")
           .mean()
           .reset_index()
           .rename(columns={"index": "date"})
