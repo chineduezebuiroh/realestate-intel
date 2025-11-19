@@ -8,14 +8,23 @@ def main():
     con = duckdb.connect(db_path)
 
     # ------------------------------------------------------------------
-    # 1) dim_geo from geo_manifest
+    # 1) v_geo_manifest as a view sitting on top of geo_manifest
     # ------------------------------------------------------------------
     con.execute("""
         CREATE OR REPLACE TABLE dim_geo AS
         SELECT *
         FROM read_csv_auto('config/geo_manifest.csv', header=True)
-    """)
-    print("[views] dim_geo created from geo_manifest.")
+
+        CREATE OR REPLACE VIEW v_geo_manifest AS
+        SELECT
+            geo_id,
+            level,
+            census_code,
+            geo_name AS name
+        FROM read_csv_auto('config/geo_manifest.csv', header=True);        
+        """)
+    print("[views] v_geo_manifest created from geo_manifest.")
+
 
     # ------------------------------------------------------------------
     # 2) Enriched fact view
@@ -33,11 +42,12 @@ def main():
             f.property_type_id,
             f.property_type
         FROM fact_timeseries f
-        LEFT JOIN dim_geo g
-        USING (geo_id)
+        LEFT JOIN v_geo_manifest g
+        USING (geo_id);
     """)
     print("[views] v_fact_timeseries_enriched created.")
 
+    
     # ------------------------------------------------------------------
     # 3) Quick summary
     # ------------------------------------------------------------------
