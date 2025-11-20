@@ -2,9 +2,9 @@ geo_id,level,geo_name,bls_ces_area_code,include_ces,bls_laus_area_code,include_l
 
 us_nation,nation,United States of America (USA),,1,,1,,1,,1,00000,1,UNRATE,1,US,1
 
-dc_state,state,District of Columbia,110000,1,1100000000000,1,,,11,1,11000,1,DCUR,1,,
-md_state,state,Maryland,240000,1,2400000000000,1,,,24,1,24000,1,MDUR,1,,
-va_state,state,Virginia,510000,1,5100000000000,1,,,51,1,51000,1,VAUR,1,,
+dc_state,state,District of Columbia,110000,1,1100000000000,1,17,1,11,1,11000,1,DCUR,1,,
+md_state,state,Maryland,240000,1,2400000000000,1,43,1,24,1,24000,1,MDUR,1,,
+va_state,state,Virginia,510000,1,5100000000000,1,42,1,51,1,51000,1,VAUR,1,,
 
 dc_msa,metro_area,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA",47900,1,1147900000000,1,47894,1,47900,1,,,,,,
 baltimore_msa,metro_area,"Baltimore-Columbia-Towson, MD MSA",12580,1,2412580000000,1,12580,1,12580,1,,,,,,
@@ -23,11 +23,11 @@ dc_county,county,District of Columbia (county),11001,1,1100100000000,1,,,11001,1
 baltimore_county,county,"Baltimore County, MD",24005,1,2400500000000,1,1312,1,24005,1,,,,,,
 baltimore_city_county,county,"Baltimore City, MD (county)",24510,1,2451000000000,1,1333,1,24510,1,,,,,,
 
-dc_city,city,"Washington, DC (city)",11500,1,1150000000000,1,,,1150000,1,,,,,,
-baltimore_city,city,"Baltimore City, MD",24040,1,2404000000000,1,,,2404000,1,,,,,,
-bowie_city,city,"Bowie City, MD",2408775,1,2408775000000,1,,,2408775,1,,,,,,
-rockville_city,city,"Rockville, MD",2467675,1,2467675000000,1,,,2467675,1,,,,,,
-alexandria_city,city,"Alexandria, VA (city)",510100,1,5101000000000,1,,,5101000,1,,,,,,
+dc_city,city,"Washington, DC (city)",11500,1,1150000000000,1,12839,1,1150000,1,,,,,,
+baltimore_city,city,"Baltimore City, MD",24040,1,2404000000000,1,1073,1,2404000,1,,,,,,
+bowie_city,city,"Bowie City, MD",2408775,1,2408775000000,1,2277,1,2408775,1,,,,,,
+rockville_city,city,"Rockville, MD",2467675,1,2467675000000,1,17332,1,2467675,1,,,,,,
+alexandria_city,city,"Alexandria, VA (city)",510100,1,5101000000000,1,250,1,5101000,1,,,,,,
 
 northeast_boundary_dc,neighborhood,"Washington, DC - Northeast Boundary",,,,,125479,1,,,,,,,,
 marshall_heights_dc,neighborhood,"Washington, DC - Marshall Heights",,,,,547650,1,,,,,,,,
