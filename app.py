@@ -741,81 +741,6 @@ def render_family_tab(
         st.subheader(f"{family_name} – compare geographies for one metric")
 
         col1, col2 = st.columns([1, 2])
-        """
-        with col1:
-            family_metrics = filter_metrics_by_family(metric_options, family_name)
-            if not family_metrics:
-                st.info("No metrics loaded yet for this family.")
-                return
-
-            metric_id = st.selectbox(
-                "Metric",
-                options=family_metrics,
-                index=0,
-                key=f"{family_name}_metric",
-            )
-
-            meta = _metric_meta(metric_id)
-            st.caption(
-                f"**Metric:** {meta['label']}  \n"
-                f"**Unit:** {meta['unit'] or '—'}"
-            )
-
-            # Tooltip-style help
-            render_metric_help(metric_id)
-
-            # Redfin property type selector (only for Redfin metrics)
-            redfin_property_type_id = None
-            if is_redfin_metric(metric_id):
-                pt_df = load_redfin_property_types()
-                if not pt_df.empty:
-                    # Default to 'all' if present, else first
-                    if "all" in pt_df["property_type_id"].values:
-                        default_idx = pt_df.index[
-                            pt_df["property_type_id"] == "all"
-                        ][0]
-                    else:
-                        default_idx = 0
-
-                    prop_label = st.selectbox(
-                        "Property type",
-                        options=pt_df["label"].tolist(),
-                        index=default_idx,
-                        key=f"{family_name}_redfin_property_type",
-                    )
-                    redfin_property_type_id = pt_df.loc[
-                        pt_df["label"] == prop_label, "property_type_id"
-                    ].iloc[0]
-
-            # Default geos (same defaults you used before)
-            default_geo_ids = [
-                g for g in [
-                    "dc_state",
-                    "md_state",
-                    "va_state",
-                    "dc_msa",
-                    "baltimore_msa",
-                ]
-                if g in geo_df["geo_id"].values
-            ]
-            if not default_geo_ids:
-                default_geo_ids = [geo_df["geo_id"].iloc[0]]
-
-            default_labels = [
-                geo_df.loc[geo_df["geo_id"] == g, "label"].iloc[0]
-                for g in default_geo_ids
-            ]
-
-            selected_labels = st.multiselect(
-                "Geographies",
-                options=geo_df["label"].tolist(),
-                default=default_labels,
-                key=f"{family_name}_geos",
-            )
-
-        selected_geos = [label_to_id[l] for l in selected_labels]
-        """
-
         with col1:
             # Choose metric family first
             family = st.selectbox("Metric family", METRIC_FAMILIES, index=0)
@@ -901,24 +826,6 @@ def render_family_tab(
 
 
         with col2:
-            """
-            df = load_series_for_metric(
-                selected_geos,
-                metric_id,
-                property_type_id=redfin_property_type_id,
-            )
-
-            chart = make_line_with_points(
-                df,
-                x_field="date",
-                y_field="value",
-                color_field="geo_id",
-                y_title=f"Value ({meta['unit']})" if meta["unit"] else "Value",
-                color_title="Geography",
-            )
-            st.altair_chart(chart, use_container_width=True)
-            """
-
             df = load_series_for_metric(
                 selected_geos,
                 metric_id,
@@ -1004,71 +911,6 @@ with single_geo_tab:
 
     col1, col2 = st.columns([1, 2])
     
-    """
-    with col1:
-        # single geo select
-        default_geo = (
-            "dc_state"
-            if "dc_state" in geo_df["geo_id"].values
-            else geo_df["geo_id"].iloc[0]
-        )
-        default_label = geo_df.loc[geo_df["geo_id"] == default_geo, "label"].iloc[0]
-
-        geo_label = st.selectbox(
-            "Geography",
-            options=geo_df["label"].tolist(),
-            index=geo_df["label"].tolist().index(default_label),
-            key="single_geo_geo",
-        )
-        geo_id = label_to_id[geo_label]
-
-        metric1 = st.selectbox(
-            "Metric 1 (left axis)",
-            options=metric_options,
-            index=metric_options.index("laus_unemployment_rate_sa")
-            if "laus_unemployment_rate_sa" in metric_options
-            else 0,
-            key="single_geo_metric1",
-        )
-
-        # Metric 2 can be optional; allow a "None" option
-        metric2_options = ["(none)"] + metric_options
-        metric2_raw = st.selectbox(
-            "Metric 2 (right axis, optional)",
-            options=metric2_options,
-            index=metric2_options.index("ces_total_nonfarm_sa")
-            if "ces_total_nonfarm_sa" in metric2_options
-            else 0,
-            key="single_geo_metric2",
-        )
-        metric2 = None if metric2_raw == "(none)" else metric2_raw
-
-        # Help text based on Metric 1's source (CES / Redfin / BEA / etc.)
-        render_metric_help(metric1)
-
-        # Redfin property type selector (applies to any Redfin metric here)
-        redfin_property_type_id_tab2 = None
-        if is_redfin_metric(metric1) or (metric2 and is_redfin_metric(metric2)):
-            pt_df = load_redfin_property_types()
-            if not pt_df.empty:
-                if "all" in pt_df["property_type_id"].values:
-                    default_idx = pt_df.index[
-                        pt_df["property_type_id"] == "all"
-                    ][0]
-                else:
-                    default_idx = 0
-
-                prop_label2 = st.selectbox(
-                    "Property type (Redfin metrics)",
-                    options=pt_df["label"].tolist(),
-                    index=default_idx,
-                    key="tab2_redfin_property_type",
-                )
-                redfin_property_type_id_tab2 = pt_df.loc[
-                    pt_df["label"] == prop_label2, "property_type_id"
-                ].iloc[0]
-    """
-
     with col1:
         # --- NEW: geo level filter ------------------------------------------
         levels_present = sorted(
@@ -1147,50 +989,7 @@ with single_geo_tab:
                     pt_df["label"] == prop_label2, "property_type_id"
                 ].iloc[0]
 
-
-
-    """
-    with col2:
-        # For the dual-axis helper we need geo_name; reuse label as geo_name
-        df_left = load_series_for_geo_metric(
-            geo_id,
-            metric1,
-            property_type_id=(
-                redfin_property_type_id_tab2 if is_redfin_metric(metric1) else None
-            ),
-        )
-        df_left["geo_name"] = geo_label
-
-        if metric2:
-            df_right = load_series_for_geo_metric(
-                geo_id,
-                metric2,
-                property_type_id=(
-                    redfin_property_type_id_tab2
-                    if (metric2 and is_redfin_metric(metric2))
-                    else None
-                ),
-            )
-            df_right["geo_name"] = geo_label
-            chart = make_dual_axis_chart(df_left, df_right, metric1, metric2)
-        else:
-            meta_left = _metric_meta(metric1)
-            df_plot = df_left.copy()
-            df_plot["geo_id"] = geo_id  # to reuse same helper
-            chart = make_line_with_points(
-                df_plot,
-                x_field="date",
-                y_field="value",
-                color_field=None,
-                y_title=(
-                    f"Value ({meta_left['unit']})"
-                    if meta_left["unit"]
-                    else "Value"
-                ),
-            )
-
-        st.altair_chart(chart, use_container_width=True)
-    """
+    
 
     with col2:
         # Metric 1
@@ -1314,48 +1113,6 @@ with benchmark_tab:
         meta_bench = _metric_meta(metric_bench)
 
         
-        """
-        # choose baseline geo (single, always included)
-        default_bench_geo_id = (
-            "dc_msa"
-            if "dc_msa" in geo_df["geo_id"].values
-            else geo_df["geo_id"].iloc[0]
-        )
-        default_bench_label = geo_df.loc[
-            geo_df["geo_id"] == default_bench_geo_id, "label"
-        ].iloc[0]
-
-        benchmark_label = st.selectbox(
-            "Baseline geography (always shown)",
-            options=geo_df["label"].tolist(),
-            index=geo_df["label"].tolist().index(default_bench_label),
-            key="bench_baseline_geo",
-        )
-        benchmark_geo_id = label_to_id[benchmark_label]
-
-        # Other comparison geos
-        other_default_ids = [
-            g
-            for g in [
-                "md_state",
-                "va_state",
-                "baltimore_msa",
-            ]
-            if g in geo_df["geo_id"].values and g != benchmark_geo_id
-        ]
-        other_default_labels = [
-            geo_df.loc[geo_df["geo_id"] == g, "label"].iloc[0]
-            for g in other_default_ids
-        ]
-
-        other_labels = st.multiselect(
-            "Other geographies to compare",
-            options=[l for l in geo_df["label"].tolist() if l != benchmark_label],
-            default=other_default_labels,
-            key="bench_other_geos",
-        )
-        """
-        
         # choose baseline geo (single, always included)
         default_bench_geo_id = "dc_msa" if "dc_msa" in geo_df["geo_id"].values else geo_df["geo_id"].iloc[0]
         default_bench_label = id_to_label.get(default_bench_geo_id, geo_df["label"].iloc[0])
@@ -1407,33 +1164,6 @@ with benchmark_tab:
 
 
     with col2:
-        """
-        other_geo_ids = [label_to_id[l] for l in other_labels]
-        all_geo_ids = [benchmark_geo_id] + [
-            g for g in other_geo_ids if g != benchmark_geo_id
-        ]
-
-        df_metric = load_series_for_metric(
-            all_geo_ids,
-            metric_bench,
-            property_type_id=redfin_property_type_id_tab3,
-        )
-
-        if df_metric.empty:
-            st.warning("No data for this metric + geo selection.")
-        else:
-            # attach geo_name from geo_df.label
-            geo_names = geo_df[["geo_id", "label"]].rename(
-                columns={"label": "geo_name"}
-            )
-            df_metric = df_metric.merge(geo_names, on="geo_id", how="left")
-            df_metric["metric_id"] = metric_bench
-
-            chart = make_baseline_compare_chart(
-                df_metric, pinned_geo_id=benchmark_geo_id
-            )
-            st.altair_chart(chart, use_container_width=True)
-        """
         
         other_geo_ids = [label_to_id[l] for l in other_labels]
         all_geo_ids = [benchmark_geo_id] + [g for g in other_geo_ids if g != benchmark_geo_id]
