@@ -729,7 +729,7 @@ def make_baseline_compare_chart(df, pinned_geo_id: str) -> alt.Chart:
 # -------------------------------------------------------------------
 # Reusable renderer: per-family tab (multi-geo, single metric)
 # -------------------------------------------------------------------
-
+"""
 def render_family_tab(
     family_name: str,
     tab_container,
@@ -835,6 +835,155 @@ def render_family_tab(
             # Show which geos have no data for this metric
             show_missing_geo_notice(selected_geos, df, geo_df, metric_id)
             
+            if df.empty:
+                st.warning("No data for this metric and geography selection.")
+            else:
+                chart = make_line_with_points(
+                    df,
+                    x_field="date",
+                    y_field="value",
+                    color_field="geo_id",
+                    y_title=f"Value ({meta['unit']})" if meta["unit"] else "Value",
+                    color_title="Geography",
+                )
+                st.altair_chart(chart, use_container_width=True)
+"""
+
+def render_family_tab(
+    family_name: str,
+    tab_container,
+    geo_df: pd.DataFrame,
+    label_to_id: dict,
+    metric_options: List[str],
+):
+    # Use family_name to make widget keys unique per tab
+    key_prefix = (
+        family_name.replace(" ", "_")
+        .replace("–", "_")
+        .replace("(", "")
+        .replace(")", "")
+        .lower()
+    )
+
+    with tab_container:
+        st.subheader(f"{family_name} – compare geographies for one metric")
+
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            # Metric family selectbox (default to this tab's family)
+            family_default_index = (
+                METRIC_FAMILIES.index(family_name)
+                if family_name in METRIC_FAMILIES
+                else 0
+            )
+
+            family = st.selectbox(
+                "Metric family",
+                METRIC_FAMILIES,
+                index=family_default_index,
+                key=f"{key_prefix}_metric_family",
+            )
+
+            # Filter metrics by the selected family
+            filtered_metric_options = filter_metrics_by_family(
+                metric_options, family
+            )
+
+            metric_id = st.selectbox(
+                "Metric",
+                filtered_metric_options,
+                index=0,
+                key=f"{key_prefix}_metric",
+            )
+
+            meta = _metric_meta(metric_id)
+            st.caption(
+                f"**Metric:** {meta['label']}  \n"
+                f"**Unit:** {meta['unit'] or '—'}"
+            )
+
+            # Tooltip-style help for availability / coverage
+            render_metric_help(metric_id)
+
+            # Redfin property type selector
+            redfin_property_type_id = None
+            if is_redfin_metric(metric_id):
+                pt_df = load_redfin_property_types()
+                if not pt_df.empty:
+                    if "all" in pt_df["property_type_id"].values:
+                        default_idx = pt_df.index[
+                            pt_df["property_type_id"] == "all"
+                        ][0]
+                    else:
+                        default_idx = 0
+
+                    prop_label = st.selectbox(
+                        "Property type",
+                        options=pt_df["label"].tolist(),
+                        index=default_idx,
+                        key=f"{key_prefix}_redfin_property_type",
+                    )
+                    redfin_property_type_id = pt_df.loc[
+                        pt_df["label"] == prop_label, "property_type_id"
+                    ].iloc[0]
+
+            # --- Quick geo-family selector -----------------------------------
+            geo_family_choice = st.selectbox(
+                "Quick geography group",
+                GEO_FAMILY_OPTIONS,
+                index=GEO_FAMILY_OPTIONS.index("Custom selection")
+                if "Custom selection" in GEO_FAMILY_OPTIONS
+                else 0,
+                key=f"{key_prefix}_geo_family",
+            )
+
+            if geo_family_choice == "Custom selection":
+                default_geo_ids = [
+                    g
+                    for g in [
+                        "dc_state",
+                        "md_state",
+                        "va_state",
+                        "dc_msa",
+                        "baltimore_msa",
+                    ]
+                    if g in geo_df["geo_id"].values
+                ]
+                if not default_geo_ids:
+                    default_geo_ids = [geo_df["geo_id"].iloc[0]]
+            else:
+                target_levels = GEO_FAMILY_LEVEL_MAP.get(geo_family_choice, [])
+                default_geo_ids = geo_df[
+                    geo_df["level"].isin(target_levels)
+                ]["geo_id"].tolist()
+                if not default_geo_ids:
+                    default_geo_ids = [geo_df["geo_id"].iloc[0]]
+
+            # id_to_label is defined globally after geo_df load
+            default_labels = [
+                id_to_label[g] for g in default_geo_ids if g in id_to_label
+            ]
+
+            selected_labels = st.multiselect(
+                "Geographies",
+                options=geo_df["label"].tolist(),
+                default=default_labels,
+                key=f"{key_prefix}_geo_multiselect",
+            )
+
+        # Map labels back to geo_ids for this tab
+        selected_geos = [label_to_id[l] for l in selected_labels]
+
+        with col2:
+            df = load_series_for_metric(
+                selected_geos,
+                metric_id,
+                property_type_id=redfin_property_type_id,
+            )
+
+            # Show which geos have no data for this metric
+            show_missing_geo_notice(selected_geos, df, geo_df, metric_id)
+
             if df.empty:
                 st.warning("No data for this metric and geography selection.")
             else:
