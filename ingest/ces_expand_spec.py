@@ -202,147 +202,6 @@ def _seasonal_tag(s: str) -> str:
         return "NSA"
     return "NSA"
 
-"""
-def generate_csv(sm_series_rows, out_path: Path):
-    
-    #Filter sm.series to CES supersector headline series (All Employees)
-    #and write config/ces_series.generated.csv.
-    
-    want = []
-
-    def expand_keys(code: str) -> list[str]:
-        code = re.sub(r"\D", "", code or "")
-        if not code:
-            return []
-        out = set()
-        out.add(code)
-        out.add(code.lstrip("0"))
-        for w in (5, 6, 7):
-            out.add(code.zfill(w))
-        if len(code) == 6:
-            out.add(code + "0")  # e.g. 110000 -> 1100000
-        return [k for k in out if k]
-
-    # small debug
-    print(f"[ces:gen][debug] CES_AREA_MAP keys sample:", list(CES_AREA_MAP.keys())[:10])
-
-    for r in sm_series_rows:
-        
-        series_id      = (r.get("series_id") or "").strip()
-        seasonal_code  = (r.get("seasonal") or "").strip().upper()
-        supersector_code = (r.get("supersector_code") or "").strip()
-        industry_code  = (r.get("industry_code") or "").strip()
-        data_type_code = (r.get("data_type_code") or "").strip()
-        series_title   = (r.get("series_title") or "").strip()
-        state_code     = (r.get("state_code") or "").strip()
-        area_code      = (r.get("area_code") or "").strip()
-
-        if not series_id or not area_code:
-            continue
-
-        # Only All Employees, SA/NSA
-        if seasonal_code not in TARGET_SEASONAL:
-            continue
-        if data_type_code not in TARGET_DATA_TYPE:
-            continue
-
-        # Only supersectors we care about (00, 05, 10, 20, 30, 40, 50, 55, 60, 65, 70, 80, 90)
-        if supersector_code not in TARGET_SUPERSECTOR:
-            continue
-
-        # Only "headline" supersector series: CES industry code ends in 000000
-        # (e.g. 00000000, 05000000, 20000000, etc.)
-        norm_ind = re.sub(r"\D", "", industry_code)
-        if not norm_ind.endswith("000000"):
-            continue
-
-        metric_base = SUPERSECTOR_TO_METRIC_BASE.get(supersector_code)
-        if not metric_base:
-            continue        
-        
-
-        series_id      = (r.get("series_id") or "").strip()
-        seasonal_code  = (r.get("seasonal") or "").strip().upper()
-        industry_code  = (r.get("industry_code") or "").strip()
-        data_type_code = (r.get("data_type_code") or "").strip()
-        series_title   = (r.get("series_title") or "").strip()
-        state_code     = (r.get("state_code") or "").strip()
-        area_code      = (r.get("area_code") or "").strip()
-
-        if not series_id or not area_code:
-            continue
-
-        # Only All Employees, SA/NSA
-        if seasonal_code not in TARGET_SEASONAL:
-            continue
-        if data_type_code not in TARGET_DATA_TYPE:
-            continue
-
-        # Parse CES industry_code: first 2 digits = sector, last 6 digits = detail
-        norm_ind = re.sub(r"\D", "", industry_code)
-        if len(norm_ind) != 8:
-            continue
-
-        sector_code = norm_ind[:2]       # e.g. "00", "05", "20", "40", "60", etc.
-        detail_part = norm_ind[2:]       # e.g. "000000"
-
-        # Only headline series within each sector: xxxx000000
-        if detail_part != "000000":
-            continue
-
-        # Map sector to metric_base using our lookup table
-        metric_base = SUPERSECTOR_TO_METRIC_BASE.get(sector_code)
-        if not metric_base:
-            continue
-
-        
-
-        # Map to geo_id (same logic you had before)
-        sd = re.sub(r"\D", "", state_code)
-        ad = re.sub(r"\D", "", area_code)
-
-        geo_id, area_name = (None, None)
-        candidates = []
-        if ad:
-            candidates.append(ad)
-        if sd and ad:
-            candidates.append(sd + ad)
-
-        for cand in candidates:
-            for key in expand_keys(cand):
-                geo_id, area_name = _pick_geo(key)
-                if geo_id:
-                    break
-            if geo_id:
-                break
-
-        if not geo_id:
-            continue
-
-        want.append({
-            "geo_id": geo_id,
-            "series_id": series_id,
-            "metric_base": metric_base,
-            "seasonal": _seasonal_tag(seasonal_code),
-            "name": series_title,
-            "area": area_name,
-        })
-
-    # De-dup: one row per (geo_id, metric_base, seasonal)
-    dedup = {(w["geo_id"], w["metric_base"], w["seasonal"]): w for w in want}
-    rows = sorted(dedup.values(), key=lambda d: (d["geo_id"], d["metric_base"], d["series_id"]))
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", newline="", encoding="utf-8") as f:
-        wr = csv.DictWriter(
-            f, fieldnames=["geo_id", "series_id", "metric_base", "seasonal", "name", "area"]
-        )
-        wr.writeheader()
-        wr.writerows(rows)
-
-    print(f"[ces:gen] wrote {len(rows)} series rows → {out_path}")
-"""
-
 
 
 def generate_csv(sm_series_rows, out_path: Path):
@@ -460,6 +319,15 @@ def generate_csv(sm_series_rows, out_path: Path):
         })
 
     rows = sorted(rows, key=lambda d: (d["geo_id"], d["metric_base"], d["series_id"]))
+
+    # Simple debug: how many series did we generate for the national geo?
+    us_rows = [r for r in rows if r["geo_id"] == "us_nation"]
+    print(f"[ces:gen] us_nation series count: {len(us_rows)}")
+    if us_rows:
+        print("[ces:gen] sample us_nation rows (first 5):")
+        for r in us_rows[:5]:
+            print("   ", r["metric_base"], r["seasonal"], r["series_id"])
+
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding="utf-8") as f:
