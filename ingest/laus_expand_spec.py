@@ -311,6 +311,7 @@ def main():
 
     # 2) Load geo_manifest-based mapping: bls_laus_area_code -> geo_id
     geo_map = load_laus_geo_map()  # uses config/geo_manifest.csv
+    print("[laus:gen] geo_map us_nation →", geo_map.get("us_nation"))
 
     # Validate measures: keep only 003..006 and map to our base metric names
     valid_measures = {m for m in measures.keys() if m in MEASURE_MAP}
@@ -329,15 +330,15 @@ def main():
             ar["area_code"] = geo_map[gid]
 
         try:
-            # This will now fast-path return ar["area_code"]
-            area_code = resolve_area_code(area_df, ar)
+            # This will now fast-path return ar["area_code"] or manifest code
+            area_code = resolve_area_code(area_df, ar, geo_map)
         except SystemExit as e:
             print(e)
             sys.exit(1)
 
-        # For states we want TWO outputs per measure: NSA and SA.
+        # For states and nation we want TWO outputs per measure: NSA and SA.
         # For all other levels, only NSA.
-        if level == "state":
+        if level in ("state", "nation"):
             seasonal_sets = [("U",), ("S",)]   # NSA first, then SA
         else:
             seasonal_sets = [("U",)]          # NSA only for sub-state geos
