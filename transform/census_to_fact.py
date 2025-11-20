@@ -41,8 +41,8 @@ def main() -> None:
             metric_id        VARCHAR,
             date             DATE,
             value            DOUBLE,
-            property_type_id VARCHAR,
             source_id        VARCHAR,
+            property_type_id VARCHAR,
             property_type    VARCHAR
         );
         """
@@ -68,7 +68,7 @@ def main() -> None:
             CAST(date AS DATE)      AS date,
             CAST(value AS DOUBLE)   AS value,
             ?                       AS source_id,          -- bind Python SOURCE_ID
-            "all"                   AS property_type_id,   -- ACS has no property type
+            'all'                   AS property_type_id,   -- ACS has no property type
             NULL                    AS property_type
         FROM read_csv_auto(?, header=True)
         WHERE value IS NOT NULL;
@@ -86,8 +86,8 @@ def main() -> None:
             COUNT(*)  AS rows
         FROM fact_timeseries
         WHERE source_id = 'census_acs'
-        GROUP BY 1
-        ORDER BY 1;
+        GROUP BY 1, 2, 3
+        ORDER BY 1, 2;
         """
     ).fetchdf()
 
