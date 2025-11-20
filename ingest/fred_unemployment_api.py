@@ -36,7 +36,7 @@ DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 GEO_MANIFEST_PATH = Path("config/geo_manifest.csv")
 FRED_API_KEY = os.getenv("FRED_API_KEY", "").strip()
 
-SOURCE_ID = "fred"
+SOURCE_ID = "fred_unemp"
 UNEMP_METRIC_ID = "fred_unemployment_rate_sa"
 
 
