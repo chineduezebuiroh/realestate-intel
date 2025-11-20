@@ -11,10 +11,6 @@ def main():
     # 1) v_geo_manifest as a view sitting on top of geo_manifest
     # ------------------------------------------------------------------
     con.execute("""
-        CREATE OR REPLACE TABLE dim_geo AS
-        SELECT *
-        FROM read_csv_auto('config/geo_manifest.csv', header=True)
-
         CREATE OR REPLACE VIEW v_geo_manifest AS
         SELECT
             geo_id,
