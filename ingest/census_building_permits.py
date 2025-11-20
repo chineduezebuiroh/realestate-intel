@@ -388,7 +388,7 @@ def load_geo_manifest() -> pd.DataFrame:
 def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
     """
     Correct mapping using location_type:
-
+      nation     ← location_type ~ "United States"
       state      ← location_type == "State",  state_fips
       county     ← location_type == "County", county_fips
       city/place ← location_type == "Place",  place_fips
@@ -405,7 +405,10 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
         level = row.level
         code = row.census_code
 
-        if level == "state":
+        if level == "nation":
+            # National totals: BPS typically labels them something like "United States"
+            mask = df["location_type"].str.contains("united states", case=False, na=False)
+        elif level == "state":
             mask = (df["location_type"] == "State") & (df["state_fips"] == code)
         elif level == "county":
             mask = (df["location_type"] == "County") & (df["county_fips"] == code)
