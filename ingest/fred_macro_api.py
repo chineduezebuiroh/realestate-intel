@@ -55,7 +55,7 @@ GEO_MANIFEST_PATH = Path("config/geo_manifest.csv")
 
 FRED_API_KEY = os.getenv("FRED_API_KEY", "").strip()
 
-SOURCE_ID = "fred"
+SOURCE_ID = "fred_macro"
 
 # Definition of all base FRED series we want
 # metric_id -> metadata
