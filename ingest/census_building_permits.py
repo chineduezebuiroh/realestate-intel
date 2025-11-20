@@ -134,19 +134,6 @@ def add_date(df: pd.DataFrame) -> pd.DataFrame:
     )
     return df
 
-"""
-def compute_total_units(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    for c in ["units_1", "units_2", "units_3_4", "units_5plus"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-    df["total_units"] = (
-        df["units_1"] +
-        df["units_2"] +
-        df["units_3_4"] +
-        df["units_5plus"]
-    )
-    return df
-"""
 
 def compute_aggregates(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -224,51 +211,6 @@ def normalize_geo_keys(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-"""
-def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
-    
-    #Long format by 'unit_size_band' (1, 2, 3_4, 5plus, total),
-    #keeping location_type for proper geo mapping.
-    
-    df = df.copy()
-
-    id_cols = [
-        "date",
-        "year",
-        "month",
-        "state_fips",
-        "county_fips",
-        "place_fips",
-        "cbsa_code",
-    ]
-    if "location_type" in df.columns:
-        id_cols.append("location_type")
-    else:
-        print("[bps] WARNING: location_type column missing before melt; mapping may fail")
-
-    value_cols = {
-        "units_1": "1",
-        "units_2": "2",
-        "units_3_4": "3_4",
-        "units_5plus": "5plus",
-        "total_units": "total",
-    }
-    existing_value_cols = [c for c in value_cols.keys() if c in df.columns]
-
-    df_long = df.melt(
-        id_vars=id_cols,
-        value_vars=existing_value_cols,
-        var_name="unit_col",
-        value_name="units",
-    )
-    df_long["unit_size_band"] = df_long["unit_col"].map(value_cols)
-    df_long = df_long.drop(columns=["unit_col"])
-
-    df_long = df_long[df_long["date"].notna()].copy()
-    df_long = df_long[df_long["units"].notna()].copy()
-
-    return df_long
-"""
     
 
 def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
@@ -385,12 +327,11 @@ def load_geo_manifest() -> pd.DataFrame:
     return gm
 
 
-
 def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
     """
     Correct mapping using location_type:
 
-      nation     ← location_type includes "United States" OR state_fips == "00"
+      nation     ← location_type == "Country"
       state      ← location_type == "State",  state_fips
       county     ← location_type == "County", county_fips
       city/place ← location_type == "Place",  place_fips
@@ -407,14 +348,10 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
         level = row.level
         code = row.census_code
 
+        # 🔹 NEW: national row from BPS
         if level == "nation":
-            # National totals:
-            #  - Some BPS files have a "United States" row in location_type
-            #  - Others encode national aggregates as state_fips == "00"
-            mask = (
-                df["location_type"].str.contains("united states", case=False, na=False)
-                | (df.get("state_fips").fillna("") == "00")
-            )
+            # BPS has a single national aggregate with location_type == "Country"
+            mask = df["location_type"] == "Country"
 
         elif level == "state":
             mask = (df["location_type"] == "State") & (df["state_fips"] == code)
@@ -429,8 +366,7 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
             mask = (df["location_type"] == "Metro") & (df["cbsa_code"] == code)
 
         else:
-            # No BPS coverage for MSD/CSA/etc.
-            continue
+            continue  # no BPS coverage for MSD/CSA/etc.
 
         count = mask.sum()
         if count > 0:
@@ -440,7 +376,6 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
     df = df[df["geo_id"].notna()].copy()
     df = df.reset_index(drop=True)
     return df
-
 
 
 # -------------------------------------------------------------------
