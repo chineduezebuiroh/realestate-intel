@@ -385,10 +385,12 @@ def load_geo_manifest() -> pd.DataFrame:
     return gm
 
 
+
 def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
     """
     Correct mapping using location_type:
-      nation     ← location_type ~ "United States"
+
+      nation     ← location_type includes "United States" OR state_fips == "00"
       state      ← location_type == "State",  state_fips
       county     ← location_type == "County", county_fips
       city/place ← location_type == "Place",  place_fips
@@ -406,18 +408,29 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
         code = row.census_code
 
         if level == "nation":
-            # National totals: BPS typically labels them something like "United States"
-            mask = df["location_type"].str.contains("united states", case=False, na=False)
+            # National totals:
+            #  - Some BPS files have a "United States" row in location_type
+            #  - Others encode national aggregates as state_fips == "00"
+            mask = (
+                df["location_type"].str.contains("united states", case=False, na=False)
+                | (df.get("state_fips").fillna("") == "00")
+            )
+
         elif level == "state":
             mask = (df["location_type"] == "State") & (df["state_fips"] == code)
+
         elif level == "county":
             mask = (df["location_type"] == "County") & (df["county_fips"] == code)
+
         elif level == "city":
             mask = (df["location_type"] == "Place") & (df["place_fips"] == code)
+
         elif level in ("metro_area", "msa", "metro"):
             mask = (df["location_type"] == "Metro") & (df["cbsa_code"] == code)
+
         else:
-            continue  # no BPS coverage for MSD/CSA/etc.
+            # No BPS coverage for MSD/CSA/etc.
+            continue
 
         count = mask.sum()
         if count > 0:
@@ -427,6 +440,7 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
     df = df[df["geo_id"].notna()].copy()
     df = df.reset_index(drop=True)
     return df
+
 
 
 # -------------------------------------------------------------------
