@@ -9,7 +9,7 @@ va_state,state,Virginia,510000,1,5100000000000,1,42,1,51,1,51000,1,VAUR,1,,
 dc_msa,metro_area,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA",47900,1,1147900000000,1,47894,1,47900,1,,,,,,
 baltimore_msa,metro_area,"Baltimore-Columbia-Towson, MD MSA",12580,1,2412580000000,1,12580,1,12580,1,,,,,,
 
-dc_msd,metro_division,"Washington, DC-MD MSD",47764,,1147764000000,1,,,47764,1,,,,,,
+dc_msd,metro_division,"Washington, DC-MD MSD",47764,1,1147764000000,1,,,47764,1,,,,,,
 arlington_msd,metro_division,"Arlington-Alexandria-Reston, VA-WV MSD",11694,1,5111694000000,1,,,11694,1,,,,,,
 
 dc_csa,combined_area,"Washington-Baltimore-Arlington, DC-MD-VA-WV-PA CSA",47764,1,1154800000000,1,,,47764,1,,,,,,
