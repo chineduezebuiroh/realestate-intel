@@ -508,6 +508,27 @@ def load_series_for_metric(
     return df
 
 
+
+def metric_has_us_nation(metric_id: str) -> bool:
+    """
+    Quick check: does this metric have any rows for geo_id='us_nation'?
+    Uses the enriched view so it works for BEA + FRED (and any others later).
+    """
+    con = get_connection()
+    df = con.execute(
+        """
+        SELECT 1
+        FROM v_fact_timeseries_enriched
+        WHERE geo_id = 'us_nation'
+          AND metric_id = ?
+        LIMIT 1
+        """,
+        [metric_id],
+    ).fetchdf()
+    return not df.empty
+
+
+
 @st.cache_data
 def load_series_for_geo_metric(
     geo_id: str,
@@ -807,6 +828,14 @@ def render_family_tab(
                         pt_df["label"] == prop_label, "property_type_id"
                     ].iloc[0]
 
+            # --- Optional: include U.S. national series if available ------------
+            include_us = st.checkbox(
+                "Include U.S. national series (if available)",
+                value=False,
+                key=f"{family_name}_include_us",
+            )
+
+
             # --- Quick geo-family selector -----------------------------------
             geo_family_choice = st.selectbox(
                 "Quick geography group",
@@ -853,6 +882,13 @@ def render_family_tab(
 
         # Map labels back to geo_ids for this tab
         selected_geos = [label_to_id[l] for l in selected_labels]
+
+        # Optionally append us_nation if the user wants it and the metric has data
+        if include_us and "us_nation" in label_to_id.values():
+            if metric_has_us_nation(metric_id):
+                if "us_nation" not in selected_geos:
+                    selected_geos.append("us_nation")
+
 
         with col2:
             df = load_series_for_metric(
