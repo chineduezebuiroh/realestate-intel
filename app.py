@@ -868,6 +868,9 @@ if geo_df.empty or not metric_options:
     st.error("No data found in DuckDB — run the ingest + transform pipeline first.")
     st.stop()
 
+# NEW: build geo-family options once, for all tabs
+GEO_FAMILY_OPTIONS, GEO_FAMILY_LEVEL_MAP = build_geo_family_options(geo_df)
+
 # helpful map for all tabs
 label_to_id = dict(zip(geo_df["label"], geo_df["geo_id"]))
 id_to_label = dict(zip(geo_df["geo_id"], geo_df["label"]))
