@@ -97,6 +97,13 @@ def build_census_geo_params(level: str, code: str) -> dict[str, str] | None:
     if not code:
         return None
 
+    # --- NEW: national total (US) ----------------------------------------
+    # For ACS, the US total is simply `for=us:1` with no `in` parameter.
+    # We still require a non-empty census_code in geo_manifest ("1") so we
+    # pass the existing filters in load_geo_manifest_for_census.
+    if level in ("nation", "national", "us"):
+        return {"for": "us:1"}
+
     # Top-level states: only `for=state:XX`, NO `in` parameter.
     if level in ("state", "state_equiv"):
         return {"for": f"state:{code}"}
