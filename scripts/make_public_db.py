@@ -28,10 +28,7 @@ def main() -> None:
     con = duckdb.connect(str(FULL_DB))
 
     # Attach new, empty public DB
-    con.execute(
-        "ATTACH DATABASE ? AS public_db (TYPE duckdb, READ_ONLY FALSE)",
-        [str(PUBLIC_DB)],
-    )
+    con.execute(f"ATTACH DATABASE '{PUBLIC_DB.as_posix()}' AS public_db;")
 
     # 1) Copy tables you need for the app
     # You can add more here if needed.
