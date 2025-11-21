@@ -2,7 +2,6 @@
 import csv, sys, os, time, re
 from pathlib import Path
 
-import yaml
 import pandas as pd
 import requests
 
@@ -17,7 +16,6 @@ GEO_MANIFEST = Path("config/geo_manifest.csv")
 LA_AREA   = BLS_DIR / "la.area"
 LA_SERIES = BLS_DIR / "la.series"
 
-SPEC    = Path("config/laus_spec.yml")
 OUT_CSV = Path("config/laus_series.generated.csv")
 
 FILES = [
@@ -140,34 +138,62 @@ def ensure_bls_files():
 
 # ----------------- NEW: geo_manifest-driven mapping -----------------
 
-
-def load_laus_geo_map() -> dict[str, str]:
+def load_laus_areas_from_manifest() -> list[dict]:
     """
-    Build a mapping from geo_id -> bls_laus_area_code using config/geo_manifest.csv.
-    Only rows with a non-empty bls_laus_area_code are included.
+    Build a list of area dicts from geo_manifest.csv for LAUS:
+
+      [
+        {
+          "geo_id": "dc_state",
+          "name": "District of Columbia",
+          "level": "state",
+          "area_code": "XXXXXXX",   # bls_laus_area_code
+        },
+        ...
+      ]
+
+    Only rows with include_laus=true and a non-empty bls_laus_area_code
+    are included.
     """
     if not GEO_MANIFEST.exists():
         raise SystemExit("[laus:gen] missing config/geo_manifest.csv")
 
     gm = pd.read_csv(GEO_MANIFEST, dtype=str)
 
-    if "bls_laus_area_code" not in gm.columns:
-        raise SystemExit("[laus:gen] geo_manifest.csv missing 'bls_laus_area_code' column")
+    required = {"geo_id", "geo_name", "level", "include_laus", "bls_laus_area_code"}
+    missing = required - set(gm.columns)
+    if missing:
+        raise SystemExit(f"[laus:gen] geo_manifest.csv missing columns: {sorted(missing)}")
 
-    df = gm[["geo_id", "bls_laus_area_code"]].dropna(subset=["bls_laus_area_code"])
-    df["geo_id"] = df["geo_id"].astype(str).str.strip()
-    df["bls_laus_area_code"] = df["bls_laus_area_code"].astype(str).str.strip()
-    df = df[df["bls_laus_area_code"] != ""]
-    df = df[df["geo_id"] != ""]
+    # Normalize
+    gm["geo_id"] = gm["geo_id"].astype(str).str.strip()
+    gm["geo_name"] = gm["geo_name"].astype(str).str.strip()
+    gm["level"] = gm["level"].astype(str).str.strip().str.lower()
+    gm["include_laus"] = gm["include_laus"].astype(str).str.strip().str.lower()
+    gm["bls_laus_area_code"] = gm["bls_laus_area_code"].astype(str).str.strip()
 
-    mapping = dict(zip(df["geo_id"], df["bls_laus_area_code"]))
+    # Keep only include_laus = true-ish
+    gm = gm[gm["include_laus"].isin(["1", "y", "yes", "true", "t"])]
 
-    print(f"[laus:gen] loaded {len(mapping)} LAUS geo mappings from geo_manifest.csv")
-    return mapping
+    # And only rows with a non-empty LAUS area code
+    gm = gm[gm["bls_laus_area_code"] != ""]
+    gm = gm[gm["geo_id"] != ""]
 
+    areas = []
+    for row in gm.itertuples():
+        areas.append(
+            {
+                "geo_id": row.geo_id,
+                "name": row.geo_name,
+                "level": row.level,
+                "area_code": row.bls_laus_area_code,
+            }
+        )
+
+    print(f"[laus:gen] loaded {len(areas)} LAUS areas from geo_manifest.csv")
+    return areas
 
 # ----------------- LAUS lookup + series selection -----------------
-
 
 def seasonal_tag_from_sid(series_id: str) -> str:
     sid = (series_id or "").upper()
@@ -243,58 +269,11 @@ def pick_latest_series(sdf: pd.DataFrame) -> pd.Series | None:
 
     return sdf.iloc[0]
 
-
-def resolve_area_code(area_df: pd.DataFrame, spec_area: dict, geo_map: dict[str, str]) -> str:
-    """
-    Resolve area_code for a given spec 'area':
-      1. If geo_manifest has bls_laus_area_code for this geo_id, use that.
-      2. Else, if YAML provides `area_code`, use it (fast path).
-      3. Else, try exact match on name -> area_text (case-insensitive).
-      4. Else, try contains-match fallback.
-      5. Else, fail with a clear message.
-    """
-    # 1) manifest-driven mapping: geo_id -> bls_laus_area_code
-    gid = (spec_area.get("geo_id") or "").strip()
-    if gid and gid in geo_map:
-        ac = (geo_map[gid] or "").strip()
-        if ac:
-            return ac
-
-    # 2) YAML fast path
-    if "area_code" in spec_area and spec_area["area_code"]:
-        return str(spec_area["area_code"]).strip()
-
-    # 3) Name-based fallback
-    target = (spec_area.get("name") or spec_area.get("geo_id") or "").strip().lower()
-    if not target:
-        raise SystemExit(f"[laus:gen] area has no name/geo_id: {spec_area}")
-
-    hits = area_df[area_df["area_text"].str.lower() == target]
-    if len(hits) == 1:
-        return hits.iloc[0]["area_code"]
-
-    # 4) Contains match as a last resort (guarded to 1 match)
-    hits = area_df[area_df["area_text"].str.lower().str.contains(target, na=False)]
-    if len(hits) == 1:
-        return hits.iloc[0]["area_code"]
-
-    # 5) Give up
-    raise SystemExit(
-        f"[laus:gen] Could not resolve area_code for '{target}'. "
-        f"Provide 'bls_laus_area_code' in geo_manifest.csv or 'area_code' in YAML for: {spec_area}"
-    )
-
-
 # ----------------- Main generator -----------------
 
-
 def main():
-    # BLS lookup files (tab-delimited, standard LAUS formats)
+    # 0) Ensure we have the BLS metadata files we need.
     ensure_bls_files()
-
-    if not SPEC.exists():
-        print(f"[laus:gen] missing {SPEC}")
-        sys.exit(1)
 
     try:
         area_df, series_df = load_lookup()
@@ -302,52 +281,37 @@ def main():
         print("[laus:gen] failed to load BLS lookup files:", e)
         sys.exit(1)
 
-    # 1) Load YAML spec (for levels, names, etc.)
-    with open(SPEC, "r") as f:
-        spec = yaml.safe_load(f)
+    # 1) Load areas straight from geo_manifest (include_laus=1 + bls_laus_area_code)
+    areas = load_laus_areas_from_manifest()
+    if not areas:
+        print("[laus:gen] No LAUS areas found in geo_manifest (include_laus=1 + bls_laus_area_code set).")
+        sys.exit(1)
 
-    measures = spec["series"]["measures"]  # expects keys "003".."006"
-    areas = spec["areas"]
-
-    # 2) Load geo_manifest-based mapping: bls_laus_area_code -> geo_id
-    geo_map = load_laus_geo_map()  # uses config/geo_manifest.csv
-    print("[laus:gen] geo_map us_nation →", geo_map.get("us_nation"))
-
-    # Validate measures: keep only 003..006 and map to our base metric names
-    valid_measures = {m for m in measures.keys() if m in MEASURE_MAP}
+    # 2) Measures: we just use MEASURE_MAP keys (003..006)
+    valid_measures = set(MEASURE_MAP.keys())
 
     rows = []
 
     for ar in areas:
-        # Work on a copy so we don't mutate the original YAML structures
-        ar = dict(ar)
-
+        gid   = ar["geo_id"]
         level = (ar.get("level") or "area").strip().lower()
-        gid   = ar.get("geo_id")
+        name  = ar.get("name") or gid
+        area_code = (ar.get("area_code") or "").strip()
 
-        # If geo_manifest has a code for this geo_id, trust that over YAML
-        if gid in geo_map:
-            ar["area_code"] = geo_map[gid]
+        if not area_code:
+            print(f"[laus:gen] WARNING: geo_id={gid} has no bls_laus_area_code; skipping.")
+            continue
 
-        try:
-            # This will now fast-path return ar["area_code"] or manifest code
-            area_code = resolve_area_code(area_df, ar, geo_map)
-        except SystemExit as e:
-            print(e)
-            sys.exit(1)
-
-        # For states and nation we want TWO outputs per measure: NSA and SA.
-        # For all other levels, only NSA.
+        # States + nation: both SA and NSA. Others: NSA only.
         if level in ("state", "nation"):
-            seasonal_sets = [("U",), ("S",)]   # NSA first, then SA
+            seasonal_sets = [("U",), ("S",)]   # NSA then SA
         else:
-            seasonal_sets = [("U",)]          # NSA only for sub-state geos
+            seasonal_sets = [("U",)]          # sub-state → NSA only
 
         for mcode in sorted(valid_measures):
-            base_metric, default_name = MEASURE_MAP[mcode]
+            base_metric, nice_name = MEASURE_MAP[mcode]
 
             for seasonals in seasonal_sets:
-                # Search candidates in la.series limited to this seasonal set
                 cand = series_df[
                     (series_df["area_code"] == area_code) &
                     (series_df["measure_code"] == mcode) &
@@ -356,37 +320,38 @@ def main():
 
                 best = pick_latest_series(cand)
                 if best is None:
-                    # Only warn if we're a state (we expect both NSA & SA);
-                    # sub-state geos legitimately won't have SA.
-                    if level == "state":
+                    # For states/nation we expect both SA + NSA, so warn; for others, this can be normal.
+                    if level in ("state", "nation"):
                         print(
-                            f"[laus:gen] WARNING: no state series for area_code={area_code} "
-                            f"({ar.get('name') or ar.get('geo_id')}), measure={mcode}, "
-                            f"seasonals={seasonals} — skipping that seasonal."
+                            f"[laus:gen] WARNING: no series for geo_id={gid}, "
+                            f"area_code={area_code}, measure={mcode}, "
+                            f"seasonals={seasonals} — skipping."
                         )
                     continue
 
                 sid = best["series_id"]
                 seas_hr = seasonal_tag_from_sid(sid)  # "SA" or "NSA"
 
-                rows.append({
-                    "geo_id":      ar["geo_id"],
-                    "series_id":   sid,
-                    "metric_base": base_metric,
-                    "seasonal":    seas_hr,  # "SA"/"NSA"
-                    "name":        f"{default_name} ({(ar.get('level','area')).title()}, {seas_hr})",
-                    "notes":       ar.get("name") or ar["geo_id"],
-                })
+                rows.append(
+                    {
+                        "geo_id":      gid,
+                        "series_id":   sid,
+                        "metric_base": base_metric,    # e.g. laus_unemployment, laus_employment
+                        "seasonal":    seas_hr,        # "SA" / "NSA"
+                        "name":        f"{nice_name} ({level.title()}, {seas_hr})",
+                        "notes":       name,
+                    }
+                )
 
     if not rows:
-        print("[laus:gen] No rows generated — check your spec, geo_manifest, or lookup files.")
+        print("[laus:gen] No rows generated — check geo_manifest or LAUS lookup files.")
         sys.exit(1)
 
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     with open(OUT_CSV, "w", newline="") as f:
         w = csv.DictWriter(
             f,
-            fieldnames=["geo_id","series_id","metric_base","seasonal","name","notes"]
+            fieldnames=["geo_id", "series_id", "metric_base", "seasonal", "name", "notes"],
         )
         w.writeheader()
         w.writerows(rows)
