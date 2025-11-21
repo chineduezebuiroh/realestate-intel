@@ -132,10 +132,16 @@ def render_metric_help(metric_id: str | None):
 
     st.caption("ℹ️ " + " ".join(notes))
 
-
+"""
 @st.cache_resource
 def get_connection():
     db_path = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+    return duckdb.connect(db_path, read_only=True)
+"""
+
+@st.cache_resource
+def get_connection():
+    db_path = os.getenv("DUCKDB_PATH", "./data/market_public.duckdb")
     return duckdb.connect(db_path, read_only=True)
 
 
