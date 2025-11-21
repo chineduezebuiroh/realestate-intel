@@ -13,6 +13,7 @@ MIN_DATE = os.getenv("PUBLIC_MIN_DATE")  # e.g. "2000-01-01" or empty
 
 MAX_MB = 100.0  # GitHub hard limit
 
+
 def main() -> None:
     if not FULL_DB.exists():
         raise SystemExit(f"[make_public_db] Source DB not found: {FULL_DB}")
@@ -24,20 +25,16 @@ def main() -> None:
 
     print(f"[make_public_db] Building {PUBLIC_DB} from {FULL_DB}")
 
-    # Connect to full DB
-    con = duckdb.connect(str(FULL_DB))
+    # 🔹 Connect DIRECTLY to the *public* DB file (this will create it)
+    con = duckdb.connect(str(PUBLIC_DB))
 
-    # Attach new, empty public DB
-    con.execute(f"ATTACH DATABASE '{PUBLIC_DB.as_posix()}' AS public_db;")
+    # 🔹 Attach the full DB as a secondary database
+    con.execute(f"ATTACH DATABASE '{FULL_DB.as_posix()}' AS full_db;")
 
-    # 1) Copy tables you need for the app
-    # You can add more here if needed.
-    print("[make_public_db] Copying tables into public_db")
-
-    # geo_manifest (dimension)
-    print("[make_public_db] Creating geo_manifest in public_db from CSV")
+    # 1) geo_manifest (dimension) — create inside public DB from CSV
+    print("[make_public_db] Creating geo_manifest in public DB from CSV")
     con.execute("""
-        CREATE TABLE public_db.geo_manifest AS
+        CREATE TABLE geo_manifest AS
         SELECT
             geo_id,
             level,
@@ -58,28 +55,26 @@ def main() -> None:
             include_fred
         FROM read_csv_auto('config/geo_manifest.csv', header=True);
     """)
-    
 
-    # fact_timeseries (facts) – optionally filter by date to keep size down
+    # 2) fact_timeseries (facts) — copy from full_db.fact_timeseries
     if MIN_DATE:
         print(f"[make_public_db] Copying fact_timeseries (date >= {MIN_DATE})")
         con.execute("""
-            CREATE TABLE public_db.fact_timeseries AS
+            CREATE TABLE fact_timeseries AS
             SELECT *
-            FROM main.fact_timeseries
+            FROM full_db.fact_timeseries
             WHERE date >= ?;
         """, [MIN_DATE])
     else:
         print("[make_public_db] Copying full fact_timeseries")
         con.execute("""
-            CREATE TABLE public_db.fact_timeseries AS
+            CREATE TABLE fact_timeseries AS
             SELECT *
-            FROM main.fact_timeseries;
+            FROM full_db.fact_timeseries;
         """)
 
-    # 2) Recreate the views inside public_db
-    print("[make_public_db] Creating views in public_db")
-    con.execute("SET schema 'public_db'")
+    # 3) Views in the PUBLIC DB
+    print("[make_public_db] Creating views in public DB")
 
     # v_geo_manifest
     con.execute("""
@@ -110,7 +105,7 @@ def main() -> None:
         USING (geo_id);
     """)
 
-    # Optional: quick sanity check from inside public_db
+    # 4) Sanity check from *inside* public DB
     print("[make_public_db] Sample from v_fact_timeseries_enriched:")
     print(con.execute("""
         SELECT
@@ -124,18 +119,12 @@ def main() -> None:
         LIMIT 10;
     """).fetchdf())
 
-    # Reset schema & detach
-    con.execute("SET schema 'main'")
-    
+    # 5) Detach only the *source* DB (safe: it's not the default)
     print("[make_public_db] Finalizing public DB")
-    # Switch back to main DB so DuckDB allows detaching public_db
-    con.execute("USE main;")
-    con.execute("DETACH DATABASE public_db")
-    print("[make_public_db] Detached public_db")
-
+    con.execute("DETACH DATABASE full_db;")
     con.close()
 
-    # 3) Size check
+    # 6) Size check
     size_mb = PUBLIC_DB.stat().st_size / (1024 * 1024)
     print(f"[make_public_db] Done. {PUBLIC_DB} size: {size_mb:.1f} MB")
 
@@ -150,6 +139,7 @@ def main() -> None:
             "[make_public_db] WARNING: file is close to GitHub's 100MB limit.\n"
             "Consider filtering dates/metrics in fact_timeseries for the public snapshot."
         )
+
 
 if __name__ == "__main__":
     main()
