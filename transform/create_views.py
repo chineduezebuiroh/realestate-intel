@@ -17,7 +17,7 @@ def main():
             level,
             census_code,
             geo_name AS name
-        FROM read_csv_auto('config/geo_manifest.csv', header=True);        
+        FROM geo_manifest;
         """)
     print("[views] v_geo_manifest created from geo_manifest.")
 
