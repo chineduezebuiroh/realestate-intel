@@ -1,9 +1,10 @@
-pandas==2.2.2
-duckdb>=1.1.0
-python-dotenv==1.0.1
+pandas
+duckdb
+python-dotenv
 requests
 fredapi==0.5.2
-streamlit>=1.37.1
+streamlit
 pyarrow==16.1.0
-PyYAML
+pyyaml
 altair
+python-dateutil
