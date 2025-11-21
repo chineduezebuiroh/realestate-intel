@@ -126,7 +126,13 @@ def main() -> None:
 
     # Reset schema & detach
     con.execute("SET schema 'main'")
+    
+    print("[make_public_db] Finalizing public DB")
+    # Switch back to main DB so DuckDB allows detaching public_db
+    con.execute("USE main;")
     con.execute("DETACH DATABASE public_db")
+    print("[make_public_db] Detached public_db")
+
     con.close()
 
     # 3) Size check
