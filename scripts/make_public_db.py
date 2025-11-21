@@ -35,11 +35,30 @@ def main() -> None:
     print("[make_public_db] Copying tables into public_db")
 
     # geo_manifest (dimension)
+    print("[make_public_db] Creating geo_manifest in public_db from CSV")
     con.execute("""
         CREATE TABLE public_db.geo_manifest AS
-        SELECT *
-        FROM main.geo_manifest;
+        SELECT
+            geo_id,
+            level,
+            geo_name,
+            bls_ces_area_code,
+            include_ces,
+            bls_laus_area_code,
+            include_laus,
+            redfin_code,
+            include_redfin,
+            census_code,
+            include_census,
+            bea_geo_fips,
+            include_bea_qgdp,
+            fred_unemp_series_id,
+            include_fred_unemp,
+            fred_geo_code,
+            include_fred
+        FROM read_csv_auto('config/geo_manifest.csv', header=True);
     """)
+    
 
     # fact_timeseries (facts) – optionally filter by date to keep size down
     if MIN_DATE:
