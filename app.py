@@ -8,6 +8,11 @@ import streamlit as st
 
 import re  # currently unused but harmless
 
+st.set_page_config(
+    page_title="Market Intel Dashboard",
+    layout="wide",
+)
+
 # -------------------------------------------------------------------
 # DB helpers
 # -------------------------------------------------------------------
@@ -923,11 +928,6 @@ def render_family_tab(
 # -------------------------------------------------------------------
 # App layout
 # -------------------------------------------------------------------
-
-st.set_page_config(
-    page_title="Market Intel Dashboard",
-    layout="wide",
-)
 
 st.title("Market Intel Dashboard")
 
