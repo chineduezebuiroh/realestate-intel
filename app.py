@@ -137,12 +137,6 @@ def render_metric_help(metric_id: str | None):
 
     st.caption("ℹ️ " + " ".join(notes))
 
-"""
-@st.cache_resource
-def get_connection():
-    db_path = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
-    return duckdb.connect(db_path, read_only=True)
-"""
 
 @st.cache_resource
 def get_connection():
@@ -883,15 +877,6 @@ def render_family_tab(
             default_labels = [
                 id_to_label[g] for g in default_geo_ids if g in id_to_label
             ]
-            
-            """
-            selected_labels = st.multiselect(
-                "Geographies",
-                options=geo_df["label"].tolist(),
-                default=default_labels,
-                key=f"{key_prefix}_geo_multiselect",
-            )
-            """
 
             # Use a key that also depends on the geo_family_choice so that
             # changing the group actually reinitializes the widget.
