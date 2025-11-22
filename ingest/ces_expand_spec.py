@@ -44,12 +44,12 @@ TARGET_SUPERSECTOR = set(SUPERSECTOR_TO_METRIC_BASE.keys())
 TARGET_DATA_TYPE = {"01"}
 TARGET_SEASONAL = {"S", "U"}
 
-
+"""
 def load_ces_geo_targets():
-    """
-    Return dict[area_key_variant] -> (geo_id, geo_name) for rows where include_ces=1.
-    We store multiple key variants so that '110000', '0110000', and '1100000' all map.
-    """
+    
+    #Return dict[area_key_variant] -> (geo_id, geo_name) for rows where include_ces=1.
+    #We store multiple key variants so that '110000', '0110000', and '1100000' all map.
+    
     def variants(code: str) -> set[str]:
         code = re.sub(r"\D", "", code or "")
         if not code:
@@ -78,6 +78,65 @@ def load_ces_geo_targets():
             raw  = (r.get("bls_ces_area_code") or "").strip()
             for k in variants(raw):
                 out[k] = (geo, name)
+    return out
+"""
+
+def load_ces_geo_targets():
+    """
+    Return dict[key] -> (geo_id, geo_name) for rows where include_ces=1.
+
+    Keys include:
+      - variants of bls_ces_area_code (what we already had), and
+      - for state-level geos, also the 2-digit state FIPS (e.g. "11", "24", "51")
+        so we can map using BLS state_code from sm.series.
+    """
+    def variants(code: str) -> set[str]:
+        code = re.sub(r"\D", "", code or "")
+        if not code:
+            return set()
+        v = set()
+        # raw and no-leading-zeros
+        v.add(code)
+        v.add(code.lstrip("0"))
+        # left-pad to common lengths used in CES
+        for w in (5, 6, 7):
+            v.add(code.zfill(w))
+        # if the manifest used 6-digit state-like codes (e.g., 110000),
+        # also add a trailing zero to match codes like 1100000
+        if len(code) == 6:
+            v.add(code + "0")
+        return {x for x in v if x}
+
+    out = {}
+    with GEO_MANIFEST.open("r", newline="", encoding="utf-8") as f:
+        rdr = csv.DictReader(f)
+        for r in rdr:
+            if (r.get("include_ces") or "0").strip() not in ("1", "true", "True", "Y", "y"):
+                continue
+
+            geo   = (r.get("geo_id") or "").strip()
+            name  = (r.get("geo_name") or "").strip()
+            level = (r.get("level") or "").strip().lower()
+            raw   = (r.get("bls_ces_area_code") or "").strip()
+            census_code = (r.get("census_code") or "").strip()
+
+            # 1) Existing behavior: variants of bls_ces_area_code
+            for k in variants(raw):
+                out[k] = (geo, name)
+
+            # 2) NEW: for states, also allow mapping by 2-digit state FIPS
+            if level == "state":
+                # Prefer census_code for FIPS, else fall back to first 2 digits of bls_ces_area_code
+                state_fips = ""
+                if census_code and census_code.strip().isdigit() and len(census_code.strip()) >= 2:
+                    state_fips = census_code.strip()[:2]
+                elif raw and raw.strip().isdigit() and len(raw.strip()) >= 2:
+                    state_fips = raw.strip()[:2]
+
+                if state_fips:
+                    out[state_fips] = (geo, name)
+
+    print(f"[ces:gen] CES_AREA_MAP size: {len(out)}")
     return out
 
 
@@ -261,7 +320,8 @@ def generate_csv(sm_series_rows, out_path: Path):
         metric_base = SUPERSECTOR_TO_METRIC_BASE.get(supersector_code)
         if not metric_base:
             continue
-
+            
+        """
         # Map to geo_id (same logic as before)
         sd = re.sub(r"\D", "", state_code)
         ad = re.sub(r"\D", "", area_code)
@@ -283,6 +343,35 @@ def generate_csv(sm_series_rows, out_path: Path):
 
         if not geo_id:
             continue
+        """
+
+        sd = re.sub(r"\D", "", state_code)
+        ad = re.sub(r"\D", "", area_code)
+
+        geo_id, area_name = (None, None)
+        candidates = []
+        if ad:
+            candidates.append(ad)
+        if sd and ad:
+            candidates.append(sd + ad)
+
+        # 1) Try area-based keys (existing behavior)
+        for cand in candidates:
+            for key in expand_keys(cand):
+                geo_id, area_name = _pick_geo(key)
+                if geo_id:
+                    break
+            if geo_id:
+                break
+
+        # 2) NEW fallback: if still no match and we have a state_code,
+        #    try mapping directly by state_code (for state-level geos).
+        if not geo_id and sd:
+            geo_id, area_name = _pick_geo(sd)
+
+        if not geo_id:
+            continue
+
 
         # parse end_year for comparison
         try:
