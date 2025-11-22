@@ -883,12 +883,25 @@ def render_family_tab(
             default_labels = [
                 id_to_label[g] for g in default_geo_ids if g in id_to_label
             ]
-
+            
+            """
             selected_labels = st.multiselect(
                 "Geographies",
                 options=geo_df["label"].tolist(),
                 default=default_labels,
                 key=f"{key_prefix}_geo_multiselect",
+            )
+            """
+
+            # Use a key that also depends on the geo_family_choice so that
+            # changing the group actually reinitializes the widget.
+            multi_key = f"{key_prefix}_geo_multiselect_{geo_family_choice.replace(' ', '_')}"
+            
+            selected_labels = st.multiselect(
+                "Geographies",
+                options=geo_df["label"].tolist(),
+                default=default_labels,
+                key=multi_key,
             )
 
         # Map labels back to geo_ids for this tab
