@@ -2,9 +2,9 @@ geo_id,level,geo_name,bls_ces_area_code,include_ces,bls_laus_area_code,include_l
 
 us_nation,nation,United States of America (USA),000000,1,0000000,,,1,00,1,00000,1,UNRATE,1,US,1
 
-dc_state,state,District of Columbia,1100000,1,1100000000000,1,17,1,11,1,11000,1,DCUR,1,,
-md_state,state,Maryland,2400000,1,2400000000000,1,43,1,24,1,24000,1,MDUR,1,,
-va_state,state,Virginia,5100000,1,5100000000000,1,42,1,51,1,51000,1,VAUR,1,,
+dc_state,state,District of Columbia,11,1,1100000000000,1,17,1,11,1,11000,1,DCUR,1,,
+md_state,state,Maryland,24,1,2400000000000,1,43,1,24,1,24000,1,MDUR,1,,
+va_state,state,Virginia,51,1,5100000000000,1,42,1,51,1,51000,1,VAUR,1,,
 
 dc_msa,metro_area,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA",47900,1,1147900000000,1,47894,1,47900,1,,,,,,
 baltimore_msa,metro_area,"Baltimore-Columbia-Towson, MD MSA",12580,1,2412580000000,1,12580,1,12580,1,,,,,,
