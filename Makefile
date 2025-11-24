@@ -160,33 +160,25 @@ refresh-laus: venv
 
 # 🔁 Census ACS (adjust script names if different in your repo)
 refresh-census-acs: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_acs5_expand_spec.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_acs5_api_bulk.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) transform/census_acs5_to_fact.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_api_bulk.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) transform/census_to_fact.py
 	@echo "✅ Refreshed Census ACS → $(FULL_DB)"
 
 # 🔁 Census Building Permits (BPS) – adjust names if needed
 refresh-census-permits: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_bps_expand_spec.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_bps_api_bulk.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) transform/census_bps_to_fact.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_building_permits.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) transform/census_bp_to_fact.py
 	@echo "✅ Refreshed Census BPS → $(FULL_DB)"
 
 # 🔁 BEA GDP (Quarterly) – adjust to your actual script names
 refresh-bea: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/bea_qgdp_expand_spec.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/bea_qgdp_api_bulk.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) transform/bea_qgdp_to_fact.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/bea_gdp_qtr_api.py
 	@echo "✅ Refreshed BEA GDP → $(FULL_DB)"
 
 # 🔁 FRED (macro + unemployment) – adjust to match actual scripts
 refresh-fred: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_macro_expand_spec.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_macro_api_bulk.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) transform/fred_macro_to_fact.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_unemp_expand_spec.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_unemp_api_bulk.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) transform/fred_unemp_to_fact.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_macro_api.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_unemployment_api.py
 	@echo "✅ Refreshed FRED → $(FULL_DB)"
 
 # 🔁 Everything (if you want a single "full refresh" button)
@@ -233,24 +225,3 @@ publish-public-db-only: venv
 	else \
 	  echo "ℹ️ No changes in data/market_public.duckdb; skipping commit & push."; \
 	fi
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
