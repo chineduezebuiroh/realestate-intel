@@ -52,35 +52,6 @@ CES_AREA_MAP = {}
 
 
 
-"""
-def load_ces_geo_targets():
-    gm = pd.read_csv(GEO_MANIFEST, dtype=str)
-
-    # Normalize and filter…
-    gm["include_ces"] = gm["include_ces"].astype(str).str.lower().isin(
-        ["1", "true", "yes", "y"]
-    )
-    gm["level"] = gm["level"].astype(str).str.strip().str.lower()
-    gm["bls_ces_area_code"] = gm["bls_ces_area_code"].fillna("").astype(str)
-
-    AREA_MAP = {}
-    LEVEL_MAP = {}
-
-    for row in gm.itertuples():
-        if not row.include_ces:
-            continue
-
-        ac = row.bls_ces_area_code.strip()
-        if not ac:
-            continue
-
-        AREA_MAP[ac] = (row.geo_id, row.geo_name)
-        LEVEL_MAP[ac] = row.level
-
-    print(f"[ces:gen] loaded {len(AREA_MAP)} CES area mappings")
-    return AREA_MAP, LEVEL_MAP
-"""
-
 def load_ces_geo_targets():
     """
     Build an exact mapping from CES area_code (digits only) -> (geo_id, geo_name).
@@ -283,13 +254,19 @@ def generate_csv(sm_series_rows, out_path: Path):
         if not metric_base:
             continue
 
-        # --- Exact geo mapping via area_code -----------------------------
-        # area_code from sm.series is already a CES area code.
-        ac_key = re.sub(r"\D", "", area_code)
-        geo_id, area_name = CES_AREA_MAP.get(ac_key, (None, None))
+        # --- Exact geo mapping via (state_code + area_code) -------------
+        # geo_manifest.bls_ces_area_code is stored as the concatenation
+        # of CES state_code + area_code (digits only), e.g.:
+        #   us_nation:      "0000000"  (00 + 00000)
+        #   dc_state:       "1100000"  (11 + 00000)
+        #   dc_msa:         "1147900"  (11 + 47900)
+        #   baltimore_msa:  "2412580"  (24 + 12580)
+        combined_raw = f"{state_code}{area_code}"
+        combined_key = re.sub(r"\D", "", combined_raw)
 
+        geo_id, area_name = CES_AREA_MAP.get(combined_key, (None, None))
         if not geo_id:
-            # no mapping in geo_manifest for this area_code → skip
+            # no mapping in geo_manifest for this (state+area) combo → skip
             continue
 
         # parse end_year for comparison
