@@ -5,8 +5,17 @@ import os
 import duckdb
 
 # Source (full) DB and target (public) DB
-FULL_DB = Path(os.getenv("FULL_DUCKDB_PATH", "data/market.duckdb"))
-PUBLIC_DB = Path(os.getenv("PUBLIC_DUCKDB_PATH", "data/market_public.duckdb"))
+#FULL_DB = Path(os.getenv("FULL_DUCKDB_PATH", "data/market.duckdb"))
+
+# Prefer explicit FULL_DUCKDB_PATH, then DUCKDB_PATH, then sane default
+FULL_DB = Path(
+    os.getenv("FULL_DUCKDB_PATH")
+    or os.getenv("DUCKDB_PATH")
+    or "data/market.duckdb"
+).resolve()
+
+PUBLIC_DB = Path("data/market_public.duckdb").resolve()
+#PUBLIC_DB = Path(os.getenv("PUBLIC_DUCKDB_PATH", "data/market_public.duckdb"))
 
 # If you want, you can tighten this later (e.g. only post-2000 data)
 MIN_DATE = os.getenv("PUBLIC_MIN_DATE")  # e.g. "2000-01-01" or empty
@@ -24,12 +33,14 @@ def main() -> None:
         PUBLIC_DB.unlink()
 
     print(f"[make_public_db] Building {PUBLIC_DB} from {FULL_DB}")
+    
 
     # 🔹 Connect DIRECTLY to the *public* DB file (this will create it)
     con = duckdb.connect(str(PUBLIC_DB))
 
     # 🔹 Attach the full DB as a secondary database
     con.execute(f"ATTACH DATABASE '{FULL_DB.as_posix()}' AS full_db;")
+    
 
     # 1) geo_manifest (dimension) — create inside public DB from CSV
     print("[make_public_db] Creating geo_manifest in public DB from CSV")
