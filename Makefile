@@ -19,6 +19,10 @@ deps:
 clean-venv:
 	rm -rf $(VENV)
 
+# -----------------------------------------------------------------------------
+# LEGACY / OLD PIPELINE TARGETS (OK to prune later if unused)
+# -----------------------------------------------------------------------------
+
 
 .PHONY: setup db ingest_dc transform_dc forecast_dc ingest_monthly transform_monthly \
         ingest_bls ingest_fred_rates ingest_fred_yields ingest_redfin \
@@ -124,3 +128,129 @@ import_redfin_local_county: venv
 
 import_redfin_local_state: venv
 	$(PY) tools/import_redfin_local.py --file "$(FILE)" --level state
+
+
+
+
+# -----------------------------------------------------------------------------
+# NEW PIPELINE TARGETS (DuckDB-centric)
+# -----------------------------------------------------------------------------
+.PHONY: refresh-redfin refresh-ces refresh-laus refresh-census-acs refresh-census-permits \
+        refresh-bea refresh-fred refresh-all make-public-db publish-public-db-only
+
+# 🔁 Redfin: ingest + transform into fact_timeseries
+refresh-redfin: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/redfin_metro_to_timeseries.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) transform/redfin_to_fact.py
+	@echo "✅ Refreshed Redfin → $(FULL_DB)"
+
+# 🔁 CES: expand spec, bulk API fetch, transform
+refresh-ces: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/ces_expand_spec.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/ces_api_bulk.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) transform/ces_to_fact.py
+	@echo "✅ Refreshed CES → $(FULL_DB)"
+
+# 🔁 LAUS
+refresh-laus: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/laus_expand_spec.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/laus_api_bulk.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) transform/laus_to_fact.py
+	@echo "✅ Refreshed LAUS → $(FULL_DB)"
+
+# 🔁 Census ACS (adjust script names if different in your repo)
+refresh-census-acs: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_acs5_expand_spec.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_acs5_api_bulk.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) transform/census_acs5_to_fact.py
+	@echo "✅ Refreshed Census ACS → $(FULL_DB)"
+
+# 🔁 Census Building Permits (BPS) – adjust names if needed
+refresh-census-permits: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_bps_expand_spec.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_bps_api_bulk.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) transform/census_bps_to_fact.py
+	@echo "✅ Refreshed Census BPS → $(FULL_DB)"
+
+# 🔁 BEA GDP (Quarterly) – adjust to your actual script names
+refresh-bea: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/bea_qgdp_expand_spec.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/bea_qgdp_api_bulk.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) transform/bea_qgdp_to_fact.py
+	@echo "✅ Refreshed BEA GDP → $(FULL_DB)"
+
+# 🔁 FRED (macro + unemployment) – adjust to match actual scripts
+refresh-fred: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_macro_expand_spec.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_macro_api_bulk.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) transform/fred_macro_to_fact.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_unemp_expand_spec.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_unemp_api_bulk.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) transform/fred_unemp_to_fact.py
+	@echo "✅ Refreshed FRED → $(FULL_DB)"
+
+# 🔁 Everything (if you want a single "full refresh" button)
+refresh-all: refresh-redfin refresh-ces refresh-laus refresh-census-acs refresh-census-permits refresh-bea refresh-fred
+	@echo "✅ All sources refreshed → $(FULL_DB)"
+
+# -----------------------------------------------------------------------------
+# Build public DuckDB snapshot (no git)
+# -----------------------------------------------------------------------------
+make-public-db: venv
+	FULL_DUCKDB_PATH=$(FULL_DB) $(PY) scripts/make_public_db.py
+	@echo "✅ Built data/market_public.duckdb from $(FULL_DB)"
+
+# -----------------------------------------------------------------------------
+# Publish-only:
+#   - rebuild public DB
+#   - enforce <100 MB
+#   - git add/commit/push data/market_public.duckdb (if changed)
+# -----------------------------------------------------------------------------
+publish-public-db-only: venv
+	@echo "🛠  Rebuilding public DB from $(FULL_DB)…"
+	FULL_DUCKDB_PATH=$(FULL_DB) $(PY) scripts/make_public_db.py
+
+	@echo "🔎 Checking size of data/market_public.duckdb…"
+	@size_bytes=$$(stat -f%z data/market_public.duckdb 2>/dev/null || stat -c%s data/market_public.duckdb); \
+	size_mb=$$(( $$size_bytes / 1024 / 1024 )); \
+	echo "   → $$size_mb MB"; \
+	if [ $$size_bytes -gt 104857600 ]; then \
+	  echo "❌ ERROR: data/market_public.duckdb is larger than 100MB; aborting publish."; \
+	  exit 1; \
+	fi
+
+	@echo "📂 git status (before add/commit):"
+	git status
+
+	@echo "🔍 Checking if data/market_public.duckdb changed…"
+	@if git status --porcelain data/market_public.duckdb | grep -q .; then \
+	  echo "📌 Changes detected; committing snapshot…"; \
+	  git add data/market_public.duckdb; \
+	  git commit -m "Update public DB snapshot"; \
+	  echo "📤 Pushing to origin…"; \
+	  git push; \
+	  echo "✅ Publish complete."; \
+	else \
+	  echo "ℹ️ No changes in data/market_public.duckdb; skipping commit & push."; \
+	fi
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
