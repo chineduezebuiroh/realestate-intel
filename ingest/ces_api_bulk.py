@@ -342,6 +342,17 @@ def main():
     con = duckdb.connect(DB_PATH)
     ensure_dims(con, all_df["metric_id"].unique().tolist())
 
+    # 🔁 Always start with a clean CES slice in fact_timeseries
+    con.execute("""
+        DELETE FROM fact_timeseries
+        WHERE source_id = 'ces'
+           OR metric_id LIKE 'ces_%';
+    """)
+    print("[ces] cleared existing CES rows from fact_timeseries")
+
+    # ... existing logic that reads ces_series.generated.csv,
+    # hits the BLS API, and inserts new rows into fact_timeseries ...
+
     # ensure dim_market minimal entries
     con.execute("""
     CREATE TABLE IF NOT EXISTS dim_market(geo_id TEXT PRIMARY KEY, name TEXT, type TEXT, fips TEXT);
