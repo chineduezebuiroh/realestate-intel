@@ -144,6 +144,45 @@ def get_connection():
     return duckdb.connect(db_path, read_only=True)
 
 
+
+@st.cache_data
+def load_metric_catalog_for_compare() -> pd.DataFrame:
+    """
+    Build a catalog of metrics actually present in v_fact_timeseries_enriched,
+    and assign them to the same families used elsewhere in the app.
+
+    If your source_id names differ (e.g. for permits), tweak the CASE mapping.
+    """
+    con = get_connection()
+    df = con.execute("""
+        WITH m AS (
+            SELECT DISTINCT metric_id, source_id
+            FROM v_fact_timeseries_enriched
+        )
+        SELECT
+            metric_id,
+            source_id,
+            CASE
+                WHEN source_id = 'census_acs5'  THEN 'Census – ACS'
+                WHEN source_id = 'census_bps'   THEN 'Census – Permits'
+                WHEN source_id = 'ces'          THEN 'CES (Payrolls)'
+                WHEN source_id = 'laus'         THEN 'LAUS (Labor)'
+                WHEN source_id = 'bea_qgdp'     THEN 'BEA – GDP (Quarterly)'
+                WHEN source_id = 'redfin'       THEN 'Redfin (Housing)'
+                -- Split FRED into macro vs unemployment if you have both:
+                WHEN source_id = 'fred_unemp'   THEN 'FRED (Unemployment)'
+                WHEN source_id = 'fred_macro'   THEN 'FRED (Macro Rates & CPI)'
+                ELSE 'Other'
+            END AS family
+        FROM m
+        ORDER BY metric_id
+    """).df()
+
+
+
+
+
+
 @st.cache_data
 def load_geo_options() -> pd.DataFrame:
     """
@@ -978,7 +1017,11 @@ for fam_name, tab in zip(family_tab_names, family_tabs):
 # TAB 2: Single geo, up to 2 metrics (dual axis)
 # -------------------------------------------------------------------
 with single_geo_tab:
-    st.subheader("Single geography – up to 2 metrics")
+    st.subheader("Compare up to 2 metrics for one geography")
+
+    # --- Metric catalog with family labels (driven by source_id) ----
+    metric_catalog = load_metric_catalog_for_compare()
+    family_options = ["All metric families"] + sorted(metric_catalog["family"].unique())
 
     col1, col2 = st.columns([1, 2])
     
@@ -1019,13 +1062,46 @@ with single_geo_tab:
             else 0,
         )
         geo_id = label_to_id[geo_label]
-    
+        
+        """
         metric1 = st.selectbox(
             "Metric 1 (left axis)",
             options=metric_options,
             index=metric_options.index("laus_unemployment_rate_sa") if "laus_unemployment_rate_sa" in metric_options else 0,
         )
+        """
+
+        # --- Metric 1: family filter + metric select -------------------------
+        family_1 = st.selectbox(
+            "Metric family (Metric 1)",
+            family_options,
+            index=0,
+            key="compare_family_1",
+        )
     
+        if family_1 == "All metric families":
+            metric_df_1 = metric_catalog
+        else:
+            metric_df_1 = metric_catalog[metric_catalog["family"] == family_1]
+    
+        metric_options_1 = metric_df_1["label"].tolist()
+        label_to_metric_1 = dict(zip(metric_df_1["label"], metric_df_1["metric_id"]))
+    
+        default_idx_1 = 0 if metric_options_1 else None
+    
+        metric_label_1 = st.selectbox(
+            "Metric 1",
+            options=metric_options_1,
+            index=default_idx_1,
+            key="compare_metric_1",
+        )
+    
+        metric1 = label_to_metric_1[metric_label_1]
+
+
+
+        
+        """
         # Metric 2 can be optional; allow a "None" option
         metric2_options = ["(none)"] + metric_options
         metric2_raw = st.selectbox(
@@ -1034,6 +1110,38 @@ with single_geo_tab:
             index=metric2_options.index("ces_total_nonfarm_sa") if "ces_total_nonfarm_sa" in metric2_options else 0,
         )
         metric2 = None if metric2_raw == "(none)" else metric2_raw
+        """
+
+
+        # --- Metric 2: family filter + metric select -------------------------
+        family_2 = st.selectbox(
+            "Metric family (Metric 2)",
+            family_options,
+            index=0,
+            key="compare_family_2",
+        )
+    
+        if family_2 == "All metric families":
+            metric_df_2 = metric_catalog
+        else:
+            metric_df_2 = metric_catalog[metric_catalog["family"] == family_2]
+    
+        metric_options_2 = metric_df_2["label"].tolist()
+        label_to_metric_2 = dict(zip(metric_df_2["label"], metric_df_2["metric_id"]))
+    
+        default_idx_2 = 0 if metric_options_2 else None
+    
+        metric_label_2 = st.selectbox(
+            "Metric 2",
+            options=metric_options_2,
+            index=default_idx_2,
+            key="compare_metric_2",
+        )
+    
+        metric_2 = label_to_metric_2[metric_label_2]
+        
+
+        
     
         # Help text based on Metric 1's source (CES / Redfin / etc.)
         render_metric_help(metric1)
