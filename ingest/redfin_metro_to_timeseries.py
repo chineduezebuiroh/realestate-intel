@@ -114,6 +114,7 @@ def main():
 
     # Map geo.level -> expected Redfin region_type
     LEVEL_TO_REGION_TYPE = {
+        "nation": "national",
         "state": "state",
         "metro_area": "metro",
         "county": "county",
@@ -202,8 +203,6 @@ def main():
     print("[redfin] id_vars:", id_vars)
 
 
-
-    
     # Columns that are NOT metrics (to exclude from melt)
     exclude_cols = set(
         id_vars
