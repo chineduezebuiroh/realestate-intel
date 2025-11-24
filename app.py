@@ -150,8 +150,6 @@ def load_metric_catalog_for_compare() -> pd.DataFrame:
     """
     Build a catalog of metrics actually present in v_fact_timeseries_enriched,
     and assign them to the same families used elsewhere in the app.
-
-    If your source_id names differ (e.g. for permits), tweak the CASE mapping.
     """
     con = get_connection()
     df = con.execute("""
@@ -167,9 +165,8 @@ def load_metric_catalog_for_compare() -> pd.DataFrame:
                 WHEN source_id = 'census_bps'   THEN 'Census – Permits'
                 WHEN source_id = 'ces'          THEN 'CES (Payrolls)'
                 WHEN source_id = 'laus'         THEN 'LAUS (Labor)'
-                WHEN source_id = 'bea_qgdp'     THEN 'BEA – GDP (Quarterly)'
+                WHEN source_id = 'bea_gdp_qtr'  THEN 'BEA – GDP (Quarterly)'
                 WHEN source_id = 'redfin'       THEN 'Redfin (Housing)'
-                -- Split FRED into macro vs unemployment if you have both:
                 WHEN source_id = 'fred_unemp'   THEN 'FRED (Unemployment)'
                 WHEN source_id = 'fred_macro'   THEN 'FRED (Macro Rates & CPI)'
                 ELSE 'Other'
@@ -178,8 +175,9 @@ def load_metric_catalog_for_compare() -> pd.DataFrame:
         ORDER BY metric_id
     """).df()
 
-
-
+    # For now label == metric_id; you can join a nicer label table later.
+    df["label"] = df["metric_id"]
+    return df
 
 
 
@@ -927,7 +925,7 @@ def render_family_tab(
                 default=default_labels,
                 key=multi_key,
             )
-
+        """
         # Map labels back to geo_ids for this tab
         selected_geos = [label_to_id[l] for l in selected_labels]
 
@@ -936,6 +934,18 @@ def render_family_tab(
             if metric_has_us_nation(metric_id):
                 if "us_nation" not in selected_geos:
                     selected_geos.append("us_nation")
+        """
+
+
+        # Map labels back to geo_ids for this tab
+        selected_geos = [label_to_id[l] for l in selected_labels]
+        
+        # Optionally append us_nation if the user wants it and the metric has data
+        if include_us:
+            if metric_has_us_nation(metric_id):
+                if "us_nation" not in selected_geos:
+                    selected_geos.append("us_nation")
+   
 
 
         with col2:
@@ -1138,7 +1148,7 @@ with single_geo_tab:
             key="compare_metric_2",
         )
     
-        metric_2 = label_to_metric_2[metric_label_2]
+        metric2 = label_to_metric_2[metric_label_2]
         
 
         
