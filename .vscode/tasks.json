@@ -47,6 +47,46 @@
       "problemMatcher": []
     },
     {
+      "label": "Refresh – Census (ACS) only",
+      "type": "shell",
+      "command": "make refresh-census-acs",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Refresh – Census (Building Permits) only",
+      "type": "shell",
+      "command": "make refresh-census-permits",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Refresh – BEA (GDP) only",
+      "type": "shell",
+      "command": "make refresh-bea",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Refresh – FRED (Macro + Unemployment) only",
+      "type": "shell",
+      "command": "make refresh-fred",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
       "label": "Refresh – ALL sources",
       "type": "shell",
       "command": "make refresh-all",
