@@ -199,29 +199,20 @@ make-public-db: venv
 #   - git add/commit/push data/market_public.duckdb (if changed)
 # -----------------------------------------------------------------------------
 publish-public-db-only: venv
-	@echo "🛠  Rebuilding public DB from $(FULL_DB)…"
-	FULL_DUCKDB_PATH=$(FULL_DB) $(PY) scripts/make_public_db.py
+	@echo "🛠  Rebuilding public DB from $${DUCKDB_PATH:-data/market.duckdb}…"
+	@$(PY) scripts/make_public_db.py
 
-	@echo "🔎 Checking size of data/market_public.duckdb…"
-	@size_bytes=$$(stat -f%z data/market_public.duckdb 2>/dev/null || stat -c%s data/market_public.duckdb); \
-	size_mb=$$(( $$size_bytes / 1024 / 1024 )); \
-	echo "   → $$size_mb MB"; \
-	if [ $$size_bytes -gt 104857600 ]; then \
-	  echo "❌ ERROR: data/market_public.duckdb is larger than 100MB; aborting publish."; \
-	  exit 1; \
-	fi
+	@# --- size guard: fail if > 100MB ---
+	@size_bytes=$$(stat -f%z data/market_public.duckdb); \
+		max_bytes=$$((100 * 1024 * 1024)); \
+		echo "📦 market_public.duckdb size: $$size_bytes bytes"; \
+		if [ $$size_bytes -gt $$max_bytes ]; then \
+			echo "❌ market_public.duckdb is too large (>100MB). Aborting."; \
+			exit 1; \
+		fi
 
-	@echo "📂 git status (before add/commit):"
-	git status
-
-	@echo "🔍 Checking if data/market_public.duckdb changed…"
-	@if git status --porcelain data/market_public.duckdb | grep -q .; then \
-	  echo "📌 Changes detected; committing snapshot…"; \
-	  git add data/market_public.duckdb; \
-	  git commit -m "Update public DB snapshot"; \
-	  echo "📤 Pushing to origin…"; \
-	  git push; \
-	  echo "✅ Publish complete."; \
-	else \
-	  echo "ℹ️ No changes in data/market_public.duckdb; skipping commit & push."; \
-	fi
+	@# --- git steps ---
+	@git status --short data/market_public.duckdb
+	@git add data/market_public.duckdb
+	@git commit -m "Update public DB snapshot" || echo "No changes to commit."
+	@git push
