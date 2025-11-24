@@ -179,9 +179,9 @@ def main():
     if "is_seasonally_adjusted" in merged.columns:
         before = len(merged)
         # 0 = not seasonally adjusted in most Redfin extracts
-        merged = merged[merged["is_seasonally_adjusted"] == 0]
+        merged = merged[merged["is_seasonally_adjusted"] == "false"]
         after = len(merged)
-        print(f"[redfin] filtered to is_seasonally_adjusted=0: {before} → {after} rows")
+        print(f"[redfin] filtered to is_seasonally_adjusted=false: {before} → {after} rows")
 
     if merged.empty:
         raise ValueError("No rows remain after seasonality filter.")
