@@ -925,16 +925,6 @@ def render_family_tab(
                 default=default_labels,
                 key=multi_key,
             )
-        """
-        # Map labels back to geo_ids for this tab
-        selected_geos = [label_to_id[l] for l in selected_labels]
-
-        # Optionally append us_nation if the user wants it and the metric has data
-        if include_us and "us_nation" in label_to_id.values():
-            if metric_has_us_nation(metric_id):
-                if "us_nation" not in selected_geos:
-                    selected_geos.append("us_nation")
-        """
 
 
         # Map labels back to geo_ids for this tab
@@ -1073,13 +1063,6 @@ with single_geo_tab:
         )
         geo_id = label_to_id[geo_label]
         
-        """
-        metric1 = st.selectbox(
-            "Metric 1 (left axis)",
-            options=metric_options,
-            index=metric_options.index("laus_unemployment_rate_sa") if "laus_unemployment_rate_sa" in metric_options else 0,
-        )
-        """
 
         # --- Metric 1: family filter + metric select -------------------------
         family_1 = st.selectbox(
@@ -1109,20 +1092,6 @@ with single_geo_tab:
         metric1 = label_to_metric_1[metric_label_1]
 
 
-
-        
-        """
-        # Metric 2 can be optional; allow a "None" option
-        metric2_options = ["(none)"] + metric_options
-        metric2_raw = st.selectbox(
-            "Metric 2 (right axis, optional)",
-            options=metric2_options,
-            index=metric2_options.index("ces_total_nonfarm_sa") if "ces_total_nonfarm_sa" in metric2_options else 0,
-        )
-        metric2 = None if metric2_raw == "(none)" else metric2_raw
-        """
-
-
         # --- Metric 2: family filter + metric select -------------------------
         family_2 = st.selectbox(
             "Metric family (Metric 2)",
@@ -1149,9 +1118,7 @@ with single_geo_tab:
         )
     
         metric2 = label_to_metric_2[metric_label_2]
-        
-
-        
+          
     
         # Help text based on Metric 1's source (CES / Redfin / etc.)
         render_metric_help(metric1)
