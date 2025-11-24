@@ -174,7 +174,7 @@ def main():
     )
 
 
-
+    """
     # --- 4) Optional: filter to non-seasonally adjusted -----
     if "is_seasonally_adjusted" in merged.columns:
         before = len(merged)
@@ -185,8 +185,34 @@ def main():
 
     if merged.empty:
         raise ValueError("No rows remain after seasonality filter.")
+    """
 
 
+    # --- 4) Optional: filter to non-seasonally adjusted -----
+    if "is_seasonally_adjusted" in merged.columns:
+        before = len(merged)
+    
+        col = merged["is_seasonally_adjusted"]
+    
+        # Normalize to a boolean-ish flag:
+        # handle bool, numeric, and string representations
+        if col.dtype == bool:
+            mask_nsa = ~col  # False = not seasonally adjusted
+        elif pd.api.types.is_numeric_dtype(col):
+            mask_nsa = (col == 0)
+        else:
+            # string-like: "true"/"false", "1"/"0", etc.
+            col_norm = col.astype(str).str.strip().str.lower()
+            mask_nsa = col_norm.isin(["false", "0", "no", "n"])
+    
+        merged = merged[mask_nsa]
+        after = len(merged)
+        print(f"[redfin] filtered to is_seasonally_adjusted = false/0: {before} → {after} rows")
+    
+    if merged.empty:
+        raise ValueError("No rows remain after seasonality filter.")
+
+    
     # --- 5) Prepare for melt: id_vars vs value columns ----------------------------
     # Core identifiers we want to keep (NOT melted)
     # IMPORTANT: use the normalized 'date' column, not the original period_* column
