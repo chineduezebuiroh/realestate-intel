@@ -45,34 +45,14 @@ TARGET_SUPERSECTOR = set(SUPERSECTOR_TO_METRIC_BASE.keys())
 TARGET_DATA_TYPE = {"01"}
 TARGET_SEASONAL = {"S", "U"}
 
-CES_AREA_MAP: dict[str, tuple[str, str]] = {}
-CES_LEVEL_MAP: dict[str, str] = {}
+#CES_AREA_MAP: dict[str, tuple[str, str]] = {}
+CES_AREA_MAP = {}
 
-
-def infer_ces_level(area_code: str) -> str:
-    """
-    Map CES area_code patterns to levels:
-      - 6 digits  → state
-      - 7 digits  → metro / metro division
-      - 5 digits  → city
-    Fallback: 'unknown'.
-    """
-    if not area_code:
-        return "unknown"
-
-    code = area_code.strip()
-
-    if len(code) == 6:
-        return "state"
-    if len(code) == 7:
-        return "metro_area"
-    if len(code) == 5:
-        return "city"
-
-    return "unknown"
+#CES_LEVEL_MAP: dict[str, str] = {}
 
 
 
+"""
 def load_ces_geo_targets():
     gm = pd.read_csv(GEO_MANIFEST, dtype=str)
 
@@ -89,10 +69,7 @@ def load_ces_geo_targets():
     for row in gm.itertuples():
         if not row.include_ces:
             continue
-        """
-        if row.level == "nation":   # don't allow CES for US
-            continue
-        """
+
         ac = row.bls_ces_area_code.strip()
         if not ac:
             continue
@@ -102,6 +79,50 @@ def load_ces_geo_targets():
 
     print(f"[ces:gen] loaded {len(AREA_MAP)} CES area mappings")
     return AREA_MAP, LEVEL_MAP
+"""
+
+def load_ces_geo_targets():
+    """
+    Build an exact mapping from CES area_code (digits only) -> (geo_id, geo_name).
+
+    Uses config/geo_manifest.csv and only rows with include_ces=1 and a non-empty
+    bls_ces_area_code. We do NOT try to be clever with variants; area_code must
+    match exactly what appears in sm.series.
+    """
+    import pandas as pd
+
+    if not GEO_MANIFEST.exists():
+        raise SystemExit("[ces:gen] missing config/geo_manifest.csv")
+
+    gm = pd.read_csv(GEO_MANIFEST, dtype=str)
+
+    # normalize
+    gm["include_ces"] = gm.get("include_ces", "").astype(str).str.lower().isin(
+        ["1", "true", "yes", "y"]
+    )
+    gm["bls_ces_area_code"] = gm.get("bls_ces_area_code", "").fillna("").astype(str)
+    gm["geo_id"] = gm.get("geo_id", "").fillna("").astype(str)
+    gm["geo_name"] = gm.get("geo_name", "").fillna("").astype(str)
+
+    area_map: dict[str, tuple[str, str]] = {}
+
+    for row in gm.itertuples():
+        if not row.include_ces:
+            continue
+
+        raw = row.bls_ces_area_code.strip()
+        if not raw:
+            continue
+
+        # CES area_code is digits; strip any punctuation just in case
+        key = re.sub(r"\D", "", raw)
+        if not key:
+            continue
+
+        area_map[key] = (row.geo_id, row.geo_name)
+
+    print(f"[ces:gen] loaded {len(area_map)} CES area mappings from geo_manifest")
+    return area_map
 
 
 
@@ -230,21 +251,7 @@ def generate_csv(sm_series_rows, out_path: Path):
     # small debug
     print(f"[ces:gen][debug] CES_AREA_MAP keys sample:", list(CES_AREA_MAP.keys())[:10])
     
-    # We’re no longer doing fuzzy matching, so this function isn’t used and can be deleted. Totally optional, just cleanup.
-    """
-    def expand_keys(code: str) -> list[str]:
-        code = re.sub(r"\D", "", code or "")
-        if not code:
-            return []
-        out = set()
-        out.add(code)
-        out.add(code.lstrip("0"))
-        for w in (5, 6, 7):
-            out.add(code.zfill(w))
-        if len(code) == 6:
-            out.add(code + "0")  # e.g. 110000 -> 1100000
-        return [k for k in out if k]
-    """        
+
 
     # best[(geo_id, metric_base, seasonal)] = row with max (end_year, end_period)
     best = {}
@@ -276,20 +283,13 @@ def generate_csv(sm_series_rows, out_path: Path):
         if not metric_base:
             continue
 
-        # --- NEW: simple, explicit geo mapping -----------------------------
-        geo_id, area_name = CES_AREA_MAP.get(area_code, (None, None))
-
-        # --- NEW: level compatibility validation ------------------------
-        manifest_level = CES_LEVEL_MAP.get(area_code)  # from geo_manifest
-        ces_level      = infer_ces_level(area_code)
-        
-        if manifest_level and ces_level != "unknown" and manifest_level != ces_level:
-            print(f"[ces:warning] Skipping {series_id}: level mismatch "
-                  f"(manifest={manifest_level}, ces={ces_level}) for area_code={area_code}")
-            continue
+        # --- Exact geo mapping via area_code -----------------------------
+        # area_code from sm.series is already a CES area code.
+        ac_key = re.sub(r"\D", "", area_code)
+        geo_id, area_name = CES_AREA_MAP.get(ac_key, (None, None))
 
         if not geo_id:
-            # no manifest mapping for this area_code → skip it
+            # no mapping in geo_manifest for this area_code → skip
             continue
 
         # parse end_year for comparison
@@ -350,20 +350,14 @@ def generate_csv(sm_series_rows, out_path: Path):
     print(f"[ces:gen] wrote {len(rows)} series rows → {out_path}")
 
 
-
 def main():
     ensure_bls_files()
-
-    global CES_AREA_MAP, CES_LEVEL_MAP
-    CES_AREA_MAP, CES_LEVEL_MAP = load_ces_geo_targets()
-
+    global CES_AREA_MAP
+    CES_AREA_MAP = load_ces_geo_targets()
     if not CES_AREA_MAP:
         print("[ces:gen] NOTE: No CES geos enabled in config/geo_manifest.csv (include_ces=1).")
-
     rows = _read_sm_series(BLS_DIR / "sm.series")
     generate_csv(rows, GEN_PATH)
-
-
 
 
 if __name__ == "__main__":
