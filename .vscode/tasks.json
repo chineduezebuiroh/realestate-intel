@@ -1,4 +1,5 @@
 {
+  // See https://code.visualstudio.com/docs/editor/tasks for details
   "version": "2.0.0",
   "tasks": [
     {
@@ -11,6 +12,78 @@
       "label": "Bootstrap Data (ingest + transform)",
       "type": "shell",
       "command": "source .venv/bin/activate && python ingest/zillow_zori.py && python ingest/fred_unemployment_dc.py && python transform/monthlies_to_fact.py",
+      "problemMatcher": []
+    },
+
+
+    {
+      "label": "Refresh – Redfin only",
+      "type": "shell",
+      "command": "make refresh-redfin",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Refresh – CES only",
+      "type": "shell",
+      "command": "make refresh-ces",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Refresh – LAUS only",
+      "type": "shell",
+      "command": "make refresh-laus",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Refresh – ALL sources",
+      "type": "shell",
+      "command": "make refresh-all",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build public DB snapshot (no git)",
+      "type": "shell",
+      "command": "make make-public-db",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "none",
+      "problemMatcher": []
+    },
+    {
+      "label": "Publish public DB (rebuild + git push)",
+      "type": "shell",
+      "command": "make publish-public-db-only",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "none",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run dashboard (local, public DB)",
+      "type": "shell",
+      "command": "make dashboard",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
       "problemMatcher": []
     }
   ]
