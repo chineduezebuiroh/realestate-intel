@@ -110,7 +110,7 @@ forecast_dc: venv
 
 forecast_sarimax_dc_city_allres:
 	python -m forecast.sarimax_redfin \
-		--metric_id redfin_median_sale_price \
+		--metric_id median_sale_price \
 		--geo_id dc_city \
 		--property_type_id -1 \
 		--horizon 12
