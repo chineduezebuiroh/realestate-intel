@@ -106,6 +106,16 @@ transform_fred_yields: db
 forecast_dc: venv
 	@echo "[forecast] (placeholder) next: SARIMAX/XGBoost + backtests"
 
+# --- Forecasting ---
+
+forecast_sarimax_demo:
+\tpython -m forecast.sarimax_redfin \
+\t\t--metric_id redfin_median_sale_price \
+\t\t--geo_id dc_city \
+\t\t--property_type_id -1 \
+\t\t--horizon 12
+
+
 
 
 dashboard: venv
