@@ -108,13 +108,12 @@ forecast_dc: venv
 
 # --- Forecasting ---
 
-forecast_sarimax_demo:
+forecast_sarimax_dc_city_allres:
 \tpython -m forecast.sarimax_redfin \
 \t\t--metric_id redfin_median_sale_price \
 \t\t--geo_id dc_city \
 \t\t--property_type_id -1 \
 \t\t--horizon 12
-
 
 
 
