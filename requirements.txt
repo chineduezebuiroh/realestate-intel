@@ -6,3 +6,6 @@ fredapi==0.5.2
 streamlit>=1.37.1
 pyyaml
 altair
+
+statsmodels
+numpy
