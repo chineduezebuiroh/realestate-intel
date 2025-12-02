@@ -118,6 +118,14 @@ forecast_sarimax_dc_city_allres:
 forecast_sarimax_batch:
 	python -m forecast.run_sarimax_batch
 
+forecast_xgb_dc_city_allres:
+	python -m forecast.xgb_regressor \
+		--metric_id median_sale_price \
+		--geo_id dc_city \
+		--property_type_id -1 \
+		--horizon 12
+
+
 
 
 dashboard: venv
