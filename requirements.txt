@@ -10,3 +10,4 @@ altair
 statsmodels
 numpy
 xgboost
+scikit-learn
