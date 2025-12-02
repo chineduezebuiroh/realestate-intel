@@ -126,6 +126,19 @@ forecast_xgb_dc_city_allres:
 		--horizon 12
 
 
+# ----------------------------
+# Backtesting Targets
+# ----------------------------
+
+# Backtest SARIMAX (univariate) for dc_city, All Residential, median_sale_price
+backtest_sarimax_dc_city_allres:
+	python -m forecast.backtest_sarimax_single \
+		--metric_id median_sale_price \
+		--geo_id dc_city \
+		--property_type_id -1 \
+		--horizon 12
+
+
 
 
 dashboard: venv
