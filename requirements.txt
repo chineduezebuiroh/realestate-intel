@@ -9,3 +9,4 @@ altair
 
 statsmodels
 numpy
+xgboost
