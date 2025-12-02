@@ -147,6 +147,13 @@ backtest_sarimax_exog_dc_city_allres:
 		--horizon 12
 
 
+backtest_xgb_dc_city_allres:
+	python -m forecast.backtest_xgb_single \
+		--metric_id median_sale_price \
+		--geo_id dc_city \
+		--property_type_id -1 \
+		--horizon 12
+
 
 dashboard: venv
 	$(PY) -m streamlit run app/streamlit_app.py
