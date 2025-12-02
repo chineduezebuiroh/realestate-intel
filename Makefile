@@ -115,6 +115,9 @@ forecast_sarimax_dc_city_allres:
 		--property_type_id -1 \
 		--horizon 12
 
+forecast_sarimax_batch:
+	python -m forecast.run_sarimax_batch
+
 
 
 dashboard: venv
