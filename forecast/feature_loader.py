@@ -161,6 +161,102 @@ def build_design_matrix(
     return y, X, base_series
 
 
+def build_design_matrix_incremental(
+    target: TargetSpec,
+    candidate_specs: List[FeatureSpec],
+    min_obs: int = 60,
+    max_features: Optional[int] = None,
+) -> Tuple[pd.Series, pd.DataFrame, Dict[str, pd.Series], List[FeatureSpec]]:
+    """
+    Incrementally build a design matrix by trying candidate features one-by-one.
+
+    Strategy:
+      - Start with no features.
+      - For each candidate FeatureSpec in order:
+          * Attempt to build a design matrix using currently-selected specs + this one
+            (via the existing build_design_matrix).
+          * If build_design_matrix fails (e.g. 0 < min_obs or other alignment issue) -> skip this feature.
+          * Else, if resulting row count >= min_obs -> accept this feature (update y/X/base/specs).
+          * Else -> skip this feature.
+      - Stop when we've exhausted candidates or reached max_features (if set).
+
+    Returns:
+      y: target series
+      X: design matrix with selected features
+      base_series: dict[str, pd.Series] from the final build_design_matrix call
+      selected_specs: list of FeatureSpec actually used
+
+    Raises:
+      ValueError if we cannot get at least min_obs observations even with 0 features
+      (which would mean the target itself doesn't have enough history).
+    """
+    if not candidate_specs:
+        # Rely on your existing univariate pipeline to enforce min_obs on target alone.
+        raise ValueError("No candidate specs provided to build_design_matrix_incremental.")
+
+    selected_specs: List[FeatureSpec] = []
+    current_y: Optional[pd.Series] = None
+    current_X: Optional[pd.DataFrame] = None
+    current_base: Optional[Dict[str, pd.Series]] = None
+
+    # First, verify the target itself has enough observations via a tiny trick:
+    # take the first candidate only, build with min_obs=1 and then inspect y length.
+    # (We assume target length won't change across feature subsets.)
+    try:
+        y_probe, _, _ = build_design_matrix(
+            target=target,
+            feature_specs=[candidate_specs[0]],
+            min_obs=1,
+        )
+    except Exception as e:
+        raise ValueError(f"Unable to probe target series via build_design_matrix: {e}")
+
+    if len(y_probe) < min_obs:
+        raise ValueError(
+            f"Target series does not have enough observations even before exogs: "
+            f"{len(y_probe)} < {min_obs}"
+        )
+
+    # Now incrementally add features
+    for spec in candidate_specs:
+        if max_features is not None and len(selected_specs) >= max_features:
+            break
+
+        trial_specs = selected_specs + [spec]
+
+        try:
+            y_trial, X_trial, base_trial = build_design_matrix(
+                target=target,
+                feature_specs=trial_specs,
+                min_obs=1,  # we'll enforce min_obs ourselves
+            )
+        except Exception:
+            # This feature makes alignment impossible; skip it.
+            continue
+
+        if len(y_trial) >= min_obs:
+            # Accept this feature set
+            selected_specs = trial_specs
+            current_y, current_X, current_base = y_trial, X_trial, base_trial
+
+    if current_y is None or current_X is None or current_base is None:
+        # Fallback: try with just the first candidate as a last resort, enforcing min_obs
+        try:
+            y_last, X_last, base_last = build_design_matrix(
+                target=target,
+                feature_specs=[candidate_specs[0]],
+                min_obs=min_obs,
+            )
+            selected_specs = [candidate_specs[0]]
+            return y_last, X_last, base_last, selected_specs
+        except Exception:
+            raise ValueError(
+                "Could not build a design matrix with any candidate features "
+                f"while preserving at least {min_obs} observations."
+            )
+
+    return current_y, current_X, current_base, selected_specs
+
 # -----------------------------------------
 # Universal "kitchen sink" feature discovery
 # -----------------------------------------
