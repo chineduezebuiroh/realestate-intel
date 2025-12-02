@@ -164,56 +164,89 @@ def build_design_matrix(
 # -----------------------------------------
 # Universal "kitchen sink" feature discovery
 # -----------------------------------------
-def discover_all_series(
+def discover_all_series_for_target(
+    target: TargetSpec,
+    min_overlap: int = 72,
     exclude_metrics: Optional[List[str]] = None,
-    exclude_targets: Optional[List[Tuple[str, str, Optional[str]]]] = None,
-) -> List[Tuple[str, str, Optional[str]]]:
+) -> List[Tuple[str, str, str]]:
     """
-    Return ALL (metric_id, geo_id, property_type_id) triplets in fact_timeseries,
-    excluding:
-      - any metric_id in exclude_metrics
-      - any exact (metric_id, geo_id, property_type_id) triple in exclude_targets
+    Return all (metric_id, geo_id, property_type_id) triplets in fact_timeseries
+    that have at least `min_overlap` observations overlapping with the target
+    (same dates), excluding:
+      - target.metric_id itself (or any in exclude_metrics)
+      - the exact (metric_id, geo_id, property_type_id) of the target
     """
     con = get_connection()
     exclude_metrics = set(exclude_metrics or [])
-    exclude_targets = set(exclude_targets or [])
+    exclude_metrics.add(target.metric_id)
 
-    rows = con.execute("""
-        SELECT DISTINCT metric_id, geo_id, property_type_id
-        FROM fact_timeseries
+    # We assume property_type_id is stored as TEXT and is never NULL in fact_timeseries.
+    sql = """
+        WITH target_series AS (
+            SELECT date
+            FROM fact_timeseries
+            WHERE metric_id = ?
+              AND geo_id = ?
+              AND property_type_id = ?
+        ),
+        overlaps AS (
+            SELECT
+                b.metric_id,
+                b.geo_id,
+                b.property_type_id,
+                COUNT(*) AS n_overlap
+            FROM target_series t
+            JOIN fact_timeseries b
+              ON t.date = b.date
+            GROUP BY b.metric_id, b.geo_id, b.property_type_id
+        )
+        SELECT metric_id, geo_id, property_type_id
+        FROM overlaps
+        WHERE n_overlap >= ?
         ORDER BY metric_id, geo_id, property_type_id
-    """).fetchall()
+    """
 
-    filtered = []
+    rows = con.execute(
+        sql,
+        [
+            target.metric_id,
+            target.geo_id,
+            target.property_type_id,
+            min_overlap,
+        ],
+    ).fetchall()
+
+    result = []
     for m, g, pt in rows:
-        pt_norm = pt  # already stored as VARCHAR in fact_timeseries
         if m in exclude_metrics:
             continue
-        if (m, g, pt_norm) in exclude_targets:
+        # skip the exact target triple
+        if m == target.metric_id and g == target.geo_id and pt == target.property_type_id:
             continue
-        filtered.append((m, g, pt_norm))
+        result.append((m, g, pt))
 
-    return filtered
+    return result
 
 
 def build_universal_feature_specs(
     target: TargetSpec,
     lag_scheme: List[int] = [1, 2, 3, 6, 12],
+    min_obs: int = 60,
 ) -> List[FeatureSpec]:
     """
     Build a FeatureSpec list that includes *every* other time series in fact_timeseries
-    (all metrics × all geos × all property_type_id), lagged according to lag_scheme.
+    that has enough overlapping observations with the target (so we don't end up with
+    zero rows after alignment).
 
-    Excludes:
-      - the target's own (metric_id, geo_id, property_type_id) triple
-      - the target's metric_id everywhere else (so we don't leak the same metric at other geos as exog)
-        unless you *want* that; you can relax that by changing exclude_metrics below.
+    - Require at least `min_obs + max(lag_scheme)` overlapping points to be safe.
     """
-    exclude_targets = {(target.metric_id, target.geo_id, target.property_type_id)}
-    all_series = discover_all_series(
-        #exclude_metrics=[target.metric_id],  # you can drop this if you want same metric at other geos as exog
-        exclude_metrics=[],
-        exclude_targets=list(exclude_targets),
+    max_lag = max(lag_scheme)
+    min_overlap = min_obs + max_lag
+
+    all_series = discover_all_series_for_target(
+        target=target,
+        min_overlap=min_overlap,
+        exclude_metrics=[],  # or [target.metric_id] if you don't want same metric at other geos as exog
     )
 
     specs: List[FeatureSpec] = []
