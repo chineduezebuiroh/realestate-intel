@@ -189,7 +189,7 @@ def discover_all_series_for_target(
               AND geo_id = ?
               AND property_type_id = ?
         ),
-        overlaps AS (
+        series_overlap AS (
             SELECT
                 b.metric_id,
                 b.geo_id,
@@ -201,9 +201,10 @@ def discover_all_series_for_target(
             GROUP BY b.metric_id, b.geo_id, b.property_type_id
         )
         SELECT metric_id, geo_id, property_type_id
-        FROM overlaps
+        FROM series_overlap
         WHERE n_overlap >= ?
         ORDER BY metric_id, geo_id, property_type_id
+
     """
 
     rows = con.execute(
