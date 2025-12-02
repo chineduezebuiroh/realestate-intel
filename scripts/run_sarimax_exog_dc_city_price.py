@@ -1,5 +1,13 @@
 # scripts/run_sarimax_exog_dc_city_price.py
 
+import sys
+from pathlib import Path
+
+# Ensure project root is on sys.path so 'forecast' package can be imported
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from forecast.sarimax_exog import run_sarimax_exog
 from forecast.feature_loader import FeatureSpec
 
