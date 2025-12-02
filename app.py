@@ -17,6 +17,112 @@ st.set_page_config(
 # DB helpers
 # -------------------------------------------------------------------
 
+def get_db_connection():
+    # Use PUBLIC_DUCKDB_PATH in production if you prefer
+    db_path = os.getenv("PUBLIC_DUCKDB_PATH") or os.getenv("DUCKDB_PATH") or "data/market.duckdb"
+    return duckdb.connect(db_path, read_only=True)
+
+
+@st.cache_data
+def load_forecast_runs() -> pd.DataFrame:
+    con = get_db_connection()
+    df = con.execute(
+        """
+        SELECT
+            r.run_id,
+            r.created_at,
+            r.model_name,
+            r.model_version,
+            r.target_metric_id,
+            r.target_geo_id,
+            r.target_property_type_id,
+            r.freq,
+            r.train_start,
+            r.train_end,
+            v.mape_1m,
+            v.mape_3m,
+            v.mape_6m,
+            v.mape_12m,
+            v.mae_1m,
+            v.mae_3m,
+            v.mae_6m,
+            v.mae_12m,
+            v.rmse_1m,
+            v.rmse_3m,
+            v.rmse_6m,
+            v.rmse_12m
+        FROM forecast_runs r
+        LEFT JOIN v_forecast_eval v ON v.run_id = r.run_id
+        ORDER BY r.created_at DESC
+        """
+    ).fetchdf()
+    return df
+
+
+@st.cache_data
+def load_forecast_series(run_id: int):
+    con = get_db_connection()
+
+    # Predictions
+    preds = con.execute(
+        """
+        SELECT
+            target_date AS date,
+            y_hat,
+            y_hat_lo,
+            y_hat_hi
+        FROM forecast_predictions
+        WHERE run_id = ?
+        ORDER BY target_date
+        """,
+        [run_id],
+    ).fetchdf()
+
+    # Meta
+    meta = con.execute(
+        """
+        SELECT
+            target_metric_id,
+            target_geo_id,
+            target_property_type_id,
+            train_start,
+            train_end
+        FROM forecast_runs
+        WHERE run_id = ?
+        """,
+        [run_id],
+    ).fetchdf()
+
+    if meta.empty:
+        return preds, None, None
+
+    m = meta.iloc[0]
+    metric_id = m["target_metric_id"]
+    geo_id = m["target_geo_id"]
+    pt_id = m["target_property_type_id"]  # VARCHAR or None
+    train_end = m["train_end"]
+
+    pt_match = pt_id if pt_id is not None else "all"
+
+    actuals = con.execute(
+        """
+        SELECT date, value
+        FROM fact_timeseries
+        WHERE metric_id = ?
+          AND geo_id = ?
+          AND property_type_id = ?
+        ORDER BY date
+        """,
+        [metric_id, geo_id, pt_match],
+    ).fetchdf()
+
+    preds["source"] = "forecast"
+    actuals["source"] = "actual"
+    actuals["in_sample"] = actuals["date"] <= train_end
+
+    return preds, actuals, meta
+
+
 @st.cache_data
 def load_metric_source_map() -> dict:
     """
@@ -994,12 +1100,14 @@ tabs = st.tabs(
     + [
         "Single geo (2 metrics)",
         "Benchmark compare",
+        "Forecasts",
     ]
 )
 
 family_tabs = tabs[:len(family_tab_names)]
 single_geo_tab = tabs[len(family_tab_names)]
 benchmark_tab = tabs[len(family_tab_names) + 1]
+forecast_tab = tabs[len(family_tab_names) + 2]
 
 # -------------------------------------------------------------------
 # FAMILY TABS (multi-geo, single metric)
@@ -1343,4 +1451,112 @@ with benchmark_tab:
         
             chart = make_baseline_compare_chart(df_metric, pinned_geo_id=benchmark_geo_id)
             st.altair_chart(chart, use_container_width=True)
-        
+
+
+
+
+
+
+# ----------------------------------
+# TAB 4: Forecasts
+# ----------------------------------
+with forecast_tab:
+    st.header("Forecasts")
+
+    runs_df = load_forecast_runs()
+    if runs_df.empty:
+        st.info("No forecast runs found yet. Run the SARIMAX batch job to generate forecasts.")
+    else:
+        metrics = ["(all)"] + sorted(runs_df["target_metric_id"].unique().tolist())
+        geos = ["(all)"] + sorted(runs_df["target_geo_id"].unique().tolist())
+
+        metric_filter = st.selectbox("Metric", metrics, index=0)
+        geo_filter = st.selectbox("Geo", geos, index=0)
+
+        filtered = runs_df.copy()
+        if metric_filter != "(all)":
+            filtered = filtered[filtered["target_metric_id"] == metric_filter]
+        if geo_filter != "(all)":
+            filtered = filtered[filtered["target_geo_id"] == geo_filter]
+
+        st.subheader("Available runs")
+        st.dataframe(
+            filtered[
+                [
+                    "run_id",
+                    "created_at",
+                    "target_metric_id",
+                    "target_geo_id",
+                    "target_property_type_id",
+                    "mape_3m",
+                    "rmse_3m",
+                ]
+            ],
+            use_container_width=True,
+        )
+
+        run_ids = filtered["run_id"].tolist()
+        if run_ids:
+            selected_run_id = st.selectbox("Select run_id", run_ids)
+            preds, actuals, meta = load_forecast_series(selected_run_id)
+
+            if meta is not None and actuals is not None:
+                m = meta.iloc[0]
+                st.markdown(
+                    f"**Selected run**: {selected_run_id}  \n"
+                    f"Metric: `{m['target_metric_id']}`  \n"
+                    f"Geo: `{m['target_geo_id']}`  \n"
+                    f"Property type: `{m['target_property_type_id'] or 'all'}`  \n"
+                    f"Train period: {m['train_start']} → {m['train_end']}"
+                )
+
+                eval_row = runs_df[runs_df["run_id"] == selected_run_id].iloc[0]
+                st.markdown("### Evaluation (multi-horizon)")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("MAPE 3m", f"{eval_row['mape_3m']:.2f}%" if eval_row['mape_3m'] is not None else "—")
+                col2.metric("MAE 3m", f"{eval_row['mae_3m']:.2f}" if eval_row['mae_3m'] is not None else "—")
+                col3.metric("RMSE 3m", f"{eval_row['rmse_3m']:.2f}" if eval_row['rmse_3m'] is not None else "—")
+
+                preds_df, actuals_df, _ = preds, actuals, meta
+
+                base = alt.Chart().encode(x="date:T")
+
+                actual_in = actuals_df[actuals_df["in_sample"]]
+                actual_out = actuals_df[~actuals_df["in_sample"]]
+
+                chart_actual_in = base.mark_line().encode(
+                    y="value:Q",
+                    color=alt.value("#1f77b4"),
+                ).properties(data=actual_in, title="Actual vs forecast")
+
+                chart_actual_out = base.mark_line(strokeDash=[4, 4]).encode(
+                    y="value:Q",
+                    color=alt.value("#1f77b4"),
+                ).properties(data=actual_out)
+
+                forecast_long = preds_df.melt(
+                    id_vars=["date"],
+                    value_vars=["y_hat"],
+                    var_name="series",
+                    value_name="value",
+                )
+
+                chart_forecast = base.mark_line().encode(
+                    y="value:Q",
+                    color=alt.value("#ff7f0e"),
+                ).properties(data=forecast_long)
+
+                band = alt.Chart(preds_df).mark_area(opacity=0.2).encode(
+                    x="date:T",
+                    y="y_hat_lo:Q",
+                    y2="y_hat_hi:Q",
+                    color=alt.value("#ff7f0e"),
+                )
+
+                chart = (band + chart_actual_in + chart_actual_out + chart_forecast).interactive()
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("No series data found for this run.")
+        else:
+            st.info("No forecast runs matching your filters.")
+
