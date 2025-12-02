@@ -9,7 +9,7 @@ import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from xgboost import XGBRegressor
 
-from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix
+from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix, build_universal_feature_specs
 
 
 # -----------------------------
@@ -170,49 +170,13 @@ def choose_anchor_indices(
 # Default "kitchen sink" spec for this target
 # -----------------------------
 """
-def get_default_feature_specs_for_target(
-    metric_id: str,
-    geo_id: str,
-    property_type_id: Optional[str],
-) -> List[FeatureSpec]:
-    
-    #For now, define a simple kitchen-sink for median_sale_price in dc_city, All Residential:
-      #- median_ppsf with lags [1,2,3]
-      #- median_dom with lags [1,2,3,6]
-
-    #You can extend this later to add macro features, permits, etc.
-    
-    pt_id = property_type_id
-
-    if metric_id == "median_sale_price" and geo_id == "dc_city" and pt_id == "-1":
-        return [
-            FeatureSpec(
-                name="median_ppsf",
-                metric_id="median_ppsf",
-                geo_id=geo_id,
-                property_type_id=pt_id,
-                lags=[1, 2, 3],
-            ),
-            FeatureSpec(
-                name="median_dom",
-                metric_id="median_dom",
-                geo_id=geo_id,
-                property_type_id=pt_id,
-                lags=[1, 2, 3, 6],
-            ),
-        ]
-
-    # Fallback: no exog if we don't have a default spec
-    return []
-"""
-
 from .feature_loader import (
     TargetSpec,
     FeatureSpec,
     build_design_matrix,
     build_auto_feature_specs_for_target,
 )
-
+"""
 
 def build_universal_feature_specs(
     target: TargetSpec,
@@ -239,32 +203,13 @@ def build_universal_feature_specs(
     return specs
 
 
-"""
 def get_default_feature_specs_for_target(
     metric_id: str,
     geo_id: str,
-    property_type_id: Optional[str],
+    property_type_id: str,
 ) -> List[FeatureSpec]:
-    target = TargetSpec(
-        metric_id=metric_id,
-        geo_id=geo_id,
-        property_type_id=property_type_id,
-    )
-
-    # Full kitchen sink for same geo+PT, + optional macro later
-    return build_auto_feature_specs_for_target(
-        target=target,
-        lag_scheme=[1, 2, 3, 6, 12],
-        include_macro=False,      # set True when you're ready for macro
-        macro_geos=["us_nation"], # tweak as needed
-        exclude_metrics=None,     # you can pass things to explicitly exclude
-    )
-"""
-
-def get_default_feature_specs_for_target(metric_id, geo_id, property_type_id):
-    target = TargetSpec(metric_id, geo_id, property_type_id)
+    target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
     return build_universal_feature_specs(target)
-
 
 # -----------------------------
 # XGBoost-based feature selection
