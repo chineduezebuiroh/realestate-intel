@@ -9,7 +9,12 @@ import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from xgboost import XGBRegressor
 
-from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix, build_universal_feature_specs
+from .feature_loader import (
+    TargetSpec,
+    FeatureSpec,
+    build_design_matrix,
+    build_universal_feature_specs,
+)
 
 
 # -----------------------------
@@ -169,38 +174,6 @@ def choose_anchor_indices(
 # -----------------------------
 # Default "kitchen sink" spec for this target
 # -----------------------------
-"""
-from .feature_loader import (
-    TargetSpec,
-    FeatureSpec,
-    build_design_matrix,
-    build_auto_feature_specs_for_target,
-)
-"""
-
-def build_universal_feature_specs(
-    target: TargetSpec,
-    lag_scheme=[1, 2, 3, 6, 12],
-) -> List[FeatureSpec]:
-
-    exclude = {(target.metric_id, target.geo_id, target.property_type_id)}
-    all_series = discover_all_series(
-        exclude_metrics=[target.metric_id],
-        exclude_targets=exclude,
-    )
-
-    specs = []
-    for (metric_id, geo_id, pt_id) in all_series:
-        specs.append(
-            FeatureSpec(
-                name=f"{metric_id}__{geo_id}__{pt_id}",
-                metric_id=metric_id,
-                geo_id=geo_id,
-                property_type_id=pt_id,
-                lags=list(lag_scheme),
-            )
-        )
-    return specs
 
 
 def get_default_feature_specs_for_target(
@@ -210,6 +183,7 @@ def get_default_feature_specs_for_target(
 ) -> List[FeatureSpec]:
     target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
     return build_universal_feature_specs(target)
+    
 
 # -----------------------------
 # XGBoost-based feature selection
