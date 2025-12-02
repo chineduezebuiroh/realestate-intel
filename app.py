@@ -1525,12 +1525,12 @@ with forecast_tab:
                 actual_out = actuals_df[~actuals_df["in_sample"]]
 
                 chart_actual_in = base.mark_line().encode(
-                    y="value:Q",
+                    y=alt.Y("value:Q", scale=alt.Scale(zero=False)),
                     color=alt.value("#1f77b4"),
                 ).properties(data=actual_in, title="Actual vs forecast")
 
                 chart_actual_out = base.mark_line(strokeDash=[4, 4]).encode(
-                    y="value:Q",
+                    y=alt.Y("value:Q", scale=alt.Scale(zero=False)),
                     color=alt.value("#1f77b4"),
                 ).properties(data=actual_out)
 
@@ -1542,13 +1542,13 @@ with forecast_tab:
                 )
 
                 chart_forecast = base.mark_line().encode(
-                    y="value:Q",
+                    y=alt.Y("value:Q", scale=alt.Scale(zero=False)),
                     color=alt.value("#ff7f0e"),
                 ).properties(data=forecast_long)
 
                 band = alt.Chart(preds_df).mark_area(opacity=0.2).encode(
                     x="date:T",
-                    y="y_hat_lo:Q",
+                    y=alt.Y("y_hat_lo:Q", scale=alt.Scale(zero=False)),
                     y2="y_hat_hi:Q",
                     color=alt.value("#ff7f0e"),
                 )
