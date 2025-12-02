@@ -161,14 +161,22 @@ def build_design_matrix(
     return y, X, base_series
 
 
-def discover_all_series(exclude_metrics=None, exclude_targets=None):
+# -----------------------------------------
+# Universal "kitchen sink" feature discovery
+# -----------------------------------------
+def discover_all_series(
+    exclude_metrics: Optional[List[str]] = None,
+    exclude_targets: Optional[List[Tuple[str, str, Optional[str]]]] = None,
+) -> List[Tuple[str, str, Optional[str]]]:
     """
     Return ALL (metric_id, geo_id, property_type_id) triplets in fact_timeseries,
-    minus excluded ones.
+    excluding:
+      - any metric_id in exclude_metrics
+      - any exact (metric_id, geo_id, property_type_id) triple in exclude_targets
     """
     con = get_connection()
-    exclude_metrics = exclude_metrics or []
-    exclude_targets = exclude_targets or []
+    exclude_metrics = set(exclude_metrics or [])
+    exclude_targets = set(exclude_targets or [])
 
     rows = con.execute("""
         SELECT DISTINCT metric_id, geo_id, property_type_id
@@ -176,30 +184,39 @@ def discover_all_series(exclude_metrics=None, exclude_targets=None):
         ORDER BY metric_id, geo_id, property_type_id
     """).fetchall()
 
-    # Remove any series matching exclusion
     filtered = []
     for m, g, pt in rows:
+        pt_norm = pt  # already stored as VARCHAR in fact_timeseries
         if m in exclude_metrics:
             continue
-        if (m, g, pt) in exclude_targets:
+        if (m, g, pt_norm) in exclude_targets:
             continue
-        filtered.append((m, g, pt))
+        filtered.append((m, g, pt_norm))
 
     return filtered
 
 
 def build_universal_feature_specs(
     target: TargetSpec,
-    lag_scheme=[1, 2, 3, 6, 12],
+    lag_scheme: List[int] = [1, 2, 3, 6, 12],
 ) -> List[FeatureSpec]:
+    """
+    Build a FeatureSpec list that includes *every* other time series in fact_timeseries
+    (all metrics × all geos × all property_type_id), lagged according to lag_scheme.
 
-    exclude = {(target.metric_id, target.geo_id, target.property_type_id)}
+    Excludes:
+      - the target's own (metric_id, geo_id, property_type_id) triple
+      - the target's metric_id everywhere else (so we don't leak the same metric at other geos as exog)
+        unless you *want* that; you can relax that by changing exclude_metrics below.
+    """
+    exclude_targets = {(target.metric_id, target.geo_id, target.property_type_id)}
     all_series = discover_all_series(
-        exclude_metrics=[target.metric_id],
-        exclude_targets=exclude,
+        #exclude_metrics=[target.metric_id],  # you can drop this if you want same metric at other geos as exog
+        exclude_metrics=[],
+        exclude_targets=list(exclude_targets),
     )
 
-    specs = []
+    specs: List[FeatureSpec] = []
     for (metric_id, geo_id, pt_id) in all_series:
         specs.append(
             FeatureSpec(
@@ -211,4 +228,3 @@ def build_universal_feature_specs(
             )
         )
     return specs
-
