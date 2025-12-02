@@ -8,7 +8,13 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBRegressor
 
-from .feature_loader import TargetSpec, build_universal_feature_specs, build_design_matrix
+from .feature_loader import (
+    TargetSpec,
+    build_universal_feature_specs,
+    build_design_matrix,
+    build_design_matrix_incremental,
+)
+
 
 
 # -----------------------------
@@ -220,24 +226,33 @@ def run_backtest_xgb_single(
       - iteratively forecast up to horizon months ahead using carry-forward exogs
       - store as backtest runs (is_active=FALSE)
     """
-    target = TargetSpec(
-        metric_id=metric_id,
-        geo_id=geo_id,
-        property_type_id=property_type_id,
-    )
 
-    # Build universal feature specs and full design matrix once
-    feature_specs = build_universal_feature_specs(target)
-    if not feature_specs:
-        print("[xgb_backtest] No candidate features discovered; aborting.")
+    target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
+
+    candidate_specs = build_universal_feature_specs(target)
+    if not candidate_specs:
+        print("[xgb_backtest] No candidate features; skipping XGB backtest.")
         return
 
-    y_full, X_full, base_series_full = build_design_matrix(
-        target=target,
-        feature_specs=feature_specs,
-        min_obs=60,
+    try:
+        y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
+            target=target,
+            candidate_specs=candidate_specs,
+            min_obs=60,
+            max_features=None,
+        )
+    except ValueError as e:
+        print(f"[xgb_backtest] Incremental design matrix build failed: {e}")
+        print("[xgb_backtest] Skipping XGB backtest for this target.")
+        return
+
+    print(
+        f"[xgb_backtest] Final design matrix: "
+        f"n_obs={len(y_full)}, n_features={X_full.shape[1]}, "
+        f"selected_series={len(selected_specs)}"
     )
 
+    
     anchors = choose_anchor_indices(y_full, horizon=horizon, min_train_len=60, max_anchors=3)
     if not anchors:
         print("[xgb_backtest] Not enough history to run backtests.")
