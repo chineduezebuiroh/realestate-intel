@@ -14,6 +14,7 @@ from .feature_loader import (
     FeatureSpec,
     build_design_matrix,
     build_universal_feature_specs,
+    build_design_matrix_incremental,
 )
 
 
@@ -174,16 +175,19 @@ def choose_anchor_indices(
 # -----------------------------
 # Default "kitchen sink" spec for this target
 # -----------------------------
-
-
+    
 def get_default_feature_specs_for_target(
     metric_id: str,
     geo_id: str,
     property_type_id: str,
 ) -> List[FeatureSpec]:
     target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
-    return build_universal_feature_specs(target)
-    
+    specs = build_universal_feature_specs(target)
+    if specs:
+        print(f"[backtest_exog] Universal candidate set has {len(specs)} series.")
+    else:
+        print("[backtest_exog] No candidate exogenous series found for this target.")
+    return specs
 
 # -----------------------------
 # XGBoost-based feature selection
@@ -240,22 +244,34 @@ def run_backtest_sarimax_exog_single(
     - Optionally uses XGBoost to pick top features for SARIMAX exog.
     - Writes each anchor's forecasts as a backtest run (never is_active).
     """
+    
     target = TargetSpec(
         metric_id=metric_id,
         geo_id=geo_id,
         property_type_id=property_type_id,
     )
 
-    feature_specs = get_default_feature_specs_for_target(metric_id, geo_id, property_type_id)
-    if not feature_specs:
-        print("[backtest_exog] No default feature specs defined for this target; nothing to do.")
+    candidate_specs = get_default_feature_specs_for_target(metric_id, geo_id, property_type_id)
+    if not candidate_specs:
+        print("[backtest_exog] No feature specs available; skipping SARIMAX-exog backtest.")
         return
 
-    # Build full design matrix once
-    y_full, X_full, _ = build_design_matrix(
-        target=target,
-        feature_specs=feature_specs,
-        min_obs=60,
+    try:
+        y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
+            target=target,
+            candidate_specs=candidate_specs,
+            min_obs=60,
+            max_features=None,  # or cap at, say, 20 if you want
+        )
+    except ValueError as e:
+        print(f"[backtest_exog] Incremental design matrix build failed: {e}")
+        print("[backtest_exog] Skipping SARIMAX-exog backtest for this target.")
+        return
+
+    print(
+        f"[backtest_exog] Final design matrix: "
+        f"n_obs={len(y_full)}, n_features={X_full.shape[1]}, "
+        f"selected_series={len(selected_specs)}"
     )
 
     anchors = choose_anchor_indices(y_full, horizon=horizon, min_train_len=60, max_anchors=3)
