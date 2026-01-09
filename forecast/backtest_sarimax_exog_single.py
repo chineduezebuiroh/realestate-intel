@@ -265,11 +265,12 @@ def run_backtest_sarimax_exog_single(
         candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
         print(f"[backtest_exog] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
 
+    required_obs = 60 + horizon + 12
     try:
         y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
             target=target,
             candidate_specs=candidate_specs,
-            min_obs=60,
+            min_obs=required_obs,
             max_features=None,  # or cap at, say, 20 if you want
         )
     except ValueError as e:
