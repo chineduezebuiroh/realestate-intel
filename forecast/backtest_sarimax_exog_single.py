@@ -284,6 +284,12 @@ def run_backtest_sarimax_exog_single(
         f"selected_series={len(selected_specs)}"
     )
 
+    # Normalize index to month-end timestamps with an implicit monthly frequency
+    y_full = y_full.copy()
+    X_full = X_full.copy()
+    y_full.index = pd.PeriodIndex(y_full.index, freq="M").to_timestamp(how="end")
+    X_full.index = y_full.index
+
     anchors = choose_anchor_indices(y_full, horizon=horizon, min_train_len=60, max_anchors=3)
     if not anchors:
         print("[backtest_exog] Not enough history to run backtests.")
@@ -300,6 +306,13 @@ def run_backtest_sarimax_exog_single(
         # Training data up to anchor_date
         y_train = y_full.loc[:anchor_date]
         X_train = X_full.loc[:anchor_date]
+
+        # Ensure a supported monthly index for statsmodels
+        y_train = y_train.copy()
+        X_train = X_train.copy()
+        
+        y_train.index = pd.PeriodIndex(y_train.index, freq="M").to_timestamp(how="end")
+        X_train.index = y_train.index
 
         # How many months of actuals after anchor?
         anchor_period = anchor_date.to_period("M")
@@ -343,6 +356,10 @@ def run_backtest_sarimax_exog_single(
         )
         res = model.fit(disp=False)
 
+        converged = bool(getattr(res, "mle_retvals", {}).get("converged", True))
+        aic = float(getattr(res, "aic", np.nan))
+        bic = float(getattr(res, "bic", np.nan))
+
         # Future exog: carry-forward last row for horizon_bt steps
         last_exog_row = X_train_sel.iloc[[-1]].values  # shape (1,k)
         exog_future = np.repeat(last_exog_row, horizon_bt, axis=0)
@@ -358,6 +375,9 @@ def run_backtest_sarimax_exog_single(
             "anchor_date": str(anchor_date.date()),
             "use_xgb_feature_selection": use_xgb_feature_selection,
             "selected_features": selected_feature_names,
+            "converged": converged,
+            "aic": aic,
+            "bic": bic,
         }
 
         run_id = insert_forecast_run_backtest(
