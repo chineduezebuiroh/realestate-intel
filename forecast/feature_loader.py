@@ -193,6 +193,9 @@ def build_design_matrix_incremental(
     if not candidate_specs:
         # Rely on your existing univariate pipeline to enforce min_obs on target alone.
         raise ValueError("No candidate specs provided to build_design_matrix_incremental.")
+    
+    print(f"[inc-build] target={target.metric_id}/{target.geo_id}/{target.property_type_id}")
+    print(f"[inc-build] candidates={len(candidate_specs)} min_obs={min_obs} max_features={max_features}")    
 
     selected_specs: List[FeatureSpec] = []
     current_y: Optional[pd.Series] = None
@@ -218,9 +221,12 @@ def build_design_matrix_incremental(
         )
 
     # Now incrementally add features
-    for spec in candidate_specs:
+    for i, spec in enumerate(candidate_specs, start=1):
         if max_features is not None and len(selected_specs) >= max_features:
             break
+
+        if i % 50 == 0:
+            print(f"[inc-build] tried={i}/{len(candidate_specs)} accepted={len(selected_specs)}")
 
         trial_specs = selected_specs + [spec]
 
@@ -238,6 +244,10 @@ def build_design_matrix_incremental(
             # Accept this feature set
             selected_specs = trial_specs
             current_y, current_X, current_base = y_trial, X_trial, base_trial
+        
+            # Print first 10 accepts, then every 10 thereafter
+            if len(selected_specs) <= 10 or len(selected_specs) % 10 == 0:
+                print(f"[inc-build] +accept {spec.name} -> obs={len(y_trial)} feats={X_trial.shape[1]}")
 
     if current_y is None or current_X is None or current_base is None:
         # Fallback: try with just the first candidate as a last resort, enforcing min_obs
@@ -255,6 +265,7 @@ def build_design_matrix_incremental(
                 f"while preserving at least {min_obs} observations."
             )
 
+    print(f"[inc-build] DONE accepted={len(selected_specs)} obs={len(current_y)} feats={current_X.shape[1]}")
     return current_y, current_X, current_base, selected_specs
 
 # -----------------------------------------
