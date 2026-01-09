@@ -261,7 +261,7 @@ def run_backtest_sarimax_exog_single(
         return
 
     # TEMP DEBUG: limit candidates to speed up iteration
-    if TEMP_DEBUG_LIMIT != "None":
+    if TEMP_DEBUG_LIMIT is not None:
         candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
         print(f"[backtest_exog] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
 
