@@ -17,6 +17,7 @@ from .feature_loader import (
     build_design_matrix_incremental,
 )
 
+TEMP_DEBUG_LIMIT = 300 #set to 'None' when finished debugging
 
 # -----------------------------
 # DB helpers
@@ -218,7 +219,10 @@ def select_features_with_xgb(
 
     order = np.argsort(importances)[::-1]  # descending
     top = cols[order][:max_features]
-    top = [c for c in top if importances[cols == c][0] > 0]  # drop zero-importance
+    
+    #top = [c for c in top if importances[cols == c][0] > 0]  # drop zero-importance
+    imp = dict(zip(X_train.columns, importances))
+    top = [c for c in top if imp.get(c, 0) > 0]
 
     return top
 
@@ -255,6 +259,11 @@ def run_backtest_sarimax_exog_single(
     if not candidate_specs:
         print("[backtest_exog] No feature specs available; skipping SARIMAX-exog backtest.")
         return
+
+    # TEMP DEBUG: limit candidates to speed up iteration
+    if upper(TEMP_DEBUG_LIMIT) != "NONE"
+        candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
+        print(f"[backtest_exog] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
 
     try:
         y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
