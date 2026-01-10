@@ -15,6 +15,8 @@ from .feature_loader import (
     build_design_matrix_incremental,
 )
 
+from .backtest_utils import choose_anchor_dates
+
 TEMP_DEBUG_LIMIT = 300  # set to 'None' when finished debugging
 
 # -----------------------------
@@ -131,36 +133,6 @@ def insert_predictions_backtest(
     con.executemany(sql, records)
 
 
-# -----------------------------
-# Anchor selection (reuse SARIMAX logic)
-# -----------------------------
-
-def choose_anchor_indices(
-    y: pd.Series,
-    horizon: int,
-    min_train_len: int = 60,
-    max_anchors: int = 3,
-) -> List[int]:
-    """
-    Choose a few anchor indices for backtesting.
-    """
-    n = len(y)
-    if n < (min_train_len + horizon):
-        return []
-
-    last_idx = n - 1
-    max_anchor_idx = last_idx - horizon
-    min_anchor_idx = min_train_len - 1
-
-    anchors = []
-    idx = max_anchor_idx
-    while idx >= min_anchor_idx and len(anchors) < max_anchors:
-        anchors.append(idx)
-        idx -= 12
-
-    anchors.sort()
-    return anchors
-
 
 # -----------------------------
 # Helpers for iterative forecasting
@@ -258,20 +230,25 @@ def run_backtest_xgb_single(
         f"selected_series={len(selected_specs)}"
     )
 
+    anchors = choose_anchor_dates(
+        y_full,
+        horizon=horizon,
+        min_train_len=min_train_len,
+        step_months=12,
+        max_anchors=3,
+    )
     
-    anchors = choose_anchor_indices(y_full, horizon=horizon, min_train_len=60, max_anchors=3)
     if not anchors:
         print("[xgb_backtest] Not enough history to run backtests.")
         return
-
+    
     print(f"[xgb_backtest] Found {len(anchors)} anchors.")
     last_date = y_full.index[-1]
     feature_names = list(X_full.columns)
     results_summary = []
-
-    for idx in anchors:
-        anchor_date = y_full.index[idx]
-        print(f"\n[xgb_backtest] Anchor at index={idx}, date={anchor_date.date()}")
+    
+    for anchor_date in anchors:
+        print(f"\n[xgb_backtest] Anchor at date={anchor_date.date()}")
 
         y_train = y_full.loc[:anchor_date]
         X_train = X_full.loc[:anchor_date]
