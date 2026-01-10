@@ -15,7 +15,7 @@ from .feature_loader import (
     build_design_matrix_incremental,
 )
 
-
+TEMP_DEBUG_LIMIT = 300  # set to 'None' when finished debugging
 
 # -----------------------------
 # DB helpers
@@ -234,11 +234,17 @@ def run_backtest_xgb_single(
         print("[xgb_backtest] No candidate features; skipping XGB backtest.")
         return
 
+    if TEMP_DEBUG_LIMIT is not None:
+        candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
+        print(f"[xgb_backtest] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
+
+    min_train_len = 60
+    required_obs = min_train_len + horizon + 12 #<-- buffer
     try:
         y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
             target=target,
             candidate_specs=candidate_specs,
-            min_obs=60,
+            min_obs=required_obs,
             max_features=None,
         )
     except ValueError as e:
