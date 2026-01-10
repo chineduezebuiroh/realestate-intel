@@ -265,7 +265,8 @@ def run_backtest_sarimax_exog_single(
         candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
         print(f"[backtest_exog] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
 
-    required_obs = 60 + horizon + 12
+    min_train_len = 60
+    required_obs = min_train_len + horizon + 12 #<-- buffer
     try:
         y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
             target=target,
