@@ -229,6 +229,7 @@ def main():
     winner = scored.iloc[0]["model_name"]
     print(f"\n[select] WINNER = {winner} (score={scored.iloc[0]['score']:.4f} using {args.metric} @ horizons={horizons})")
 
+    """
     if args.promote:
         # flip existing live runs off, then run live forecast for winner
         print("[select] Deactivating existing live runs for this target...")
@@ -237,7 +238,20 @@ def main():
         print("[select] Promotion complete.")
 
     con.close()
+    """
 
+    if args.promote:
+        print("[select] Deactivating existing live runs for this target...")
+        deactivate_live_runs(con, target)
+    
+        # IMPORTANT: release DuckDB lock before spawning subprocess
+        con.close()
+    
+        promote_winner(winner, target, horizon=args.live_horizon)
+        print("[select] Promotion complete.")
+        return
+    
+    con.close()
 
 if __name__ == "__main__":
     main()
