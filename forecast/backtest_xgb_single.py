@@ -15,6 +15,13 @@ from .feature_loader import (
     build_design_matrix_incremental,
 )
 
+from .db_forecast import (
+    get_connection,
+    new_batch_id,
+    insert_run,
+    insert_predictions,
+)
+
 from .backtest_utils import (
     choose_anchor_dates, 
     DEFAULT_MIN_TRAIN_LEN,
@@ -25,125 +32,10 @@ from .backtest_utils import (
 
 TEMP_DEBUG_LIMIT = 300  # set to 'None' when finished debugging
 
-# -----------------------------
-# DB helpers
-# -----------------------------
 
-def get_connection():
-    db_path = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
-    return duckdb.connect(db_path)
-
-
-def _next_run_id(con) -> int:
-    row = con.execute("SELECT COALESCE(MAX(run_id), 0) + 1 FROM forecast_runs").fetchone()
-    return int(row[0])
-
-
-def insert_forecast_run_backtest(
-    target: TargetSpec,
-    train_start: pd.Timestamp,
-    train_end: pd.Timestamp,
-    horizon_max_months: int,
-    algo_params: Dict,
-    anchor_date: pd.Timestamp,
-) -> int:
-    """
-    Insert an XGBoost backtest run into forecast_runs.
-    Mark is_active = FALSE so these are never used as live forecasts.
-    """
-    con = get_connection()
-    run_id = _next_run_id(con)
-
-    import json
-    notes = f"XGB backtest anchor={anchor_date.date()}"
-
-    sql = """
-        INSERT INTO forecast_runs (
-            run_id,
-            model_name,
-            model_version,
-            target_metric_id,
-            target_geo_id,
-            target_property_type_id,
-            freq,
-            train_start,
-            train_end,
-            horizon_max_months,
-            algo_params_json,
-            notes,
-            is_active
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)
-    """
-
-    params = [
-        run_id,
-        "xgb_backtest",
-        "v1",
-        target.metric_id,
-        target.geo_id,
-        target.property_type_id,
-        "M",
-        train_start.date(),
-        train_end.date(),
-        horizon_max_months,
-        json.dumps(algo_params),
-        notes,
-    ]
-
-    con.execute(sql, params)
-    return run_id
-
-
-def insert_predictions_backtest(
-    run_id: int,
-    forecast_values: np.ndarray,
-    last_date: pd.Timestamp,
-    horizon_max_months: int,
-):
-    """
-    Insert XGBoost backtest predictions into forecast_predictions.
-    No intervals here (y_hat_lo/hi = NULL).
-    """
-    con = get_connection()
-
-    last_period = last_date.to_period("M")
-    future_periods = [last_period + i for i in range(1, horizon_max_months + 1)]
-    target_dates = [p.to_timestamp(how="end") for p in future_periods]
-
-    records = []
-    for i, (dt, y_hat) in enumerate(zip(target_dates, forecast_values), start=1):
-        records.append(
-            (
-                run_id,
-                dt.date(),
-                i,       # horizon_steps
-                i,       # horizon_months
-                float(y_hat),
-                None,    # y_hat_lo
-                None,    # y_hat_hi
-            )
-        )
-
-    sql = """
-        INSERT INTO forecast_predictions (
-            run_id,
-            target_date,
-            horizon_steps,
-            horizon_months,
-            y_hat,
-            y_hat_lo,
-            y_hat_hi
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """
-    con.executemany(sql, records)
-
-
-
-# -----------------------------
+# ==========================================================
 # Helpers for iterative forecasting
-# -----------------------------
-
+# ==========================================================
 def _truncate_base_series_to_anchor(
     base_series: Dict[str, pd.Series],
     anchor_date: pd.Timestamp,
@@ -229,6 +121,15 @@ def run_backtest_xgb_single(
         print(f"[xgb_backtest] Incremental design matrix build failed: {e}")
         print("[xgb_backtest] Skipping XGB backtest for this target.")
         return
+
+    y_full = y_full.copy()
+    X_full = X_full.copy()
+    y_full.index = pd.PeriodIndex(y_full.index, freq="M").to_timestamp(how="end")
+    X_full.index = y_full.index
+
+    batch_id = new_batch_id()
+    data_asof = y_full.index.max().date()
+    print(f"[xgb_backtest] batch_id={batch_id} data_asof={data_asof}")
 
     print(
         f"[xgb_backtest] Final design matrix: "
@@ -343,6 +244,7 @@ def run_backtest_xgb_single(
             "n_features": int(X_train.shape[1]),
         }
 
+        """
         run_id = insert_forecast_run_backtest(
             target=target,
             train_start=y_train.index[0],
@@ -358,6 +260,54 @@ def run_backtest_xgb_single(
             last_date=anchor_date,
             horizon_max_months=horizon_bt,
         )
+        """
+
+        con = get_connection()
+
+        algo_params = {
+            "model": "XGBRegressor",
+            "n_estimators": 400,
+            "max_depth": 4,
+            "learning_rate": 0.05,
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "n_obs": int(y_train.shape[0]),
+            "n_features": int(X_train.shape[1]),
+        }
+        
+        run_id = insert_run(
+            con=con,
+            model_name="xgb_backtest",
+            model_version="v1",
+            target_metric_id=target.metric_id,
+            target_geo_id=target.geo_id,
+            target_property_type_id=target.property_type_id,
+            freq="M",
+            train_start=y_train.index[0].date(),
+            train_end=anchor_date.date(),
+            horizon_max_months=horizon_bt,
+            algo_params=algo_params,
+            notes=f"XGB backtest anchor={anchor_date.date()}",
+            is_active=False,
+            run_kind="backtest",
+            batch_id=batch_id,
+            data_asof=data_asof,
+        )
+        
+        last_period = anchor_date.to_period("M")
+        future_periods = [last_period + i for i in range(1, horizon_bt + 1)]
+        target_dates = [p.to_timestamp(how="end").date() for p in future_periods]
+        
+        insert_predictions(
+            con=con,
+            run_id=run_id,
+            target_dates=target_dates,
+            y_hat=preds_array,
+            y_hat_lo=None,
+            y_hat_hi=None,
+        )
+        
+        con.close()
 
         print(f"[xgb_backtest] Created XGB backtest run_id={run_id} for anchor={anchor_date.date()}")
         results_summary.append({"anchor_date": anchor_date, "run_id": run_id})
