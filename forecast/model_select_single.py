@@ -42,25 +42,29 @@ def latest_batch_eval_long(
       model_name, horizon_months, mae_avg, rmse_avg, mape_avg, n_runs, batch_start, batch_end
     """
 
+    models_sql = "(" + ",".join([f"'{m}'" for m in BACKTEST_MODELS]) + ")"
+
     q = f"""
     WITH candidate_runs AS (
-      SELECT run_id, model_name, created_at
+      SELECT *
       FROM forecast_runs
       WHERE target_metric_id = ?
         AND target_geo_id = ?
         AND target_property_type_id = ?
-        AND model_name IN {BACKTEST_MODELS}
+        AND run_kind = 'backtest'
+        AND model_name IN {models_sql}
     ),
-    latest_per_model AS (
-      SELECT model_name, MAX(created_at) AS max_created_at
+    latest_batch AS (
+      SELECT batch_id
       FROM candidate_runs
-      GROUP BY model_name
+      WHERE batch_id IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 1
     ),
-    latest_batch_runs AS (
-      SELECT r.run_id, r.model_name, r.created_at
-      FROM candidate_runs r
-      JOIN latest_per_model m USING (model_name)
-      WHERE r.created_at >= m.max_created_at - INTERVAL '{batch_hours} hours'
+    batch_runs AS (
+      SELECT run_id, model_name, created_at
+      FROM candidate_runs
+      WHERE batch_id = (SELECT batch_id FROM latest_batch)
     ),
     eval AS (
       SELECT
@@ -71,7 +75,7 @@ def latest_batch_eval_long(
         e.mae,
         e.rmse,
         e.mape
-      FROM latest_batch_runs r
+      FROM batch_runs r
       JOIN v_forecast_eval_long e USING (run_id)
     )
     SELECT
