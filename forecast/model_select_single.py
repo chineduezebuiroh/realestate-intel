@@ -32,14 +32,14 @@ def connect() -> duckdb.DuckDBPyConnection:
     return duckdb.connect(db_path)
 
 
-def latest_batch_eval(
+def latest_batch_eval_long(
     con: duckdb.DuckDBPyConnection,
     target: Target,
     batch_hours: int,
 ) -> pd.DataFrame:
     """
-    Returns a scoreboard dataframe for ONLY the latest batch per model_name.
-    "Latest batch" is defined per model_name as runs with created_at >= (max_created_at - batch_hours).
+    Returns long-form eval rows for ONLY the latest batch per model_name:
+      model_name, horizon_months, mae_avg, rmse_avg, mape_avg, n_runs, batch_start, batch_end
     """
 
     q = f"""
@@ -63,73 +63,98 @@ def latest_batch_eval(
       WHERE r.created_at >= m.max_created_at - INTERVAL '{batch_hours} hours'
     ),
     eval AS (
-      SELECT r.model_name, r.created_at, e.*
+      SELECT
+        r.model_name,
+        r.created_at,
+        e.run_id,
+        e.horizon_months,
+        e.mae,
+        e.rmse,
+        e.mape
       FROM latest_batch_runs r
-      JOIN v_forecast_eval e USING (run_id)
+      JOIN v_forecast_eval_long e USING (run_id)
     )
     SELECT
       model_name,
-      COUNT(*) AS n_runs,
-      AVG(mape_1m)  AS mape_1m_avg,
-      AVG(mape_3m)  AS mape_3m_avg,
-      AVG(mape_6m)  AS mape_6m_avg,
-      AVG(mape_12m) AS mape_12m_avg,
-
-      AVG(mae_1m)   AS mae_1m_avg,
-      AVG(mae_3m)   AS mae_3m_avg,
-      AVG(mae_6m)   AS mae_6m_avg,
-      AVG(mae_12m)  AS mae_12m_avg,
-
-      AVG(rmse_1m)  AS rmse_1m_avg,
-      AVG(rmse_3m)  AS rmse_3m_avg,
-      AVG(rmse_6m)  AS rmse_6m_avg,
-      AVG(rmse_12m) AS rmse_12m_avg,
-
+      horizon_months,
+      COUNT(DISTINCT run_id) AS n_runs,
+      AVG(mae)  AS mae_avg,
+      AVG(rmse) AS rmse_avg,
+      AVG(mape) AS mape_avg,
       MIN(created_at) AS batch_start,
       MAX(created_at) AS batch_end
     FROM eval
-    GROUP BY model_name
-    ORDER BY model_name;
+    GROUP BY model_name, horizon_months
+    ORDER BY model_name, horizon_months;
     """
 
-    df = con.execute(q, [target.metric_id, target.geo_id, target.property_type_id]).fetchdf()
-    return df
+    return con.execute(q, [target.metric_id, target.geo_id, target.property_type_id]).fetchdf()
 
 
-def compute_weighted_score(
-    df: pd.DataFrame,
+def compute_weighted_score_long(
+    df_long: pd.DataFrame,
     metric: str,
     horizons: List[int],
     weights: List[float],
+    strict: bool = True,
 ) -> pd.DataFrame:
     """
-    Adds `score` column to df using selected metric+ horizons.
-    metric: "rmse" or "mae" or "mape"
-    horizons: e.g. [3,6,12]
-    weights:  same length, sums to 1 ideally
-    """
-    if len(horizons) != len(weights):
-        raise ValueError("horizons and weights must be same length")
+    df_long columns expected:
+      model_name, horizon_months, <metric>_avg, n_runs, batch_start, batch_end
 
+    Returns one row per model_name with a weighted score across requested horizons.
+    If strict=True, model must have ALL requested horizons or it is excluded.
+    """
     metric = metric.lower()
     allowed = {"rmse", "mae", "mape"}
     if metric not in allowed:
         raise ValueError(f"metric must be one of {sorted(allowed)}")
 
-    score = 0.0
-    for h, w in zip(horizons, weights):
-        col = f"{metric}_{h}m_avg"
-        if col not in df.columns:
-            raise ValueError(f"Missing required column in scoreboard: {col}")
-        score = score + w * df[col]
+    if len(horizons) != len(weights):
+        raise ValueError("horizons and weights must be same length")
 
-    out = df.copy()
-    out["score_metric"] = metric
-    out["score_horizons"] = ",".join(map(str, horizons))
-    out["score_weights"] = ",".join(map(str, weights))
-    out["score"] = score
-    out = out.sort_values("score", ascending=True).reset_index(drop=True)
-    return out
+    # normalize weights (so caller can pass 2,5,3)
+    s = sum(weights)
+    if s <= 0:
+        raise ValueError("weights must sum to > 0")
+    weights = [w / s for w in weights]
+
+    value_col = f"{metric}_avg"
+
+    out_rows = []
+    for model_name, g in df_long.groupby("model_name"):
+        g2 = g.set_index("horizon_months")
+
+        missing = [h for h in horizons if h not in g2.index]
+        if missing and strict:
+            continue
+
+        score = 0.0
+        used = 0
+        for h, w in zip(horizons, weights):
+            if h in g2.index:
+                score += w * float(g2.loc[h, value_col])
+                used += 1
+
+        if used == 0:
+            continue
+
+        out_rows.append({
+            "model_name": model_name,
+            "n_runs": int(g["n_runs"].max()),  # per horizon it's same; take max
+            "batch_start": g["batch_start"].min(),
+            "batch_end": g["batch_end"].max(),
+            "score_metric": metric,
+            "score_horizons": ",".join(map(str, horizons)),
+            "score_weights": ",".join(map(lambda x: f"{x:.4g}", weights)),
+            "score": float(score),
+            "missing_horizons": ",".join(map(str, missing)) if missing else "",
+        })
+
+    scored = pd.DataFrame(out_rows)
+    if scored.empty:
+        return scored
+    return scored.sort_values("score", ascending=True).reset_index(drop=True)
 
 
 def deactivate_live_runs(con: duckdb.DuckDBPyConnection, target: Target) -> int:
@@ -199,6 +224,7 @@ def main():
         raise SystemExit("[select] Weights must sum to a positive number.")
     weights = [w / s for w in weights]
 
+    """
     allowed = {1, 3, 6, 12}
     bad = [h for h in horizons if h not in allowed]
     if bad:
@@ -206,9 +232,11 @@ def main():
             f"[select] Horizons not supported yet: {bad}. "
             f"Available horizons in v_forecast_eval: {sorted(allowed)}"
         )
+    """
         
     con = connect()
 
+    """
     df = latest_batch_eval(con, target, batch_hours=args.batch_hours)
     if df.empty:
         raise SystemExit("[select] No backtest runs found for this target in the DB.")
@@ -228,6 +256,39 @@ def main():
 
     winner = scored.iloc[0]["model_name"]
     print(f"\n[select] WINNER = {winner} (score={scored.iloc[0]['score']:.4f} using {args.metric} @ horizons={horizons})")
+    """
+
+    df_long = latest_batch_eval_long(con, target, batch_hours=args.batch_hours)
+    if df_long.empty:
+        raise SystemExit("[select] No backtest eval rows found for this target in the DB.")
+    
+    scored = compute_weighted_score_long(
+        df_long,
+        metric=args.metric,
+        horizons=horizons,
+        weights=weights,
+        strict=True,
+    )
+    
+    if scored.empty:
+        # Useful diagnostics: show what horizons exist
+        have = (
+            df_long.groupby("model_name")["horizon_months"]
+            .apply(lambda s: ",".join(map(str, sorted(set(s)))))
+            .reset_index(name="available_horizons")
+        )
+        print("[select] No model had all requested horizons. Available horizons by model:")
+        print(have.to_string(index=False))
+        raise SystemExit(1)
+    
+    print("\n[select] Latest-batch scoreboard (per model family):")
+    print(scored.to_string(index=False))
+    
+    winner = scored.iloc[0]["model_name"]
+    print(
+        f"\n[select] WINNER = {winner} "
+        f"(score={scored.iloc[0]['score']:.4f} using {args.metric} @ horizons={horizons})"
+    )
 
     """
     if args.promote:
