@@ -6,6 +6,15 @@ from typing import List, Optional
 import pandas as pd
 
 
+# ========================================================
+# Constants
+# ========================================================
+DEFAULT_MIN_TRAIN_LEN = 72          # your chosen standard
+DEFAULT_ANCHOR_STEP_MONTHS = 12
+DEFAULT_MAX_ANCHORS = 4
+DEFAULT_ANCHOR_BUFFER_MONTHS = 12   # extra slack beyond horizon
+
+
 def _month_end(ts: pd.Timestamp) -> pd.Timestamp:
     """Force timestamp to month-end (consistent with your series)."""
     p = pd.Timestamp(ts).to_period("M")
