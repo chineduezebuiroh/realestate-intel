@@ -329,7 +329,7 @@ if __name__ == "__main__":
         geo_id=args.geo_id,
         property_type_id=args.property_type_id,
         horizon_max_months=args.horizon,
-        notes="CLI SARIMAX demo run",
+        notes="AUTO: promoted winner from model_select_single - SARIMAX",
     )
 
     print(f"Created forecast run_id={run_id}")
