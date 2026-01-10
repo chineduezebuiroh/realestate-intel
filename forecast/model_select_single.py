@@ -63,7 +63,7 @@ def latest_batch_eval(
       WHERE r.created_at >= m.max_created_at - INTERVAL '{batch_hours} hours'
     ),
     eval AS (
-      SELECT r.model_name, e.*
+      SELECT r.model_name, r.created_at, e.*
       FROM latest_batch_runs r
       JOIN v_forecast_eval e USING (run_id)
     )
