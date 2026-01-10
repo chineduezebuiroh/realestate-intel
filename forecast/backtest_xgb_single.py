@@ -302,6 +302,7 @@ def run_backtest_xgb_single(
         )
         model.fit(X_train, y_train)
 
+        """
         # Prepare truncated base_series up to anchor
         series = _truncate_base_series_to_anchor(base_series_full, anchor_date)
 
@@ -333,6 +334,19 @@ def run_backtest_xgb_single(
             series["y"].loc[next_date] = y_hat
 
         preds_array = np.array(preds, dtype=float)
+        """
+
+        # ---- Phase A placeholder future features ----
+        # Carry-forward the last observed feature row for all future steps.
+        last_row = X_train.iloc[[-1]]  # (1, n_features)
+        
+        # Build (horizon_bt, n_features) by repeating last_row
+        X_future = pd.concat([last_row] * horizon_bt, ignore_index=True)
+        
+        # Predict all steps in one shot
+        preds_array = model.predict(X_future).astype(float)
+
+
 
         algo_params = {
             "model": "XGBRegressor",
