@@ -219,7 +219,7 @@ def run_backtest_sarimax_single(
     anchors = choose_anchor_dates(
         s,
         horizon=horizon,
-        min_train_len=60,
+        min_train_len=72,
         step_months=args.anchor_step_months,
         max_anchors=args.max_anchors,
         latest_anchor_offset_months=args.latest_anchor_offset_months,
