@@ -8,7 +8,13 @@ import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-from .backtest_utils import choose_anchor_dates
+from .backtest_utils import (
+    choose_anchor_dates, 
+    DEFAULT_MIN_TRAIN_LEN,
+    DEFAULT_ANCHOR_STEP_MONTHS,
+    DEFAULT_MAX_ANCHORS,
+    DEFAULT_ANCHOR_BUFFER_MONTHS,
+)
 
 # -----------------------------
 # DB helpers
@@ -219,12 +225,12 @@ def run_backtest_sarimax_single(
     anchors = choose_anchor_dates(
         s,
         horizon=horizon,
-        min_train_len=72,
+        min_train_len=DEFAULT_MIN_TRAIN_LEN,
         step_months=args.anchor_step_months,
         max_anchors=args.max_anchors,
         latest_anchor_offset_months=args.latest_anchor_offset_months,
     )
-    
+
     if not anchors:
         print("[backtest] Not enough history to run backtests.")
         return
@@ -311,10 +317,9 @@ if __name__ == "__main__":
     parser.add_argument("--property_type_id", default="-1")
     parser.add_argument("--horizon", type=int, default=12)
 
-    parser.add_argument("--anchor_step_months", type=int, default=12)
-    parser.add_argument("--max_anchors", type=int, default=4)
+    parser.add_argument("--anchor_step_months", type=int, default=DEFAULT_ANCHOR_STEP_MONTHS)
+    parser.add_argument("--max_anchors", type=int, default=DEFAULT_MAX_ANCHORS)
     parser.add_argument("--latest_anchor_offset_months", type=int, default=None)
-
 
     args = parser.parse_args()
 
