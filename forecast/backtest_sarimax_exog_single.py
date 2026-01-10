@@ -24,7 +24,13 @@ from .db_forecast import (
     store_selected_features_in_params,
 )
 
-from .backtest_utils import choose_anchor_dates
+from .backtest_utils import (
+    choose_anchor_dates, 
+    DEFAULT_MIN_TRAIN_LEN,
+    DEFAULT_ANCHOR_STEP_MONTHS,
+    DEFAULT_MAX_ANCHORS,
+    DEFAULT_ANCHOR_BUFFER_MONTHS,
+)
 
 TEMP_DEBUG_LIMIT = 300 #set to 'None' when finished debugging
 
@@ -121,8 +127,8 @@ def run_backtest_sarimax_exog_single(
         candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
         print(f"[backtest_exog] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
 
-    min_train_len = 72
-    required_obs = min_train_len + horizon + 12 #<-- buffer
+    min_train_len = args.min_train_len
+    required_obs = min_train_len + horizon + DEFAULT_ANCHOR_BUFFER_MONTHS
     try:
         y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
             target=target,
@@ -350,10 +356,10 @@ if __name__ == "__main__":
         help="Disable XGB-based feature selection and use all exog features.",
     )
 
-    parser.add_argument("--anchor_step_months", type=int, default=12)
-    parser.add_argument("--max_anchors", type=int, default=4)
+    parser.add_argument("--min_train_len", type=int, default=DEFAULT_MIN_TRAIN_LEN)
+    parser.add_argument("--anchor_step_months", type=int, default=DEFAULT_ANCHOR_STEP_MONTHS)
+    parser.add_argument("--max_anchors", type=int, default=DEFAULT_MAX_ANCHORS)
     parser.add_argument("--latest_anchor_offset_months", type=int, default=None)
-
 
     args = parser.parse_args()
 
