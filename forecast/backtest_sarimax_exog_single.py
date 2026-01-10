@@ -24,45 +24,14 @@ from .db_forecast import (
     store_selected_features_in_params,
 )
 
+from .backtest_utils import choose_anchor_dates
+
 TEMP_DEBUG_LIMIT = 300 #set to 'None' when finished debugging
 
 
 # ==========================================================
-# Anchor selection
-# ==========================================================
-def choose_anchor_indices(
-    y: pd.Series,
-    horizon: int,
-    min_train_len: int = 60,
-    max_anchors: int = 3,
-) -> List[int]:
-    """
-    Same logic as univariate backtest:
-    - Work backwards from the latest possible anchor (last_idx - horizon)
-    - Ensure at least min_train_len observations before anchor
-    - Step back 12 months per anchor
-    """
-    n = len(y)
-    if n < (min_train_len + horizon):
-        return []
-
-    last_idx = n - 1
-    max_anchor_idx = last_idx - horizon
-    min_anchor_idx = min_train_len - 1
-
-    anchors = []
-    idx = max_anchor_idx
-    while idx >= min_anchor_idx and len(anchors) < max_anchors:
-        anchors.append(idx)
-        idx -= 12
-
-    anchors.sort()
-    return anchors
-
-
-# -----------------------------
 # Default "kitchen sink" spec for this target
-# -----------------------------
+# ==========================================================
     
 def get_default_feature_specs_for_target(
     metric_id: str,
@@ -182,18 +151,24 @@ def run_backtest_sarimax_exog_single(
     data_asof = y_full.index.max().date()
     print(f"[backtest_exog] batch_id={batch_id} data_asof={data_asof}")
 
-    anchors = choose_anchor_indices(y_full, horizon=horizon, min_train_len=60, max_anchors=3)
+    anchors = choose_anchor_dates(
+        y_full,
+        horizon=horizon,
+        min_train_len=min_train_len,   # use your variable, not a magic 60
+        step_months=12,
+        max_anchors=3,
+    )
+    
     if not anchors:
         print("[backtest_exog] Not enough history to run backtests.")
         return
-
+    
     print(f"[backtest_exog] Found {len(anchors)} anchors.")
     last_date = y_full.index[-1]
     results_summary = []
-
-    for idx in anchors:
-        anchor_date = y_full.index[idx]
-        print(f"\n[backtest_exog] Anchor at index={idx}, date={anchor_date.date()}")
+    
+    for anchor_date in anchors:
+        print(f"\n[backtest_exog] Anchor at date={anchor_date.date()}")
 
         # Training data up to anchor_date
         y_train = y_full.loc[:anchor_date]
