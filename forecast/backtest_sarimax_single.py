@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+from .backtest_utils import choose_anchor_dates
 
 # -----------------------------
 # DB helpers
@@ -215,19 +216,25 @@ def run_backtest_sarimax_single(
     """
     s = load_target_series(metric_id, geo_id, property_type_id)
 
-    anchors = choose_anchor_indices(s, horizon=horizon, min_train_len=60)
+    anchors = choose_anchor_dates(
+        s,
+        horizon=horizon,
+        min_train_len=60,
+        step_months=12,
+        max_anchors=3,
+    )
+    
     if not anchors:
         print("[backtest] Not enough history to run backtests.")
         return
-
+    
     print(f"[backtest] Found {len(anchors)} anchors.")
-
+    
     last_date = s.index[-1]
     results_summary = []
 
-    for idx in anchors:
-        anchor_date = s.index[idx]
-        print(f"\n[backtest] Anchor at index={idx}, date={anchor_date.date()}")
+    for anchor_date in anchors:
+        print(f"\n[backtest] Anchor at date={anchor_date.date()}")
 
         # Training series: all data up to and including anchor_date
         y_train = s.loc[:anchor_date]
