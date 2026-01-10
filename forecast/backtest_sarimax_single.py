@@ -8,6 +8,13 @@ import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+from .db_forecast import (
+    get_connection,
+    new_batch_id,
+    insert_run,
+    insert_predictions,
+)
+
 from .backtest_utils import (
     choose_anchor_dates, 
     DEFAULT_MIN_TRAIN_LEN,
@@ -16,134 +23,10 @@ from .backtest_utils import (
     DEFAULT_ANCHOR_BUFFER_MONTHS,
 )
 
-# -----------------------------
-# DB helpers
-# -----------------------------
 
-def get_connection():
-    db_path = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
-    return duckdb.connect(db_path)
-
-
-def _next_run_id(con) -> int:
-    row = con.execute("SELECT COALESCE(MAX(run_id), 0) + 1 FROM forecast_runs").fetchone()
-    return int(row[0])
-
-
-def insert_forecast_run_backtest(
-    metric_id: str,
-    geo_id: str,
-    property_type_id: str,
-    train_start: pd.Timestamp,
-    train_end: pd.Timestamp,
-    horizon_max_months: int,
-    algo_params: Dict,
-    anchor_date: pd.Timestamp,
-) -> int:
-    """
-    Insert a backtest run into forecast_runs.
-    Mark is_active = FALSE (we don't want backtest runs to drive 'active' forecasts).
-    """
-    con = get_connection()
-    run_id = _next_run_id(con)
-
-    sql = """
-        INSERT INTO forecast_runs (
-            run_id,
-            model_name,
-            model_version,
-            target_metric_id,
-            target_geo_id,
-            target_property_type_id,
-            freq,
-            train_start,
-            train_end,
-            horizon_max_months,
-            algo_params_json,
-            notes,
-            is_active
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)
-    """
-
-    notes = f"SARIMAX backtest anchor={anchor_date.date()}"
-
-    params = [
-        run_id,
-        "sarimax_backtest",
-        "v1",
-        metric_id,
-        geo_id,
-        property_type_id,
-        "M",
-        train_start.date(),
-        train_end.date(),
-        horizon_max_months,
-        algo_params,
-        notes,
-    ]
-
-    # algo_params_json needs to be JSON string; DuckDB will convert from Python dict if needed,
-    # but to be explicit we cast to JSON via CAST(? AS JSON) if you prefer. For simplicity, we rely
-    # on DuckDB's JSON type accepting text; here we'll just pass a stringified JSON.
-    import json
-    params[10] = json.dumps(algo_params)
-
-    con.execute(sql, params)
-    return run_id
-
-
-def insert_predictions_backtest(
-    run_id: int,
-    forecast_values: np.ndarray,
-    conf_int: np.ndarray,
-    last_date: pd.Timestamp,
-    horizon_max_months: int,
-):
-    con = get_connection()
-
-    last_period = last_date.to_period("M")
-    future_periods = [last_period + i for i in range(1, horizon_max_months + 1)]
-    target_dates = [p.to_timestamp(how="end") for p in future_periods]
-
-    records = []
-    for i, (dt, y_hat, ci_row) in enumerate(zip(target_dates, forecast_values, conf_int), start=1):
-        horizon_steps = i
-        horizon_months = i
-        y_hat = float(y_hat)
-        y_hat_lo = float(ci_row[0]) if ci_row is not None else None
-        y_hat_hi = float(ci_row[1]) if ci_row is not None else None
-
-        records.append(
-            (
-                run_id,
-                dt.date(),
-                horizon_steps,
-                horizon_months,
-                y_hat,
-                y_hat_lo,
-                y_hat_hi,
-            )
-        )
-
-    sql = """
-        INSERT INTO forecast_predictions (
-            run_id,
-            target_date,
-            horizon_steps,
-            horizon_months,
-            y_hat,
-            y_hat_lo,
-            y_hat_hi
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """
-    con.executemany(sql, records)
-
-
-# -----------------------------
+# ==========================================================
 # Core backtest logic
-# -----------------------------
-
+# ==========================================================
 def load_target_series(
     metric_id: str,
     geo_id: str,
@@ -222,6 +105,13 @@ def run_backtest_sarimax_single(
     """
     s = load_target_series(metric_id, geo_id, property_type_id)
 
+    s = s.copy()
+    s.index = pd.PeriodIndex(s.index, freq="M").to_timestamp(how="end")
+
+    batch_id = new_batch_id()
+    data_asof = s.index.max().date()
+    print(f"[backtest] batch_id={batch_id} data_asof={data_asof}")
+
     anchors = choose_anchor_dates(
         s,
         horizon=horizon,
@@ -281,6 +171,7 @@ def run_backtest_sarimax_single(
             "anchor_date": str(anchor_date.date()),
         }
 
+        """
         run_id = insert_forecast_run_backtest(
             metric_id=metric_id,
             geo_id=geo_id,
@@ -299,6 +190,51 @@ def run_backtest_sarimax_single(
             last_date=anchor_date,
             horizon_max_months=horizon_bt,
         )
+        """
+
+        con = get_connection()
+        
+        algo_params = {
+            "order": (1, 1, 1),
+            "seasonal_order": (1, 1, 1, 12),
+            "n_obs": int(len(y_train)),
+            "anchor_date": str(anchor_date.date()),
+        }
+        
+        run_id = insert_run(
+            con=con,
+            model_name="sarimax_backtest",
+            model_version="v1",
+            target_metric_id=metric_id,
+            target_geo_id=geo_id,
+            target_property_type_id=property_type_id,
+            freq="M",
+            train_start=y_train.index[0].date(),
+            train_end=anchor_date.date(),
+            horizon_max_months=horizon_bt,
+            algo_params=algo_params,
+            notes=f"SARIMAX backtest anchor={anchor_date.date()}",
+            is_active=False,
+            run_kind="backtest",
+            batch_id=batch_id,
+            data_asof=data_asof,
+        )
+        
+        last_period = anchor_date.to_period("M")
+        future_periods = [last_period + i for i in range(1, horizon_bt + 1)]
+        target_dates = [p.to_timestamp(how="end").date() for p in future_periods]
+        
+        insert_predictions(
+            con=con,
+            run_id=run_id,
+            target_dates=target_dates,
+            y_hat=mean_fc,
+            y_hat_lo=ci[:, 0] if ci is not None else None,
+            y_hat_hi=ci[:, 1] if ci is not None else None,
+        )
+        
+        con.close()
+
 
         print(f"[backtest] Created backtest run_id={run_id} for anchor={anchor_date.date()}")
         results_summary.append({"anchor_date": anchor_date, "run_id": run_id})
