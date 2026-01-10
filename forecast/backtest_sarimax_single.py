@@ -220,8 +220,9 @@ def run_backtest_sarimax_single(
         s,
         horizon=horizon,
         min_train_len=60,
-        step_months=12,
-        max_anchors=3,
+        step_months=args.anchor_step_months,
+        max_anchors=args.max_anchors,
+        latest_anchor_offset_months=args.latest_anchor_offset_months,
     )
     
     if not anchors:
@@ -309,6 +310,11 @@ if __name__ == "__main__":
     parser.add_argument("--geo_id", default="dc_city")
     parser.add_argument("--property_type_id", default="-1")
     parser.add_argument("--horizon", type=int, default=12)
+
+    parser.add_argument("--anchor_step_months", type=int, default=12)
+    parser.add_argument("--max_anchors", type=int, default=4)
+    parser.add_argument("--latest_anchor_offset_months", type=int, default=None)
+
 
     args = parser.parse_args()
 
