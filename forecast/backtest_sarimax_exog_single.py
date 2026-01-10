@@ -121,7 +121,7 @@ def run_backtest_sarimax_exog_single(
         candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
         print(f"[backtest_exog] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
 
-    min_train_len = 60
+    min_train_len = 72
     required_obs = min_train_len + horizon + 12 #<-- buffer
     try:
         y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
@@ -155,8 +155,9 @@ def run_backtest_sarimax_exog_single(
         y_full,
         horizon=horizon,
         min_train_len=min_train_len,   # use your variable, not a magic 60
-        step_months=12,
-        max_anchors=3,
+        step_months=args.anchor_step_months,
+        max_anchors=args.max_anchors,
+        latest_anchor_offset_months=args.latest_anchor_offset_months,
     )
     
     if not anchors:
@@ -348,6 +349,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable XGB-based feature selection and use all exog features.",
     )
+
+    parser.add_argument("--anchor_step_months", type=int, default=12)
+    parser.add_argument("--max_anchors", type=int, default=4)
+    parser.add_argument("--latest_anchor_offset_months", type=int, default=None)
+
 
     args = parser.parse_args()
 
