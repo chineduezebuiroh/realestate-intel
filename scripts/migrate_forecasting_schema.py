@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS forecast_runs (
     is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
+
 -- 2) Forecasted values per (run_id, target_date)
 CREATE TABLE IF NOT EXISTS forecast_predictions (
     run_id BIGINT NOT NULL,
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS forecast_predictions (
     PRIMARY KEY (run_id, target_date),
     FOREIGN KEY (run_id) REFERENCES forecast_runs(run_id)
 );
+
 
 -- 3) Evaluation view — per run_id, multi-horizon metrics
 --    Assumes monthly data + horizons 1,3,6,12 months
@@ -93,6 +95,41 @@ SELECT
     MAX(CASE WHEN horizon_months = 12 THEN rmse END) AS rmse_12m
 FROM per_horizon
 GROUP BY run_id;
+
+
+-- 4) Evaluation view — per run_id, multi-horizon metrics
+--    True flexible horizons means eval needs to be long-form by horizon.
+CREATE OR REPLACE VIEW v_forecast_eval_long AS
+WITH joined AS (
+    SELECT
+        p.run_id,
+        p.target_date,
+        p.horizon_months,
+        p.y_hat,
+        f.value AS actual
+    FROM forecast_predictions p
+    JOIN forecast_runs r ON r.run_id = p.run_id
+    JOIN fact_timeseries f
+      ON f.metric_id = r.target_metric_id
+     AND f.geo_id = r.target_geo_id
+     AND (
+         (f.property_type_id IS NULL AND r.target_property_type_id IS NULL)
+         OR (f.property_type_id = r.target_property_type_id)
+     )
+     AND f.date = p.target_date
+),
+errs AS (
+    SELECT
+        run_id,
+        horizon_months,
+        AVG(ABS(actual - y_hat)) AS mae,
+        SQRT(AVG(POWER(actual - y_hat, 2))) AS rmse,
+        AVG(ABS((actual - y_hat) / NULLIF(actual, 0))) * 100.0 AS mape
+    FROM joined
+    WHERE actual IS NOT NULL
+    GROUP BY run_id, horizon_months
+)
+SELECT * FROM errs;
 """
 
 def migrate():
