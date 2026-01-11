@@ -151,6 +151,17 @@ def compute_weighted_score_long(
 
     out_rows = []
     for model_name, g in df_long.groupby("model_name"):
+        g = (
+            g.groupby("horizon_months", as_index=False)
+             .agg({
+                 value_col: "mean",
+                 "n_runs": "max",
+                 "batch_start": "min",
+                 "batch_end": "max",
+                 **({"batch_id": "max"} if "batch_id" in g.columns else {}),
+             })
+        )
+
         g2 = g.set_index("horizon_months")
 
         missing = [h for h in horizons if h not in g2.index]
@@ -164,6 +175,8 @@ def compute_weighted_score_long(
         
         # Renormalize weights over the used horizons (strict=False behavior)
         wsum = sum(w for _, w in used_pairs)
+        effective_horizons = [h for h, _ in used_pairs]
+        effective_weights  = [w / wsum for _, w in used_pairs]
         if wsum <= 0:
             continue
         
@@ -178,8 +191,10 @@ def compute_weighted_score_long(
             "batch_start": g["batch_start"].min(),
             "batch_end": g["batch_end"].max(),
             "score_metric": metric,
-            "score_horizons": ",".join(map(str, horizons)),
-            "score_weights": ",".join(map(lambda x: f"{x:.4g}", weights)),
+            "requested_horizons": ",".join(map(str, horizons)),
+            "requested_weights": ",".join(f"{w:.4g}" for w in weights),
+            "effective_horizons": ",".join(map(str, effective_horizons)),
+            "effective_weights": ",".join(f"{w:.4g}" for w in effective_weights),
             "score": float(score),
             "missing_horizons": ",".join(map(str, missing)) if missing else "",
         })
