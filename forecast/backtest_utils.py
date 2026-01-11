@@ -47,6 +47,7 @@ def choose_anchor_dates(
     if y is None or len(y) == 0:
         return []
 
+    """
     idx = pd.DatetimeIndex(y.index).sort_values()
     last_date = _month_end(idx.max())
 
@@ -60,6 +61,12 @@ def choose_anchor_dates(
 
     # fast train length check
     y_df = pd.DataFrame({"y": y.values}, index=idx)
+    """
+
+    y_s = pd.Series(y.values, index=pd.DatetimeIndex(y.index)).sort_index()
+    y_s = y_s[~y_s.index.duplicated(keep="last")]
+    idx = y_s.index
+    y_df = y_s.to_frame("y")
 
     while anchor >= min_date and len(anchors) < max_anchors:
         n_train = int(y_df.loc[:anchor].shape[0])
