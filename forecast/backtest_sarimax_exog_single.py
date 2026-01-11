@@ -204,7 +204,7 @@ def run_backtest_sarimax_exog_single(
         return
     
     print(f"[backtest_exog] Found {len(anchors)} anchors.")
-    last_date = y_full.index[-1]
+    #last_date = y_full.index[-1]
     results_summary = []
     
     for anchor_date in anchors:
@@ -213,56 +213,42 @@ def run_backtest_sarimax_exog_single(
         y_train = y_full.loc[:anchor_date].copy()
         X_train = X_full.loc[:anchor_date].copy()
 
-        # --- Force a COMPLETE month-end grid for statsmodels (avoid unsupported index) ---
-        train_idx = pd.date_range(
-            start=y_train.index.min(),
-            end=anchor_date,
-            freq="ME",   # month-end
-        )
-        
+
+        # Align train on observed months only (NO expansion, NO NaN injection)
+        #train_idx = y_train.index.intersection(X_train.index) #<-- It won’t hurt, but it’s dead weight.
         y_train = y_train.reindex(train_idx)
         X_train = X_train.reindex(train_idx)
-        
-        # Do not silently invent target values.
-        if y_train.isna().any():
-            print("[backtest_exog] Missing y in training window after reindex; skipping anchor.")
-            continue
-        
-        # For exog, you can be strict (skip) or allow forward-fill.
-        if X_train.isna().any().any():
-            # Option A (strict): skip anchor
-            print("[backtest_exog] Missing X in training window after reindex; skipping anchor.")
-            continue
-        
-            # Option B (looser): forward-fill then backfill remaining
-            # X_train = X_train.ffill().bfill()
         
         if len(y_train) < min_train_len:
             print("[backtest_exog] Train shorter than min_train_len; skipping anchor.")
             continue
+        
+        # Defensive: reject any remaining missing values
+        if y_train.isna().any():
+            print("[backtest_exog] Missing y in observed training months; skipping anchor.")
+            continue
+        if X_train.isna().any().any():
+            print("[backtest_exog] Missing X in observed training months; skipping anchor.")
+            continue
 
         # ---- Build evaluation index for this anchor (month-end grid) ----
-        test_idx_full = month_ends_after(anchor_date, horizon)  # month-ends after anchor
+        test_idx_full = month_ends_after(anchor_date, horizon)  # fixed length=horizon
+        y_test = y_full.reindex(test_idx_full)
+        X_test = X_full.reindex(test_idx_full)
         
-        # Evaluate ONLY where both y and X exist
-        test_idx = test_idx_full.intersection(y_full.index).intersection(X_full.index)
-        
-        horizon_bt = len(test_idx)
-        if horizon_bt <= 0:
-            print("[backtest_exog] No future months available for this anchor; skipping.")
-            continue
-        
-        y_test = y_full.loc[test_idx]
-        X_test = X_full.loc[test_idx]
-
-        # If any exog or actuals are missing in the horizon window, skip this anchor.
-        # This avoids "evaluating" on synthetic / misaligned months.
         if y_test.isna().any():
-            print("[backtest_exog] Missing y in horizon window; skipping anchor.")
+            print("[backtest_exog] Missing y in full horizon window; skipping anchor.")
             continue
         if X_test.isna().any().any():
-            print("[backtest_exog] Missing X in horizon window; skipping anchor.")
+            print("[backtest_exog] Missing X in full horizon window; skipping anchor.")
             continue
+        
+        test_idx = test_idx_full
+        horizon_bt = horizon
+
+        # Use the already-aligned test window
+        y_test = y_test
+        X_test = X_test
 
         # Optional hybrid step: XGB feature selection
         selected_feature_names = list(X_train.columns)
@@ -281,30 +267,43 @@ def run_backtest_sarimax_exog_single(
         X_train_sel = X_train[selected_feature_names]
         X_test_sel = X_test[selected_feature_names]
 
+        # --- Fit on integer index to avoid unsupported/irregular date indexes ---
+        endog = pd.Series(y_train.values)            # RangeIndex
+        #exog_train = X_train_sel.values              # numpy array
+        exog_train = X_train_sel.to_numpy(dtype=float)
+
+        
         model = SARIMAX(
-            endog=y_train,
-            exog=X_train_sel,
+            endog=endog,
+            exog=exog_train,
             order=order,
             seasonal_order=seasonal_order,
             enforce_stationarity=False,
             enforce_invertibility=False,
-            missing="drop",  # important when train has gaps
         )
         res = model.fit(disp=False)
         converged = bool(getattr(res, "mle_retvals", {}).get("converged", True))
         aic = float(getattr(res, "aic", np.nan))
         bic = float(getattr(res, "bic", np.nan))
 
-        fc = res.get_forecast(steps=horizon_bt, exog=X_test_sel.values)
+        
+        # Forecast using the real exog values for the test window
+        #exog_future = X_test_sel.values
+        exog_future = X_test_sel.to_numpy(dtype=float)
+        fc = res.get_forecast(steps=horizon_bt, exog=exog_future)
+        
         mean_fc = fc.predicted_mean
         ci = fc.conf_int()
-
-
         
+        # You own the timestamps (test_idx) — attach them explicitly
+        mean_fc = pd.Series(np.asarray(mean_fc), index=test_idx, name="y_hat")
+        ci = pd.DataFrame(np.asarray(ci), index=test_idx, columns=["y_hat_lo", "y_hat_hi"])
+
+        """        
         # Force correct timestamps
         mean_fc = pd.Series(mean_fc.values, index=test_idx, name="y_hat")
         ci = pd.DataFrame(ci.values, index=test_idx, columns=["y_hat_lo", "y_hat_hi"])
-
+        """
 
         algo_params = {
             "order": order,
@@ -355,8 +354,8 @@ def run_backtest_sarimax_exog_single(
             run_id=run_id,
             target_dates=target_dates,
             y_hat=mean_fc.values,
-            y_hat_lo=ci["y_hat_lo"].values if ci is not None else None,
-            y_hat_hi=ci["y_hat_hi"].values if ci is not None else None,
+            y_hat_lo=ci["y_hat_lo"].values,
+            y_hat_hi=ci["y_hat_hi"].values,
         )
 
         con.close()
