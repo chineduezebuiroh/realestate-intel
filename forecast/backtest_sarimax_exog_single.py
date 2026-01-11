@@ -172,9 +172,10 @@ def run_backtest_sarimax_exog_single(
     X_full = X_full[~X_full.index.duplicated(keep="last")].sort_index()
     
     # Strict intersection to guarantee alignment
-    common_idx = y_full.index.intersection(X_full.index)
-    y_full = y_full.reindex(common_idx)
-    X_full = X_full.reindex(common_idx)
+    # Do NOT shrink y to X globally. Keep full y timeline.
+    # Align X to y so X has y’s index, but values may be NaN where exog is unavailable.
+    X_full = X_full.reindex(y_full.index)
+
     
     # Final hard check
     if len(X_full) != len(y_full):
@@ -233,9 +234,28 @@ def run_backtest_sarimax_exog_single(
             print("[backtest_exog] Missing X in observed training months; skipping anchor.")
             continue
 
+        print(
+            "[backtest_exog] horizon availability:",
+            "need", test_idx_full[0].date(), "→", test_idx_full[-1].date(),
+            "have_y", y_full.index.min().date(), "→", y_full.index.max().date(),
+            "have_X", X_full.index.min().date(), "→", X_full.index.max().date(),
+        )
+
         # ---- Build evaluation index for this anchor (month-end grid) ----
         test_idx_full = month_ends_after(anchor_date, horizon)  # fixed length=horizon
         y_test = y_full.reindex(test_idx_full)
+
+        missing_y_dates = test_idx_full[y_test.isna()]
+        print(
+            f"[backtest_exog] horizon check: anchor={anchor_date.date()} "
+            f"need[{test_idx_full[0].date()}..{test_idx_full[-1].date()}] "
+            f"y_max={y_full.index.max().date()} "
+            f"missing_y={len(missing_y_dates)}"
+        )
+        if len(missing_y_dates) > 0:
+            print("[backtest_exog] first missing y dates:", [d.date() for d in missing_y_dates[:5]])
+            print("[backtest_exog] last 5 y_full dates:", [d.date() for d in y_full.index[-5:]])
+
         X_test = X_full.reindex(test_idx_full)
         
         if y_test.isna().any():
