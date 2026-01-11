@@ -21,6 +21,11 @@ def _month_end(ts: pd.Timestamp) -> pd.Timestamp:
     return p.to_timestamp(how="end")
 
 
+def month_end_index(idx) -> pd.DatetimeIndex:
+    """Convert any datetime-like index to month-end DatetimeIndex."""
+    return pd.DatetimeIndex([_month_end(x) for x in idx])
+
+
 def choose_anchor_dates(
     y: pd.Series,
     horizon: int,
