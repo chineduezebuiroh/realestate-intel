@@ -5,7 +5,6 @@ from typing import List, Dict, Optional, Tuple
 #import duckdb
 import numpy as np
 import pandas as pd
-from pandas.tseries.offsets import MonthEnd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from xgboost import XGBRegressor
 
@@ -28,6 +27,7 @@ from .db_forecast import (
 from .backtest_utils import (
     choose_anchor_dates, 
     month_end_index,
+    month_ends_after,
     DEFAULT_MIN_TRAIN_LEN,
     DEFAULT_ANCHOR_STEP_MONTHS,
     DEFAULT_MAX_ANCHORS,
@@ -114,6 +114,10 @@ def run_backtest_sarimax_exog_single(
     seasonal_order: Tuple[int, int, int, int] = (1, 1, 1, 12),
     batch_id: Optional[str] = None,
     data_asof: Optional[str] = None,  # YYYY-MM-DD
+    min_train_len: int = DEFAULT_MIN_TRAIN_LEN,
+    anchor_step_months: int = DEFAULT_ANCHOR_STEP_MONTHS,
+    max_anchors: int = DEFAULT_MAX_ANCHORS,
+    latest_anchor_offset_months: Optional[int] = None,
 ):
     """
     Backtest SARIMAX with exogenous regressors for a single target series.
@@ -139,7 +143,6 @@ def run_backtest_sarimax_exog_single(
         candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
         print(f"[backtest_exog] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
 
-    min_train_len = args.min_train_len
     required_obs = min_train_len + horizon + DEFAULT_ANCHOR_BUFFER_MONTHS
     try:
         y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
@@ -158,46 +161,26 @@ def run_backtest_sarimax_exog_single(
         f"n_obs={len(y_full)}, n_features={X_full.shape[1]}, "
         f"selected_series={len(selected_specs)}"
     )
-    """
-    # Normalize index to month-end timestamps with an implicit monthly frequency
+    
+    # Normalize indices to month-end, dedupe, sort
     y_full = y_full.copy()
     y_full.index = month_end_index(y_full.index)
     y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
     
-    # enforce supported monthly index/freq for statsmodels
-    y_full = y_full.asfreq("M")  # month-end frequency
-    y_full.index = pd.DatetimeIndex(y_full.index)
-    y_full.index.freq = MonthEnd(1)
-    
-    if len(X_full) != len(y_full):
-        raise ValueError(f"X_full and y_full length mismatch: {len(X_full)} vs {len(y_full)}")
-    X_full = X_full.copy()
-    #X_full.index = y_full.index
-    X_full = X_full.reindex(y_full.index)
-    """
-    
-    # Normalize y index to month-end, dedupe, sort
-    y_full = y_full.copy()
-    y_full.index = month_end_index(y_full.index)
-    y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
-    
-    # IMPORTANT: align X to y BEFORE touching freq stuff
     X_full = X_full.copy()
     X_full.index = month_end_index(X_full.index)
     X_full = X_full[~X_full.index.duplicated(keep="last")].sort_index()
     
-    # take strict intersection so lengths always match
+    # Strict intersection to guarantee alignment
     common_idx = y_full.index.intersection(X_full.index)
     y_full = y_full.reindex(common_idx)
     X_full = X_full.reindex(common_idx)
     
-    # now set freq metadata WITHOUT expanding the index
-    y_full.index = pd.DatetimeIndex(y_full.index)
-    X_full.index = y_full.index
-    
-    # attach MonthEnd freq for statsmodels
-    y_full.index.freq = MonthEnd(1)
-    
+    # Final hard check
+    if len(X_full) != len(y_full):
+        raise ValueError(f"X_full and y_full length mismatch after alignment: {len(X_full)} vs {len(y_full)}")
+
+
     
     batch_id = batch_id or new_batch_id()
     if data_asof is None:
@@ -209,11 +192,12 @@ def run_backtest_sarimax_exog_single(
     anchors = choose_anchor_dates(
         y_full,
         horizon=horizon,
-        min_train_len=min_train_len,   # use your variable, not a magic 60
-        step_months=args.anchor_step_months,
-        max_anchors=args.max_anchors,
-        latest_anchor_offset_months=args.latest_anchor_offset_months,
+        min_train_len=min_train_len,
+        step_months=anchor_step_months,
+        max_anchors=max_anchors,
+        latest_anchor_offset_months=latest_anchor_offset_months,
     )
+
     
     if not anchors:
         print("[backtest_exog] Not enough history to run backtests.")
@@ -225,46 +209,41 @@ def run_backtest_sarimax_exog_single(
     
     for anchor_date in anchors:
         print(f"\n[backtest_exog] Anchor at date={anchor_date.date()}")
-       
-        """
-        # Training data up to anchor_date
-        y_train = y_full.loc[:anchor_date].copy()
-        X_train = X_full.loc[:anchor_date].copy()
-        
-        # carry the freq through (belt + suspenders)
-        y_train = y_train.asfreq("M")
-        y_train.index.freq = MonthEnd(1)
-        X_train = X_train.reindex(y_train.index)
-        """
         
         y_train = y_full.loc[:anchor_date].copy()
         X_train = X_full.loc[:anchor_date].copy()
-        
-        # keep indexes identical
-        common_idx = y_train.index.intersection(X_train.index)
-        y_train = y_train.reindex(common_idx)
-        X_train = X_train.reindex(common_idx)
-        
-        # ensure freq metadata persists
-        y_train.index = pd.DatetimeIndex(y_train.index)
-        y_train.index.freq = MonthEnd(1)
-        X_train.index = y_train.index
 
+        # keep indexes identical in train
+        train_idx = y_train.index.intersection(X_train.index)
+        y_train = y_train.reindex(train_idx)
+        X_train = X_train.reindex(train_idx)
+        
+        if len(y_train) < min_train_len:
+            print("[backtest_exog] Train shorter than min_train_len; skipping anchor.")
+            continue
 
-        # How many months of actuals after anchor?
-        anchor_period = anchor_date.to_period("M")
-        last_period = last_date.to_period("M")
-        months_available = (last_period.year - anchor_period.year) * 12 + (last_period.month - anchor_period.month)
-        horizon_bt = min(horizon, months_available)
+        # ---- Build evaluation index for this anchor (month-end grid) ----
+        test_idx_full = month_ends_after(anchor_date, horizon)  # month-ends after anchor
+        
+        # Evaluate ONLY where both y and X exist
+        test_idx = test_idx_full.intersection(y_full.index).intersection(X_full.index)
+        
+        horizon_bt = len(test_idx)
         if horizon_bt <= 0:
             print("[backtest_exog] No future months available for this anchor; skipping.")
             continue
+        
+        y_test = y_full.loc[test_idx]
+        X_test = X_full.loc[test_idx]
 
-        print(
-            f"[backtest_exog] Training length={len(y_train)}, "
-            f"backtest horizon={horizon_bt} months, "
-            f"n_features={X_train.shape[1]}"
-        )
+        # If any exog or actuals are missing in the horizon window, skip this anchor.
+        # This avoids "evaluating" on synthetic / misaligned months.
+        if y_test.isna().any():
+            print("[backtest_exog] Missing y in horizon window; skipping anchor.")
+            continue
+        if X_test.isna().any().any():
+            print("[backtest_exog] Missing X in horizon window; skipping anchor.")
+            continue
 
         # Optional hybrid step: XGB feature selection
         selected_feature_names = list(X_train.columns)
@@ -281,8 +260,8 @@ def run_backtest_sarimax_exog_single(
             print(f"[backtest_exog] Selected features: {selected_feature_names}")
 
         X_train_sel = X_train[selected_feature_names]
+        X_test_sel = X_test[selected_feature_names]
 
-        # Fit SARIMAX with exog
         model = SARIMAX(
             endog=y_train,
             exog=X_train_sel,
@@ -290,20 +269,23 @@ def run_backtest_sarimax_exog_single(
             seasonal_order=seasonal_order,
             enforce_stationarity=False,
             enforce_invertibility=False,
+            missing="drop",  # important when train has gaps
         )
         res = model.fit(disp=False)
-
         converged = bool(getattr(res, "mle_retvals", {}).get("converged", True))
         aic = float(getattr(res, "aic", np.nan))
         bic = float(getattr(res, "bic", np.nan))
 
-        # Future exog: carry-forward last row for horizon_bt steps
-        last_exog_row = X_train_sel.iloc[[-1]].values  # shape (1,k)
-        exog_future = np.repeat(last_exog_row, horizon_bt, axis=0)
+        fc = res.get_forecast(steps=horizon_bt, exog=X_test_sel.values)
+        mean_fc = fc.predicted_mean
+        ci = fc.conf_int()
 
-        fc = res.get_forecast(steps=horizon_bt, exog=exog_future)
-        mean_fc = fc.predicted_mean.values
-        ci = fc.conf_int().values  # (horizon_bt, 2)
+
+        
+        # Force correct timestamps
+        mean_fc = pd.Series(mean_fc.values, index=test_idx, name="y_hat")
+        ci = pd.DataFrame(ci.values, index=test_idx, columns=["y_hat_lo", "y_hat_hi"])
+
 
         algo_params = {
             "order": order,
@@ -347,20 +329,17 @@ def run_backtest_sarimax_exog_single(
             data_asof=data_asof,
         )
         
-        # build target_dates the same way you already do in insert_predictions_backtest
-        last_period = anchor_date.to_period("M")
-        future_periods = [last_period + i for i in range(1, horizon_bt + 1)]
-        target_dates = [p.to_timestamp(how="end").date() for p in future_periods]
+        target_dates = [d.date() for d in test_idx]
         
         insert_predictions(
             con=con,
             run_id=run_id,
             target_dates=target_dates,
-            y_hat=mean_fc,
-            y_hat_lo=ci[:, 0] if ci is not None else None,
-            y_hat_hi=ci[:, 1] if ci is not None else None,
+            y_hat=mean_fc.values,
+            y_hat_lo=ci["y_hat_lo"].values if ci is not None else None,
+            y_hat_hi=ci["y_hat_hi"].values if ci is not None else None,
         )
-        
+
         con.close()
 
 
@@ -404,4 +383,9 @@ if __name__ == "__main__":
         use_xgb_feature_selection=not args.no_xgb_selection,
         batch_id=args.batch_id,
         data_asof=args.data_asof,
+        min_train_len=args.min_train_len,
+        anchor_step_months=args.anchor_step_months,
+        max_anchors=args.max_anchors,
+        latest_anchor_offset_months=args.latest_anchor_offset_months,
     )
+
