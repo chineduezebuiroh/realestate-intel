@@ -23,7 +23,8 @@ from .db_forecast import (
 )
 
 from .backtest_utils import (
-    choose_anchor_dates, 
+    choose_anchor_dates,
+    month_end_index,
     DEFAULT_MIN_TRAIN_LEN,
     DEFAULT_ANCHOR_STEP_MONTHS,
     DEFAULT_MAX_ANCHORS,
@@ -134,10 +135,12 @@ def run_backtest_xgb_single(
         return
 
     y_full = y_full.copy()
+    y_full.index = month_end_index(y_full.index)
+    y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
+    
     X_full = X_full.copy()
-    y_full.index = pd.PeriodIndex(y_full.index, freq="M").to_timestamp(how="end")
     X_full.index = y_full.index
-
+    
     """
     batch_id = new_batch_id()
     data_asof = y_full.index.max().date()
