@@ -34,6 +34,22 @@ TEMP_DEBUG_LIMIT = 300  # set to 'None' when finished debugging
 
 
 # ==========================================================
+# Helpers
+# ==========================================================
+def _parse_data_asof(s: str | None):
+    if not s:
+        return None
+    return pd.to_datetime(s).date()
+
+batch_id = batch_id or new_batch_id()
+
+# data_asof: if not passed, compute from series after month-end normalization
+if data_asof is None:
+    data_asof = y_full.index.max().date()  # or y.index.max().date() depending on script
+else:
+    data_asof = _parse_data_asof(data_asof)
+
+# ==========================================================
 # Helpers for iterative forecasting
 # ==========================================================
 def _truncate_base_series_to_anchor(
@@ -187,40 +203,6 @@ def run_backtest_xgb_single(
         )
         model.fit(X_train, y_train)
 
-        """
-        # Prepare truncated base_series up to anchor
-        series = _truncate_base_series_to_anchor(base_series_full, anchor_date)
-
-        preds = []
-
-        for step in range(1, horizon_bt + 1):
-            # compute next date
-            last_obs_date = list(series.values())[0].index[-1]
-            last_period_step = last_obs_date.to_period("M")
-            next_period = last_period_step + 1
-            next_date = next_period.to_timestamp(how="end")
-
-            # carry-forward exogs + y
-            for name, s in series.items():
-                last_val = s.iloc[-1]
-                series[name] = s.reindex(s.index.union([next_date])).sort_index()
-                series[name].loc[next_date] = last_val
-
-            # build design row for this new date
-            X_future = _build_single_row_design(series, feature_specs)
-            # ensure same column order as training
-            X_future = X_future.reindex(columns=feature_names)
-
-            # predict
-            y_hat = model.predict(X_future)[0]
-            preds.append(y_hat)
-
-            # update y series with the prediction
-            series["y"].loc[next_date] = y_hat
-
-        preds_array = np.array(preds, dtype=float)
-        """
-
         # ---- Phase A placeholder future features ----
         # Carry-forward the last observed feature row for all future steps.
         last_row = X_train.iloc[[-1]]  # (1, n_features)
@@ -230,7 +212,6 @@ def run_backtest_xgb_single(
         
         # Predict all steps in one shot
         preds_array = model.predict(X_future).astype(float)
-
 
 
         algo_params = {
@@ -243,24 +224,6 @@ def run_backtest_xgb_single(
             "n_obs": int(y_train.shape[0]),
             "n_features": int(X_train.shape[1]),
         }
-
-        """
-        run_id = insert_forecast_run_backtest(
-            target=target,
-            train_start=y_train.index[0],
-            train_end=anchor_date,
-            horizon_max_months=horizon_bt,
-            algo_params=algo_params,
-            anchor_date=anchor_date,
-        )
-
-        insert_predictions_backtest(
-            run_id=run_id,
-            forecast_values=preds_array,
-            last_date=anchor_date,
-            horizon_max_months=horizon_bt,
-        )
-        """
 
         con = get_connection()
 
