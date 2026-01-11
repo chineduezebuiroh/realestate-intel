@@ -32,14 +32,6 @@ def _parse_data_asof(s: str | None):
         return None
     return pd.to_datetime(s).date()
 
-batch_id = batch_id or new_batch_id()
-
-# data_asof: if not passed, compute from series after month-end normalization
-if data_asof is None:
-    data_asof = y_full.index.max().date()  # or y.index.max().date() depending on script
-else:
-    data_asof = _parse_data_asof(data_asof)
-
 # ==========================================================
 # Core backtest logic
 # ==========================================================
@@ -124,8 +116,16 @@ def run_backtest_sarimax_single(
     s = s.copy()
     s.index = pd.PeriodIndex(s.index, freq="M").to_timestamp(how="end")
 
+    """
     batch_id = new_batch_id()
     data_asof = s.index.max().date()
+    """
+
+    batch_id = batch_id or new_batch_id()
+    if data_asof is None:
+        data_asof = s.index.max().date()  # or y.index.max().date() depending on script
+    else:
+        data_asof = _parse_data_asof(data_asof)
     print(f"[backtest] batch_id={batch_id} data_asof={data_asof}")
 
     anchors = choose_anchor_dates(
