@@ -76,9 +76,10 @@ def main():
     ap.add_argument("--horizon", type=int, default=12)
 
     # These should be centralized knobs
-    ap.add_argument("--min_train_len", type=int, default=72)
-    ap.add_argument("--max_anchors", type=int, default=4)
-    ap.add_argument("--anchor_step_months", type=int, default=12)
+    ap.add_argument("--min_train_len", type=int, default=None)
+    ap.add_argument("--anchor_step_months", type=int, default=None)
+    ap.add_argument("--max_anchors", type=int, default=None)
+    ap.add_argument("--latest_anchor_offset_months", type=int, default=None)
 
     # Optional: allow excluding families
     ap.add_argument("--skip_xgb", action="store_true")
@@ -98,10 +99,17 @@ def main():
         "--horizon", str(args.horizon),
         "--batch_id", batch_id,
         "--data_asof", data_asof,
-        "--min_train_len", str(args.min_train_len),
-        "--max_anchors", str(args.max_anchors),
-        "--anchor_step_months", str(args.anchor_step_months),
     ]
+    
+    # only pass overrides if set (and not None)
+    if args.min_train_len is not None:
+        args_common += ["--min_train_len", str(args.min_train_len)]
+    if args.anchor_step_months is not None:
+        args_common += ["--anchor_step_months", str(args.anchor_step_months)]
+    if args.max_anchors is not None:
+        args_common += ["--max_anchors", str(args.max_anchors)]
+    if args.latest_anchor_offset_months is not None:
+        args_common += ["--latest_anchor_offset_months", str(args.latest_anchor_offset_months)]    
 
     for model_name, cmd_base in BACKTEST_CMDS:
         if model_name == "xgb_backtest" and args.skip_xgb:
