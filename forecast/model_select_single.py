@@ -156,19 +156,24 @@ def compute_weighted_score_long(
         missing = [h for h in horizons if h not in g2.index]
         if missing and strict:
             continue
-
-        score = 0.0
-        used = 0
-        for h, w in zip(horizons, weights):
-            if h in g2.index:
-                score += w * float(g2.loc[h, value_col])
-                used += 1
-
-        if used == 0:
+        
+        # Only score on horizons that exist for this model
+        used_pairs = [(h, w) for h, w in zip(horizons, weights) if h in g2.index]
+        if not used_pairs:
             continue
+        
+        # Renormalize weights over the used horizons (strict=False behavior)
+        wsum = sum(w for _, w in used_pairs)
+        if wsum <= 0:
+            continue
+        
+        score = 0.0
+        for h, w in used_pairs:
+            score += (w / wsum) * float(g2.loc[h, value_col])
 
         out_rows.append({
             "model_name": model_name,
+            "batch_id": str(g["batch_id"].iloc[0]) if "batch_id" in g.columns else "",
             "n_runs": int(g["n_runs"].max()),  # per horizon it's same; take max
             "batch_start": g["batch_start"].min(),
             "batch_end": g["batch_end"].max(),
@@ -295,7 +300,7 @@ def main():
         metric=args.metric,
         horizons=horizons,
         weights=weights,
-        strict=True,
+        strict=False,
     )
     
     if scored.empty:
