@@ -291,7 +291,7 @@ def main():
     print(f"\n[select] WINNER = {winner} (score={scored.iloc[0]['score']:.4f} using {args.metric} @ horizons={horizons})")
     """
 
-    df_long = latest_batch_eval_long(con, target, batch_hours=args.batch_hours)
+    df_long = latest_batch_eval_long(con, target)
     if df_long.empty:
         raise SystemExit("[select] No backtest eval rows found for this target in the DB.")
     
