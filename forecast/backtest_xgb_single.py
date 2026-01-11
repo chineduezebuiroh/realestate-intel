@@ -41,14 +41,6 @@ def _parse_data_asof(s: str | None):
         return None
     return pd.to_datetime(s).date()
 
-batch_id = batch_id or new_batch_id()
-
-# data_asof: if not passed, compute from series after month-end normalization
-if data_asof is None:
-    data_asof = y_full.index.max().date()  # or y.index.max().date() depending on script
-else:
-    data_asof = _parse_data_asof(data_asof)
-
 # ==========================================================
 # Helpers for iterative forecasting
 # ==========================================================
@@ -143,8 +135,18 @@ def run_backtest_xgb_single(
     y_full.index = pd.PeriodIndex(y_full.index, freq="M").to_timestamp(how="end")
     X_full.index = y_full.index
 
+    """
     batch_id = new_batch_id()
     data_asof = y_full.index.max().date()
+    """
+    
+    batch_id = batch_id or new_batch_id()
+    
+    # data_asof: if not passed, compute from series after month-end normalization
+    if data_asof is None:
+        data_asof = y_full.index.max().date()  # or y.index.max().date() depending on script
+    else:
+        data_asof = _parse_data_asof(data_asof)
     print(f"[xgb_backtest] batch_id={batch_id} data_asof={data_asof}")
 
     print(
