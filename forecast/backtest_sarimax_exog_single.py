@@ -232,19 +232,12 @@ def run_backtest_sarimax_exog_single(
             continue
         if X_train.isna().any().any():
             print("[backtest_exog] Missing X in observed training months; skipping anchor.")
-            continue
-
-        print(
-            "[backtest_exog] horizon availability:",
-            "need", test_idx_full[0].date(), "→", test_idx_full[-1].date(),
-            "have_y", y_full.index.min().date(), "→", y_full.index.max().date(),
-            "have_X", X_full.index.min().date(), "→", X_full.index.max().date(),
-        )
+            continue        
 
         # ---- Build evaluation index for this anchor (month-end grid) ----
         test_idx_full = month_ends_after(anchor_date, horizon)  # fixed length=horizon
+        
         y_test = y_full.reindex(test_idx_full)
-
         missing_y_dates = test_idx_full[y_test.isna()]
         print(
             f"[backtest_exog] horizon check: anchor={anchor_date.date()} "
