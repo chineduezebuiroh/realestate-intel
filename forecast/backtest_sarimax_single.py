@@ -27,10 +27,17 @@ from .backtest_utils import (
 # ==========================================================
 # Helper
 # ==========================================================
+"""
 def _parse_data_asof(s: str | None):
     if not s:
         return None
     return pd.to_datetime(s).date()
+"""
+
+def _parse_data_asof(x: Optional[str], default_date: pd.Timestamp):
+    if x is None or str(x).strip() == "":
+        return default_date.date()
+    return pd.to_datetime(x).date()
 
 # ==========================================================
 # Core backtest logic
@@ -125,10 +132,7 @@ def run_backtest_sarimax_single(
     """
 
     batch_id = batch_id or new_batch_id()
-    if data_asof is None:
-        data_asof = s.index.max().date()  # or y.index.max().date() depending on script
-    else:
-        data_asof = _parse_data_asof(data_asof)
+    data_asof = _parse_data_asof(data_asof, s.index.max())
     print(f"[backtest] batch_id={batch_id} data_asof={data_asof}")
 
     anchors = choose_anchor_dates(
