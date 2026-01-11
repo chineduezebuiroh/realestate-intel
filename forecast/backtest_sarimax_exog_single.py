@@ -158,7 +158,7 @@ def run_backtest_sarimax_exog_single(
         f"n_obs={len(y_full)}, n_features={X_full.shape[1]}, "
         f"selected_series={len(selected_specs)}"
     )
-
+    """
     # Normalize index to month-end timestamps with an implicit monthly frequency
     y_full = y_full.copy()
     y_full.index = month_end_index(y_full.index)
@@ -174,6 +174,30 @@ def run_backtest_sarimax_exog_single(
     X_full = X_full.copy()
     #X_full.index = y_full.index
     X_full = X_full.reindex(y_full.index)
+    """
+    
+    # Normalize y index to month-end, dedupe, sort
+    y_full = y_full.copy()
+    y_full.index = month_end_index(y_full.index)
+    y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
+    
+    # IMPORTANT: align X to y BEFORE touching freq stuff
+    X_full = X_full.copy()
+    X_full.index = month_end_index(X_full.index)
+    X_full = X_full[~X_full.index.duplicated(keep="last")].sort_index()
+    
+    # take strict intersection so lengths always match
+    common_idx = y_full.index.intersection(X_full.index)
+    y_full = y_full.reindex(common_idx)
+    X_full = X_full.reindex(common_idx)
+    
+    # now set freq metadata WITHOUT expanding the index
+    y_full.index = pd.DatetimeIndex(y_full.index)
+    X_full.index = y_full.index
+    
+    # attach MonthEnd freq for statsmodels
+    y_full.index.freq = MonthEnd(1)
+    
     
     batch_id = batch_id or new_batch_id()
     if data_asof is None:
@@ -202,6 +226,7 @@ def run_backtest_sarimax_exog_single(
     for anchor_date in anchors:
         print(f"\n[backtest_exog] Anchor at date={anchor_date.date()}")
        
+        """
         # Training data up to anchor_date
         y_train = y_full.loc[:anchor_date].copy()
         X_train = X_full.loc[:anchor_date].copy()
@@ -210,6 +235,21 @@ def run_backtest_sarimax_exog_single(
         y_train = y_train.asfreq("M")
         y_train.index.freq = MonthEnd(1)
         X_train = X_train.reindex(y_train.index)
+        """
+        
+        y_train = y_full.loc[:anchor_date].copy()
+        X_train = X_full.loc[:anchor_date].copy()
+        
+        # keep indexes identical
+        common_idx = y_train.index.intersection(X_train.index)
+        y_train = y_train.reindex(common_idx)
+        X_train = X_train.reindex(common_idx)
+        
+        # ensure freq metadata persists
+        y_train.index = pd.DatetimeIndex(y_train.index)
+        y_train.index.freq = MonthEnd(1)
+        X_train.index = y_train.index
+
 
         # How many months of actuals after anchor?
         anchor_period = anchor_date.to_period("M")
