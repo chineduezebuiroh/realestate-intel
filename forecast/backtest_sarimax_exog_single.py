@@ -165,6 +165,13 @@ def run_backtest_sarimax_exog_single(
     # Normalize indices to month-end, dedupe, sort
     y_full = y_full.copy()
     y_full.index = month_end_index(y_full.index)
+    
+    full_grid = pd.date_range(y_full.index.min(), y_full.index.max(), freq="ME")
+    missing = full_grid.difference(y_full.index)
+    print(f"[backtest_exog] y_full missing months overall: {len(missing)}")
+    if len(missing) > 0:
+        print("[backtest_exog] example missing months:", [d.date() for d in missing[:10]])
+
     y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
     
     X_full = X_full.copy()
@@ -235,31 +242,48 @@ def run_backtest_sarimax_exog_single(
             continue        
 
         # ---- Build evaluation index for this anchor (month-end grid) ----
-        test_idx_full = month_ends_after(anchor_date, horizon)  # fixed length=horizon
+        test_idx_full = month_ends_after(anchor_date, horizon)  # length=horizon
         
-        y_test = y_full.reindex(test_idx_full)
-        missing_y_dates = test_idx_full[y_test.isna()]
+        # Pull actuals and exog over the full requested window
+        y_test_full = y_full.reindex(test_idx_full)
+        X_test_full = X_full.reindex(test_idx_full)
+        
+        # Diagnostics: how many missing target months in the requested window?
+        missing_y_mask = y_test_full.isna()
+        missing_y_dates = test_idx_full[missing_y_mask]
+        
         print(
             f"[backtest_exog] horizon check: anchor={anchor_date.date()} "
             f"need[{test_idx_full[0].date()}..{test_idx_full[-1].date()}] "
             f"y_max={y_full.index.max().date()} "
-            f"missing_y={len(missing_y_dates)}"
+            f"missing_y={int(missing_y_mask.sum())}"
         )
         if len(missing_y_dates) > 0:
             print("[backtest_exog] first missing y dates:", [d.date() for d in missing_y_dates[:5]])
             print("[backtest_exog] last 5 y_full dates:", [d.date() for d in y_full.index[-5:]])
-
-        X_test = X_full.reindex(test_idx_full)
         
-        if y_test.isna().any():
-            print("[backtest_exog] Missing y in full horizon window; skipping anchor.")
-            continue
+        # ---- NEW RULE: no imputation, but allow shorter horizon until first missing y ----
+        if missing_y_mask.any():
+            first_missing_pos = int(np.argmax(missing_y_mask.to_numpy()))
+            horizon_bt = first_missing_pos  # forecast only up to the last contiguous available month
+            if horizon_bt <= 0:
+                print("[backtest_exog] Missing y immediately after anchor; skipping anchor.")
+                continue
+            print(f"[backtest_exog] Truncating horizon to {horizon_bt} due to missing y.")
+        else:
+            horizon_bt = horizon
+        
+        test_idx = test_idx_full[:horizon_bt]
+        
+        # Now define the actual evaluation windows (STRICT)
+        y_test = y_full.reindex(test_idx)
+        X_test = X_full.reindex(test_idx)
+        
+        # Option A strictness for exog: if ANY missing exog in the usable window, skip.
         if X_test.isna().any().any():
-            print("[backtest_exog] Missing X in full horizon window; skipping anchor.")
+            print("[backtest_exog] Missing X in usable horizon window; skipping anchor.")
             continue
-        
-        test_idx = test_idx_full
-        horizon_bt = horizon
+
 
         # Use the already-aligned test window
         y_test = y_test
