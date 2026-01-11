@@ -2,7 +2,7 @@
 import os
 from typing import List, Dict, Optional, Tuple
 
-import duckdb
+#import duckdb
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
@@ -11,7 +11,7 @@ from xgboost import XGBRegressor
 from .feature_loader import (
     TargetSpec,
     FeatureSpec,
-    build_design_matrix,
+    #build_design_matrix,
     build_universal_feature_specs,
     build_design_matrix_incremental,
 )
@@ -164,13 +164,10 @@ def run_backtest_sarimax_exog_single(
     y_full.index = month_end_index(y_full.index)
     y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
     
+    if len(X_full) != len(y_full):
+        raise ValueError(f"X_full and y_full length mismatch: {len(X_full)} vs {len(y_full)}")
     X_full = X_full.copy()
     X_full.index = y_full.index
-    
-    """
-    batch_id = new_batch_id()
-    data_asof = y_full.index.max().date()
-    """
     
     batch_id = batch_id or new_batch_id()
     if data_asof is None:
