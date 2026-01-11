@@ -28,13 +28,6 @@ from .backtest_utils import (
 # ==========================================================
 # Helper
 # ==========================================================
-"""
-def _parse_data_asof(s: str | None):
-    if not s:
-        return None
-    return pd.to_datetime(s).date()
-"""
-
 def _parse_data_asof(x: Optional[str], default_date: pd.Timestamp):
     if x is None or str(x).strip() == "":
         return default_date.date()
@@ -71,46 +64,16 @@ def load_target_series(
     return s
 
 
-def choose_anchor_indices(s: pd.Series, horizon: int, min_train_len: int = 60) -> List[int]:
-    """
-    Choose a few anchor indices for backtesting.
-
-    Strategy:
-      - Work backwards from the end, about 1, 2, 3 years before the last date (12-month steps),
-        as long as we have:
-          * enough training data before the anchor (>= min_train_len)
-          * enough future data (>= horizon months) between anchor and last date
-    """
-    n = len(s)
-    if n < (min_train_len + horizon):
-        # Not enough total history to do a meaningful backtest
-        return []
-
-    last_idx = n - 1
-
-    # We want anchors so that: anchor_idx >= min_train_len-1
-    # and anchor_idx + horizon <= last_idx
-    # We'll try K anchors at 12-month steps from the last-trainable position.
-    max_anchor_idx = last_idx - horizon  # last index we can use as anchor
-    min_anchor_idx = min_train_len - 1
-
-    anchors = []
-    # Start from the latest possible anchor and step back 12 points (months)
-    idx = max_anchor_idx
-    while idx >= min_anchor_idx and len(anchors) < 3:
-        anchors.append(idx)
-        idx -= 12
-
-    anchors.sort()
-    return anchors
-
-
 def run_backtest_sarimax_single(
     metric_id: str = "median_sale_price",
     geo_id: str = "dc_city",
     property_type_id: str = "-1",
     horizon: int = 12,
     *,
+    min_train_len: int = DEFAULT_MIN_TRAIN_LEN,
+    anchor_step_months: int = DEFAULT_ANCHOR_STEP_MONTHS,
+    max_anchors: int = DEFAULT_MAX_ANCHORS,
+    latest_anchor_offset_months: Optional[int] = None,
     batch_id: Optional[str] = None,
     data_asof: Optional[str] = None,  # YYYY-MM-DD
 ):
@@ -135,10 +98,10 @@ def run_backtest_sarimax_single(
     anchors = choose_anchor_dates(
         s,
         horizon=horizon,
-        min_train_len=args.min_train_len,        
-        step_months=args.anchor_step_months,
-        max_anchors=args.max_anchors,
-        latest_anchor_offset_months=args.latest_anchor_offset_months,
+        min_train_len=min_train_len,
+        step_months=anchor_step_months,
+        max_anchors=max_anchors,
+        latest_anchor_offset_months=latest_anchor_offset_months,
     )
 
     if not anchors:
@@ -190,16 +153,9 @@ def run_backtest_sarimax_single(
             "n_obs": int(len(y_train)),
             "anchor_date": str(anchor_date.date()),
         }
-
+        
         con = get_connection()
-        
-        algo_params = {
-            "order": (1, 1, 1),
-            "seasonal_order": (1, 1, 1, 12),
-            "n_obs": int(len(y_train)),
-            "anchor_date": str(anchor_date.date()),
-        }
-        
+
         run_id = insert_run(
             con=con,
             model_name="sarimax_backtest",
@@ -267,6 +223,10 @@ if __name__ == "__main__":
         geo_id=args.geo_id,
         property_type_id=args.property_type_id,
         horizon=args.horizon,
+        min_train_len=args.min_train_len,
+        anchor_step_months=args.anchor_step_months,
+        max_anchors=args.max_anchors,
+        latest_anchor_offset_months=args.latest_anchor_offset_months,
         batch_id=args.batch_id,
         data_asof=args.data_asof,
     )
