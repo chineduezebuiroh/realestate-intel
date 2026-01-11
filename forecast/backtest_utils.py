@@ -26,6 +26,45 @@ def month_end_index(idx) -> pd.DatetimeIndex:
     return pd.DatetimeIndex([_month_end(x) for x in idx])
 
 
+"""
+def choose_anchor_dates(
+    y: pd.Series,
+    horizon: int,
+    min_train_len: int = 60,
+    step_months: int = 12,
+    max_anchors: int = 3,
+    latest_anchor_offset_months: Optional[int] = None,
+) -> List[pd.Timestamp]:
+"""
+"""
+    Date-based anchor selection.
+
+    Default behavior:
+      latest anchor = last_date - horizon months
+      then step back by step_months
+
+    If latest_anchor_offset_months is set:
+      latest anchor = last_date - latest_anchor_offset_months
+"""
+"""
+    if y is None or len(y) == 0:
+        return []
+
+    y_s = pd.Series(y.values, index=pd.DatetimeIndex(y.index)).sort_index()
+    y_s = y_s[~y_s.index.duplicated(keep="last")]
+    idx = y_s.index
+    y_df = y_s.to_frame("y")
+
+    while anchor >= min_date and len(anchors) < max_anchors:
+        n_train = int(y_df.loc[:anchor].shape[0])
+        if n_train >= min_train_len:
+            anchors.append(anchor)
+        anchor = _month_end(anchor - pd.DateOffset(months=step_months))
+
+    return sorted(set(anchors))
+"""
+
+
 def choose_anchor_dates(
     y: pd.Series,
     horizon: int,
@@ -47,31 +86,25 @@ def choose_anchor_dates(
     if y is None or len(y) == 0:
         return []
 
-    """
+    # normalize index to month-end
     idx = pd.DatetimeIndex(y.index).sort_values()
     last_date = _month_end(idx.max())
-
-    if latest_anchor_offset_months is not None:
-        anchor = _month_end(last_date - pd.DateOffset(months=latest_anchor_offset_months))
-    else:
-        anchor = _month_end(last_date - pd.DateOffset(months=horizon))
-
-    anchors: List[pd.Timestamp] = []
     min_date = _month_end(idx.min())
 
-    # fast train length check
-    y_df = pd.DataFrame({"y": y.values}, index=idx)
-    """
+    # ALWAYS define anchor
+    offset = latest_anchor_offset_months if latest_anchor_offset_months is not None else horizon
+    anchor = _month_end(last_date - pd.DateOffset(months=int(offset)))
 
-    y_s = pd.Series(y.values, index=pd.DatetimeIndex(y.index)).sort_index()
-    y_s = y_s[~y_s.index.duplicated(keep="last")]
-    idx = y_s.index
-    y_df = y_s.to_frame("y")
+    anchors: List[pd.Timestamp] = []
+
+    # train-length check uses counts up to anchor
+    y_df = pd.DataFrame({"y": y.values}, index=idx)
 
     while anchor >= min_date and len(anchors) < max_anchors:
         n_train = int(y_df.loc[:anchor].shape[0])
         if n_train >= min_train_len:
             anchors.append(anchor)
-        anchor = _month_end(anchor - pd.DateOffset(months=step_months))
+        anchor = _month_end(anchor - pd.DateOffset(months=int(step_months)))
 
+    # de-dupe + sorted
     return sorted(set(anchors))
