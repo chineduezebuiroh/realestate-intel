@@ -253,9 +253,13 @@ if __name__ == "__main__":
     parser.add_argument("--property_type_id", default="-1")
     parser.add_argument("--horizon", type=int, default=12)
 
+    parser.add_argument("--min_train_len", type=int, default=DEFAULT_MIN_TRAIN_LEN)
     parser.add_argument("--anchor_step_months", type=int, default=DEFAULT_ANCHOR_STEP_MONTHS)
     parser.add_argument("--max_anchors", type=int, default=DEFAULT_MAX_ANCHORS)
     parser.add_argument("--latest_anchor_offset_months", type=int, default=None)
+
+    parser.add_argument("--batch_id", type=str, default=None)
+    parser.add_argument("--data_asof", type=str, default=None)  # YYYY-MM-DD
 
     args = parser.parse_args()
 
