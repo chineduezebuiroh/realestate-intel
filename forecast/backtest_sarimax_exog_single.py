@@ -213,10 +213,29 @@ def run_backtest_sarimax_exog_single(
         y_train = y_full.loc[:anchor_date].copy()
         X_train = X_full.loc[:anchor_date].copy()
 
-        # keep indexes identical in train
-        train_idx = y_train.index.intersection(X_train.index)
+        # --- Force a COMPLETE month-end grid for statsmodels (avoid unsupported index) ---
+        train_idx = pd.date_range(
+            start=y_train.index.min(),
+            end=anchor_date,
+            freq="ME",   # month-end
+        )
+        
         y_train = y_train.reindex(train_idx)
         X_train = X_train.reindex(train_idx)
+        
+        # Do not silently invent target values.
+        if y_train.isna().any():
+            print("[backtest_exog] Missing y in training window after reindex; skipping anchor.")
+            continue
+        
+        # For exog, you can be strict (skip) or allow forward-fill.
+        if X_train.isna().any().any():
+            # Option A (strict): skip anchor
+            print("[backtest_exog] Missing X in training window after reindex; skipping anchor.")
+            continue
+        
+            # Option B (looser): forward-fill then backfill remaining
+            # X_train = X_train.ffill().bfill()
         
         if len(y_train) < min_train_len:
             print("[backtest_exog] Train shorter than min_train_len; skipping anchor.")
