@@ -331,6 +331,9 @@ if __name__ == "__main__":
     parser.add_argument("--max_anchors", type=int, default=DEFAULT_MAX_ANCHORS)
     parser.add_argument("--latest_anchor_offset_months", type=int, default=None)
 
+    parser.add_argument("--batch_id", type=str, default=None)
+    parser.add_argument("--data_asof", type=str, default=None)
+
     args = parser.parse_args()
 
     run_backtest_xgb_single(
