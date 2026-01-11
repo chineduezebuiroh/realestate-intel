@@ -25,6 +25,22 @@ from .backtest_utils import (
 
 
 # ==========================================================
+# Helper
+# ==========================================================
+def _parse_data_asof(s: str | None):
+    if not s:
+        return None
+    return pd.to_datetime(s).date()
+
+batch_id = batch_id or new_batch_id()
+
+# data_asof: if not passed, compute from series after month-end normalization
+if data_asof is None:
+    data_asof = y_full.index.max().date()  # or y.index.max().date() depending on script
+else:
+    data_asof = _parse_data_asof(data_asof)
+
+# ==========================================================
 # Core backtest logic
 # ==========================================================
 def load_target_series(
@@ -115,7 +131,7 @@ def run_backtest_sarimax_single(
     anchors = choose_anchor_dates(
         s,
         horizon=horizon,
-        min_train_len=DEFAULT_MIN_TRAIN_LEN,
+        min_train_len=args.min_train_len,        
         step_months=args.anchor_step_months,
         max_anchors=args.max_anchors,
         latest_anchor_offset_months=args.latest_anchor_offset_months,
@@ -170,27 +186,6 @@ def run_backtest_sarimax_single(
             "n_obs": int(len(y_train)),
             "anchor_date": str(anchor_date.date()),
         }
-
-        """
-        run_id = insert_forecast_run_backtest(
-            metric_id=metric_id,
-            geo_id=geo_id,
-            property_type_id=property_type_id,
-            train_start=y_train.index[0],
-            train_end=anchor_date,
-            horizon_max_months=horizon_bt,
-            algo_params=algo_params,
-            anchor_date=anchor_date,
-        )
-
-        insert_predictions_backtest(
-            run_id=run_id,
-            forecast_values=mean_fc,
-            conf_int=ci,
-            last_date=anchor_date,
-            horizon_max_months=horizon_bt,
-        )
-        """
 
         con = get_connection()
         
