@@ -160,7 +160,7 @@ def run_backtest_sarimax_exog_single(
     # Normalize index to month-end timestamps with an implicit monthly frequency
     y_full = y_full.copy()
     X_full = X_full.copy()
-    y_full.index = pd.PeriodIndex(y_full.index, freq="M").to_timestamp(how="end")
+    y_full.index = month_end_index(y_full.index)
     X_full.index = y_full.index
 
     """
@@ -194,17 +194,19 @@ def run_backtest_sarimax_exog_single(
     
     for anchor_date in anchors:
         print(f"\n[backtest_exog] Anchor at date={anchor_date.date()}")
-
+       
         # Training data up to anchor_date
         y_train = y_full.loc[:anchor_date]
         X_train = X_full.loc[:anchor_date]
 
+        """
         # Ensure a supported monthly index for statsmodels
         y_train = y_train.copy()
         X_train = X_train.copy()
         
         y_train.index = pd.PeriodIndex(y_train.index, freq="M").to_timestamp(how="end")
         X_train.index = y_train.index
+        """
 
         # How many months of actuals after anchor?
         anchor_period = anchor_date.to_period("M")
