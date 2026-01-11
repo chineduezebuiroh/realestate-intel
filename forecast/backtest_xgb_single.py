@@ -94,6 +94,9 @@ def run_backtest_xgb_single(
     geo_id: str = "dc_city",
     property_type_id: str = "-1",
     horizon: int = 12,
+    *,
+    batch_id: Optional[str] = None,
+    data_asof: Optional[str] = None,  # YYYY-MM-DD
 ):
     """
     Backtest XGBoost for a single target series using a universal feature set.
@@ -306,4 +309,6 @@ if __name__ == "__main__":
         geo_id=args.geo_id,
         property_type_id=args.property_type_id,
         horizon=args.horizon,
+        batch_id=args.batch_id,
+        data_asof=args.data_asof,
     )
