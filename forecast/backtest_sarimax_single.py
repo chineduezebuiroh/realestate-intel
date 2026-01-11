@@ -16,7 +16,8 @@ from .db_forecast import (
 )
 
 from .backtest_utils import (
-    choose_anchor_dates, 
+    choose_anchor_dates,
+    month_end_index,
     DEFAULT_MIN_TRAIN_LEN,
     DEFAULT_ANCHOR_STEP_MONTHS,
     DEFAULT_MAX_ANCHORS,
@@ -124,12 +125,8 @@ def run_backtest_sarimax_single(
     s = load_target_series(metric_id, geo_id, property_type_id)
 
     s = s.copy()
-    s.index = pd.PeriodIndex(s.index, freq="M").to_timestamp(how="end")
-
-    """
-    batch_id = new_batch_id()
-    data_asof = s.index.max().date()
-    """
+    s.index = month_end_index(s.index)
+    s = s[~s.index.duplicated(keep="last")].sort_index()
 
     batch_id = batch_id or new_batch_id()
     data_asof = _parse_data_asof(data_asof, s.index.max())
