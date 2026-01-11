@@ -259,20 +259,6 @@ def run_backtest_sarimax_exog_single(
         fc = res.get_forecast(steps=horizon_bt, exog=exog_future)
         mean_fc = fc.predicted_mean.values
         ci = fc.conf_int().values  # (horizon_bt, 2)
-        
-        """
-        algo_params = {
-            "order": order,
-            "seasonal_order": seasonal_order,
-            "n_obs": int(len(y_train)),
-            "anchor_date": str(anchor_date.date()),
-            "use_xgb_feature_selection": use_xgb_feature_selection,
-            "selected_features": selected_feature_names,
-            "converged": converged,
-            "aic": aic,
-            "bic": bic,
-        }
-        """
 
         algo_params = {
             "order": order,
@@ -294,25 +280,6 @@ def run_backtest_sarimax_exog_single(
                 "n_features_before": int(X_train.shape[1]),
             },
         )
-
-        """
-        run_id = insert_forecast_run_backtest(
-            target=target,
-            train_start=y_train.index[0],
-            train_end=anchor_date,
-            horizon_max_months=horizon_bt,
-            algo_params=algo_params,
-            anchor_date=anchor_date,
-        )
-
-        insert_predictions_backtest(
-            run_id=run_id,
-            forecast_values=mean_fc,
-            conf_int=ci,
-            last_date=anchor_date,
-            horizon_max_months=horizon_bt,
-        )
-        """
 
         con = get_connection()
 
