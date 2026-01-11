@@ -2,12 +2,9 @@
 
 import argparse
 import subprocess
-import os
-import duckdb
 import pandas as pd
 
-from .db_forecast import new_batch_id, get_connection  # or wherever these live
-from .feature_loader import TargetSpec  # if you want
+from .db_forecast import new_batch_id, get_connection
 from .backtest_utils import month_end_index
 
 # If you have a canonical "load_target_series" helper, use that instead.
