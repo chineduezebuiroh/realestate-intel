@@ -216,8 +216,10 @@ def run_backtest_sarimax_exog_single(
 
         # Align train on observed months only (NO expansion, NO NaN injection)
         #train_idx = y_train.index.intersection(X_train.index) #<-- It won’t hurt, but it’s dead weight.
+        """
         y_train = y_train.reindex(train_idx)
         X_train = X_train.reindex(train_idx)
+        """
         
         if len(y_train) < min_train_len:
             print("[backtest_exog] Train shorter than min_train_len; skipping anchor.")
