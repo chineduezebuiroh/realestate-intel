@@ -270,4 +270,6 @@ if __name__ == "__main__":
         geo_id=args.geo_id,
         property_type_id=args.property_type_id,
         horizon=args.horizon,
+        batch_id=args.batch_id,
+        data_asof=args.data_asof,
     )
