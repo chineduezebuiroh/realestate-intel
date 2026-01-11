@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, Tuple
 #import duckdb
 import numpy as np
 import pandas as pd
+from pandas.tseries.offsets import MonthEnd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from xgboost import XGBRegressor
 
@@ -32,7 +33,6 @@ from .backtest_utils import (
     DEFAULT_MAX_ANCHORS,
     DEFAULT_ANCHOR_BUFFER_MONTHS,
 )
-
 
 TEMP_DEBUG_LIMIT = 300 #set to 'None' when finished debugging
 
@@ -164,10 +164,16 @@ def run_backtest_sarimax_exog_single(
     y_full.index = month_end_index(y_full.index)
     y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
     
+    # enforce supported monthly index/freq for statsmodels
+    y_full = y_full.asfreq("M")  # month-end frequency
+    y_full.index = pd.DatetimeIndex(y_full.index)
+    y_full.index.freq = MonthEnd(1)
+    
     if len(X_full) != len(y_full):
         raise ValueError(f"X_full and y_full length mismatch: {len(X_full)} vs {len(y_full)}")
     X_full = X_full.copy()
-    X_full.index = y_full.index
+    #X_full.index = y_full.index
+    X_full = X_full.reindex(y_full.index)
     
     batch_id = batch_id or new_batch_id()
     if data_asof is None:
@@ -197,17 +203,13 @@ def run_backtest_sarimax_exog_single(
         print(f"\n[backtest_exog] Anchor at date={anchor_date.date()}")
        
         # Training data up to anchor_date
-        y_train = y_full.loc[:anchor_date]
-        X_train = X_full.loc[:anchor_date]
-
-        """
-        # Ensure a supported monthly index for statsmodels
-        y_train = y_train.copy()
-        X_train = X_train.copy()
+        y_train = y_full.loc[:anchor_date].copy()
+        X_train = X_full.loc[:anchor_date].copy()
         
-        y_train.index = pd.PeriodIndex(y_train.index, freq="M").to_timestamp(how="end")
-        X_train.index = y_train.index
-        """
+        # carry the freq through (belt + suspenders)
+        y_train = y_train.asfreq("M")
+        y_train.index.freq = MonthEnd(1)
+        X_train = X_train.reindex(y_train.index)
 
         # How many months of actuals after anchor?
         anchor_period = anchor_date.to_period("M")
