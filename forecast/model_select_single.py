@@ -52,24 +52,33 @@ def latest_batch_eval_long(
         AND target_geo_id = ?
         AND target_property_type_id = ?
         AND run_kind = 'backtest'
+        AND batch_id IS NOT NULL
+        AND data_asof IS NOT NULL
         AND model_name IN {models_sql}
     ),
-    latest_batch AS (
-      SELECT batch_id
+    
+    latest_batch_per_model AS (
+      -- pick the most recent batch_id *for each model family*
+      SELECT
+        model_name,
+        arg_max(batch_id, created_at) AS batch_id
       FROM candidate_runs
-      WHERE batch_id IS NOT NULL
-      ORDER BY created_at DESC
-      LIMIT 1
+      GROUP BY model_name
     ),
+    
     batch_runs AS (
-      SELECT run_id, model_name, created_at
-      FROM candidate_runs
-      WHERE batch_id = (SELECT batch_id FROM latest_batch)
+      SELECT r.run_id, r.model_name, r.created_at, r.batch_id
+      FROM candidate_runs r
+      JOIN latest_batch_per_model lb
+        ON r.model_name = lb.model_name
+       AND r.batch_id   = lb.batch_id
     ),
+    
     eval AS (
       SELECT
         r.model_name,
         r.created_at,
+        r.batch_id,
         e.run_id,
         e.horizon_months,
         e.mae,
@@ -78,8 +87,10 @@ def latest_batch_eval_long(
       FROM batch_runs r
       JOIN v_forecast_eval_long e USING (run_id)
     )
+    
     SELECT
       model_name,
+      batch_id,
       horizon_months,
       COUNT(DISTINCT run_id) AS n_runs,
       AVG(mae)  AS mae_avg,
@@ -88,7 +99,7 @@ def latest_batch_eval_long(
       MIN(created_at) AS batch_start,
       MAX(created_at) AS batch_end
     FROM eval
-    GROUP BY model_name, horizon_months
+    GROUP BY model_name, batch_id, horizon_months
     ORDER BY model_name, horizon_months;
     """
 
