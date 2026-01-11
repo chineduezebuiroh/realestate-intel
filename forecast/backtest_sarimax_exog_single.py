@@ -110,6 +110,8 @@ def run_backtest_sarimax_exog_single(
     max_features_from_xgb: int = 8,
     order: Tuple[int, int, int] = (1, 1, 1),
     seasonal_order: Tuple[int, int, int, int] = (1, 1, 1, 12),
+    batch_id: Optional[str] = None,
+    data_asof: Optional[str] = None,  # YYYY-MM-DD
 ):
     """
     Backtest SARIMAX with exogenous regressors for a single target series.
@@ -355,4 +357,6 @@ if __name__ == "__main__":
         property_type_id=args.property_type_id,
         horizon=args.horizon,
         use_xgb_feature_selection=not args.no_xgb_selection,
+        batch_id=args.batch_id,
+        data_asof=args.data_asof,
     )
