@@ -35,7 +35,6 @@ def connect() -> duckdb.DuckDBPyConnection:
 def latest_batch_eval_long(
     con: duckdb.DuckDBPyConnection,
     target: Target,
-    batch_hours: int,
 ) -> pd.DataFrame:
     """
     Returns long-form eval rows for ONLY the latest batch per model_name:
@@ -57,21 +56,35 @@ def latest_batch_eval_long(
         AND model_name IN {models_sql}
     ),
     
+    latest_common_data_asof AS (
+      -- choose the most recent data_asof that exists for ALL model families
+      SELECT data_asof
+      FROM candidate_runs
+      GROUP BY data_asof
+      HAVING COUNT(DISTINCT model_name) = {len(BACKTEST_MODELS)}
+      ORDER BY data_asof DESC
+      LIMIT 1
+    ),
+    
+    runs_same_asof AS (
+      SELECT *
+      FROM candidate_runs
+      WHERE data_asof = (SELECT data_asof FROM latest_common_data_asof)
+    ),
+    
     latest_batch_per_model AS (
-      -- pick the most recent batch_id *for each model family*
       SELECT
         model_name,
         arg_max(batch_id, created_at) AS batch_id
-      FROM candidate_runs
+      FROM runs_same_asof
       GROUP BY model_name
     ),
     
     batch_runs AS (
-      SELECT r.run_id, r.model_name, r.created_at, r.batch_id
-      FROM candidate_runs r
+      SELECT r.run_id, r.model_name, r.created_at, r.batch_id, r.data_asof
+      FROM runs_same_asof r
       JOIN latest_batch_per_model lb
-        ON r.model_name = lb.model_name
-       AND r.batch_id   = lb.batch_id
+        ON r.model_name = lb.model_name AND r.batch_id = lb.batch_id
     ),
     
     eval AS (
