@@ -86,16 +86,19 @@ def _build_single_row_design(
     return df_all.loc[[last_idx]]  # shape (1, n_features)
 
 
-# -----------------------------
+# ==========================================================
 # Main backtest entry
-# -----------------------------
-
+# ==========================================================
 def run_backtest_xgb_single(
     metric_id: str = "median_sale_price",
     geo_id: str = "dc_city",
     property_type_id: str = "-1",
     horizon: int = 12,
     *,
+    min_train_len: int = DEFAULT_MIN_TRAIN_LEN,
+    anchor_step_months: int = DEFAULT_ANCHOR_STEP_MONTHS,
+    max_anchors: int = DEFAULT_MAX_ANCHORS,
+    latest_anchor_offset_months: Optional[int] = None,
     batch_id: Optional[str] = None,
     data_asof: Optional[str] = None,  # YYYY-MM-DD
 ):
@@ -120,7 +123,7 @@ def run_backtest_xgb_single(
         candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
         print(f"[xgb_backtest] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
 
-    min_train_len = args.min_train_len
+    # min_train_len is passed in as a function argument
     required_obs = min_train_len + horizon + DEFAULT_ANCHOR_BUFFER_MONTHS
     try:
         y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
@@ -162,11 +165,11 @@ def run_backtest_xgb_single(
         y_full,
         horizon=horizon,
         min_train_len=min_train_len,
-        step_months=args.anchor_step_months,
-        max_anchors=args.max_anchors,
-        latest_anchor_offset_months=args.latest_anchor_offset_months,
+        step_months=anchor_step_months,
+        max_anchors=max_anchors,
+        latest_anchor_offset_months=latest_anchor_offset_months,
     )
-    
+
     if not anchors:
         print("[xgb_backtest] Not enough history to run backtests.")
         return
@@ -229,19 +232,8 @@ def run_backtest_xgb_single(
             "n_obs": int(y_train.shape[0]),
             "n_features": int(X_train.shape[1]),
         }
-
+        
         con = get_connection()
-
-        algo_params = {
-            "model": "XGBRegressor",
-            "n_estimators": 400,
-            "max_depth": 4,
-            "learning_rate": 0.05,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "n_obs": int(y_train.shape[0]),
-            "n_features": int(X_train.shape[1]),
-        }
         
         run_id = insert_run(
             con=con,
@@ -309,6 +301,10 @@ if __name__ == "__main__":
         geo_id=args.geo_id,
         property_type_id=args.property_type_id,
         horizon=args.horizon,
+        min_train_len=args.min_train_len,
+        anchor_step_months=args.anchor_step_months,
+        max_anchors=args.max_anchors,
+        latest_anchor_offset_months=args.latest_anchor_offset_months,
         batch_id=args.batch_id,
         data_asof=args.data_asof,
     )
