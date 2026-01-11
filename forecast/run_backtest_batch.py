@@ -8,6 +8,8 @@ import pandas as pd
 
 from .db_forecast import new_batch_id, get_connection  # or wherever these live
 from .feature_loader import TargetSpec  # if you want
+from .backtest_utils import month_end_index
+
 # If you have a canonical "load_target_series" helper, use that instead.
 
 BACKTEST_CMDS = [
@@ -32,15 +34,19 @@ def load_target_data_asof(metric_id: str, geo_id: str, property_type_id: str) ->
     if df.empty:
         raise SystemExit("No target data found.")
 
-    # Normalize to month-end timestamps
-    idx = pd.to_datetime(df["date"])
-    idx = pd.PeriodIndex(idx, freq="M").to_timestamp(how="end")
-    return str(idx.max().date())  # YYYY-MM-DD
+    # Normalize to month-end timestamps using the shared helper
+    idx = month_end_index(pd.to_datetime(df["date"]))
+    return str(pd.DatetimeIndex(idx).max().date())  # YYYY-MM-DD
 
-def run_one(cmd_base, args_common):
+
+def run_one(model_name, cmd_base, args_common):
     cmd = cmd_base + args_common
     print("[batch] running:", " ".join(cmd))
-    subprocess.check_call(cmd)
+    try:
+        subprocess.check_call(cmd)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(f"[batch] FAIL model={model_name} exit={e.returncode}\ncmd={' '.join(cmd)}") from e
+
 
 def sanity_check(metric_id, geo_id, property_type_id, batch_id, data_asof):
     con = get_connection()
@@ -116,7 +122,7 @@ def main():
             continue
         if model_name == "sarimax_exog_backtest" and args.skip_exog:
             continue
-        run_one(cmd_base, args_common)
+        run_one(model_name, cmd_base, args_common)
 
     sanity_check(args.metric_id, args.geo_id, args.property_type_id, batch_id, data_asof)
 
