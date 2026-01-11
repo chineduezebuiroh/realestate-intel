@@ -4,6 +4,7 @@ from __future__ import annotations
 #from dataclasses import dataclass
 from typing import List, Optional
 import pandas as pd
+from pandas.tseries.offsets import MonthEnd
 
 
 # ========================================================
@@ -24,6 +25,12 @@ def _month_end(ts: pd.Timestamp) -> pd.Timestamp:
 def month_end_index(idx) -> pd.DatetimeIndex:
     """Convert any datetime-like index to month-end DatetimeIndex."""
     return pd.DatetimeIndex([_month_end(x) for x in idx])
+
+
+def month_ends_after(anchor: pd.Timestamp, steps: int) -> pd.DatetimeIndex:
+    # next month-end after anchor, steps times
+    start = (pd.Timestamp(anchor) + MonthEnd(1))
+    return pd.date_range(start=start, periods=steps, freq="ME")
 
 
 """
