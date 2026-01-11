@@ -1,7 +1,7 @@
 # forecast/backtest_sarimax_single.py
 
 import os
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import duckdb
 import numpy as np
@@ -102,6 +102,9 @@ def run_backtest_sarimax_single(
     geo_id: str = "dc_city",
     property_type_id: str = "-1",
     horizon: int = 12,
+    *,
+    batch_id: Optional[str] = None,
+    data_asof: Optional[str] = None,  # YYYY-MM-DD
 ):
     """
     Run a few SARIMAX backtest folds for a single target series.
