@@ -3,16 +3,17 @@
 import argparse
 import subprocess
 import pandas as pd
+import json
+from pathlib import Path
+from datetime import datetime, timezone
 
 from .db_forecast import new_batch_id, get_connection
 from .backtest_utils import month_end_index
 
-# If you have a canonical "load_target_series" helper, use that instead.
-
 BACKTEST_CMDS = [
-    ("sarimax_backtest",     ["python", "-m", "forecast.backtest_sarimax_single"]),
-    ("xgb_backtest",         ["python", "-m", "forecast.backtest_xgb_single"]),
-    ("sarimax_exog_backtest",["python", "-m", "forecast.backtest_sarimax_exog_single"]),
+    ("sarimax_backtest",      ["python", "-m", "forecast.backtest_sarimax_single"]),
+    ("xgb_backtest",          ["python", "-m", "forecast.backtest_xgb_single"]),
+    ("sarimax_exog_backtest", ["python", "-m", "forecast.backtest_sarimax_exog_single"]),
 ]
 
 def load_target_data_asof(metric_id: str, geo_id: str, property_type_id: str) -> str:
@@ -31,9 +32,16 @@ def load_target_data_asof(metric_id: str, geo_id: str, property_type_id: str) ->
     if df.empty:
         raise SystemExit("No target data found.")
 
-    # Normalize to month-end timestamps using the shared helper
     idx = month_end_index(pd.to_datetime(df["date"]))
     return str(pd.DatetimeIndex(idx).max().date())  # YYYY-MM-DD
+
+
+def write_manifest(batch_dir: Path, payload: dict) -> Path:
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    p = batch_dir / "manifest.json"
+    with p.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+    return p
 
 
 def run_one(model_name, cmd_base, args_common):
@@ -42,7 +50,9 @@ def run_one(model_name, cmd_base, args_common):
     try:
         subprocess.check_call(cmd)
     except subprocess.CalledProcessError as e:
-        raise SystemExit(f"[batch] FAIL model={model_name} exit={e.returncode}\ncmd={' '.join(cmd)}") from e
+        raise SystemExit(
+            f"[batch] FAIL model={model_name} exit={e.returncode}\ncmd={' '.join(cmd)}"
+        ) from e
 
 
 def sanity_check(metric_id, geo_id, property_type_id, batch_id, data_asof):
@@ -71,6 +81,7 @@ def sanity_check(metric_id, geo_id, property_type_id, batch_id, data_asof):
         raise SystemExit(f"[batch] FAIL: missing model families in batch: {missing}\n{df}")
     print("[batch] PASS sanity check:\n", df.to_string(index=False))
 
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--metric_id", required=True)
@@ -78,22 +89,62 @@ def main():
     ap.add_argument("--property_type_id", required=True)
     ap.add_argument("--horizon", type=int, default=12)
 
-    # These should be centralized knobs
+    # determinism + artifacts
+    ap.add_argument("--seed", type=int, default=1337)
+    ap.add_argument("--artifact_root", default="runs")
+    ap.add_argument("--notes", default="")
+
+    # centralized knobs
     ap.add_argument("--min_train_len", type=int, default=None)
     ap.add_argument("--anchor_step_months", type=int, default=None)
     ap.add_argument("--max_anchors", type=int, default=None)
     ap.add_argument("--latest_anchor_offset_months", type=int, default=None)
 
-    # Optional: allow excluding families
+    # allow excluding families
     ap.add_argument("--skip_xgb", action="store_true")
     ap.add_argument("--skip_exog", action="store_true")
+
+    # override dependency explicitly if needed
+    ap.add_argument("--xgb_batch_id", default=None)
 
     args = ap.parse_args()
 
     batch_id = new_batch_id()
     data_asof = load_target_data_asof(args.metric_id, args.geo_id, args.property_type_id)
+    xgb_batch_id = args.xgb_batch_id or batch_id
+
+    batch_dir = Path(args.artifact_root) / batch_id
+    manifest = {
+        "batch_id": batch_id,
+        "data_asof": data_asof,
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "seed": args.seed,
+        "artifact_root": str(Path(args.artifact_root).resolve()),
+        "target": {
+            "metric_id": args.metric_id,
+            "geo_id": args.geo_id,
+            "property_type_id": args.property_type_id,
+        },
+        "horizon": args.horizon,
+        "knobs": {
+            "min_train_len": args.min_train_len,
+            "anchor_step_months": args.anchor_step_months,
+            "max_anchors": args.max_anchors,
+            "latest_anchor_offset_months": args.latest_anchor_offset_months,
+        },
+        "dependency": {
+            "xgb_batch_id": xgb_batch_id,
+        },
+        "skips": {
+            "skip_xgb": bool(args.skip_xgb),
+            "skip_exog": bool(args.skip_exog),
+        },
+        "notes": args.notes,
+    }
+    manifest_path = write_manifest(batch_dir, manifest)
 
     print(f"[batch] batch_id={batch_id} data_asof={data_asof}")
+    print(f"[batch] manifest={manifest_path}")
 
     args_common = [
         "--metric_id", args.metric_id,
@@ -102,9 +153,11 @@ def main():
         "--horizon", str(args.horizon),
         "--batch_id", batch_id,
         "--data_asof", data_asof,
+        "--seed", str(args.seed),
+        "--artifact_root", str(batch_dir),
     ]
-    
-    # only pass overrides if set (and not None)
+
+    # pass overrides if set
     if args.min_train_len is not None:
         args_common += ["--min_train_len", str(args.min_train_len)]
     if args.anchor_step_months is not None:
@@ -112,16 +165,24 @@ def main():
     if args.max_anchors is not None:
         args_common += ["--max_anchors", str(args.max_anchors)]
     if args.latest_anchor_offset_months is not None:
-        args_common += ["--latest_anchor_offset_months", str(args.latest_anchor_offset_months)]    
+        args_common += ["--latest_anchor_offset_months", str(args.latest_anchor_offset_months)]
 
     for model_name, cmd_base in BACKTEST_CMDS:
         if model_name == "xgb_backtest" and args.skip_xgb:
             continue
         if model_name == "sarimax_exog_backtest" and args.skip_exog:
             continue
-        run_one(model_name, cmd_base, args_common)
+
+        model_args = list(args_common)
+
+        # enforce dependency: sarimax_exog must know which xgb batch to read
+        if model_name == "sarimax_exog_backtest":
+            model_args += ["--xgb_batch_id", xgb_batch_id]
+
+        run_one(model_name, cmd_base, model_args)
 
     sanity_check(args.metric_id, args.geo_id, args.property_type_id, batch_id, data_asof)
+
 
 if __name__ == "__main__":
     main()
