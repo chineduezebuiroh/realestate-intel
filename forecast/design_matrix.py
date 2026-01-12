@@ -138,6 +138,7 @@ def build_train_and_future_exog_forecasted(
     feature_specs: List[FeatureSpec],
     anchor_date: pd.Timestamp,
     horizon: int,
+    method: str = "seasonal_naive_else_last",
 ) -> Tuple[pd.Series, pd.DataFrame, pd.DataFrame, pd.DatetimeIndex]:
     """
     Build:
@@ -174,12 +175,12 @@ def build_train_and_future_exog_forecasted(
         base_exog[spec.name] = s
 
     # -------------------------
-    # 3) Build TRAIN lagged features on the target timeline (no shrinking)
+    # 3) Build TRAIN base exog on the target timeline (no shrinking)
     # -------------------------
-    # Training uses y_raw.index timeline; exog series are reindexed to it.
-    df_base_train = pd.DataFrame(index=y_raw.index)
-    for name, s in base_exog.items():
-        df_base_train[name] = s.reindex(df_base_train.index)
+    df_base_train = pd.DataFrame(
+        {name: s.reindex(y_raw.index) for name, s in base_exog.items()},
+        index=y_raw.index,
+    )
 
     feature_cols_train = {}
     for spec in feature_specs:
@@ -190,50 +191,61 @@ def build_train_and_future_exog_forecasted(
     X_train_raw = pd.DataFrame(feature_cols_train, index=y_raw.index)
 
     # -------------------------
-    # 4) Build FUTURE month grid and forecast UNLAGGED exog into it
+    # 4) Build FUTURE base exog by forecasting UNLAGGED series (Type 2 backtest)
     # -------------------------
-    anchor_date = pd.to_datetime(anchor_date)
-    anchor_date = month_end_index(pd.DatetimeIndex([anchor_date]))[0]
+    test_idx_full = month_ends_after(anchor_date, horizon)  # month-ends AFTER anchor_date
 
-    test_idx_full = month_ends_after(anchor_date, horizon)
+    # We'll build base exog values on: (train timeline up to anchor) + (future horizon)
+    train_end = pd.Timestamp(anchor_date)
+    train_idx = y_raw.index[y_raw.index <= train_end]
+    full_idx = train_idx.append(test_idx_full)
+    full_idx = full_idx.unique().sort_values()
 
-    # We need base values covering both:
-    # - history up to anchor (for lagging into early future months)
-    # - forecasted base values for the future months
-    #
-    # So create a "base panel" on (history ∪ future) and then lag it.
-    idx_hist = y_raw.index[y_raw.index <= anchor_date]
-    idx_all = idx_hist.union(test_idx_full)
+    if method != "seasonal_naive_else_last":
+        raise ValueError(f"Unknown exog forecast method: {method}")
 
-    df_base_all = pd.DataFrame(index=idx_all)
+    base_exog_fc: Dict[str, pd.Series] = {}
 
-    for spec in feature_specs:
-        s_hist = base_exog[spec.name].reindex(idx_all)
+    for name, s in base_exog.items():
+        # Put series onto the full index (train+future). Future starts as NaN.
+        s_full = s.reindex(full_idx)
 
-        # Forecast only for future months; keep actuals where present
-        s_fc = _forecast_base_seasonal_naive_else_last(
-            s_base=base_exog[spec.name].loc[:anchor_date],
-            idx_future=test_idx_full,
-            season_lag=12,
-        )
+        # Fill forward month-by-month across the FUTURE portion only
+        # Rule: for month t in future:
+        #   if value at (t-12) exists and is not NaN -> use it
+        #   else -> use last available value before t (carry-forward)
+        for t in test_idx_full:
+            if pd.notna(s_full.loc[t]):
+                continue  # already have real value, keep it
 
-        # Combine: prefer actual values wherever present, else forecast for future
-        s_comb = s_hist.copy()
-        s_comb.loc[test_idx_full] = s_comb.loc[test_idx_full].combine_first(s_fc)
+            t12 = (pd.Timestamp(t) - pd.DateOffset(months=12))
+            if t12 in s_full.index and pd.notna(s_full.loc[t12]):
+                s_full.loc[t] = s_full.loc[t12]
+            else:
+                # last observed up to prior month
+                prev = s_full.loc[:t].dropna()
+                if len(prev) > 0:
+                    s_full.loc[t] = prev.iloc[-1]
+                # else: leave NaN (meaning: truly no history)
 
-        df_base_all[spec.name] = s_comb
+        base_exog_fc[name] = s_full
 
     # -------------------------
-    # 5) Lag the combined base to create FUTURE lagged features
+    # 5) Build FUTURE lagged features from the forecasted base exog
     # -------------------------
-    feature_cols_all = {}
+    df_base_future = pd.DataFrame({name: s.reindex(full_idx) for name, s in base_exog_fc.items()}, index=full_idx)
+
+    feature_cols_future = {}
     for spec in feature_specs:
         for lag in spec.lags:
             col = f"{spec.name}_lag{lag}"
-            feature_cols_all[col] = df_base_all[spec.name].shift(lag)
+            feature_cols_future[col] = df_base_future[spec.name].shift(lag)
 
-    X_all = pd.DataFrame(feature_cols_all, index=idx_all)
-    X_future_fc = X_all.reindex(test_idx_full)
+    X_full_future = pd.DataFrame(feature_cols_future, index=full_idx)
 
+    # Future design matrix = rows on the horizon only
+    X_future_fc = X_full_future.reindex(test_idx_full)
+    
     # Return target (full), train features (full timeline), future features (horizon), and horizon index
     return y_raw, X_train_raw, X_future_fc, test_idx_full
+    
