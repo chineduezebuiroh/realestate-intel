@@ -280,7 +280,7 @@ def run_backtest_sarimax_exog_single(
             anchor_date=anchor_date,
             horizon=horizon,
             # seasonal-naive (t-12) else last value is your rule:
-            method="seasonal_naive_else_last",
+            # method="seasonal_naive_else_last",
         )
     
         # y_train_raw is the target up to anchor (keep as Series)
