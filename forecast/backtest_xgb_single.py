@@ -13,6 +13,7 @@ from .feature_loader import (
     build_universal_feature_specs,
     build_design_matrix,
     build_design_matrix_incremental,
+    load_target_series_for_spec,
 )
 
 from .db_forecast import (
@@ -131,6 +132,7 @@ def run_backtest_xgb_single(
             candidate_specs=candidate_specs,
             min_obs=required_obs,
             max_features=None,
+            load_target_fn=load_target_series_for_spec,
         )
     except ValueError as e:
         print(f"[xgb_backtest] Incremental design matrix build failed: {e}")
