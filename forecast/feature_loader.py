@@ -257,14 +257,22 @@ def build_design_matrix_incremental(
             # This feature makes alignment impossible; skip it.
             continue
 
-        if len(y_trial) >= min_obs:
-            # Accept this feature set
+        # IMPORTANT: do NOT let y_trial define the timeline. It may be shrunk by exog alignment.
+        # Evaluate usable training rows based on X availability.
+        n_usable = int(X_trial.dropna().shape[0])
+
+        if n_usable >= min_obs:
             selected_specs = trial_specs
             current_y, current_X, current_base = y_trial, X_trial, base_trial
-        
+
+            if len(selected_specs) <= 10 or len(selected_specs) % 10 == 0:
+                print(f"[inc-build] +accept {spec.name} -> usable={n_usable} feats={X_trial.shape[1]}")
+
+            """
             # Print first 10 accepts, then every 10 thereafter
             if len(selected_specs) <= 10 or len(selected_specs) % 10 == 0:
                 print(f"[inc-build] +accept {spec.name} -> obs={len(y_trial)} feats={X_trial.shape[1]}")
+            """
 
     if current_y is None or current_X is None or current_base is None:
         # Fallback: try with just the first candidate as a last resort, enforcing min_obs
