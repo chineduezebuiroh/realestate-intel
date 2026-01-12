@@ -141,10 +141,10 @@ def build_design_matrix(
         base_series[spec.name] = s
 
     # 3) Build a base frame on the TARGET index (do NOT inner-join away months)
-    df_base = pd.DataFrame(index=y_raw.index)
-    df_base["y"] = y_raw
-    for spec in feature_specs:
-        df_base[spec.name] = base_series[spec.name].reindex(df_base.index)
+    df_base = pd.DataFrame(
+        {"y": y_raw, **{spec.name: base_series[spec.name].reindex(y_raw.index) for spec in feature_specs}},
+        index=y_raw.index,
+    )
 
     # 4) Build lagged features according to specs
     feature_cols = {}
