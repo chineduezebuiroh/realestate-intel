@@ -36,6 +36,7 @@ from .backtest_utils import (
 )
 
 from .backtest_sarimax_single import load_target_series  # TEMP import for debugging only
+from .design_matrix import build_train_and_future_exog_forecasted
 
 TEMP_DEBUG_LIMIT = 300 #set to 'None' when finished debugging
 
@@ -225,7 +226,8 @@ def run_backtest_sarimax_exog_single(
     
     # Put X onto the y timeline (NaNs where features not available)
     X_full = X_full.reindex(y_full.index)
-
+    
+    # ===== Consider removing the above as well once DEBUG is completed =====
 
     
     # Final hard check
@@ -261,81 +263,77 @@ def run_backtest_sarimax_exog_single(
     
     for anchor_date in anchors:
         print(f"\n[backtest_exog] Anchor at date={anchor_date.date()}")
-        
-        y_train = y_full.loc[:anchor_date].copy()
-        X_train = X_full.loc[:anchor_date].copy()
-
-        # Keep raw training window for now; we'll drop NaNs AFTER feature selection
-        y_train = y_train.dropna()
-
-
-        # Align train on observed months only (NO expansion, NO NaN injection)
-        #train_idx = y_train.index.intersection(X_train.index) #<-- It won’t hurt, but it’s dead weight.
-        """
-        y_train = y_train.reindex(train_idx)
-        X_train = X_train.reindex(train_idx)
-        """
-        
-        if len(y_train) < min_train_len:
+    
+        # ------------------------------------------------------------------
+        # 1) Build TRAIN + FUTURE exog using forecasted-exog (Type 2 backtest)
+        # ------------------------------------------------------------------
+        # NOTE: This should return:
+        # - y_full_raw: raw target series on its native month-end timeline (no shrinking)
+        # - X_train_raw: exog matrix aligned to y_full_raw up to anchor (may contain NaNs)
+        # - X_future_fc: exog matrix for horizon months built by forecasting exogs (NO NaNs ideally)
+        # - test_idx_full: month-end DatetimeIndex length=horizon
+        #
+        # If your helper returns slightly different names, adapt them here once.
+        y_full_raw, X_train_raw, X_future_fc, test_idx_full = build_train_and_future_exog_forecasted(
+            target=target,
+            feature_specs=selected_specs,   # IMPORTANT: use the specs you ended up selecting
+            anchor_date=anchor_date,
+            horizon=horizon,
+            # seasonal-naive (t-12) else last value is your rule:
+            method="seasonal_naive_else_last",
+        )
+    
+        # y_train_raw is the target up to anchor (keep as Series)
+        y_train_raw = y_full_raw.loc[:anchor_date].copy()
+    
+        # --- enforce minimum target length (no exog involved) ---
+        y_train_raw = y_train_raw.dropna()
+        if len(y_train_raw) < min_train_len:
             print("[backtest_exog] Train shorter than min_train_len; skipping anchor.")
             continue
-       
-
-        # ---- Build evaluation index for this anchor (month-end grid) ----
-        test_idx_full = month_ends_after(anchor_date, horizon)  # length=horizon
-        
-        # Pull actuals and exog over the full requested window
-        y_test_full = y_full.reindex(test_idx_full)
-        X_test_full = X_full.reindex(test_idx_full)
-        
-        # Diagnostics: how many missing target months in the requested window?
+    
+        # ------------------------------------------------------------------
+        # 2) Build evaluation window (truncate horizon if y missing; you want this)
+        # ------------------------------------------------------------------
+        y_test_full = y_full_raw.reindex(test_idx_full)
         missing_y_mask = y_test_full.isna()
-        missing_y_dates = test_idx_full[missing_y_mask]
-        
+    
         print(
             f"[backtest_exog] horizon check: anchor={anchor_date.date()} "
             f"need[{test_idx_full[0].date()}..{test_idx_full[-1].date()}] "
-            f"y_max={y_full.index.max().date()} "
+            f"y_max={y_full_raw.index.max().date()} "
             f"missing_y={int(missing_y_mask.sum())}"
         )
-        if len(missing_y_dates) > 0:
-            print("[backtest_exog] first missing y dates:", [d.date() for d in missing_y_dates[:5]])
-            print("[backtest_exog] last 5 y_full dates:", [d.date() for d in y_full.index[-5:]])
-        
-        # ---- NEW RULE: no imputation, but allow shorter horizon until first missing y ----
+    
         if missing_y_mask.any():
             first_missing_pos = int(np.argmax(missing_y_mask.to_numpy()))
-            horizon_bt = first_missing_pos  # forecast only up to the last contiguous available month
+            horizon_bt = first_missing_pos
             if horizon_bt <= 0:
                 print("[backtest_exog] Missing y immediately after anchor; skipping anchor.")
                 continue
             print(f"[backtest_exog] Truncating horizon to {horizon_bt} due to missing y.")
         else:
             horizon_bt = horizon
-        
+    
         test_idx = test_idx_full[:horizon_bt]
-        
-        # Now define the actual evaluation windows (STRICT)
-        y_test = y_full.reindex(test_idx)
-        X_test = X_full.reindex(test_idx)
-
-
-        # Use the already-aligned test window
-        y_test = y_test
-        X_test = X_test
-
-        # Optional hybrid step: XGB feature selection
-        selected_feature_names = list(X_train.columns)
-
-        # Build a clean candidate pool for feature selection
-        cand_mask = y_train.notna() & X_train.notna().all(axis=1)
+        y_test = y_full_raw.reindex(test_idx)
+    
+        # ------------------------------------------------------------------
+        # 3) XGB feature selection on complete-case TRAIN rows only
+        # ------------------------------------------------------------------
+        # Candidate pool for selection must be complete-case across ALL features (for stability)
+        # but training for SARIMAX must be complete-case only on SELECTED features.
+        X_train = X_train_raw.copy()
+    
+        cand_mask = y_train_raw.notna() & X_train.notna().all(axis=1)
         X_train_cand = X_train.loc[cand_mask]
-        y_train_cand = y_train.loc[cand_mask]
-        
+        y_train_cand = y_train_raw.loc[cand_mask]
+    
         if len(y_train_cand) < min_train_len:
             print("[backtest_exog] Not enough fully-observed rows to run XGB selection; skipping anchor.")
             continue
-        
+    
+        selected_feature_names = list(X_train_cand.columns)
         if use_xgb_feature_selection:
             selected_feature_names = select_features_with_xgb(
                 X_train=X_train_cand,
@@ -343,41 +341,45 @@ def run_backtest_sarimax_exog_single(
                 max_features=max_features_from_xgb,
             )
             if not selected_feature_names:
-                print("[backtest_exog] XGB selected no informative features; using all features instead.")
-                selected_feature_names = list(X_train.columns)
-
-            print(f"[backtest_exog] Selected features: {selected_feature_names}")
-
+                print("[backtest_exog] XGB selected no informative features; using all complete-case features instead.")
+                selected_feature_names = list(X_train_cand.columns)
+    
+        print(f"[backtest_exog] Selected features: {selected_feature_names}")
+    
+        # ------------------------------------------------------------------
+        # 4) Prepare SARIMAX train matrices (complete-case on SELECTED features only)
+        # ------------------------------------------------------------------
         X_train_sel = X_train[selected_feature_names]
-        
-        train_mask = y_train.notna() & X_train_sel.notna().all(axis=1)
-        y_train_fit = y_train.loc[train_mask]
-        X_train_sel_fit = X_train_sel.loc[train_mask]
-        
-        if len(y_train_fit) < min_train_len:
+        train_mask = y_train_raw.notna() & X_train_sel.notna().all(axis=1)
+        y_train = y_train_raw.loc[train_mask]
+        X_train_sel = X_train_sel.loc[train_mask]
+    
+        if len(y_train) < min_train_len:
             print("[backtest_exog] Train shorter than min_train_len after selection; skipping anchor.")
             continue
-
-        X_test_sel = X_test[selected_feature_names]
-
-        # Option A strictness (correct): require exog completeness ONLY for selected features
-        if X_test_sel.isna().any().any():
-            missing_cols = X_test_sel.columns[X_test_sel.isna().any(axis=0)].tolist()
-            first_bad_date = X_test_sel.index[X_test_sel.isna().any(axis=1)][0]
+    
+        # ------------------------------------------------------------------
+        # 5) Prepare FUTURE exog for the horizon using forecasted-exog output
+        # ------------------------------------------------------------------
+        X_future_sel = X_future_fc.reindex(test_idx)[selected_feature_names]
+    
+        # With forecasted-exog, you should NOT see NaNs here. If you do, that's a bug in the forecaster.
+        if X_future_sel.isna().any().any():
+            missing_cols = X_future_sel.columns[X_future_sel.isna().any(axis=0)].tolist()
+            first_bad_date = X_future_sel.index[X_future_sel.isna().any(axis=1)][0]
             print(
-                "[backtest_exog] Missing X in usable horizon window for selected features; skipping anchor.",
+                "[backtest_exog] Missing FUTURE exog after forecasting; skipping anchor.",
                 "missing_cols_count=", len(missing_cols),
                 "first_bad_date=", first_bad_date.date(),
             )
             continue
-
-
-        # --- Fit on integer index to avoid unsupported/irregular date indexes ---
-        endog = pd.Series(y_train.values)            # RangeIndex
-        #exog_train = X_train_sel.values              # numpy array
+    
+        # ------------------------------------------------------------------
+        # 6) Fit SARIMAX on integer index; forecast with exog_future
+        # ------------------------------------------------------------------
+        endog = pd.Series(y_train.values)  # RangeIndex
         exog_train = X_train_sel.to_numpy(dtype=float)
-
-        
+    
         model = SARIMAX(
             endog=endog,
             exog=exog_train,
@@ -390,26 +392,16 @@ def run_backtest_sarimax_exog_single(
         converged = bool(getattr(res, "mle_retvals", {}).get("converged", True))
         aic = float(getattr(res, "aic", np.nan))
         bic = float(getattr(res, "bic", np.nan))
-
-        
-        # Forecast using the real exog values for the test window
-        #exog_future = X_test_sel.values
-        exog_future = X_test_sel.to_numpy(dtype=float)
+    
+        exog_future = X_future_sel.to_numpy(dtype=float)
         fc = res.get_forecast(steps=horizon_bt, exog=exog_future)
-        
-        mean_fc = fc.predicted_mean
-        ci = fc.conf_int()
-        
-        # You own the timestamps (test_idx) — attach them explicitly
-        mean_fc = pd.Series(np.asarray(mean_fc), index=test_idx, name="y_hat")
-        ci = pd.DataFrame(np.asarray(ci), index=test_idx, columns=["y_hat_lo", "y_hat_hi"])
-
-        """        
-        # Force correct timestamps
-        mean_fc = pd.Series(mean_fc.values, index=test_idx, name="y_hat")
-        ci = pd.DataFrame(ci.values, index=test_idx, columns=["y_hat_lo", "y_hat_hi"])
-        """
-
+    
+        mean_fc = pd.Series(np.asarray(fc.predicted_mean), index=test_idx, name="y_hat")
+        ci = pd.DataFrame(np.asarray(fc.conf_int()), index=test_idx, columns=["y_hat_lo", "y_hat_hi"])
+    
+        # ------------------------------------------------------------------
+        # 7) Persist run + predictions
+        # ------------------------------------------------------------------
         algo_params = {
             "order": order,
             "seasonal_order": seasonal_order,
@@ -419,8 +411,9 @@ def run_backtest_sarimax_exog_single(
             "converged": converged,
             "aic": aic,
             "bic": bic,
+            "exog_backtest_type": "forecasted_exog_seasonal_naive_else_last",
         }
-        
+    
         algo_params = store_selected_features_in_params(
             algo_params,
             selected_features=selected_feature_names,
@@ -430,9 +423,9 @@ def run_backtest_sarimax_exog_single(
                 "n_features_before": int(X_train.shape[1]),
             },
         )
-
+    
         con = get_connection()
-
+    
         run_id = insert_run(
             con=con,
             model_name="sarimax_exog_backtest",
@@ -445,15 +438,15 @@ def run_backtest_sarimax_exog_single(
             train_end=anchor_date.date(),
             horizon_max_months=horizon_bt,
             algo_params=algo_params,
-            notes=f"SARIMAX-exog backtest anchor={anchor_date.date()}",
+            notes=f"SARIMAX-exog (forecasted-exog) backtest anchor={anchor_date.date()}",
             is_active=False,
             run_kind="backtest",
             batch_id=batch_id,
             data_asof=data_asof,
         )
-        
+    
         target_dates = [d.date() for d in test_idx]
-        
+    
         insert_predictions(
             con=con,
             run_id=run_id,
@@ -462,16 +455,12 @@ def run_backtest_sarimax_exog_single(
             y_hat_lo=ci["y_hat_lo"].values,
             y_hat_hi=ci["y_hat_hi"].values,
         )
-
+    
         con.close()
-
-
+    
         print(f"[backtest_exog] Created SARIMAX-exog backtest run_id={run_id} for anchor={anchor_date.date()}")
         results_summary.append({"anchor_date": anchor_date, "run_id": run_id})
 
-    print("\n[backtest_exog] Summary:")
-    for r in results_summary:
-        print(f"  anchor={r['anchor_date'].date()} -> run_id={r['run_id']}")
 
 
 if __name__ == "__main__":
