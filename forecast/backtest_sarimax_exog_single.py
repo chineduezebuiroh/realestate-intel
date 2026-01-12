@@ -14,6 +14,7 @@ from .feature_loader import (
     #build_design_matrix,
     build_universal_feature_specs,
     build_design_matrix_incremental,
+    load_target_series_for_spec,
 )
 
 from .db_forecast import (
@@ -33,6 +34,8 @@ from .backtest_utils import (
     DEFAULT_MAX_ANCHORS,
     DEFAULT_ANCHOR_BUFFER_MONTHS,
 )
+
+from .backtest_sarimax_single import load_target_series  # TEMP import for debugging only
 
 TEMP_DEBUG_LIMIT = 300 #set to 'None' when finished debugging
 
@@ -149,7 +152,8 @@ def run_backtest_sarimax_exog_single(
             target=target,
             candidate_specs=candidate_specs,
             min_obs=required_obs,
-            max_features=None,  # or cap at, say, 20 if you want
+            max_features=None,
+            load_target_fn=load_target_series_for_spec,
         )
     except ValueError as e:
         print(f"[backtest_exog] Incremental design matrix build failed: {e}")
@@ -162,18 +166,45 @@ def run_backtest_sarimax_exog_single(
         f"selected_series={len(selected_specs)}"
     )
     
+
+    # ===== DEBUG: compare raw target vs y_full coming out of design-matrix build =====
+    s_raw = load_target_series(metric_id, geo_id, property_type_id).copy()
+    s_raw.index = month_end_index(s_raw.index)
+    s_raw = s_raw[~s_raw.index.duplicated(keep="last")].sort_index()
+    
+    grid_raw = pd.date_range(s_raw.index.min(), s_raw.index.max(), freq="ME")
+    missing_raw = grid_raw.difference(s_raw.index)
+    
+    grid_yfull = pd.date_range(y_full.index.min(), y_full.index.max(), freq="ME")
+    missing_yfull = grid_yfull.difference(y_full.index)
+    
+    print(f"[DEBUG] raw target months: {len(s_raw)}  range={s_raw.index.min().date()}..{s_raw.index.max().date()}")
+    print(f"[DEBUG] raw missing months overall: {len(missing_raw)}  example={[d.date() for d in missing_raw[:10]]}")
+    
+    print(f"[DEBUG] y_full months: {len(y_full)}  range={y_full.index.min().date()}..{y_full.index.max().date()}")
+    print(f"[DEBUG] y_full missing months overall: {len(missing_yfull)}  example={[d.date() for d in missing_yfull[:10]]}")
+    
+    # Which months got lost by the design-matrix process?
+    lost = s_raw.index.difference(y_full.index)
+    print(f"[DEBUG] months present in raw but missing in y_full: {len(lost)}")
+    if len(lost) > 0:
+        print("[DEBUG] lost example:", [d.date() for d in lost[:15]])
+    # ===== END DEBUG =====
+    
+    """
     # Normalize indices to month-end, dedupe, sort
     y_full = y_full.copy()
     y_full.index = month_end_index(y_full.index)
     
     full_grid = pd.date_range(y_full.index.min(), y_full.index.max(), freq="ME")
     missing = full_grid.difference(y_full.index)
-    print(f"[backtest_exog] y_full missing months overall: {len(missing)}")
-    if len(missing) > 0:
-        print("[backtest_exog] example missing months:", [d.date() for d in missing[:10]])
+    print("[backtest_exog] y_full missing months overall:", len(missing))
+    print("[backtest_exog] last 10 y_full:", [d.date() for d in y_full.index[-10:]])
+    print("[backtest_exog] example missing months:", [d.date() for d in missing[:10]])
 
     y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
-    
+
+
     X_full = X_full.copy()
     X_full.index = month_end_index(X_full.index)
     X_full = X_full[~X_full.index.duplicated(keep="last")].sort_index()
@@ -182,6 +213,19 @@ def run_backtest_sarimax_exog_single(
     # Do NOT shrink y to X globally. Keep full y timeline.
     # Align X to y so X has y’s index, but values may be NaN where exog is unavailable.
     X_full = X_full.reindex(y_full.index)
+    """
+
+    # Normalize X to month-end (it’s on training rows), but y_full must be the raw target timeline
+    X_full = X_full.copy()
+    X_full.index = month_end_index(X_full.index)
+    X_full = X_full[~X_full.index.duplicated(keep="last")].sort_index()
+    
+    # y_full is the raw target timeline
+    y_full = s_raw
+    
+    # Put X onto the y timeline (NaNs where features not available)
+    X_full = X_full.reindex(y_full.index)
+
 
     
     # Final hard check
@@ -220,6 +264,10 @@ def run_backtest_sarimax_exog_single(
         
         y_train = y_full.loc[:anchor_date].copy()
         X_train = X_full.loc[:anchor_date].copy()
+
+        train_mask = y_train.notna() & X_train.notna().all(axis=1)
+        y_train = y_train.loc[train_mask]
+        X_train = X_train.loc[train_mask]
 
 
         # Align train on observed months only (NO expansion, NO NaN injection)
