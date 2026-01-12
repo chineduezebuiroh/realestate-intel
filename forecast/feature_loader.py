@@ -7,11 +7,11 @@ from typing import Optional, List, Dict, Tuple
 import duckdb
 import pandas as pd
 
+from .backtest_utils import month_end_index
 
-# -----------------------------------------
+# ====================================================================
 # Shared types
-# -----------------------------------------
-
+# ====================================================================
 @dataclass
 class TargetSpec:
     metric_id: str
@@ -41,15 +41,24 @@ class FeatureSpec:
     lags: List[int]
 
 
+# ====================================================================
+# Helpers
+# ====================================================================
 def get_connection():
     db_path = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
     return duckdb.connect(db_path)
 
 
-# -----------------------------------------
-# Load single series from fact_timeseries
-# -----------------------------------------
+def load_target_series_for_spec(t: TargetSpec) -> pd.Series:
+    return load_series_from_fact(
+        metric_id=t.metric_id,
+        geo_id=t.geo_id,
+        property_type_id=t.property_type_id,
+    )
 
+# ====================================================================
+# Load single series from fact_timeseries
+# ====================================================================
 def load_series_from_fact(
     metric_id: str,
     geo_id: str,
@@ -82,10 +91,9 @@ def load_series_from_fact(
     return s
 
 
-# -----------------------------------------
+# ====================================================================
 # Design matrix builder
-# -----------------------------------------
-
+# ====================================================================
 def build_design_matrix(
     target: TargetSpec,
     feature_specs: List[FeatureSpec],
@@ -98,12 +106,13 @@ def build_design_matrix(
 
     Returns:
       y: target series aligned with X (index = dates, name = 'y')
-      X: dataframe of lagged features, no NaNs
-      base_series: dict name -> base (unlagged) series used to build X
+      X: dataframe of lagged features, no NaNs on selected training rows
+      base_series: dict name -> base (unlagged) series (on full target timeline)
 
     Notes:
-      - We align all series on the intersection of dates.
-      - We drop initial rows that don't have all requested lags.
+      - Target defines the timeline (NO inner join with exogs).
+      - Feature series are reindexed to target timeline (may contain NaNs).
+      - Training rows are those where y and all lagged features exist.
     """
     # 1) Load target series
     y_raw = load_series_from_fact(
@@ -113,6 +122,11 @@ def build_design_matrix(
     )
     y_raw.name = "y"
 
+    # Normalize target to month-end, dedupe, sort (target defines the timeline)
+    y_raw = y_raw.copy()
+    y_raw.index = month_end_index(y_raw.index)
+    y_raw = y_raw[~y_raw.index.duplicated(keep="last")].sort_index()
+
     # 2) Load feature series
     base_series: Dict[str, pd.Series] = {"y": y_raw}  # include target as base for self-lags
     for spec in feature_specs:
@@ -121,30 +135,31 @@ def build_design_matrix(
             geo_id=spec.geo_id,
             property_type_id=spec.property_type_id,
         )
+        s = s.copy()
+        s.index = month_end_index(s.index)
+        s = s[~s.index.duplicated(keep="last")].sort_index()
         base_series[spec.name] = s
 
-    # 3) Align all base series on common index (inner join)
-    df_base = pd.concat(base_series.values(), axis=1, join="inner")
-    df_base.columns = list(base_series.keys())  # ensure names
+    # 3) Build a base frame on the TARGET index (do NOT inner-join away months)
+    df_base = pd.DataFrame(index=y_raw.index)
+    df_base["y"] = y_raw
+    for spec in feature_specs:
+        df_base[spec.name] = base_series[spec.name].reindex(df_base.index)
 
     # 4) Build lagged features according to specs
     feature_cols = {}
-
     for spec in feature_specs:
         col_name = spec.name
         for lag in spec.lags:
             lag_col = f"{col_name}_lag{lag}"
             feature_cols[lag_col] = df_base[col_name].shift(lag)
 
-    # Optional: you can also include lagged y here if you want AR terms
-    # For now we'll not add them by default; they can be specified as a FeatureSpec
-    # with metric_id=target.metric_id, geo_id=target.geo_id, property_type_id=target.property_type_id.
-
     df_features = pd.DataFrame(feature_cols, index=df_base.index)
 
-    # 5) Combine y and X, drop rows with any NaNs (lag burn-in)
+    # 5) Combine y and X, drop rows unusable for training
     df_all = pd.concat([df_base["y"], df_features], axis=1)
-    df_all = df_all.dropna()
+    df_all = df_all.dropna(subset=["y"])
+    df_all = df_all.dropna(subset=list(df_features.columns))
 
     if len(df_all) < min_obs:
         raise ValueError(
@@ -154,9 +169,9 @@ def build_design_matrix(
     y = df_all["y"].copy()
     X = df_all.drop(columns=["y"]).copy()
 
-    # Update base_series to truncated index (for forecasting alignment convenience)
+    # Keep base_series on full target timeline (month-end)
     for k in base_series:
-        base_series[k] = base_series[k].reindex(df_all.index)
+        base_series[k] = base_series[k].reindex(df_base.index)
 
     return y, X, base_series
 
@@ -166,7 +181,9 @@ def build_design_matrix_incremental(
     candidate_specs: List[FeatureSpec],
     min_obs: int = 60,
     max_features: Optional[int] = None,
+    load_target_fn=None,
 ) -> Tuple[pd.Series, pd.DataFrame, Dict[str, pd.Series], List[FeatureSpec]]:
+
     """
     Incrementally build a design matrix by trying candidate features one-by-one.
 
@@ -202,23 +219,23 @@ def build_design_matrix_incremental(
     current_X: Optional[pd.DataFrame] = None
     current_base: Optional[Dict[str, pd.Series]] = None
 
-    # First, verify the target itself has enough observations via a tiny trick:
-    # take the first candidate only, build with min_obs=1 and then inspect y length.
-    # (We assume target length won't change across feature subsets.)
-    try:
-        y_probe, _, _ = build_design_matrix(
-            target=target,
-            feature_specs=[candidate_specs[0]],
-            min_obs=1,
-        )
-    except Exception as e:
-        raise ValueError(f"Unable to probe target series via build_design_matrix: {e}")
-
-    if len(y_probe) < min_obs:
+    
+    if load_target_fn is None:
         raise ValueError(
-            f"Target series does not have enough observations even before exogs: "
-            f"{len(y_probe)} < {min_obs}"
+            "build_design_matrix_incremental requires load_target_fn so we can validate "
+            "target history without exog contamination."
         )
+
+    y_raw = load_target_fn(target).copy()
+    y_raw.index = month_end_index(y_raw.index)
+    y_raw = y_raw[~y_raw.index.duplicated(keep="last")].sort_index()
+
+    if len(y_raw) < min_obs:
+        raise ValueError(
+            f"Target series does not have enough observations before exogs: "
+            f"{len(y_raw)} < {min_obs}"
+        )
+
 
     # Now incrementally add features
     for i, spec in enumerate(candidate_specs, start=1):
