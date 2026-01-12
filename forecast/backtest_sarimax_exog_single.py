@@ -280,7 +280,7 @@ def run_backtest_sarimax_exog_single(
             anchor_date=anchor_date,
             horizon=horizon,
             # seasonal-naive (t-12) else last value is your rule:
-            # method="seasonal_naive_else_last",
+            method="seasonal_naive_else_last", # once Option 2 is active
         )
     
         # y_train_raw is the target up to anchor (keep as Series)
@@ -379,6 +379,10 @@ def run_backtest_sarimax_exog_single(
         # 5) Prepare FUTURE exog for the horizon using forecasted-exog output
         # ------------------------------------------------------------------
         X_future_sel = X_future_fc.reindex(test_idx)[selected_feature_names]
+        if X_future_sel.isna().any().any(): #<-- this might be redundant with what's immediately below
+            bad = X_future_sel.columns[X_future_sel.isna().any(axis=0)].tolist()
+            print("[backtest_exog] BUG: forecasted exog still has NaNs. bad cols:", bad[:10], "count=", len(bad))
+
     
         # With forecasted-exog, you should NOT see NaNs here. If you do, that's a bug in the forecaster.
         if X_future_sel.isna().any().any():
