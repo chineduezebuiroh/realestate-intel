@@ -167,7 +167,7 @@ def run_backtest_sarimax_exog_single(
         f"selected_series={len(selected_specs)}"
     )
     
-
+    """
     # ===== DEBUG: compare raw target vs y_full coming out of design-matrix build =====
     s_raw = load_target_series(metric_id, geo_id, property_type_id).copy()
     s_raw.index = month_end_index(s_raw.index)
@@ -191,7 +191,7 @@ def run_backtest_sarimax_exog_single(
     if len(lost) > 0:
         print("[DEBUG] lost example:", [d.date() for d in lost[:15]])
     # ===== END DEBUG =====
-    
+    """
     """
     # Normalize indices to month-end, dedupe, sort
     y_full = y_full.copy()
@@ -215,7 +215,7 @@ def run_backtest_sarimax_exog_single(
     # Align X to y so X has y’s index, but values may be NaN where exog is unavailable.
     X_full = X_full.reindex(y_full.index)
     """
-
+    """
     # Normalize X to month-end (it’s on training rows), but y_full must be the raw target timeline
     X_full = X_full.copy()
     X_full.index = month_end_index(X_full.index)
@@ -226,6 +226,7 @@ def run_backtest_sarimax_exog_single(
     
     # Put X onto the y timeline (NaNs where features not available)
     X_full = X_full.reindex(y_full.index)
+    """
     
     # ===== Consider removing the above as well once DEBUG is completed =====
 
@@ -400,6 +401,8 @@ def run_backtest_sarimax_exog_single(
         # ------------------------------------------------------------------
         endog = pd.Series(y_train.values)  # RangeIndex
         exog_train = X_train_sel.to_numpy(dtype=float)
+
+        assert not X_future_sel.isna().any().any(), "future exog contains NaNs"
     
         model = SARIMAX(
             endog=endog,
