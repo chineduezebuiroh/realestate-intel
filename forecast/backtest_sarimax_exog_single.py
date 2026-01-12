@@ -323,28 +323,45 @@ def run_backtest_sarimax_exog_single(
         # ------------------------------------------------------------------
         # Candidate pool for selection must be complete-case across ALL features (for stability)
         # but training for SARIMAX must be complete-case only on SELECTED features.
-        X_train = X_train_raw.copy()
+        X_train = X_train_raw.loc[:anchor_date].copy()
+        X_train = X_train.reindex(y_train_raw.index)  # align to y_train_raw timeline
     
-        cand_mask = y_train_raw.notna() & X_train.notna().all(axis=1)
-        X_train_cand = X_train.loc[cand_mask]
-        y_train_cand = y_train_raw.loc[cand_mask]
-    
-        if len(y_train_cand) < min_train_len:
-            print("[backtest_exog] Not enough fully-observed rows to run XGB selection; skipping anchor.")
+        
+        # --- Feature selection dataset (allow NaNs in X; XGB can handle them) ---
+        y_train_cand = y_train_raw.dropna()
+        X_train_cand = X_train.reindex(y_train_cand.index)
+        
+        # Drop very sparse columns so XGB isn't selecting garbage.
+        # Tune the threshold if needed; this is a sane default.
+        min_nonnull = max(min_train_len, int(0.8 * len(y_train_cand)))
+        keep_cols = X_train_cand.columns[X_train_cand.notna().sum(axis=0) >= min_nonnull]
+        X_train_cand = X_train_cand[keep_cols]
+        
+        # If we filtered everything, bail early.
+        if X_train_cand.shape[1] == 0:
+            print("[backtest_exog] No exog columns meet non-null threshold for XGB selection; skipping anchor.")
             continue
-    
+        
+        # Still require enough y points (your real constraint)
+        if len(y_train_cand) < min_train_len:
+            print("[backtest_exog] Train shorter than min_train_len for XGB selection; skipping anchor.")
+            continue
+        
         selected_feature_names = list(X_train_cand.columns)
+        
         if use_xgb_feature_selection:
             selected_feature_names = select_features_with_xgb(
-                X_train=X_train_cand,
+                X_train=X_train_cand,   # contains NaNs; OK
                 y_train=y_train_cand,
                 max_features=max_features_from_xgb,
             )
             if not selected_feature_names:
-                print("[backtest_exog] XGB selected no informative features; using all complete-case features instead.")
+                print("[backtest_exog] XGB selected no informative features; using all candidate features instead.")
                 selected_feature_names = list(X_train_cand.columns)
-    
+        
         print(f"[backtest_exog] Selected features: {selected_feature_names}")
+
+        print("[backtest_exog] X_train columns sample:", list(X_train.columns[:10]))
     
         # ------------------------------------------------------------------
         # 4) Prepare SARIMAX train matrices (complete-case on SELECTED features only)
