@@ -265,9 +265,8 @@ def run_backtest_sarimax_exog_single(
         y_train = y_full.loc[:anchor_date].copy()
         X_train = X_full.loc[:anchor_date].copy()
 
-        train_mask = y_train.notna() & X_train.notna().all(axis=1)
-        y_train = y_train.loc[train_mask]
-        X_train = X_train.loc[train_mask]
+        # Keep raw training window for now; we'll drop NaNs AFTER feature selection
+        y_train = y_train.dropna()
 
 
         # Align train on observed months only (NO expansion, NO NaN injection)
@@ -326,11 +325,6 @@ def run_backtest_sarimax_exog_single(
         # Now define the actual evaluation windows (STRICT)
         y_test = y_full.reindex(test_idx)
         X_test = X_full.reindex(test_idx)
-        
-        # Option A strictness for exog: if ANY missing exog in the usable window, skip.
-        if X_test.isna().any().any():
-            print("[backtest_exog] Missing X in usable horizon window; skipping anchor.")
-            continue
 
 
         # Use the already-aligned test window
@@ -353,6 +347,28 @@ def run_backtest_sarimax_exog_single(
 
         X_train_sel = X_train[selected_feature_names]
         X_test_sel = X_test[selected_feature_names]
+
+        # Training rows must have complete selected exog
+        train_mask = y_train.notna() & X_train_sel.notna().all(axis=1)
+        y_train = y_train.loc[train_mask]
+        X_train_sel = X_train_sel.loc[train_mask]
+        
+        if len(y_train) < min_train_len:
+            print("[backtest_exog] Train shorter than min_train_len after selection; skipping anchor.")
+            continue
+
+
+        # Option A strictness (correct): require exog completeness ONLY for selected features
+        if X_test_sel.isna().any().any():
+            missing_cols = X_test_sel.columns[X_test_sel.isna().any(axis=0)].tolist()
+            first_bad_date = X_test_sel.index[X_test_sel.isna().any(axis=1)][0]
+            print(
+                "[backtest_exog] Missing X in usable horizon window for selected features; skipping anchor.",
+                "missing_cols_count=", len(missing_cols),
+                "first_bad_date=", first_bad_date.date(),
+            )
+            continue
+
 
         # --- Fit on integer index to avoid unsupported/irregular date indexes ---
         endog = pd.Series(y_train.values)            # RangeIndex
