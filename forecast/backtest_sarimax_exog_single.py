@@ -244,15 +244,19 @@ def run_backtest_sarimax_exog_single(
         data_asof = _parse_data_asof(data_asof)
     print(f"[backtest_exog] batch_id={batch_id} data_asof={data_asof}")
 
+    # AFTER inc-build returns selected_specs, immediately overwrite y_full used for anchors
+    y_full_for_anchors = load_target_series(metric_id, geo_id, property_type_id).copy()
+    y_full_for_anchors.index = month_end_index(y_full_for_anchors.index)
+    y_full_for_anchors = y_full_for_anchors[~y_full_for_anchors.index.duplicated(keep="last")].sort_index()
+    
     anchors = choose_anchor_dates(
-        y_full,
+        y_full_for_anchors,
         horizon=horizon,
         min_train_len=min_train_len,
         step_months=anchor_step_months,
         max_anchors=max_anchors,
         latest_anchor_offset_months=latest_anchor_offset_months,
     )
-
     
     if not anchors:
         print("[backtest_exog] Not enough history to run backtests.")
@@ -403,6 +407,9 @@ def run_backtest_sarimax_exog_single(
         exog_train = X_train_sel.to_numpy(dtype=float)
 
         assert not X_future_sel.isna().any().any(), "future exog contains NaNs"
+        assert X_train_sel.index.is_monotonic_increasing
+        assert not X_train_sel.index.duplicated().any()
+        assert len(X_train_sel) == len(y_train)
     
         model = SARIMAX(
             endog=endog,
