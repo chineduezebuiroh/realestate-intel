@@ -12,6 +12,23 @@ from .backtest_utils import month_end_index, month_ends_after
 from .feature_loader import FeatureSpec, TargetSpec, load_series_from_fact
 from .exog_forecast import forecast_exog_seasonal_naive
 
+
+def base_key_from_lagged_col(col: str) -> str:
+    # "metric__geo__pt_lag12" -> "metric__geo__pt"
+    if "_lag" not in col:
+        return col
+    return col.rsplit("_lag", 1)[0]
+
+
+def specs_from_selected_base_keys(all_specs, selected_base_keys):
+    out = []
+    sel = set(selected_base_keys)
+    for spec in all_specs:
+        if spec.name in sel:
+            out.append(spec)
+    return out
+
+
 def _normalize_me(s: pd.Series) -> pd.Series:
     s = s.copy()
     s.index = month_end_index(s.index)
