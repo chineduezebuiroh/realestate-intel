@@ -159,7 +159,9 @@ def build_design_matrix(
     # 5) Combine y and X, drop rows unusable for training
     df_all = pd.concat([df_base["y"], df_features], axis=1)
     df_all = df_all.dropna(subset=["y"])
-    df_all = df_all.dropna(subset=list(df_features.columns))
+    if not df_features.empty:
+        df_all = df_all.dropna(subset=list(df_features.columns))
+
 
     if len(df_all) < min_obs:
         raise ValueError(
@@ -257,16 +259,12 @@ def build_design_matrix_incremental(
             # This feature makes alignment impossible; skip it.
             continue
 
-        # IMPORTANT: do NOT let y_trial define the timeline. It may be shrunk by exog alignment.
-        # Evaluate usable training rows based on X availability.
-        n_usable = int(X_trial.dropna().shape[0])
-
-        if n_usable >= min_obs:
+        if len(y_trial) >= min_obs:
             selected_specs = trial_specs
             current_y, current_X, current_base = y_trial, X_trial, base_trial
-
+        
             if len(selected_specs) <= 10 or len(selected_specs) % 10 == 0:
-                print(f"[inc-build] +accept {spec.name} -> usable={n_usable} feats={X_trial.shape[1]}")
+                print(f"[inc-build] +accept {spec.name} -> obs={len(y_trial)} feats={X_trial.shape[1]}")
 
             """
             # Print first 10 accepts, then every 10 thereafter
