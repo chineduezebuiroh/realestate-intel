@@ -279,14 +279,7 @@ def run_backtest_sarimax_exog_single(
         if len(y_train) < min_train_len:
             print("[backtest_exog] Train shorter than min_train_len; skipping anchor.")
             continue
-        
-        # Defensive: reject any remaining missing values
-        if y_train.isna().any():
-            print("[backtest_exog] Missing y in observed training months; skipping anchor.")
-            continue
-        if X_train.isna().any().any():
-            print("[backtest_exog] Missing X in observed training months; skipping anchor.")
-            continue        
+       
 
         # ---- Build evaluation index for this anchor (month-end grid) ----
         test_idx_full = month_ends_after(anchor_date, horizon)  # length=horizon
@@ -333,10 +326,20 @@ def run_backtest_sarimax_exog_single(
 
         # Optional hybrid step: XGB feature selection
         selected_feature_names = list(X_train.columns)
+
+        # Build a clean candidate pool for feature selection
+        cand_mask = y_train.notna() & X_train.notna().all(axis=1)
+        X_train_cand = X_train.loc[cand_mask]
+        y_train_cand = y_train.loc[cand_mask]
+        
+        if len(y_train_cand) < min_train_len:
+            print("[backtest_exog] Not enough fully-observed rows to run XGB selection; skipping anchor.")
+            continue
+        
         if use_xgb_feature_selection:
             selected_feature_names = select_features_with_xgb(
-                X_train=X_train,
-                y_train=y_train,
+                X_train=X_train_cand,
+                y_train=y_train_cand,
                 max_features=max_features_from_xgb,
             )
             if not selected_feature_names:
@@ -346,17 +349,16 @@ def run_backtest_sarimax_exog_single(
             print(f"[backtest_exog] Selected features: {selected_feature_names}")
 
         X_train_sel = X_train[selected_feature_names]
-        X_test_sel = X_test[selected_feature_names]
-
-        # Training rows must have complete selected exog
-        train_mask = y_train.notna() & X_train_sel.notna().all(axis=1)
-        y_train = y_train.loc[train_mask]
-        X_train_sel = X_train_sel.loc[train_mask]
         
-        if len(y_train) < min_train_len:
+        train_mask = y_train.notna() & X_train_sel.notna().all(axis=1)
+        y_train_fit = y_train.loc[train_mask]
+        X_train_sel_fit = X_train_sel.loc[train_mask]
+        
+        if len(y_train_fit) < min_train_len:
             print("[backtest_exog] Train shorter than min_train_len after selection; skipping anchor.")
             continue
 
+        X_test_sel = X_test[selected_feature_names]
 
         # Option A strictness (correct): require exog completeness ONLY for selected features
         if X_test_sel.isna().any().any():
