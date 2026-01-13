@@ -76,6 +76,7 @@ def run_backtest_sarimax_single(
     latest_anchor_offset_months: Optional[int] = None,
     batch_id: Optional[str] = None,
     data_asof: Optional[str] = None,  # YYYY-MM-DD
+    anchors_csv: Optional[str] = None,
 ):
     """
     Run a few SARIMAX backtest folds for a single target series.
@@ -95,14 +96,17 @@ def run_backtest_sarimax_single(
     data_asof = _parse_data_asof(data_asof, s.index.max())
     print(f"[backtest] batch_id={batch_id} data_asof={data_asof}")
 
-    anchors = choose_anchor_dates(
-        s,
-        horizon=horizon,
-        min_train_len=min_train_len,
-        step_months=anchor_step_months,
-        max_anchors=max_anchors,
-        latest_anchor_offset_months=latest_anchor_offset_months,
-    )
+    if anchors_csv:
+        anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
+    else:
+        anchors = choose_anchor_dates(
+            s,
+            horizon=horizon,
+            min_train_len=min_train_len,
+            step_months=anchor_step_months,
+            max_anchors=max_anchors,
+            latest_anchor_offset_months=latest_anchor_offset_months,
+        )
 
     if not anchors:
         print("[backtest] Not enough history to run backtests.")
@@ -215,6 +219,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_id", type=str, default=None)
     parser.add_argument("--data_asof", type=str, default=None)  # YYYY-MM-DD
+    parser.add_argument("--anchors", type=str, default=None,
+                    help="Comma-separated anchor dates YYYY-MM-DD. If provided, overrides internal anchor selection.")
 
     args = parser.parse_args()
 
@@ -229,4 +235,5 @@ if __name__ == "__main__":
         latest_anchor_offset_months=args.latest_anchor_offset_months,
         batch_id=args.batch_id,
         data_asof=args.data_asof,
+        anchors_csv=args.anchors,
     )
