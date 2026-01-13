@@ -114,6 +114,19 @@ def run_backtest_sarimax_exog_single(
         property_type_id=property_type_id,
     )
 
+    catalog = load_catalog()
+    policy = default_policy()
+
+    # Exclude "ALL" and multifamily property types from eligibility (source of truth: dim_property_type)
+    bad_ptids = set()
+    bad_ptids |= {"-1"}  # your known ALL bucket
+    bad_ptids |= property_type_ids_matching(catalog=catalog, name_contains=("multi", "multifamily", "multi-family"))
+    bad_ptids |= property_type_ids_matching(catalog=catalog, group_contains=("multi", "multifamily", "multi-family"))
+    policy = policy.__class__(**{**policy.__dict__, "exclude_property_type_ids": bad_ptids})
+
+    print("[policy] excluded_property_type_ids:", sorted(list(bad_ptids))[:20], "count=", len(bad_ptids))
+
+
     candidate_specs = get_default_feature_specs_for_target(metric_id, geo_id, property_type_id)
     if not candidate_specs:
         print("[backtest_exog] No feature specs available; skipping SARIMAX-exog backtest.")
