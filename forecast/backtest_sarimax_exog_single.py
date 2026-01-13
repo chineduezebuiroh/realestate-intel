@@ -26,6 +26,10 @@ from .backtest_utils import (
 from .backtest_sarimax_single import load_target_series  # TEMP import for debugging only
 from .design_matrix import build_train_and_future_exog_forecasted
 
+from .feature_catalog import load_catalog, property_type_ids_matching, metric_family
+from .feature_policy import default_policy
+
+
 TEMP_DEBUG_LIMIT = 300 #set to 'None' when finished debugging
 
 
