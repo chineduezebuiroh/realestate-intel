@@ -32,6 +32,10 @@ from .backtest_utils import (
     DEFAULT_ANCHOR_BUFFER_MONTHS,
 )
 
+from .feature_catalog import load_catalog, property_type_ids_matching, metric_family
+from .feature_policy import default_policy
+
+
 TEMP_DEBUG_LIMIT = 300  # set to 'None' when finished debugging
 
 
@@ -118,6 +122,19 @@ def run_backtest_xgb_single(
     """
 
     target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
+
+    catalog = load_catalog()
+    policy = default_policy()
+
+    # Exclude "ALL" and multifamily property types from eligibility (source of truth: dim_property_type)
+    bad_ptids = set()
+    bad_ptids |= {"-1"}  # your known ALL bucket
+    bad_ptids |= property_type_ids_matching(catalog=catalog, name_contains=("multi", "multifamily", "multi-family"))
+    bad_ptids |= property_type_ids_matching(catalog=catalog, group_contains=("multi", "multifamily", "multi-family"))
+    policy = policy.__class__(**{**policy.__dict__, "exclude_property_type_ids": bad_ptids})
+
+    print("[policy] excluded_property_type_ids:", sorted(list(bad_ptids))[:20], "count=", len(bad_ptids))
+
 
     candidate_specs = build_universal_feature_specs(target)
     if not candidate_specs:
