@@ -20,26 +20,17 @@ class TargetSpec:
     property_type_id: Optional[str] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class FeatureSpec:
     """
-    Defines one base feature series and which lags to create.
-
-    Example:
-      FeatureSpec(
-        name="median_dom",
-        metric_id="median_dom",
-        geo_id="dc_city",
-        property_type_id="-1",
-        lags=[1, 2, 3]
-      )
+    One base feature series and which lags to create.
     """
     name: str
     metric_id: str
     geo_id: str
     property_type_id: Optional[str]
-    lags: List[int]
-
+    source_id: Optional[str] = None   # NEW
+    lags: List[int] = None
 
 # ====================================================================
 # Helpers
@@ -324,17 +315,17 @@ def discover_all_series_for_target(
                 b.metric_id,
                 b.geo_id,
                 b.property_type_id,
+                b.source_id,
                 COUNT(*) AS n_overlap
             FROM target_series t
             JOIN fact_timeseries b
               ON t.date = b.date
-            GROUP BY b.metric_id, b.geo_id, b.property_type_id
+            GROUP BY b.metric_id, b.geo_id, b.property_type_id, b.source_id
         )
-        SELECT metric_id, geo_id, property_type_id
+        SELECT metric_id, geo_id, property_type_id, source_id
         FROM series_overlap
         WHERE n_overlap >= ?
-        ORDER BY metric_id, geo_id, property_type_id
-
+        ORDER BY metric_id, geo_id, property_type_id, source_id
     """
 
     rows = con.execute(
@@ -388,6 +379,7 @@ def build_universal_feature_specs(
                 metric_id=metric_id,
                 geo_id=geo_id,
                 property_type_id=pt_id,
+                source_id=source_id,          # NEW
                 lags=list(lag_scheme),
             )
         )
