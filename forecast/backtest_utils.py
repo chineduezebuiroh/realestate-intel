@@ -33,45 +33,6 @@ def month_ends_after(anchor: pd.Timestamp, steps: int) -> pd.DatetimeIndex:
     return pd.date_range(start=start, periods=steps, freq="ME")
 
 
-"""
-def choose_anchor_dates(
-    y: pd.Series,
-    horizon: int,
-    min_train_len: int = 60,
-    step_months: int = 12,
-    max_anchors: int = 3,
-    latest_anchor_offset_months: Optional[int] = None,
-) -> List[pd.Timestamp]:
-"""
-"""
-    Date-based anchor selection.
-
-    Default behavior:
-      latest anchor = last_date - horizon months
-      then step back by step_months
-
-    If latest_anchor_offset_months is set:
-      latest anchor = last_date - latest_anchor_offset_months
-"""
-"""
-    if y is None or len(y) == 0:
-        return []
-
-    y_s = pd.Series(y.values, index=pd.DatetimeIndex(y.index)).sort_index()
-    y_s = y_s[~y_s.index.duplicated(keep="last")]
-    idx = y_s.index
-    y_df = y_s.to_frame("y")
-
-    while anchor >= min_date and len(anchors) < max_anchors:
-        n_train = int(y_df.loc[:anchor].shape[0])
-        if n_train >= min_train_len:
-            anchors.append(anchor)
-        anchor = _month_end(anchor - pd.DateOffset(months=step_months))
-
-    return sorted(set(anchors))
-"""
-
-
 def choose_anchor_dates(
     y: pd.Series,
     horizon: int,
