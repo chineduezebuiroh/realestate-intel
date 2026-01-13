@@ -56,6 +56,45 @@ def main() -> None:
         WHERE source_id = 'census_acs'
         """
     )
+
+
+    # Ensure dim_source exists
+    con.execute("""
+        INSERT INTO dim_source(source_id, name, url, cadence, license)
+        SELECT 'census_acs', 'Census ACS 5-year', 'https://www.census.gov/programs-surveys/acs', 'annual', 'public'
+        WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id='census_acs');
+    """)
+    
+    # Ensure dim_metric entries exist for all census metrics in the CSV
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS dim_metric(
+            metric_id TEXT PRIMARY KEY,
+            name TEXT,
+            frequency TEXT,
+            unit TEXT,
+            category TEXT
+        );
+    """)
+    
+    # Pull distinct metric_id from the CSV and upsert with stable metadata
+    con.execute("""
+        INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
+        SELECT
+          metric_id,
+          metric_id AS name,
+          'annual' AS frequency,
+          NULL AS unit,
+          'census' AS category
+        FROM (
+          SELECT DISTINCT metric_id
+          FROM read_csv_auto(?, header=True)
+          WHERE metric_id IS NOT NULL AND TRIM(metric_id) <> ''
+        )
+        ON CONFLICT(metric_id) DO UPDATE SET
+          category=excluded.category,
+          frequency=excluded.frequency
+    """, [str(CENSUS_CSV)])
+
   
 
     # Insert from the CSV directly.
