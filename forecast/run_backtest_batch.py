@@ -153,8 +153,6 @@ def main():
         "--horizon", str(args.horizon),
         "--batch_id", batch_id,
         "--data_asof", data_asof,
-        "--seed", str(args.seed),
-        "--artifact_root", str(batch_dir),
     ]
 
     # pass overrides if set
@@ -167,6 +165,7 @@ def main():
     if args.latest_anchor_offset_months is not None:
         args_common += ["--latest_anchor_offset_months", str(args.latest_anchor_offset_months)]
 
+    
     for model_name, cmd_base in BACKTEST_CMDS:
         if model_name == "xgb_backtest" and args.skip_xgb:
             continue
@@ -175,12 +174,16 @@ def main():
 
         model_args = list(args_common)
 
-        # enforce dependency: sarimax_exog must know which xgb batch to read
+        # only these scripts currently support artifacts + seed
+        if model_name in ("xgb_backtest", "sarimax_exog_backtest"):
+            model_args += ["--seed", str(args.seed)]
+            model_args += ["--artifact_root", str(batch_dir)]
+
         if model_name == "sarimax_exog_backtest":
             model_args += ["--xgb_batch_id", xgb_batch_id]
 
         run_one(model_name, cmd_base, model_args)
-
+    
     sanity_check(args.metric_id, args.geo_id, args.property_type_id, batch_id, data_asof)
 
 
