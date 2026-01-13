@@ -102,6 +102,11 @@ COL_MAP = {
     # add any others you actually ingest (price_drops, etc.)
     "median_dom":               ("Median Days on Market",    "days",    "speed"),
     "avg_sale_to_list":         ("Sale-to-List Ratio",       "ratio",   "prices"),
+    "median_list_price":        ("Median List Price",        "usd",     "prices"),
+    "median_list_ppsf":         ("Median List Price per Sq Ft", "usd_per_sqft", "prices"),
+    "median_ppsf":              ("Median Sale Price per Sq Ft", "usd_per_sqft", "prices"),
+    "sold_above_list":          ("Sold Above List %",        "percent", "prices"),
+    "price_drops":              ("Price Drops",              "homes",   "supply"),
 }
 
 
