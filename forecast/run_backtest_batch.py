@@ -8,7 +8,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from .db_forecast import new_batch_id, get_connection
-from .backtest_utils import month_end_index
+from .backtest_utils import month_end_index, choose_anchor_dates
+
 
 BACKTEST_CMDS = [
     ("sarimax_backtest",      ["python", "-m", "forecast.backtest_sarimax_single"]),
@@ -34,6 +35,28 @@ def load_target_data_asof(metric_id: str, geo_id: str, property_type_id: str) ->
 
     idx = month_end_index(pd.to_datetime(df["date"]))
     return str(pd.DatetimeIndex(idx).max().date())  # YYYY-MM-DD
+
+
+def load_target_series_raw(metric_id: str, geo_id: str, property_type_id: str) -> pd.Series:
+    con = get_connection()
+    df = con.execute(
+        """
+        SELECT date, value
+        FROM fact_timeseries
+        WHERE metric_id=? AND geo_id=? AND property_type_id=?
+        ORDER BY date
+        """,
+        [metric_id, geo_id, property_type_id],
+    ).fetchdf()
+    con.close()
+
+    if df.empty:
+        raise SystemExit("No target data found.")
+
+    s = pd.Series(df["value"].to_numpy(), index=pd.to_datetime(df["date"]), name="y")
+    s.index = month_end_index(s.index)
+    s = s[~s.index.duplicated(keep="last")].sort_index()
+    return s
 
 
 def write_manifest(batch_dir: Path, payload: dict) -> Path:
@@ -111,6 +134,25 @@ def main():
 
     batch_id = new_batch_id()
     data_asof = load_target_data_asof(args.metric_id, args.geo_id, args.property_type_id)
+
+    y_raw = load_target_series_raw(args.metric_id, args.geo_id, args.property_type_id)
+
+    
+    anchors = choose_anchor_dates(
+        y_raw,
+        horizon=args.horizon,
+        min_train_len=args.min_train_len if args.min_train_len is not None else 0,  # will be handled by scripts too
+        step_months=args.anchor_step_months if args.anchor_step_months is not None else 12,
+        max_anchors=args.max_anchors if args.max_anchors is not None else 6,
+        latest_anchor_offset_months=args.latest_anchor_offset_months,
+    )
+    if not anchors:
+        raise SystemExit("[batch] FAIL: no anchors found for target series.")
+
+    anchors_csv = ",".join([a.date().isoformat() for a in anchors])
+    print(f"[batch] anchors_csv={anchors_csv}")
+
+    
     xgb_batch_id = args.xgb_batch_id or batch_id
 
     batch_dir = Path(args.artifact_root) / batch_id
@@ -178,9 +220,11 @@ def main():
         if model_name in ("xgb_backtest", "sarimax_exog_backtest"):
             model_args += ["--seed", str(args.seed)]
             model_args += ["--artifact_root", str(batch_dir)]
+            model_args += ["--anchors", anchors_csv]
 
         if model_name == "sarimax_exog_backtest":
             model_args += ["--xgb_batch_id", xgb_batch_id]
+            model_args += ["--anchors", anchors_csv]
 
         run_one(model_name, cmd_base, model_args)
     
