@@ -147,6 +147,11 @@ def build_train_and_future_exog_forecasted(
       - X_future_fc: lagged exog features for horizon months using forecasted base exog
       - test_idx_full: horizon month-end index after anchor_date
     """
+    
+    # Canonicalize anchor_date to platform month-end convention
+    anchor_date = pd.Timestamp(anchor_date)
+    anchor_date = pd.DatetimeIndex(month_end_index(pd.DatetimeIndex([anchor_date])))[0]
+
     # -------------------------
     # 1) Load & normalize target (defines the timeline)
     # -------------------------
@@ -193,13 +198,17 @@ def build_train_and_future_exog_forecasted(
     # -------------------------
     # 4) Build FUTURE base exog by forecasting UNLAGGED series (Type 2 backtest)
     # -------------------------
-    test_idx_full = month_ends_after(anchor_date, horizon)  # month-ends AFTER anchor_date
+    test_idx_full = pd.DatetimeIndex(month_ends_after(anchor_date, horizon))
+    test_idx_full = pd.DatetimeIndex(month_end_index(test_idx_full))
+    test_idx_full = test_idx_full[~test_idx_full.duplicated()].sort_values()
+
 
     # We'll build base exog values on: (train timeline up to anchor) + (future horizon)
     train_end = pd.Timestamp(anchor_date)
     train_idx = y_raw.index[y_raw.index <= train_end]
-    full_idx = train_idx.append(test_idx_full)
-    full_idx = full_idx.unique().sort_values()
+    full_idx = pd.DatetimeIndex(train_idx.append(test_idx_full))
+    full_idx = pd.DatetimeIndex(month_end_index(full_idx))
+    full_idx = full_idx[~full_idx.duplicated()].sort_values()
 
     if method != "seasonal_naive_else_last":
         raise ValueError(f"Unknown exog forecast method: {method}")
@@ -218,7 +227,8 @@ def build_train_and_future_exog_forecasted(
             if pd.notna(s_full.loc[t]):
                 continue  # already have real value, keep it
 
-            t12 = (pd.Timestamp(t) - pd.DateOffset(months=12))
+            t12 = pd.Timestamp(t) - pd.DateOffset(months=12)
+            t12 = pd.DatetimeIndex(month_end_index(pd.DatetimeIndex([t12])))[0]
             if t12 in s_full.index and pd.notna(s_full.loc[t12]):
                 s_full.loc[t] = s_full.loc[t12]
             else:
