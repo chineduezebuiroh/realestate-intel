@@ -8,29 +8,18 @@ import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from .feature_loader import (
-    TargetSpec,
-    FeatureSpec,
-    #build_design_matrix,
-    build_universal_feature_specs,
-    build_design_matrix_incremental,
-    load_target_series_for_spec,
+    TargetSpec, FeatureSpec, #build_design_matrix,
+    build_universal_feature_specs, build_design_matrix_incremental, load_target_series_for_spec,
 )
 
 from .db_forecast import (
-    get_connection,
-    new_batch_id,
-    insert_run,
-    insert_predictions,
-    store_selected_features_in_params,
+    get_connection, new_batch_id, insert_run,
+    insert_predictions, store_selected_features_in_params,
 )
 
 from .backtest_utils import (
-    choose_anchor_dates, 
-    month_end_index,
-    month_ends_after,
-    DEFAULT_MIN_TRAIN_LEN,
-    DEFAULT_ANCHOR_STEP_MONTHS,
-    DEFAULT_MAX_ANCHORS,
+    choose_anchor_dates, month_end_index, month_ends_after,
+    DEFAULT_MIN_TRAIN_LEN, DEFAULT_ANCHOR_STEP_MONTHS, DEFAULT_MAX_ANCHORS,
     DEFAULT_ANCHOR_BUFFER_MONTHS,
 )
 
