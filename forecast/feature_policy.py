@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Optional, Set
 
 
@@ -8,14 +8,14 @@ from typing import Dict, Optional, Set
 class FeaturePolicy:
     # Category governance (keys MUST match dim_metric.category lowercased)
     include_categories: Optional[Set[str]] = None   # None => allow all
-    exclude_categories: Set[str] = None             # empty => exclude none
-    family_caps: Dict[str, int] = None              # e.g. {"prices": 60, "labor": 30}
+    exclude_categories: Set[str] = field(default_factory=set)
+    family_caps: Dict[str, int] = field(default_factory=dict)
 
     # Coverage thresholds by native frequency (dim_metric.frequency lowercased)
-    min_coverage_ratio: Dict[str, float] = None     # {"monthly":0.80,"quarterly":0.60,"annual":0.40}
+    min_coverage_ratio: Dict[str, float] = field(default_factory=dict)
 
     # Source/property-type exclusions (e.g. redfin: {"-1"})
-    exclude_property_type_ids_by_source: Dict[str, Set[str]] = None
+    exclude_property_type_ids_by_source: Dict[str, Set[str]] = field(default_factory=dict)
 
     # Selection outputs
     seed: int = 1337
@@ -28,7 +28,6 @@ def default_policy() -> FeaturePolicy:
         include_categories=None,
         exclude_categories=set(),
         family_caps={
-            # start permissive; tighten once you inspect distribution
             "prices": 80,
             "sales": 60,
             "supply": 60,
@@ -47,7 +46,10 @@ def default_policy() -> FeaturePolicy:
             "annual": 0.40,
         },
         exclude_property_type_ids_by_source={
-            "redfin": {"-1"},  # exclude “All Residential”
+            # Decide intentionally:
+            # "-1" = All Residential, "-2" = Single Units Only
+            # If you *really* want to exclude, do it here.
+            "redfin": {"-1"},
         },
         seed=1337,
         xgb_top_k=100,
