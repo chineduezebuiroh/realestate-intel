@@ -30,7 +30,7 @@ from .feature_catalog import load_catalog, property_type_ids_matching, metric_fa
 from .feature_policy import default_policy
 
 
-TEMP_DEBUG_LIMIT = 300 #set to 'None' when finished debugging
+TEMP_DEBUG_LIMIT = None # set to a number to debug; set to 'None' when finished debugging
 
 
 # ==========================================================
@@ -131,6 +131,31 @@ def run_backtest_sarimax_exog_single(
     if not candidate_specs:
         print("[backtest_exog] No feature specs available; skipping SARIMAX-exog backtest.")
         return
+
+
+    # --- Governance filtering: property-type exclusions + family caps ---
+    # 1) drop excluded property types (esp. Redfin ALL / multifamily)
+    candidate_specs = [s for s in candidate_specs if str(s.property_type_id) not in policy.exclude_property_type_ids]
+
+    # 2) cap by metric family (dim_metric.category)
+    caps = policy.family_caps or {}
+    counts = {k: 0 for k in caps.keys()}
+    filtered = []
+    for spec in candidate_specs:
+        fam = metric_family(spec.metric_id, catalog)
+        cap = caps.get(fam, caps.get("other", None))
+        if cap is None:
+            filtered.append(spec)
+            continue
+        used = counts.get(fam, 0)
+        if used < cap:
+            filtered.append(spec)
+            counts[fam] = used + 1
+
+    candidate_specs = filtered
+    print("[policy] family_counts_used:", {k: v for k, v in counts.items() if v})
+    print("[policy] candidates_after_filters:", len(candidate_specs))
+
 
     # TEMP DEBUG: limit candidates to speed up iteration
     if TEMP_DEBUG_LIMIT is not None:
