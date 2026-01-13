@@ -389,7 +389,7 @@ def build_universal_feature_specs(
     for (metric_id, geo_id, pt_id) in all_series:
         specs.append(
             FeatureSpec(
-                name=f"{metric_id}__{geo_id}__{pt_id}",
+                name=f"{metric_id}__{geo_id}__{pt_id}__{source_id}"
                 metric_id=metric_id,
                 geo_id=geo_id,
                 property_type_id=pt_id,
