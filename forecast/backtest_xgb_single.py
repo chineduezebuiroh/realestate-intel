@@ -105,7 +105,7 @@ def run_backtest_xgb_single(
     seed: int = 1337,
     artifact_root: Optional[str] = None,
     xgb_top_k: int = 100,
-
+    anchors_csv: Optional[str] = None,
 ):
     """
     Backtest XGBoost for a single target series using a universal feature set.
@@ -167,14 +167,17 @@ def run_backtest_xgb_single(
         f"selected_series={len(selected_specs)}"
     )
 
-    anchors = choose_anchor_dates(
-        y_full,
-        horizon=horizon,
-        min_train_len=min_train_len,
-        step_months=anchor_step_months,
-        max_anchors=max_anchors,
-        latest_anchor_offset_months=latest_anchor_offset_months,
-    )
+    if anchors_csv:
+        anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
+    else:
+        anchors = choose_anchor_dates(
+            y_full,
+            horizon=horizon,
+            min_train_len=min_train_len,
+            step_months=anchor_step_months,
+            max_anchors=max_anchors,
+            latest_anchor_offset_months=latest_anchor_offset_months,
+        )
 
     if not anchors:
         print("[xgb_backtest] Not enough history to run backtests.")
@@ -336,6 +339,13 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--artifact_root", type=str, default=None)
     parser.add_argument("--xgb_top_k", type=int, default=100)
+    parser.add_argument(
+        "--anchors",
+        type=str,
+        default=None,
+        help="Comma-separated anchor dates YYYY-MM-DD. If provided, overrides internal anchor selection.",
+    )
+
 
     args = parser.parse_args()
 
@@ -353,4 +363,5 @@ if __name__ == "__main__":
         seed=args.seed,
         artifact_root=args.artifact_root,
         xgb_top_k=args.xgb_top_k,
+        anchors_csv=args.anchors,
     )
