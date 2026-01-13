@@ -69,6 +69,7 @@ if MARKETS_YAML.exists():
         except Exception as e:
             print("[redfin] warning: couldn't parse markets.yml:", e)
 
+"""
 # Metric map (unchanged)
 COL_MAP = {
     "median_sale_price":        ("redfin_median_sale_price",        "Median Sale Price",        "usd",      "prices"),
@@ -84,6 +85,25 @@ COL_MAP = {
     "median_dom":               ("redfin_median_days_on_market",    "Median Days on Market",    "days",     "speed"),
     "avg_sale_to_list":         ("redfin_sale_to_list_ratio",       "Sale-to-List Ratio",       "ratio",    "prices"),
 }
+"""
+
+# canonical_metric_id -> (display_name, unit, category)
+# canonical_metric_id must match what you write into fact_timeseries.metric_id
+COL_MAP = {
+    "median_sale_price":        ("Median Sale Price",        "usd",     "prices"),
+    "homes_sold":               ("Homes Sold",               "homes",   "sales"),
+    "inventory":                ("Active Inventory",         "homes",   "supply"),
+    "new_listings":             ("New Listings",             "homes",   "supply"),
+    "median_dom":               ("Median Days on Market",    "days",    "speed"),
+    "months_of_supply":         ("Months of Supply",         "months",  "supply"),
+    "avg_sale_to_list":         ("Sale-to-List Ratio",       "ratio",   "prices"),
+    "off_market_in_two_weeks":  ("Off-Market in 2 Weeks %",  "percent", "speed"),
+    "pending_sales":            ("Pending Sales",            "homes",   "sales"),
+    # add any others you actually ingest (price_drops, etc.)
+    "median_dom":               ("Median Days on Market",    "days",    "speed"),
+    "avg_sale_to_list":         ("Sale-to-List Ratio",       "ratio",   "prices"),
+}
+
 
 
 
@@ -106,12 +126,26 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, geo_df: pd.DataFrame):
     """, [*SOURCE, SOURCE[0]])
 
     # metrics (monthly)
-    for _, (mid, name, unit, cat) in COL_MAP.items():
+    for canonical_metric_id, (name, unit, cat) in COL_MAP.items():
         con.execute("""
             INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
             SELECT ?, ?, 'monthly', ?, ?
             WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id = ?)
-        """, [mid, name, unit, cat, mid])
+        """, [canonical_metric_id, name, unit, cat, canonical_metric_id])
+
+    
+    derivatives = []
+    for base_id, (name, unit, cat) in COL_MAP.items():
+        derivatives.append((f"{base_id}_mom", f"{name} (MoM)", unit, cat))
+        derivatives.append((f"{base_id}_yoy", f"{name} (YoY)", unit, cat))
+    
+    for mid, nm, un, cat in derivatives:
+        con.execute("""
+          INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
+          SELECT ?, ?, 'monthly', ?, ?
+          WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id = ?)
+        """, [mid, nm, un, cat, mid])
+
 
     # markets (auto from geo_df)
     con.register("df_geo", geo_df)
@@ -218,7 +252,10 @@ def main():
 
 
         
-        for source_col_lc, (metric_id, _name, _unit, _cat) in COL_MAP.items():
+        #for source_col_lc, (metric_id, _name, _unit, _cat) in COL_MAP.items():
+        for source_col_lc, (name, unit, cat) in COL_MAP.items():
+            metric_id = source_col_lc  # canonical metric_id
+
             exact = next((c for c in df.columns if c.lower() == source_col_lc), None)
             if exact is None:
                 continue
