@@ -69,23 +69,6 @@ if MARKETS_YAML.exists():
         except Exception as e:
             print("[redfin] warning: couldn't parse markets.yml:", e)
 
-"""
-# Metric map (unchanged)
-COL_MAP = {
-    "median_sale_price":        ("redfin_median_sale_price",        "Median Sale Price",        "usd",      "prices"),
-    "homes_sold":               ("redfin_homes_sold",               "Homes Sold",               "homes",    "sales"),
-    "inventory":                ("redfin_inventory",                "Active Inventory",         "homes",    "supply"),
-    "new_listings":             ("redfin_new_listings",             "New Listings",             "homes",    "supply"),
-    "median_days_on_market":    ("redfin_median_days_on_market",    "Median Days on Market",    "days",     "speed"),
-    "months_of_supply":         ("redfin_months_of_supply",         "Months of Supply",         "months",   "supply"),
-    "sale_to_list_ratio":       ("redfin_sale_to_list_ratio",       "Sale-to-List Ratio",       "ratio",    "prices"),
-    "off_market_in_two_weeks":  ("redfin_off_market_2w_share",      "Off-Market in 2 Weeks %",  "percent",  "speed"),
-    "pending_sales":            ("redfin_pending_sales",            "Pending Sales",            "homes",    "sales"),
-    # ---- aliases for your export headers ----
-    "median_dom":               ("redfin_median_days_on_market",    "Median Days on Market",    "days",     "speed"),
-    "avg_sale_to_list":         ("redfin_sale_to_list_ratio",       "Sale-to-List Ratio",       "ratio",    "prices"),
-}
-"""
 
 # canonical_metric_id -> (display_name, unit, category)
 # canonical_metric_id must match what you write into fact_timeseries.metric_id
@@ -324,8 +307,7 @@ def main():
                 keep="last"
             )
     )
-
-
+   
 
     # Ensure dim_property_type exists
     con.execute("""
@@ -335,17 +317,21 @@ def main():
         "group" VARCHAR
       );
     """)
-
+    
     # Upsert labels/groups gathered during parsing
     if ptype_rows:
         df_ptypes = pd.DataFrame(list(ptype_rows),
                                  columns=["property_type_id","name","group"])
         con.register("df_ptypes", df_ptypes)
+    
+        # INSERT OR REPLACE is fine here because property_type_id is PK
         con.execute("""
-        INSERT OR REPLACE INTO dim_property_type(property_type_id, name, "group")
-        SELECT property_type_id, name, "group" FROM df_ptypes;
+          INSERT OR REPLACE INTO dim_property_type(property_type_id, name, "group")
+          SELECT property_type_id, name, "group" FROM df_ptypes;
         """)
-        con.unregister("df_ptype")    
+    
+        # optional (safe): con.unregister("df_ptypes")
+
     
     
     # register with property_type_id included
@@ -383,7 +369,7 @@ def main():
     print(con.execute("""
         SELECT geo_id, metric_id, COUNT(*) AS rows, MIN(date) AS first, MAX(date) AS last
         FROM fact_timeseries
-        WHERE metric_id LIKE 'redfin_%'
+        WHERE source_id='redfin'
         GROUP BY 1,2 ORDER BY 1,2
     """).fetchdf())
     con.close()
