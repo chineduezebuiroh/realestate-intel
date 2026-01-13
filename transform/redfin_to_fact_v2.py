@@ -221,6 +221,9 @@ def main():
         else:
             df["__ptype_id__"] = "all"
 
+        # DEBUG: what property types are present in this slice?
+        ptypes_here = sorted(df["__ptype_id__"].dropna().astype(str).unique().tolist())
+        print(f"[redfin:{geo_id}] property_type_ids in slice:", ptypes_here[:20], ("..." if len(ptypes_here) > 20 else ""))
         
         # Also compute readable label & group for the dim table
         if pname_col is not None:
@@ -373,6 +376,17 @@ def main():
         GROUP BY 1,2 ORDER BY 1,2
     """).fetchdf())
     con.close()
+
+    bad = con.execute("""
+      SELECT COUNT(*)
+      FROM fact_timeseries
+      WHERE source_id='redfin'
+        AND property_type IS NULL
+    """).fetchone()[0]
+    
+    if bad > 0:
+        raise RuntimeError(f"[redfin] invariant violated: {bad} rows with NULL property_type")
+
 
 
 
