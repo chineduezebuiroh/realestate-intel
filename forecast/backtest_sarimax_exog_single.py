@@ -6,7 +6,6 @@ from typing import List, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from xgboost import XGBRegressor
 
 from .feature_loader import (
     TargetSpec,
@@ -49,10 +48,29 @@ def _parse_data_asof(s: str | None):
         return None
     return pd.to_datetime(s).date()
 
+
+def _load_selected_features_strict(
+    artifact_root: str,
+    xgb_batch_id: str,
+    anchor_date: pd.Timestamp,
+) -> List[str]:
+    from pathlib import Path
+
+    anchor_key = anchor_date.date().isoformat()
+    p = Path(artifact_root).parent / xgb_batch_id / "xgb" / f"selected_features__anchor={anchor_key}.parquet"
+    if not p.exists():
+        raise SystemExit(f"[backtest_exog] FAIL: missing XGB selected features artifact: {p}")
+
+    df = pd.read_parquet(p)
+    if df.empty or "feature_id" not in df.columns:
+        raise SystemExit(f"[backtest_exog] FAIL: invalid selected features artifact (empty or missing feature_id): {p}")
+
+    feats = df["feature_id"].astype(str).tolist()
+    return feats
+
 # ==========================================================
 # Default "kitchen sink" spec for this target
 # ==========================================================
-    
 def get_default_feature_specs_for_target(
     metric_id: str,
     geo_id: str,
@@ -67,43 +85,6 @@ def get_default_feature_specs_for_target(
     return specs
 
 # -----------------------------
-# XGBoost-based feature selection
-# -----------------------------
-
-def select_features_with_xgb(
-    X_train: pd.DataFrame,
-    y_train: pd.Series,
-    max_features: int = 8,
-) -> List[str]:
-    """
-    Run XGBRegressor on (X_train, y_train), rank features by importance,
-    and return the top 'max_features' column names.
-    """
-    model = XGBRegressor(
-        n_estimators=400,
-        max_depth=4,
-        learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        objective="reg:squarederror",
-        random_state=42,
-    )
-    model.fit(X_train, y_train)
-
-    importances = model.feature_importances_
-    cols = np.array(X_train.columns)
-
-    order = np.argsort(importances)[::-1]  # descending
-    top = cols[order][:max_features]
-    
-    #top = [c for c in top if importances[cols == c][0] > 0]  # drop zero-importance
-    imp = dict(zip(X_train.columns, importances))
-    top = [c for c in top if imp.get(c, 0) > 0]
-
-    return top
-
-
-# -----------------------------
 # Main backtest entry
 # -----------------------------
 
@@ -112,8 +93,6 @@ def run_backtest_sarimax_exog_single(
     geo_id: str = "dc_city",
     property_type_id: str = "-1",
     horizon: int = 12,
-    use_xgb_feature_selection: bool = True,
-    max_features_from_xgb: int = 8,
     order: Tuple[int, int, int] = (1, 1, 1),
     seasonal_order: Tuple[int, int, int, int] = (1, 1, 1, 12),
     batch_id: Optional[str] = None,
@@ -122,6 +101,10 @@ def run_backtest_sarimax_exog_single(
     anchor_step_months: int = DEFAULT_ANCHOR_STEP_MONTHS,
     max_anchors: int = DEFAULT_MAX_ANCHORS,
     latest_anchor_offset_months: Optional[int] = None,
+    xgb_batch_id: Optional[str] = None,
+    artifact_root: Optional[str] = None,
+    sarimax_max_exog: int = 30,
+    seed: int = 1337,
 ):
     """
     Backtest SARIMAX with exogenous regressors for a single target series.
@@ -167,70 +150,7 @@ def run_backtest_sarimax_exog_single(
         f"selected_series={len(selected_specs)}"
     )
     
-    """
-    # ===== DEBUG: compare raw target vs y_full coming out of design-matrix build =====
-    s_raw = load_target_series(metric_id, geo_id, property_type_id).copy()
-    s_raw.index = month_end_index(s_raw.index)
-    s_raw = s_raw[~s_raw.index.duplicated(keep="last")].sort_index()
-    
-    grid_raw = pd.date_range(s_raw.index.min(), s_raw.index.max(), freq="ME")
-    missing_raw = grid_raw.difference(s_raw.index)
-    
-    grid_yfull = pd.date_range(y_full.index.min(), y_full.index.max(), freq="ME")
-    missing_yfull = grid_yfull.difference(y_full.index)
-    
-    print(f"[DEBUG] raw target months: {len(s_raw)}  range={s_raw.index.min().date()}..{s_raw.index.max().date()}")
-    print(f"[DEBUG] raw missing months overall: {len(missing_raw)}  example={[d.date() for d in missing_raw[:10]]}")
-    
-    print(f"[DEBUG] y_full months: {len(y_full)}  range={y_full.index.min().date()}..{y_full.index.max().date()}")
-    print(f"[DEBUG] y_full missing months overall: {len(missing_yfull)}  example={[d.date() for d in missing_yfull[:10]]}")
-    
-    # Which months got lost by the design-matrix process?
-    lost = s_raw.index.difference(y_full.index)
-    print(f"[DEBUG] months present in raw but missing in y_full: {len(lost)}")
-    if len(lost) > 0:
-        print("[DEBUG] lost example:", [d.date() for d in lost[:15]])
-    # ===== END DEBUG =====
-    """
-    """
-    # Normalize indices to month-end, dedupe, sort
-    y_full = y_full.copy()
-    y_full.index = month_end_index(y_full.index)
-    
-    full_grid = pd.date_range(y_full.index.min(), y_full.index.max(), freq="ME")
-    missing = full_grid.difference(y_full.index)
-    print("[backtest_exog] y_full missing months overall:", len(missing))
-    print("[backtest_exog] last 10 y_full:", [d.date() for d in y_full.index[-10:]])
-    print("[backtest_exog] example missing months:", [d.date() for d in missing[:10]])
 
-    y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
-
-
-    X_full = X_full.copy()
-    X_full.index = month_end_index(X_full.index)
-    X_full = X_full[~X_full.index.duplicated(keep="last")].sort_index()
-    
-    # Strict intersection to guarantee alignment
-    # Do NOT shrink y to X globally. Keep full y timeline.
-    # Align X to y so X has y’s index, but values may be NaN where exog is unavailable.
-    X_full = X_full.reindex(y_full.index)
-    """
-    """
-    # Normalize X to month-end (it’s on training rows), but y_full must be the raw target timeline
-    X_full = X_full.copy()
-    X_full.index = month_end_index(X_full.index)
-    X_full = X_full[~X_full.index.duplicated(keep="last")].sort_index()
-    
-    # y_full is the raw target timeline
-    y_full = s_raw
-    
-    # Put X onto the y timeline (NaNs where features not available)
-    X_full = X_full.reindex(y_full.index)
-    """
-    
-    # ===== Consider removing the above as well once DEBUG is completed =====
-
-    
     # Final hard check
     if len(X_full) != len(y_full):
         raise ValueError(f"X_full and y_full length mismatch after alignment: {len(X_full)} vs {len(y_full)}")
@@ -322,52 +242,34 @@ def run_backtest_sarimax_exog_single(
     
         test_idx = test_idx_full[:horizon_bt]
         y_test = y_full_raw.reindex(test_idx)
-    
-        # ------------------------------------------------------------------
-        # 3) XGB feature selection on complete-case TRAIN rows only
-        # ------------------------------------------------------------------
-        # Candidate pool for selection must be complete-case across ALL features (for stability)
-        # but training for SARIMAX must be complete-case only on SELECTED features.
-        X_train = X_train_raw.loc[:anchor_date].copy()
-        X_train = X_train.reindex(y_train_raw.index)  # align to y_train_raw timeline
-    
-        
-        # --- Feature selection dataset (allow NaNs in X; XGB can handle them) ---
-        y_train_cand = y_train_raw.dropna()
-        X_train_cand = X_train.reindex(y_train_cand.index)
-        
-        # Drop very sparse columns so XGB isn't selecting garbage.
-        # Tune the threshold if needed; this is a sane default.
-        min_nonnull = max(min_train_len, int(0.8 * len(y_train_cand)))
-        keep_cols = X_train_cand.columns[X_train_cand.notna().sum(axis=0) >= min_nonnull]
-        X_train_cand = X_train_cand[keep_cols]
-        
-        # If we filtered everything, bail early.
-        if X_train_cand.shape[1] == 0:
-            print("[backtest_exog] No exog columns meet non-null threshold for XGB selection; skipping anchor.")
-            continue
-        
-        # Still require enough y points (your real constraint)
-        if len(y_train_cand) < min_train_len:
-            print("[backtest_exog] Train shorter than min_train_len for XGB selection; skipping anchor.")
-            continue
-        
-        selected_feature_names = list(X_train_cand.columns)
-        
-        if use_xgb_feature_selection:
-            selected_feature_names = select_features_with_xgb(
-                X_train=X_train_cand,   # contains NaNs; OK
-                y_train=y_train_cand,
-                max_features=max_features_from_xgb,
-            )
-            if not selected_feature_names:
-                print("[backtest_exog] XGB selected no informative features; using all candidate features instead.")
-                selected_feature_names = list(X_train_cand.columns)
-        
-        print(f"[backtest_exog] Selected features: {selected_feature_names}")
 
-        print("[backtest_exog] X_train columns sample:", list(X_train.columns[:10]))
-    
+        # ------------------------------------------------------------------
+        # 3) Load XGB-selected features (upstream selector of record) + cap for SARIMAX
+        # ------------------------------------------------------------------
+        if not artifact_root:
+            raise SystemExit("[backtest_exog] FAIL: --artifact_root is required to load XGB selections.")
+        if not xgb_batch_id:
+            raise SystemExit("[backtest_exog] FAIL: --xgb_batch_id is required to load XGB selections.")
+
+        selected_feature_names = _load_selected_features_strict(
+            artifact_root=artifact_root,
+            xgb_batch_id=xgb_batch_id,
+            anchor_date=anchor_date,
+        )
+
+        if len(selected_feature_names) == 0:
+            raise SystemExit("[backtest_exog] FAIL: XGB selection returned 0 features.")
+
+        # Temporary safety cap for SARIMAX stability
+        selected_feature_names = selected_feature_names[:int(sarimax_max_exog)]
+
+        # Ensure selected features actually exist in X_train
+        missing = [c for c in selected_feature_names if c not in X_train.columns]
+        if missing:
+            raise SystemExit(f"[backtest_exog] FAIL: selected features not present in design matrix. missing={missing[:10]} count={len(missing)}")
+
+        print(f"[backtest_exog] Using {len(selected_feature_names)} exog features (capped at {sarimax_max_exog}).")
+
         # ------------------------------------------------------------------
         # 4) Prepare SARIMAX train matrices (complete-case on SELECTED features only)
         # ------------------------------------------------------------------
@@ -438,22 +340,23 @@ def run_backtest_sarimax_exog_single(
             "seasonal_order": seasonal_order,
             "n_obs": int(len(y_train)),
             "anchor_date": str(anchor_date.date()),
-            "use_xgb_feature_selection": use_xgb_feature_selection,
             "converged": converged,
             "aic": aic,
             "bic": bic,
             "exog_backtest_type": "forecasted_exog_seasonal_naive_else_last",
+            "xgb_batch_id": xgb_batch_id,
+            "sarimax_max_exog": int(sarimax_max_exog),
         }
-    
+
         algo_params = store_selected_features_in_params(
             algo_params,
             selected_features=selected_feature_names,
             selector_meta={
-                "method": "xgb_importance",
-                "max_features": max_features_from_xgb,
-                "n_features_before": int(X_train.shape[1]),
+                "method": "xgb_selected_features_artifact",
+                "xgb_batch_id": xgb_batch_id,
+                "sarimax_max_exog": int(sarimax_max_exog),
             },
-        )
+        )        
     
         con = get_connection()
     
@@ -502,11 +405,6 @@ if __name__ == "__main__":
     parser.add_argument("--geo_id", default="dc_city")
     parser.add_argument("--property_type_id", default="-1")
     parser.add_argument("--horizon", type=int, default=12)
-    parser.add_argument(
-        "--no_xgb_selection",
-        action="store_true",
-        help="Disable XGB-based feature selection and use all exog features.",
-    )
 
     parser.add_argument("--min_train_len", type=int, default=DEFAULT_MIN_TRAIN_LEN)
     parser.add_argument("--anchor_step_months", type=int, default=DEFAULT_ANCHOR_STEP_MONTHS)
@@ -515,6 +413,11 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_id", type=str, default=None)
     parser.add_argument("--data_asof", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument("--artifact_root", type=str, required=True)
+    parser.add_argument("--xgb_batch_id", type=str, required=True)
+    parser.add_argument("--sarimax_max_exog", type=int, default=30)
+
 
     args = parser.parse_args()
 
@@ -523,12 +426,15 @@ if __name__ == "__main__":
         geo_id=args.geo_id,
         property_type_id=args.property_type_id,
         horizon=args.horizon,
-        use_xgb_feature_selection=not args.no_xgb_selection,
         batch_id=args.batch_id,
         data_asof=args.data_asof,
         min_train_len=args.min_train_len,
         anchor_step_months=args.anchor_step_months,
         max_anchors=args.max_anchors,
         latest_anchor_offset_months=args.latest_anchor_offset_months,
+        seed=args.seed,
+        artifact_root=args.artifact_root,
+        xgb_batch_id=args.xgb_batch_id,
+        sarimax_max_exog=args.sarimax_max_exog,
     )
 
