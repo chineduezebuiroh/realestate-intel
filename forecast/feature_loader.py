@@ -290,7 +290,7 @@ def discover_all_series_for_target(
     target: TargetSpec,
     min_overlap: int = 72,
     exclude_metrics: Optional[List[str]] = None,
-) -> List[Tuple[str, str, str]]:
+) -> List[Tuple[str, str, str, str]]:
     """
     Return all (metric_id, geo_id, property_type_id) triplets in fact_timeseries
     that have at least `min_overlap` observations overlapping with the target
@@ -371,11 +371,10 @@ def build_universal_feature_specs(
         min_overlap=min_overlap,
         exclude_metrics=[],  # or [target.metric_id] if you don't want same metric at other geos as exog
     )
-
-
+    
     policy = default_policy()
     redfin_exclude = policy.exclude_property_type_ids_by_source.get("redfin", set())
-    
+
     filtered = []
     for metric_id, geo_id, pt_id, source_id in all_series:
         if source_id == "redfin" and pt_id in redfin_exclude:
@@ -384,12 +383,11 @@ def build_universal_feature_specs(
     
     all_series = filtered
 
-
     specs: List[FeatureSpec] = []
-    for (metric_id, geo_id, pt_id) in all_series:
+    for metric_id, geo_id, pt_id, source_id in all_series:
         specs.append(
             FeatureSpec(
-                name=f"{metric_id}__{geo_id}__{pt_id}__{source_id}"
+                name=f"{metric_id}__{geo_id}__{pt_id}__{source_id}",
                 metric_id=metric_id,
                 geo_id=geo_id,
                 property_type_id=pt_id,
