@@ -38,6 +38,26 @@ DUCKDB_PATH = os.getenv("DUCKDB_PATH", "data/market.duckdb")
 
 SOURCE_ID = "census_bps"
 
+
+DIM_METRICS = [
+    ("census_bp_total_units", "Building Permits: Total Units", "monthly", "units", "census"),
+    ("census_bp_1_unit", "Building Permits: 1 Unit", "monthly", "units", "census"),
+    ("census_bp_2_units", "Building Permits: 2 Units", "monthly", "units", "census"),
+    ("census_bp_3_4_units", "Building Permits: 3–4 Units", "monthly", "units", "census"),
+    ("census_bp_5plus_units", "Building Permits: 5+ Units", "monthly", "units", "census"),
+    ("census_bp_total_bldgs", "Building Permits: Total Buildings", "monthly", "bldgs", "census"),
+    ("census_bp_1_unit_bldgs", "Building Permits: 1 Unit Buildings", "monthly", "bldgs", "census"),
+    ("census_bp_2_units_bldgs", "Building Permits: 2 Unit Buildings", "monthly", "bldgs", "census"),
+    ("census_bp_3_4_units_bldgs", "Building Permits: 3–4 Unit Buildings", "monthly", "bldgs", "census"),
+    ("census_bp_5plus_units_bldgs", "Building Permits: 5+ Unit Buildings", "monthly", "bldgs", "census"),
+    ("census_bp_total_value", "Building Permits: Total Value", "monthly", "usd", "census"),
+    ("census_bp_1_unit_value", "Building Permits: 1 Unit Value", "monthly", "usd", "census"),
+    ("census_bp_2_units_value", "Building Permits: 2 Units Value", "monthly", "usd", "census"),
+    ("census_bp_3_4_units_value", "Building Permits: 3–4 Units Value", "monthly", "usd", "census"),
+    ("census_bp_5plus_units_value", "Building Permits: 5+ Units Value", "monthly", "usd", "census"),
+]
+
+
 # (measure, size_band) -> metric_id
 METRIC_MAP = {
     # Units
@@ -61,6 +81,33 @@ METRIC_MAP = {
     ("value", "3_4"): "census_bp_3_4_units_value",
     ("value", "5plus"): "census_bp_5plus_units_value",
 }
+
+
+def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute("""
+        INSERT INTO dim_source(source_id, name, url, cadence, license)
+        SELECT 'census_bps', 'Census Building Permits Survey', 'https://www.census.gov/construction/bps/', 'monthly', 'public'
+        WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id='census_bps');
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS dim_metric(
+            metric_id TEXT PRIMARY KEY,
+            name TEXT,
+            frequency TEXT,
+            unit TEXT,
+            category TEXT
+        );
+    """)
+    for mid, name, freq, unit, cat in DIM_METRICS:
+        con.execute("""
+            INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(metric_id) DO UPDATE SET
+              name=excluded.name,
+              frequency=excluded.frequency,
+              unit=excluded.unit,
+              category=excluded.category
+        """, [mid, name, freq, unit, cat])
 
 
 def load_bps_timeseries(csv_path: Path) -> pd.DataFrame:
@@ -179,6 +226,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     con = duckdb.connect(args.duckdb_path)
     ensure_fact_table(con)
+    ensure_dims(con)
     insert_into_fact(con, df)
     con.close()
 
