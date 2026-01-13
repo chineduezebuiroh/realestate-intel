@@ -1,7 +1,7 @@
 # forecast/feature_loader.py
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Tuple
 
 import duckdb
@@ -31,7 +31,7 @@ class FeatureSpec:
     geo_id: str
     property_type_id: Optional[str]
     source_id: Optional[str] = None   # NEW
-    lags: List[int] = None
+    lags: Tuple[int, ...] = field(default_factory=tuple)
 
 # ====================================================================
 # Helpers
@@ -336,18 +336,18 @@ def discover_all_series_for_target(
     ).fetchall()
     con.close()
 
-    result: List[Tuple[str, str, str, str]] = []
+    result = []
     for m, g, pt, src in rows:
         # Drop explicitly excluded metrics
-        if m in exclude_metrics_set:
+        if m in exclude_metrics:
             continue
-
+            
         # Skip the exact target triple only (NOT same metric other geos)
-        if (m == target.metric_id) and (g == target.geo_id) and (pt == target.property_type_id):
+        if m == target.metric_id and g == target.geo_id and pt == target.property_type_id:
             continue
-
+            
         result.append((m, g, pt, src))
-
+    
     return result
 
 
@@ -369,7 +369,7 @@ def build_universal_feature_specs(
     all_series = discover_all_series_for_target(
         target=target,
         min_overlap=min_overlap,
-        exclude_metrics=[],  # or [target.metric_id] if you don't want same metric at other geos as exog
+        exclude_metrics=[],  # allow same metric other geos; you want this
     )
     
     policy = default_policy()
@@ -392,7 +392,7 @@ def build_universal_feature_specs(
                 geo_id=geo_id,
                 property_type_id=pt_id,
                 source_id=source_id,          # NEW
-                lags=list(lag_scheme),
+                lags=tuple(lag_scheme),
             )
         )
     return specs
