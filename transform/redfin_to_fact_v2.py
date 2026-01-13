@@ -329,11 +329,11 @@ def main():
 
     # Ensure dim_property_type exists
     con.execute("""
-    CREATE TABLE IF NOT EXISTS dim_property_type(
-      property_type_id TEXT PRIMARY KEY,
-      name TEXT,
-      "group" TEXT
-    );
+      CREATE TABLE IF NOT EXISTS dim_property_type(
+        property_type_id VARCHAR PRIMARY KEY,
+        name VARCHAR,
+        "group" VARCHAR
+      );
     """)
 
     # Upsert labels/groups gathered during parsing
@@ -345,8 +345,8 @@ def main():
         INSERT OR REPLACE INTO dim_property_type(property_type_id, name, "group")
         SELECT property_type_id, name, "group" FROM df_ptypes;
         """)
-
-
+        con.unregister("df_ptype")    
+    
     
     # register with property_type_id included
     con.register("df_stage", tall[["geo_id","metric_id","date","property_type_id","value","source_id"]])
