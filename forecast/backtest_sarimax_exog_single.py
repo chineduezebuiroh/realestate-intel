@@ -105,6 +105,7 @@ def run_backtest_sarimax_exog_single(
     artifact_root: Optional[str] = None,
     sarimax_max_exog: int = 30,
     seed: int = 1337,
+    anchors_csv: Optional[str] = None,
 ):
     """
     Backtest SARIMAX with exogenous regressors for a single target series.
@@ -169,14 +170,17 @@ def run_backtest_sarimax_exog_single(
     y_full_for_anchors.index = month_end_index(y_full_for_anchors.index)
     y_full_for_anchors = y_full_for_anchors[~y_full_for_anchors.index.duplicated(keep="last")].sort_index()
     
-    anchors = choose_anchor_dates(
-        y_full_for_anchors,
-        horizon=horizon,
-        min_train_len=min_train_len,
-        step_months=anchor_step_months,
-        max_anchors=max_anchors,
-        latest_anchor_offset_months=latest_anchor_offset_months,
-    )
+    if anchors_csv:
+        anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
+    else:
+        anchors = choose_anchor_dates(
+            y_full_for_anchors,
+            horizon=horizon,
+            min_train_len=min_train_len,
+            step_months=anchor_step_months,
+            max_anchors=max_anchors,
+            latest_anchor_offset_months=latest_anchor_offset_months,
+        )
     
     if not anchors:
         print("[backtest_exog] Not enough history to run backtests.")
@@ -417,7 +421,12 @@ if __name__ == "__main__":
     parser.add_argument("--artifact_root", type=str, required=True)
     parser.add_argument("--xgb_batch_id", type=str, required=True)
     parser.add_argument("--sarimax_max_exog", type=int, default=30)
-
+    parser.add_argument(
+        "--anchors",
+        type=str,
+        default=None,
+        help="Comma-separated anchor dates YYYY-MM-DD. If provided, overrides internal anchor selection.",
+    )
 
     args = parser.parse_args()
 
@@ -436,5 +445,5 @@ if __name__ == "__main__":
         artifact_root=args.artifact_root,
         xgb_batch_id=args.xgb_batch_id,
         sarimax_max_exog=args.sarimax_max_exog,
+        anchors_csv=args.anchors,
     )
-
