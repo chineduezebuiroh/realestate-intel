@@ -8,6 +8,7 @@ import duckdb
 import pandas as pd
 
 from .backtest_utils import month_end_index
+from .feature_policy import default_policy
 
 # ====================================================================
 # Shared types
@@ -370,6 +371,19 @@ def build_universal_feature_specs(
         min_overlap=min_overlap,
         exclude_metrics=[],  # or [target.metric_id] if you don't want same metric at other geos as exog
     )
+
+
+    policy = default_policy()
+    redfin_exclude = policy.exclude_property_type_ids_by_source.get("redfin", set())
+    
+    filtered = []
+    for metric_id, geo_id, pt_id, source_id in all_series:
+        if source_id == "redfin" and pt_id in redfin_exclude:
+            continue
+        filtered.append((metric_id, geo_id, pt_id, source_id))
+    
+    all_series = filtered
+
 
     specs: List[FeatureSpec] = []
     for (metric_id, geo_id, pt_id) in all_series:
