@@ -214,6 +214,11 @@ def run_backtest_sarimax_exog_single(
     
         # y_train_raw is the target up to anchor (keep as Series)
         y_train_raw = y_full_raw.loc[:anchor_date].copy()
+
+        # Build X_train on the target timeline up to anchor (NaNs allowed)
+        X_train = X_train_raw.loc[:anchor_date].copy()
+        X_train = X_train.reindex(y_train_raw.index)  # align timelines
+
     
         # --- enforce minimum target length (no exog involved) ---
         y_train_raw = y_train_raw.dropna()
