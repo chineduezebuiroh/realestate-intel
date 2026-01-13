@@ -292,17 +292,18 @@ def discover_all_series_for_target(
     exclude_metrics: Optional[List[str]] = None,
 ) -> List[Tuple[str, str, str, str]]:
     """
-    Return all (metric_id, geo_id, property_type_id) triplets in fact_timeseries
-    that have at least `min_overlap` observations overlapping with the target
-    (same dates), excluding:
-      - target.metric_id itself (or any in exclude_metrics)
-      - the exact (metric_id, geo_id, property_type_id) of the target
+    Return all (metric_id, geo_id, property_type_id, source_id) tuples in fact_timeseries
+    that have at least `min_overlap` observations overlapping with the target (same dates),
+    excluding:
+      - any metric_id explicitly listed in exclude_metrics
+      - the exact (metric_id, geo_id, property_type_id) of the target (same triple)
+    
+    IMPORTANT: We DO allow the same metric_id at other geographies as exogenous features.
     """
-    con = get_connection()
-    exclude_metrics = set(exclude_metrics or [])
-    exclude_metrics.add(target.metric_id)
 
-    # We assume property_type_id is stored as TEXT and is never NULL in fact_timeseries.
+    con = get_connection()
+    exclude_metrics_set = set(exclude_metrics or [])
+
     sql = """
         WITH target_series AS (
             SELECT date
@@ -331,22 +332,21 @@ def discover_all_series_for_target(
 
     rows = con.execute(
         sql,
-        [
-            target.metric_id,
-            target.geo_id,
-            target.property_type_id,
-            min_overlap,
-        ],
+        [target.metric_id, target.geo_id, target.property_type_id, min_overlap],
     ).fetchall()
+    con.close()
 
-    result = []
-    for m, g, pt in rows:
-        if m in exclude_metrics:
+    result: List[Tuple[str, str, str, str]] = []
+    for m, g, pt, src in rows:
+        # Drop explicitly excluded metrics
+        if m in exclude_metrics_set:
             continue
-        # skip the exact target triple
-        if m == target.metric_id and g == target.geo_id and pt == target.property_type_id:
+
+        # Skip the exact target triple only (NOT same metric other geos)
+        if (m == target.metric_id) and (g == target.geo_id) and (pt == target.property_type_id):
             continue
-        result.append((m, g, pt))
+
+        result.append((m, g, pt, src))
 
     return result
 
