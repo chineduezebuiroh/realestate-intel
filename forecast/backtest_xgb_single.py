@@ -102,6 +102,10 @@ def run_backtest_xgb_single(
     latest_anchor_offset_months: Optional[int] = None,
     batch_id: Optional[str] = None,
     data_asof: Optional[str] = None,  # YYYY-MM-DD
+    seed: int = 1337,
+    artifact_root: Optional[str] = None,
+    xgb_top_k: int = 100,
+
 ):
     """
     Backtest XGBoost for a single target series using a universal feature set.
@@ -209,9 +213,43 @@ def run_backtest_xgb_single(
             subsample=0.8,
             colsample_bytree=0.8,
             objective="reg:squarederror",
-            random_state=42,
+            random_state=seed,
         )
         model.fit(X_train, y_train)
+
+        # ---------- Phase B0: emit selected features (XGB is the selector of record) ----------
+        importances = getattr(model, "feature_importances_", None)
+        if importances is None:
+            raise RuntimeError("XGB model missing feature_importances_")
+
+        fi = (
+            pd.DataFrame({"feature_id": feature_names, "importance": importances})
+              .sort_values("importance", ascending=False)
+              .reset_index(drop=True)
+        )
+
+        # Keep only non-zero importance, then take top K
+        fi = fi[fi["importance"] > 0].copy()
+        fi["rank"] = np.arange(1, len(fi) + 1)
+        fi_sel = fi.head(int(xgb_top_k)).copy()
+
+        # annotate keys for deterministic downstream lookup
+        anchor_key = anchor_date.date().isoformat()
+        fi_sel["batch_id"] = batch_id
+        fi_sel["data_asof"] = str(data_asof)
+        fi_sel["geo_id"] = geo_id
+        fi_sel["metric_id"] = metric_id
+        fi_sel["property_type_id"] = property_type_id
+        fi_sel["anchor_date"] = anchor_key
+        fi_sel["horizon"] = int(horizon_bt)
+        fi_sel["seed"] = int(seed)
+
+        if artifact_root:
+            from pathlib import Path
+            out_dir = Path(artifact_root) / "xgb"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            fi_sel.to_parquet(out_dir / f"selected_features__anchor={anchor_key}.parquet", index=False)
+
 
         # ---- Phase A placeholder future features ----
         # Carry-forward the last observed feature row for all future steps.
@@ -295,6 +333,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_id", type=str, default=None)
     parser.add_argument("--data_asof", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument("--artifact_root", type=str, default=None)
+    parser.add_argument("--xgb_top_k", type=int, default=100)
 
     args = parser.parse_args()
 
@@ -309,4 +350,7 @@ if __name__ == "__main__":
         latest_anchor_offset_months=args.latest_anchor_offset_months,
         batch_id=args.batch_id,
         data_asof=args.data_asof,
+        seed=args.seed,
+        artifact_root=args.artifact_root,
+        xgb_top_k=args.xgb_top_k,
     )
