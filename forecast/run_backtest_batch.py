@@ -196,6 +196,7 @@ def main():
         "--batch_id", batch_id,
         "--data_asof", data_asof,
     ]
+    args_common += ["--anchors", anchors_csv]
 
     # pass overrides if set
     if args.min_train_len is not None:
@@ -220,11 +221,9 @@ def main():
         if model_name in ("xgb_backtest", "sarimax_exog_backtest"):
             model_args += ["--seed", str(args.seed)]
             model_args += ["--artifact_root", str(batch_dir)]
-            model_args += ["--anchors", anchors_csv]
 
         if model_name == "sarimax_exog_backtest":
             model_args += ["--xgb_batch_id", xgb_batch_id]
-            model_args += ["--anchors", anchors_csv]
 
         run_one(model_name, cmd_base, model_args)
     
