@@ -7,6 +7,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 from xgboost import XGBRegressor
+from collections import Counter
 
 from .feature_loader import (
     TargetSpec,
@@ -126,6 +127,7 @@ def run_backtest_xgb_single(
     catalog = load_catalog()
     policy = default_policy()
 
+    """
     # Exclude "ALL" and multifamily property types from eligibility (source of truth: dim_property_type)
     bad_ptids = set()
     bad_ptids |= {"-1"}  # your known ALL bucket
@@ -134,6 +136,13 @@ def run_backtest_xgb_single(
     policy = policy.__class__(**{**policy.__dict__, "exclude_property_type_ids": bad_ptids})
 
     print("[policy] excluded_property_type_ids:", sorted(list(bad_ptids))[:20], "count=", len(bad_ptids))
+    """
+
+    # Policy already owns redfin exclusions
+    # (and you already set {"-1"} there)
+    # If you want to add "-2", do it *in default_policy()* not here.
+    redfin_exclude = policy.exclude_property_type_ids_by_source.get("redfin", set())
+    print("[policy] redfin_exclude:", sorted(redfin_exclude))
 
 
     candidate_specs = build_universal_feature_specs(target)
@@ -144,7 +153,7 @@ def run_backtest_xgb_single(
 
     # --- Governance filtering: property-type exclusions + family caps ---
     # 1) drop excluded property types (esp. Redfin ALL / multifamily)
-    candidate_specs = [s for s in candidate_specs if str(s.property_type_id) not in policy.exclude_property_type_ids]
+    #candidate_specs = [s for s in candidate_specs if str(s.property_type_id) not in policy.exclude_property_type_ids]
 
     # 2) cap by metric family (dim_metric.category)
     caps = policy.family_caps or {}
@@ -152,6 +161,9 @@ def run_backtest_xgb_single(
     filtered = []
     for spec in candidate_specs:
         fam = metric_family(spec.metric_id, catalog)
+        if fam is None:
+            fam = "other"
+        fam = fam.lower()
         cap = caps.get(fam, caps.get("other", None))
         if cap is None:
             filtered.append(spec)
@@ -160,6 +172,8 @@ def run_backtest_xgb_single(
         if used < cap:
             filtered.append(spec)
             counts[fam] = used + 1
+
+    print("[policy] family_dist_top20:", Counter(metric_family(s.metric_id, catalog) for s in candidate_specs).most_common(20))
 
     candidate_specs = filtered
     print("[policy] family_counts_used:", {k: v for k, v in counts.items() if v})
