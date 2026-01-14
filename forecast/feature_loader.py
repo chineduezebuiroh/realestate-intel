@@ -21,16 +21,16 @@ class TargetSpec:
     # For Redfin, this is '-1', '6', '13', etc. For non-Redfin, use None -> 'all'.
     property_type_id: Optional[str] = None
 
+
 @dataclass(frozen=True)
 class FeatureSpec:
-    """
-    One base feature series and which lags to create.
-    """
     name: str
     metric_id: str
     geo_id: str
     property_type_id: Optional[str]
-    source_id: Optional[str] = None   # NEW
+    source_id: Optional[str] = None
+    category: Optional[str] = None       # ADD
+    frequency: Optional[str] = None      # ADD (monthly/quarterly/annual)
     lags: Tuple[int, ...] = field(default_factory=tuple)
 
 # ====================================================================
@@ -616,6 +616,8 @@ def build_universal_feature_specs(
                 geo_id=geo_id,
                 property_type_id=pt_id,
                 source_id=source_id,
+                category=(cat or "uncategorized").lower(),
+                frequency=(freq or "monthly").lower(),
                 lags=tuple(lag_scheme),
             )
         )
