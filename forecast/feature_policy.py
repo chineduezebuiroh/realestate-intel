@@ -39,6 +39,7 @@ def default_policy() -> FeaturePolicy:
             "inflation": 10,
             "gdp": 10,
             "census": 20,
+            "uncategorized": 0,
         },
         min_coverage_ratio={
             "monthly": 0.80,
