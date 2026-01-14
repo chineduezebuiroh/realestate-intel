@@ -26,7 +26,7 @@ from .backtest_utils import (
 )
 
 from .design_matrix import build_train_and_future_exog_forecasted
-from .feature_loader import specs_from_selected_feature_ids  # you add this helper
+from .feature_loader import TargetSpec, specs_from_selected_feature_ids
 
 
 TEMP_DEBUG_LIMIT = None # set to a number to debug; set to 'None' when finished debugging
@@ -45,19 +45,53 @@ def _load_xgb_selected_feature_ids(
     anchor_date: pd.Timestamp,
     top_k: int,
 ) -> list[str]:
+    if not artifact_root:
+        raise ValueError("artifact_root is required")
+    if not xgb_batch_id:
+        raise ValueError("xgb_batch_id is required")
+
     anchor_key = anchor_date.date().isoformat()
     p = Path(artifact_root) / xgb_batch_id / "xgb" / f"selected_features__anchor={anchor_key}.parquet"
     if not p.exists():
         raise FileNotFoundError(f"Missing XGB shortlist parquet for anchor={anchor_key}: {p}")
 
     df = pd.read_parquet(p)
+
     required = {"feature_id", "rank"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Shortlist parquet missing columns {sorted(missing)}: {p}")
 
     df = df.sort_values("rank", ascending=True).head(int(top_k))
-    return df["feature_id"].astype(str).tolist()
+    feats = df["feature_id"].astype(str).tolist()
+    if not feats:
+        raise ValueError(f"XGB shortlist empty after top_k={top_k} for anchor={anchor_key}: {p}")
+
+    return feats
+
+def _load_target_y(target: "TargetSpec") -> pd.Series:
+    con = get_connection()
+    pt = target.property_type_id if target.property_type_id is not None else "all"
+    df = con.execute(
+        """
+        SELECT date, value
+        FROM fact_timeseries
+        WHERE metric_id = ?
+          AND geo_id = ?
+          AND property_type_id = ?
+        ORDER BY date
+        """,
+        [target.metric_id, target.geo_id, pt],
+    ).fetchdf()
+    con.close()
+
+    if df.empty:
+        raise ValueError(f"No target data for {target.metric_id}/{target.geo_id}/{pt}")
+
+    y = df.set_index("date")["value"].astype(float)
+    y.index = month_end_index(y.index)
+    y = y[~y.index.duplicated(keep="last")].sort_index()
+    return y
 
 # ==========================================================
 # Main backtest entry
@@ -84,16 +118,17 @@ def run_backtest_sarimax_exog_single(
     """
     Backtest SARIMAX with exogenous regressors for a single target series.
 
-    - Builds a "kitchen sink" design matrix using FeatureSpec.
-    - Optionally uses XGBoost to pick top features for SARIMAX exog.
-    - Writes each anchor's forecasts as a backtest run (never is_active).
+    - SARIMAX-exog uses XGB shortlist artifacts as selector-of-record
+    - SARIMAX builds exog matrices from the selected feature ids
+    - It forecasts exogs via build_train_and_future_exog_forecasted
     """
-    
     target = TargetSpec(
         metric_id=metric_id,
         geo_id=geo_id,
         property_type_id=property_type_id,
     )
+
+    y_full_for_anchors = _load_target_y(target)
     
     if anchors_csv:
         anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
@@ -106,7 +141,7 @@ def run_backtest_sarimax_exog_single(
             max_anchors=max_anchors,
             latest_anchor_offset_months=latest_anchor_offset_months,
         )
-    
+
     if not anchors:
         print("[backtest_exog] Not enough history to run backtests.")
         return
