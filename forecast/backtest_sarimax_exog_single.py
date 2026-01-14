@@ -2,36 +2,34 @@
 import os
 from typing import List, Dict, Optional, Tuple
 
-#import duckdb
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-from .feature_loader import (
-    TargetSpec, FeatureSpec, #build_design_matrix,
-    build_universal_feature_specs, build_design_matrix_incremental, load_target_series_for_spec,
-)
-
 from .db_forecast import (
-    get_connection, new_batch_id, insert_run,
-    insert_predictions, store_selected_features_in_params,
+    get_connection, 
+    new_batch_id,
+    insert_run,
+    insert_predictions,
+    store_selected_features_in_params,
 )
 
 from .backtest_utils import (
-    choose_anchor_dates, month_end_index, month_ends_after,
-    DEFAULT_MIN_TRAIN_LEN, DEFAULT_ANCHOR_STEP_MONTHS, DEFAULT_MAX_ANCHORS,
+    choose_anchor_dates,
+    month_end_index,
+    month_ends_after,
+    DEFAULT_MIN_TRAIN_LEN,
+    DEFAULT_ANCHOR_STEP_MONTHS,
+    DEFAULT_MAX_ANCHORS,
     DEFAULT_ANCHOR_BUFFER_MONTHS,
 )
 
-from .backtest_sarimax_single import load_target_series  # TEMP import for debugging only
 from .design_matrix import build_train_and_future_exog_forecasted
-
-from .feature_catalog import load_catalog, property_type_ids_matching, metric_family
-from .feature_policy import default_policy
+from .feature_loader import specs_from_selected_feature_ids  # you add this helper
 
 
 TEMP_DEBUG_LIMIT = None # set to a number to debug; set to 'None' when finished debugging
-
 
 # ==========================================================
 # Helpers
@@ -41,46 +39,29 @@ def _parse_data_asof(s: str | None):
         return None
     return pd.to_datetime(s).date()
 
-
-def _load_selected_features_strict(
+def _load_xgb_selected_feature_ids(
     artifact_root: str,
     xgb_batch_id: str,
     anchor_date: pd.Timestamp,
-) -> List[str]:
-    from pathlib import Path
-
+    top_k: int,
+) -> list[str]:
     anchor_key = anchor_date.date().isoformat()
-    p = Path(artifact_root).parent / xgb_batch_id / "xgb" / f"selected_features__anchor={anchor_key}.parquet"
+    p = Path(artifact_root) / xgb_batch_id / "xgb" / f"selected_features__anchor={anchor_key}.parquet"
     if not p.exists():
-        raise SystemExit(f"[backtest_exog] FAIL: missing XGB selected features artifact: {p}")
+        raise FileNotFoundError(f"Missing XGB shortlist parquet for anchor={anchor_key}: {p}")
 
     df = pd.read_parquet(p)
-    if df.empty or "feature_id" not in df.columns:
-        raise SystemExit(f"[backtest_exog] FAIL: invalid selected features artifact (empty or missing feature_id): {p}")
+    required = {"feature_id", "rank"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Shortlist parquet missing columns {sorted(missing)}: {p}")
 
-    feats = df["feature_id"].astype(str).tolist()
-    return feats
+    df = df.sort_values("rank", ascending=True).head(int(top_k))
+    return df["feature_id"].astype(str).tolist()
 
 # ==========================================================
-# Default "kitchen sink" spec for this target
-# ==========================================================
-def get_default_feature_specs_for_target(
-    metric_id: str,
-    geo_id: str,
-    property_type_id: str,
-) -> List[FeatureSpec]:
-    target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
-    specs = build_universal_feature_specs(target)
-    if specs:
-        print(f"[backtest_exog] Universal candidate set has {len(specs)} series.")
-    else:
-        print("[backtest_exog] No candidate exogenous series found for this target.")
-    return specs
-
-# -----------------------------
 # Main backtest entry
-# -----------------------------
-
+# ==========================================================
 def run_backtest_sarimax_exog_single(
     metric_id: str = "median_sale_price",
     geo_id: str = "dc_city",
@@ -113,93 +94,6 @@ def run_backtest_sarimax_exog_single(
         geo_id=geo_id,
         property_type_id=property_type_id,
     )
-
-    catalog = load_catalog()
-    policy = default_policy()
-
-    # Exclude "ALL" and multifamily property types from eligibility (source of truth: dim_property_type)
-    bad_ptids = set()
-    bad_ptids |= {"-1"}  # your known ALL bucket
-    bad_ptids |= property_type_ids_matching(catalog=catalog, name_contains=("multi", "multifamily", "multi-family"))
-    bad_ptids |= property_type_ids_matching(catalog=catalog, group_contains=("multi", "multifamily", "multi-family"))
-    policy = policy.__class__(**{**policy.__dict__, "exclude_property_type_ids": bad_ptids})
-
-    print("[policy] excluded_property_type_ids:", sorted(list(bad_ptids))[:20], "count=", len(bad_ptids))
-
-
-    candidate_specs = get_default_feature_specs_for_target(metric_id, geo_id, property_type_id)
-    if not candidate_specs:
-        print("[backtest_exog] No feature specs available; skipping SARIMAX-exog backtest.")
-        return
-
-
-    # --- Governance filtering: property-type exclusions + family caps ---
-    # 1) drop excluded property types (esp. Redfin ALL / multifamily)
-    candidate_specs = [s for s in candidate_specs if str(s.property_type_id) not in policy.exclude_property_type_ids]
-
-    # 2) cap by metric family (dim_metric.category)
-    caps = policy.family_caps or {}
-    counts = {k: 0 for k in caps.keys()}
-    filtered = []
-    for spec in candidate_specs:
-        fam = metric_family(spec.metric_id, catalog)
-        cap = caps.get(fam, caps.get("other", None))
-        if cap is None:
-            filtered.append(spec)
-            continue
-        used = counts.get(fam, 0)
-        if used < cap:
-            filtered.append(spec)
-            counts[fam] = used + 1
-
-    candidate_specs = filtered
-    print("[policy] family_counts_used:", {k: v for k, v in counts.items() if v})
-    print("[policy] candidates_after_filters:", len(candidate_specs))
-
-
-    # TEMP DEBUG: limit candidates to speed up iteration
-    if TEMP_DEBUG_LIMIT is not None:
-        candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
-        print(f"[backtest_exog] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
-
-    required_obs = min_train_len + horizon + DEFAULT_ANCHOR_BUFFER_MONTHS
-    try:
-        y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
-            target=target,
-            candidate_specs=candidate_specs,
-            min_obs=required_obs,
-            max_features=None,
-            load_target_fn=load_target_series_for_spec,
-        )
-    except ValueError as e:
-        print(f"[backtest_exog] Incremental design matrix build failed: {e}")
-        print("[backtest_exog] Skipping SARIMAX-exog backtest for this target.")
-        return
-
-    print(
-        f"[backtest_exog] Final design matrix: "
-        f"n_obs={len(y_full)}, n_features={X_full.shape[1]}, "
-        f"selected_series={len(selected_specs)}"
-    )
-    
-
-    # Final hard check
-    if len(X_full) != len(y_full):
-        raise ValueError(f"X_full and y_full length mismatch after alignment: {len(X_full)} vs {len(y_full)}")
-
-
-    
-    batch_id = batch_id or new_batch_id()
-    if data_asof is None:
-        data_asof = y_full.index.max().date()
-    else:
-        data_asof = _parse_data_asof(data_asof)
-    print(f"[backtest_exog] batch_id={batch_id} data_asof={data_asof}")
-
-    # AFTER inc-build returns selected_specs, immediately overwrite y_full used for anchors
-    y_full_for_anchors = load_target_series(metric_id, geo_id, property_type_id).copy()
-    y_full_for_anchors.index = month_end_index(y_full_for_anchors.index)
-    y_full_for_anchors = y_full_for_anchors[~y_full_for_anchors.index.duplicated(keep="last")].sort_index()
     
     if anchors_csv:
         anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
@@ -223,6 +117,28 @@ def run_backtest_sarimax_exog_single(
     
     for anchor_date in anchors:
         print(f"\n[backtest_exog] Anchor at date={anchor_date.date()}")
+
+        if not artifact_root or not xgb_batch_id:
+            raise SystemExit("[backtest_exog] FAIL: require --artifact_root and --xgb_batch_id to load XGB shortlist.")
+        
+        # Use policy max, not ad-hoc cap
+        policy = default_policy()
+        top_k = int(min(sarimax_max_exog, policy.sarimax_max_exog))
+        
+        feature_ids = _load_xgb_selected_feature_ids(
+            artifact_root=artifact_root,
+            xgb_batch_id=xgb_batch_id,
+            anchor_date=anchor_date,
+            top_k=top_k,
+        )
+        if not feature_ids:
+            raise SystemExit("[backtest_exog] FAIL: XGB shortlist returned 0 features.")
+        
+        selected_specs = specs_from_selected_feature_ids(feature_ids)
+        
+        print(f"[backtest_exog] Using {len(feature_ids)} exog feature_ids from XGB shortlist.")
+        print(f"[backtest_exog] Collapsed to {len(selected_specs)} base series after lag merge.")
+
     
         # ------------------------------------------------------------------
         # 1) Build TRAIN + FUTURE exog using forecasted-exog (Type 2 backtest)
@@ -303,6 +219,7 @@ def run_backtest_sarimax_exog_single(
         # Temporary safety cap for SARIMAX stability
         selected_feature_names = selected_feature_names[:int(sarimax_max_exog)]
 
+        """
         # Ensure selected features actually exist in X_train
         missing = [c for c in selected_feature_names if c not in X_train.columns]
         if missing:
@@ -329,7 +246,6 @@ def run_backtest_sarimax_exog_single(
         if X_future_sel.isna().any().any(): #<-- this might be redundant with what's immediately below
             bad = X_future_sel.columns[X_future_sel.isna().any(axis=0)].tolist()
             print("[backtest_exog] BUG: forecasted exog still has NaNs. bad cols:", bad[:10], "count=", len(bad))
-
     
         # With forecasted-exog, you should NOT see NaNs here. If you do, that's a bug in the forecaster.
         if X_future_sel.isna().any().any():
@@ -340,6 +256,11 @@ def run_backtest_sarimax_exog_single(
                 "missing_cols_count=", len(missing_cols),
                 "first_bad_date=", first_bad_date.date(),
             )
+            continue
+        """
+
+        if X_train_raw.shape[1] == 0:
+            print("[backtest_exog] 0 exog columns after building from shortlist; skipping anchor.")
             continue
     
         # ------------------------------------------------------------------
