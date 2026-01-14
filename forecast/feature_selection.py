@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 # forecast/feature_selection.py
 
 from dataclasses import dataclass
@@ -8,41 +7,70 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from .feature_loader import FeatureSpec, TargetSpec, load_series_from_fact
 from .backtest_utils import month_end_index
+from .feature_loader import FeatureSpec, TargetSpec, load_series_from_fact
+
+
+DC_EQUIV = {"dc_city", "dc_county", "dc_state"}
 
 
 @dataclass(frozen=True)
 class ScoredCandidate:
     spec: FeatureSpec
     score: float
-    best_lead: int  # months x is shifted forward to align with y (x leads y)
+    best_lead: int   # months x is shifted forward to align with y (x leads y)
     n_eff: int
 
 
-def _to_yoy(s: pd.Series) -> pd.Series:
+def _canon_monthly(s: pd.Series) -> pd.Series:
     s = s.copy()
     s.index = month_end_index(s.index)
     s = s[~s.index.duplicated(keep="last")].sort_index()
+    return s
+
+
+def _to_yoy(s: pd.Series) -> pd.Series:
+    # YoY percent change on month-end index
+    s = _canon_monthly(s)
     return s.pct_change(12)
 
 
-def score_candidates_yoy_xcorr(
+def _score_pair_corr(y: pd.Series, x: pd.Series) -> float:
+    c = float(y.corr(x))
+    if np.isnan(c):
+        return 0.0
+    return abs(c)
+
+
+def score_candidates(
     target: TargetSpec,
     candidates: List[FeatureSpec],
     *,
     train_end: Optional[pd.Timestamp] = None,
     min_eff: int = 60,
     lead_months: Tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6),
+    score_mode: str = "yoy_xcorr",  # "yoy_xcorr" | "yoy_corr0" | "level_xcorr"
 ) -> List[ScoredCandidate]:
     """
-    Score each base series using max abs corr between YoY(target) and YoY(feature shifted by lead).
-    - lead=3 means feature leads target by 3 months (x(t-3) helps predict y(t)).
+    Deterministic scoring.
+    - yoy_xcorr: YoY transform, then max abs corr across lead window
+    - yoy_corr0: YoY transform, lead=0 only
+    - level_xcorr: raw levels, then max abs corr across lead window (riskier)
     """
     y = load_series_from_fact(target.metric_id, target.geo_id, target.property_type_id)
-    y_yoy = _to_yoy(y)
+
+    if score_mode.startswith("yoy"):
+        y_s = _to_yoy(y)
+    elif score_mode == "level_xcorr":
+        y_s = _canon_monthly(y)
+    else:
+        raise ValueError(f"Unknown score_mode: {score_mode}")
+
     if train_end is not None:
-        y_yoy = y_yoy.loc[:train_end]
+        y_s = y_s.loc[:train_end]
+
+    if score_mode == "yoy_corr0":
+        lead_months = (0,)
 
     scored: List[ScoredCandidate] = []
 
@@ -52,80 +80,142 @@ def score_candidates_yoy_xcorr(
         except Exception:
             continue
 
-        x_yoy = _to_yoy(x)
-        if train_end is not None:
-            x_yoy = x_yoy.loc[:train_end]
+        if score_mode.startswith("yoy"):
+            x_s = _to_yoy(x)
+        else:
+            x_s = _canon_monthly(x)
 
-        # align on common index AFTER transforms
-        best = (0.0, 0, 0)  # score, lead, n_eff
+        if train_end is not None:
+            x_s = x_s.loc[:train_end]
+
+        best_score = 0.0
+        best_lead = 0
+        best_n = 0
+
         for lead in lead_months:
-            xx = x_yoy.shift(lead)
-            df = pd.concat([y_yoy, xx], axis=1, join="inner").dropna()
+            xx = x_s.shift(lead)
+            df = pd.concat([y_s, xx], axis=1, join="inner").dropna()
             if len(df) < min_eff:
                 continue
-            c = float(df.iloc[:, 0].corr(df.iloc[:, 1]))
-            if np.isnan(c):
-                continue
-            s_abs = abs(c)
-            if s_abs > best[0]:
-                best = (s_abs, lead, int(len(df)))
+            s_abs = _score_pair_corr(df.iloc[:, 0], df.iloc[:, 1])
+            if s_abs > best_score:
+                best_score = s_abs
+                best_lead = int(lead)
+                best_n = int(len(df))
 
-        if best[2] >= min_eff and best[0] > 0:
-            scored.append(
-                ScoredCandidate(
-                    spec=spec,
-                    score=best[0],
-                    best_lead=best[1],
-                    n_eff=best[2],
-                )
-            )
+        if best_n >= min_eff and best_score > 0:
+            scored.append(ScoredCandidate(spec=spec, score=best_score, best_lead=best_lead, n_eff=best_n))
 
-    # deterministic: score desc, then name
     scored.sort(key=lambda r: (-r.score, r.spec.name))
     return scored
 
 
-def select_with_caps_and_buckets(
+def default_bucket(spec: FeatureSpec, target: TargetSpec) -> str:
+    """
+    Simple geo diversity buckets + DC equivalence.
+    You can refine later.
+    """
+    g = spec.geo_id
+    if g in DC_EQUIV:
+        g = "dc_equiv"
+
+    if g == target.geo_id or (target.geo_id in DC_EQUIV and g == "dc_equiv"):
+        return "geo:target_equiv"
+
+    # coarse geography types by naming convention
+    if g.endswith("_dc") and len(g.split("_")) == 2 and g.split("_")[0].isdigit():
+        return "geo:zipcode_dc"
+    if g.endswith("_city") or "city" in g:
+        return "geo:city"
+    if "county" in g:
+        return "geo:county"
+    if g.endswith("_msa") or "msa" in g:
+        return "geo:msa"
+    if g.endswith("_state") or "state" in g:
+        return "geo:state"
+    if g in ("us_nation", "us"):
+        return "geo:national"
+
+    return "geo:other"
+
+
+def select_scored_candidates(
     scored: List[ScoredCandidate],
     *,
-    # category caps (post-scoring)
+    max_base_series: int,
     category_caps: Dict[str, int],
-    # required minimum picks per category before filling others (optional)
     category_minimums: Optional[Dict[str, int]] = None,
-    # geo bucket caps (optional)
     bucket_caps: Optional[Dict[str, int]] = None,
-    bucket_fn=None,  # function(FeatureSpec)->bucket str
-    # overall cap on BASE SERIES (before lag expansion)
-    max_base_series: int = 250,
-    # access to category on FeatureSpec: we’ll parse from name? no — you already have category upstream
+    bucket_fn=None,
 ) -> List[ScoredCandidate]:
     """
-    Greedy deterministic selector:
-      1) satisfy per-category minimums using highest scores (respect bucket caps)
-      2) fill remaining up to category caps (respect bucket caps)
-      3) stop at max_base_series
+    Greedy deterministic selection on scored base series, BEFORE lag expansion.
+    - First satisfy category_minimums (if any)
+    - Then fill remaining while respecting category_caps and bucket_caps
     """
-    if category_minimums is None:
-        category_minimums = {}
-    if bucket_caps is None:
-        bucket_caps = {}
-    if bucket_fn is None:
-        bucket_fn = lambda spec: "all"
+    category_minimums = category_minimums or {}
+    bucket_caps = bucket_caps or {}
+    bucket_fn = bucket_fn or (lambda spec, target=None: "all")  # overwritten by wrapper below
 
-    used_cat: Dict[str, int] = {k: 0 for k in category_caps.keys()}
-    used_bucket: Dict[str, int] = {k: 0 for k in bucket_caps.keys()}
+    used_cat: Dict[str, int] = {}
+    used_bucket: Dict[str, int] = {}
     picked: List[ScoredCandidate] = []
 
-    def can_take(item: ScoredCandidate, cat: str, bucket: str) -> bool:
+    def cat_of(item: ScoredCandidate) -> str:
+        return (item.spec.category or "uncategorized").lower()
+
+    def bucket_of(item: ScoredCandidate) -> str:
+        return bucket_fn(item.spec)
+
+    def can_take(item: ScoredCandidate) -> bool:
+        cat = cat_of(item)
         cap = category_caps.get(cat)
         if cap is not None and used_cat.get(cat, 0) >= int(cap):
             return False
-        bcap = bucket_caps.get(bucket)
-        if bcap is not None and used_bucket.get(bucket, 0) >= int(bcap):
+
+        b = bucket_of(item)
+        bcap = bucket_caps.get(b)
+        if bcap is not None and used_bucket.get(b, 0) >= int(bcap):
             return False
+
         return True
 
-    # You need category on each candidate. We expect you to attach it to FeatureSpec.name? Nope.
-    # So: require category to be embedded into spec.source_id? also no.
-    # Practical fix: pass a cat_lookup dict into this function OR store category on FeatureSpec later.
-    raise NotImplementedError("Pass a category lookup; see integration section below.")
+    def take(item: ScoredCandidate):
+        cat = cat_of(item)
+        b = bucket_of(item)
+        picked.append(item)
+        used_cat[cat] = used_cat.get(cat, 0) + 1
+        used_bucket[b] = used_bucket.get(b, 0) + 1
+
+    # 1) satisfy minimums
+    for cat, min_n in category_minimums.items():
+        need = int(min_n)
+        if need <= 0:
+            continue
+        for item in scored:
+            if len(picked) >= max_base_series:
+                break
+            if cat_of(item) != cat:
+                continue
+            if item in picked:
+                continue
+            if can_take(item):
+                take(item)
+                need -= 1
+                if need <= 0:
+                    break
+
+    # 2) fill remainder
+    for item in scored:
+        if len(picked) >= max_base_series:
+            break
+        if item in picked:
+            continue
+        if can_take(item):
+            take(item)
+
+    return picked
+
+
+def scored_to_feature_specs(scored: List[ScoredCandidate]) -> List[FeatureSpec]:
+    return [s.spec for s in scored]
