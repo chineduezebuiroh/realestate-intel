@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 
 from .backtest_utils import month_end_index, month_ends_after
-from .feature_loader import FeatureSpec, TargetSpec, load_series_from_fact
+from .feature_loader import FeatureSpec, TargetSpec, load_series_from_fact, load_series_from_fact_with_source
+
 from .exog_forecast import forecast_exog_seasonal_naive
 
 
@@ -170,10 +171,11 @@ def build_train_and_future_exog_forecasted(
     # -------------------------
     base_exog: Dict[str, pd.Series] = {}
     for spec in feature_specs:
-        s = load_series_from_fact(
+        s = load_series_from_fact_with_source(
             metric_id=spec.metric_id,
             geo_id=spec.geo_id,
             property_type_id=spec.property_type_id,
+            source_id=spec.source_id,   # ✅ critical
         ).copy()
         s.index = month_end_index(s.index)
         s = s[~s.index.duplicated(keep="last")].sort_index()
