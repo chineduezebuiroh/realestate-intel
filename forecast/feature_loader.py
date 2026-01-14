@@ -48,6 +48,43 @@ def load_target_series_for_spec(t: TargetSpec) -> pd.Series:
         property_type_id=t.property_type_id,
     )
 
+
+def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
+    """
+    Compute how many distinct bucket periods exist in the target timeline:
+      - monthly buckets (months)
+      - quarterly buckets (quarters)
+      - annual buckets (years)
+
+    These are used to compute coverage ratios for features by native frequency.
+    """
+    pt_id = target.property_type_id if target.property_type_id is not None else "all"
+
+    sql = """
+    WITH target_series AS (
+      SELECT date
+      FROM fact_timeseries
+      WHERE metric_id = ?
+        AND geo_id = ?
+        AND property_type_id = ?
+    )
+    SELECT
+      COUNT(DISTINCT date_trunc('month', date))   AS n_months,
+      COUNT(DISTINCT date_trunc('quarter', date)) AS n_quarters,
+      COUNT(DISTINCT date_trunc('year', date))    AS n_years
+    FROM target_series
+    """
+    n_months, n_quarters, n_years = con.execute(
+        sql, [target.metric_id, target.geo_id, pt_id]
+    ).fetchone()
+
+    # Defensive: never allow 0 denominators
+    return {
+        "monthly": max(int(n_months or 0), 1),
+        "quarterly": max(int(n_quarters or 0), 1),
+        "annual": max(int(n_years or 0), 1),
+    }
+
 # ====================================================================
 # Load single series from fact_timeseries
 # ====================================================================
@@ -294,65 +331,114 @@ def discover_all_series_for_target(
     target: TargetSpec,
     min_overlap: int = 72,
     exclude_metrics: Optional[List[str]] = None,
-) -> List[Tuple[str, str, str, str]]:
+    policy=None,
+) -> List[Tuple[str, str, str, str, str, str, float, int]]:
     """
-    Return all (metric_id, geo_id, property_type_id, source_id) tuples in fact_timeseries
-    that have at least `min_overlap` observations overlapping with the target (same dates),
-    excluding:
-      - any metric_id explicitly listed in exclude_metrics
-      - the exact (metric_id, geo_id, property_type_id) of the target (same triple)
-    
-    IMPORTANT: We DO allow the same metric_id at other geographies as exogenous features.
-    """
+    Return governed candidates with metadata:
 
-    con = get_connection()
+    (metric_id, geo_id, property_type_id, source_id, category, frequency, coverage_ratio, n_overlap)
+
+    - n_overlap is in MONTHS (raw overlap count on target dates).
+    - coverage_ratio is computed on NATIVE frequency buckets:
+        monthly -> distinct months / target distinct months
+        quarterly -> distinct quarters / target distinct quarters
+        annual -> distinct years / target distinct years
+    """
+    policy = policy or default_policy()
     exclude_metrics_set = set(exclude_metrics or [])
 
+    con = get_connection()
+    expected = _target_expected_buckets(con, target)
+
+    pt_id = target.property_type_id if target.property_type_id is not None else "all"
+
     sql = """
-        WITH target_series AS (
-            SELECT date
-            FROM fact_timeseries
-            WHERE metric_id = ?
-              AND geo_id = ?
-              AND property_type_id = ?
-        ),
-        series_overlap AS (
-            SELECT
-                b.metric_id,
-                b.geo_id,
-                b.property_type_id,
-                b.source_id,
-                COUNT(*) AS n_overlap
-            FROM target_series t
-            JOIN fact_timeseries b
-              ON t.date = b.date
-            GROUP BY b.metric_id, b.geo_id, b.property_type_id, b.source_id
-        )
-        SELECT metric_id, geo_id, property_type_id, source_id
-        FROM series_overlap
-        WHERE n_overlap >= ?
-        ORDER BY metric_id, geo_id, property_type_id, source_id
+    WITH target_series AS (
+        SELECT date
+        FROM fact_timeseries
+        WHERE metric_id = ?
+          AND geo_id = ?
+          AND property_type_id = ?
+    ),
+    joined AS (
+        SELECT
+            b.metric_id,
+            b.geo_id,
+            b.property_type_id,
+            b.source_id,
+            COALESCE(LOWER(d.category), 'uncategorized') AS category,
+            COALESCE(LOWER(d.frequency), 'monthly')      AS frequency,
+            t.date                                       AS t_date,
+            CASE
+              WHEN COALESCE(LOWER(d.frequency), 'monthly') = 'annual' THEN date_trunc('year', t.date)
+              WHEN COALESCE(LOWER(d.frequency), 'monthly') = 'quarterly' THEN date_trunc('quarter', t.date)
+              ELSE date_trunc('month', t.date)
+            END AS bucket
+        FROM target_series t
+        JOIN fact_timeseries b
+          ON t.date = b.date
+        LEFT JOIN dim_metric d
+          ON b.metric_id = d.metric_id
+    ),
+    agg AS (
+        SELECT
+            metric_id, geo_id, property_type_id, source_id,
+            category, frequency,
+            COUNT(*) AS n_overlap_months,
+            COUNT(DISTINCT bucket) AS n_buckets
+        FROM joined
+        GROUP BY 1,2,3,4,5,6
+    )
+    SELECT
+        metric_id, geo_id, property_type_id, source_id,
+        category, frequency,
+        n_overlap_months,
+        n_buckets
+    FROM agg
+    WHERE n_overlap_months >= ?
+    ORDER BY metric_id, geo_id, property_type_id, source_id
     """
 
-    rows = con.execute(
-        sql,
-        [target.metric_id, target.geo_id, target.property_type_id, min_overlap],
-    ).fetchall()
+    rows = con.execute(sql, [target.metric_id, target.geo_id, pt_id, int(min_overlap)]).fetchall()
     con.close()
 
-    result = []
-    for m, g, pt, src in rows:
-        # Drop explicitly excluded metrics
-        if m in exclude_metrics_set:
+    out = []
+    for metric_id, geo_id, pt_id, source_id, category, frequency, n_overlap, n_buckets in rows:
+        # skip exact target triple only
+        if metric_id == target.metric_id and geo_id == target.geo_id and str(pt_id) == str(target.property_type_id):
             continue
-            
-        # Skip the exact target triple only (NOT same metric other geos)
-        if m == target.metric_id and g == target.geo_id and pt == target.property_type_id:
+
+        # explicit metric exclusions
+        if metric_id in exclude_metrics_set:
             continue
-            
-        result.append((m, g, pt, src))
-    
-    return result
+
+        # --- Category gating ---
+        cat = (category or "uncategorized").lower()
+        if policy.include_categories is not None and cat not in policy.include_categories:
+            continue
+        if policy.exclude_categories and cat in policy.exclude_categories:
+            continue
+
+        # --- Source/PT gating (per policy) ---
+        ex_ptids = policy.exclude_property_type_ids_by_source.get(source_id, set()) if policy.exclude_property_type_ids_by_source else set()
+        if ex_ptids and str(pt_id) in ex_ptids:
+            continue
+
+        # --- Coverage gating ---
+        freq = (frequency or "monthly").lower()
+        denom = expected.get(freq, expected["monthly"])
+        cov = float(n_buckets) / float(denom)
+
+        thr = None
+        if policy.min_coverage_ratio:
+            thr = policy.min_coverage_ratio.get(freq, None)
+
+        if thr is not None and cov < float(thr):
+            continue
+
+        out.append((metric_id, geo_id, pt_id, source_id, cat, freq, cov, int(n_overlap)))
+
+    return out
 
 
 def build_universal_feature_specs(
@@ -360,43 +446,30 @@ def build_universal_feature_specs(
     lag_scheme: List[int] = [1, 2, 3, 6, 12],
     min_obs: int = 60,
 ) -> List[FeatureSpec]:
-    """
-    Build a FeatureSpec list that includes *every* other time series in fact_timeseries
-    that has enough overlapping observations with the target (so we don't end up with
-    zero rows after alignment).
-
-    - Require at least `min_obs + max(lag_scheme)` overlapping points to be safe.
-    """
     max_lag = max(lag_scheme)
     min_overlap = min_obs + max_lag
 
-    all_series = discover_all_series_for_target(
+    policy = default_policy()
+
+    governed = discover_all_series_for_target(
         target=target,
         min_overlap=min_overlap,
-        exclude_metrics=[],  # allow same metric other geos; you want this
+        exclude_metrics=[],     # allow same metric other geos
+        policy=policy,
     )
-    
-    policy = default_policy()
-    redfin_exclude = policy.exclude_property_type_ids_by_source.get("redfin", set())
 
-    filtered = []
-    for metric_id, geo_id, pt_id, source_id in all_series:
-        if source_id == "redfin" and pt_id in redfin_exclude:
-            continue
-        filtered.append((metric_id, geo_id, pt_id, source_id))
-    
-    all_series = filtered
-
+    # governed rows: (metric_id, geo_id, pt_id, source_id, category, frequency, coverage_ratio, n_overlap)
     specs: List[FeatureSpec] = []
-    for metric_id, geo_id, pt_id, source_id in all_series:
+    for metric_id, geo_id, pt_id, source_id, cat, freq, cov, n_overlap in governed:
         specs.append(
             FeatureSpec(
                 name=f"{metric_id}__{geo_id}__{pt_id}__{source_id}",
                 metric_id=metric_id,
                 geo_id=geo_id,
                 property_type_id=pt_id,
-                source_id=source_id,          # NEW
+                source_id=source_id,
                 lags=tuple(lag_scheme),
             )
         )
+
     return specs
