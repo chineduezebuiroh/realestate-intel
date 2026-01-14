@@ -158,6 +158,12 @@ def run_backtest_xgb_single(
         print("[xgb_backtest] Skipping XGB backtest for this target.")
         return
 
+    # sanity: ensure feature ids are 4-part base + _lagK
+    sample_cols = list(X_full.columns)[:20]
+    bad = [c for c in sample_cols if len(c.rsplit("_lag", 1)[0].split("__")) != 4]
+    if bad:
+        raise RuntimeError(f"[xgb_backtest] Feature IDs are not 4-part. Example bad: {bad[:5]}")
+
     y_full = y_full.copy()
     y_full.index = month_end_index(y_full.index)
     y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
