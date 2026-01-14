@@ -47,6 +47,40 @@ def load_target_series_for_spec(t: TargetSpec) -> pd.Series:
         property_type_id=t.property_type_id,
     )
 
+def parse_feature_id_to_spec(feature_id: str) -> FeatureSpec:
+    # feature_id format: "{metric}__{geo}__{pt}__{source}_lag{lag}"
+    base, lag_part = feature_id.rsplit("_lag", 1)
+    lag = int(lag_part)
+
+    metric_id, geo_id, pt_id, source_id = base.split("__", 3)
+    return FeatureSpec(
+        name=f"{metric_id}__{geo_id}__{pt_id}__{source_id}",
+        metric_id=metric_id,
+        geo_id=geo_id,
+        property_type_id=pt_id,
+        source_id=source_id,
+        lags=(lag,),
+    )
+
+def specs_from_selected_feature_ids(feature_ids: list[str]) -> list[FeatureSpec]:
+    by_base = {}
+    for fid in feature_ids:
+        spec = parse_feature_id_to_spec(fid)
+        key = (spec.metric_id, spec.geo_id, str(spec.property_type_id), str(spec.source_id))
+        by_base.setdefault(key, set()).update(spec.lags)
+
+    out = []
+    for (m,g,pt,src), lags in by_base.items():
+        out.append(FeatureSpec(
+            name=f"{m}__{g}__{pt}__{src}",
+            metric_id=m,
+            geo_id=g,
+            property_type_id=pt,
+            source_id=src,
+            lags=tuple(sorted(lags)),
+        ))
+    return out
+
 def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
     """
     Compute how many distinct bucket periods exist in the target timeline:
