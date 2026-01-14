@@ -48,32 +48,36 @@ def load_target_series_for_spec(t: TargetSpec) -> pd.Series:
     )
 
 def parse_feature_id_to_spec(feature_id: str) -> FeatureSpec:
-    # feature_id format: "{base}_lag{lag}"
-    # base format: "{metric}__{geo}__{pt}__{source}"
+    # feature_id format:
+    #   NEW: "{metric}__{geo}__{pt}__{source}_lag{lag}"
+    #   OLD: "{metric}__{geo}__{pt}_lag{lag}"   (no source)
+    if "_lag" not in feature_id:
+        raise ValueError(f"Invalid feature_id (missing _lag): {feature_id}")
+
     base, lag_part = feature_id.rsplit("_lag", 1)
-    lag = int(lag_part)
+    try:
+        lag = int(lag_part)
+    except Exception as e:
+        raise ValueError(f"Invalid lag suffix in feature_id: {feature_id}") from e
 
     parts = base.split("__")
-    if len(parts) != 4:
-        raise ValueError(f"Invalid feature base name (expected 4 parts): {base}")
-
-    metric_id, geo_id, pt_id, source_id = parts
-
-    # Canonicalize property_type_id
-    if pt_id in ("", "None", "null"):
-        pt_id = "all"
-
-    if source_id in ("", "None", "null"):
-        raise ValueError(f"Missing source_id in feature base name: {base}")
+    if len(parts) == 4:
+        metric_id, geo_id, pt_id, source_id = parts
+    elif len(parts) == 3:
+        metric_id, geo_id, pt_id = parts
+        source_id = None  # legacy artifacts
+    else:
+        raise ValueError(f"Invalid feature base name (expected 3 or 4 parts): {base}")
 
     return FeatureSpec(
-        name=base,  # IMPORTANT: preserve exact base name
+        name=f"{metric_id}__{geo_id}__{pt_id}" + (f"__{source_id}" if source_id else ""),
         metric_id=metric_id,
         geo_id=geo_id,
         property_type_id=pt_id,
         source_id=source_id,
         lags=(lag,),
     )
+
 
 def parse_feature_id(fid: str) -> tuple[str, int]:
     """
