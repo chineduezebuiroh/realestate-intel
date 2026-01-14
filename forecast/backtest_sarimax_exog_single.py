@@ -130,6 +130,14 @@ def run_backtest_sarimax_exog_single(
     )
 
     y_full_for_anchors = _load_target_y(target)
+    # batch_id + data_asof
+    batch_id = batch_id or new_batch_id()
+    if data_asof is None:
+        data_asof = y_full_for_anchors.index.max().date()
+    else:
+        data_asof = _parse_data_asof(data_asof)
+    print(f"[backtest_exog] batch_id={batch_id} data_asof={data_asof}")
+
     
     if anchors_csv:
         anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
@@ -198,10 +206,6 @@ def run_backtest_sarimax_exog_single(
         # y_train_raw is the target up to anchor (keep as Series)
         y_train_raw = y_full_raw.loc[:anchor_date].copy()
 
-        # Build X_train on the target timeline up to anchor (NaNs allowed)
-        X_train = X_train_raw.loc[:anchor_date].copy()
-        X_train = X_train.reindex(y_train_raw.index)  # align timelines
-
     
         # --- enforce minimum target length (no exog involved) ---
         y_train_raw = y_train_raw.dropna()
@@ -236,69 +240,45 @@ def run_backtest_sarimax_exog_single(
         y_test = y_full_raw.reindex(test_idx)
 
         # ------------------------------------------------------------------
-        # 3) Load XGB-selected features (upstream selector of record) + cap for SARIMAX
+        # 3) Build SARIMAX exog matrices from XGB-selected feature_ids
         # ------------------------------------------------------------------
-        if not artifact_root:
-            raise SystemExit("[backtest_exog] FAIL: --artifact_root is required to load XGB selections.")
-        if not xgb_batch_id:
-            raise SystemExit("[backtest_exog] FAIL: --xgb_batch_id is required to load XGB selections.")
+        # We expect build_train_and_future_exog_forecasted to produce lagged columns
+        # that match the XGB feature_id strings exactly (e.g. "..._lag12").
+        missing_cols = [c for c in feature_ids if c not in X_train_raw.columns]
+        if missing_cols:
+            raise SystemExit(
+                f"[backtest_exog] FAIL: {len(missing_cols)} selected feature_ids not present in X_train_raw. "
+                f"Example: {missing_cols[:10]}"
+            )
 
-        selected_feature_names = _load_selected_features_strict(
-            artifact_root=artifact_root,
-            xgb_batch_id=xgb_batch_id,
-            anchor_date=anchor_date,
-        )
+        # Select only the lag-level columns chosen by XGB
+        X_train_sel = X_train_raw.loc[:anchor_date, feature_ids].copy()
+        X_train_sel = X_train_sel.reindex(y_train_raw.index)  # align to target timeline
 
-        if len(selected_feature_names) == 0:
-            raise SystemExit("[backtest_exog] FAIL: XGB selection returned 0 features.")
-
-        # Temporary safety cap for SARIMAX stability
-        selected_feature_names = selected_feature_names[:int(sarimax_max_exog)]
-
-        """
-        # Ensure selected features actually exist in X_train
-        missing = [c for c in selected_feature_names if c not in X_train.columns]
-        if missing:
-            raise SystemExit(f"[backtest_exog] FAIL: selected features not present in design matrix. missing={missing[:10]} count={len(missing)}")
-
-        print(f"[backtest_exog] Using {len(selected_feature_names)} exog features (capped at {sarimax_max_exog}).")
-
-        # ------------------------------------------------------------------
-        # 4) Prepare SARIMAX train matrices (complete-case on SELECTED features only)
-        # ------------------------------------------------------------------
-        X_train_sel = X_train[selected_feature_names]
+        # Complete-case on selected exog only
         train_mask = y_train_raw.notna() & X_train_sel.notna().all(axis=1)
-        y_train = y_train_raw.loc[train_mask]
-        X_train_sel = X_train_sel.loc[train_mask]
-    
+        y_train = y_train_raw.loc[train_mask].copy()
+        X_train_sel = X_train_sel.loc[train_mask].copy()
+
         if len(y_train) < min_train_len:
-            print("[backtest_exog] Train shorter than min_train_len after selection; skipping anchor.")
+            print("[backtest_exog] Train shorter than min_train_len after exog selection; skipping anchor.")
             continue
-    
-        # ------------------------------------------------------------------
-        # 5) Prepare FUTURE exog for the horizon using forecasted-exog output
-        # ------------------------------------------------------------------
-        X_future_sel = X_future_fc.reindex(test_idx)[selected_feature_names]
-        if X_future_sel.isna().any().any(): #<-- this might be redundant with what's immediately below
-            bad = X_future_sel.columns[X_future_sel.isna().any(axis=0)].tolist()
-            print("[backtest_exog] BUG: forecasted exog still has NaNs. bad cols:", bad[:10], "count=", len(bad))
-    
-        # With forecasted-exog, you should NOT see NaNs here. If you do, that's a bug in the forecaster.
+
+        # Future exog for the backtest horizon
+        X_future_sel = X_future_fc.reindex(test_idx)[feature_ids].copy()
+
+        # With forecasted-exog, future should have no NaNs. If it does, forecaster is broken.
         if X_future_sel.isna().any().any():
-            missing_cols = X_future_sel.columns[X_future_sel.isna().any(axis=0)].tolist()
+            bad_cols = X_future_sel.columns[X_future_sel.isna().any(axis=0)].tolist()
             first_bad_date = X_future_sel.index[X_future_sel.isna().any(axis=1)][0]
             print(
                 "[backtest_exog] Missing FUTURE exog after forecasting; skipping anchor.",
-                "missing_cols_count=", len(missing_cols),
+                "bad_cols_count=", len(bad_cols),
                 "first_bad_date=", first_bad_date.date(),
             )
             continue
-        """
 
-        if X_train_raw.shape[1] == 0:
-            print("[backtest_exog] 0 exog columns after building from shortlist; skipping anchor.")
-            continue
-    
+
         # ------------------------------------------------------------------
         # 6) Fit SARIMAX on integer index; forecast with exog_future
         # ------------------------------------------------------------------
@@ -347,7 +327,7 @@ def run_backtest_sarimax_exog_single(
 
         algo_params = store_selected_features_in_params(
             algo_params,
-            selected_features=selected_feature_names,
+            selected_features=feature_ids,  # lag-level columns actually used
             selector_meta={
                 "method": "xgb_selected_features_artifact",
                 "xgb_batch_id": xgb_batch_id,
