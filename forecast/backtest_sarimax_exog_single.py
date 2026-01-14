@@ -179,11 +179,15 @@ def run_backtest_sarimax_exog_single(
             raise SystemExit("[backtest_exog] FAIL: XGB shortlist returned 0 features.")
         
         selected_specs = specs_from_selected_feature_ids(feature_ids)
-        
+
+        if any(s.source_id is None for s in selected_specs):
+            # This means you are still using legacy 3-part XGB artifacts.
+            # Not fatal, but it defeats the purpose of source-aware correctness.
+            print("[backtest_exog] WARNING: some selected_specs have source_id=None (legacy feature ids).")
+      
         print(f"[backtest_exog] Using {len(feature_ids)} exog feature_ids from XGB shortlist.")
         print(f"[backtest_exog] Collapsed to {len(selected_specs)} base series after lag merge.")
 
-    
         # ------------------------------------------------------------------
         # 1) Build TRAIN + FUTURE exog using forecasted-exog (Type 2 backtest)
         # ------------------------------------------------------------------
