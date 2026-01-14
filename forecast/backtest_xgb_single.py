@@ -150,36 +150,6 @@ def run_backtest_xgb_single(
         print("[xgb_backtest] No candidate features; skipping XGB backtest.")
         return
 
-
-    # --- Governance filtering: property-type exclusions + family caps ---
-    # 1) drop excluded property types (esp. Redfin ALL / multifamily)
-    #candidate_specs = [s for s in candidate_specs if str(s.property_type_id) not in policy.exclude_property_type_ids]
-
-    # 2) cap by metric family (dim_metric.category)
-    caps = policy.family_caps or {}
-    counts = {k: 0 for k in caps.keys()}
-    filtered = []
-    for spec in candidate_specs:
-        fam = metric_family(spec.metric_id, catalog)
-        if fam is None:
-            fam = "other"
-        fam = fam.lower()
-        cap = caps.get(fam, caps.get("other", None))
-        if cap is None:
-            filtered.append(spec)
-            continue
-        used = counts.get(fam, 0)
-        if used < cap:
-            filtered.append(spec)
-            counts[fam] = used + 1
-
-    print("[policy] family_dist_top20:", Counter(metric_family(s.metric_id, catalog) for s in candidate_specs).most_common(20))
-
-    candidate_specs = filtered
-    print("[policy] family_counts_used:", {k: v for k, v in counts.items() if v})
-    print("[policy] candidates_after_filters:", len(candidate_specs))
-
-
     if TEMP_DEBUG_LIMIT is not None:
         candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
         print(f"[xgb_backtest] TEMP: truncating to {len(candidate_specs)} candidates for debugging.")
