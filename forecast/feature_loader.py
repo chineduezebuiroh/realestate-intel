@@ -72,7 +72,11 @@ def load_series_from_fact(
           AND property_type_id = ?
         ORDER BY date
     """
-    df = con.execute(sql, [metric_id, geo_id, pt_id]).fetchdf()
+    con = get_connection()
+    try:
+        df = con.execute(sql, [metric_id, geo_id, pt_id]).fetchdf()
+    finally:
+        con.close()
 
     if df.empty:
         raise ValueError(
@@ -339,7 +343,7 @@ def discover_all_series_for_target(
     result = []
     for m, g, pt, src in rows:
         # Drop explicitly excluded metrics
-        if m in exclude_metrics:
+        if m in exclude_metrics_set:
             continue
             
         # Skip the exact target triple only (NOT same metric other geos)
