@@ -48,13 +48,26 @@ def load_target_series_for_spec(t: TargetSpec) -> pd.Series:
     )
 
 def parse_feature_id_to_spec(feature_id: str) -> FeatureSpec:
-    # feature_id format: "{metric}__{geo}__{pt}__{source}_lag{lag}"
+    # feature_id format: "{base}_lag{lag}"
+    # base format: "{metric}__{geo}__{pt}__{source}"
     base, lag_part = feature_id.rsplit("_lag", 1)
     lag = int(lag_part)
 
-    metric_id, geo_id, pt_id, source_id = base.split("__", 3)
+    parts = base.split("__")
+    if len(parts) != 4:
+        raise ValueError(f"Invalid feature base name (expected 4 parts): {base}")
+
+    metric_id, geo_id, pt_id, source_id = parts
+
+    # Canonicalize property_type_id
+    if pt_id in ("", "None", "null"):
+        pt_id = "all"
+
+    if source_id in ("", "None", "null"):
+        raise ValueError(f"Missing source_id in feature base name: {base}")
+
     return FeatureSpec(
-        name=f"{metric_id}__{geo_id}__{pt_id}__{source_id}",
+        name=base,  # IMPORTANT: preserve exact base name
         metric_id=metric_id,
         geo_id=geo_id,
         property_type_id=pt_id,
@@ -87,29 +100,25 @@ def parse_base_name(base: str) -> tuple[str, str, Optional[str], Optional[str]]:
     source_id = source_id if source_id not in ("", "None", "null") else None
     return metric_id, geo_id, pt_id, source_id
 
-def specs_from_selected_feature_ids(feature_ids: list[str]) -> list["FeatureSpec"]:
-    by_base: dict[tuple[str, str, str, str, str], set[int]] = {}
+def specs_from_selected_feature_ids(feature_ids: list[str]) -> list[FeatureSpec]:
+    by_base: dict[tuple[str, str, str, str], set[int]] = {}
 
     for fid in feature_ids:
-        base, lag = parse_feature_id(fid)
-        metric_id, geo_id, pt_id, source_id = parse_base_name(base)
+        spec = parse_feature_id_to_spec(fid)
 
-        pt_norm = pt_id if pt_id is not None else "all"
-        if source_id is None:
-            raise ValueError(f"Missing source_id in feature base name: {base}")
+        # key by base series identity (NOT including lags)
+        key = (spec.name, spec.metric_id, spec.geo_id, str(spec.property_type_id), str(spec.source_id))
+        by_base.setdefault(key, set()).update(spec.lags)
 
-        key = (base, metric_id, geo_id, pt_norm, source_id)
-        by_base.setdefault(key, set()).add(lag)
-
-    out = []
-    for (base, metric_id, geo_id, pt_norm, source_id), lags in by_base.items():
+    out: list[FeatureSpec] = []
+    for (base_name, m, g, pt, src), lags in by_base.items():
         out.append(
             FeatureSpec(
-                name=base,  # IMPORTANT: preserve exact base name used in feature columns
-                metric_id=metric_id,
-                geo_id=geo_id,
-                property_type_id=pt_norm,
-                source_id=source_id,
+                name=base_name,   # preserve
+                metric_id=m,
+                geo_id=g,
+                property_type_id=pt,
+                source_id=src,
                 lags=tuple(sorted(lags)),
             )
         )
