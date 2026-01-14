@@ -3,6 +3,7 @@
 import os
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Tuple
+from collections import Counter
 
 import duckdb
 import pandas as pd
@@ -19,7 +20,6 @@ class TargetSpec:
     geo_id: str
     # For Redfin, this is '-1', '6', '13', etc. For non-Redfin, use None -> 'all'.
     property_type_id: Optional[str] = None
-
 
 @dataclass(frozen=True)
 class FeatureSpec:
@@ -40,14 +40,12 @@ def get_connection():
     db_path = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
     return duckdb.connect(db_path)
 
-
 def load_target_series_for_spec(t: TargetSpec) -> pd.Series:
     return load_series_from_fact(
         metric_id=t.metric_id,
         geo_id=t.geo_id,
         property_type_id=t.property_type_id,
     )
-
 
 def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
     """
@@ -457,6 +455,40 @@ def build_universal_feature_specs(
         exclude_metrics=[],     # allow same metric other geos
         policy=policy,
     )
+
+    # ----------------------------
+    # Family caps (dim_metric.category)
+    # ----------------------------
+    caps = policy.family_caps or {}
+    if caps:
+        # Deterministic order so caps are stable run-to-run
+        governed_sorted = sorted(
+            governed,
+            key=lambda r: (r[4], r[0], r[1], str(r[2]), r[3])  # category, metric_id, geo_id, pt_id, source_id
+        )
+
+        used = {k: 0 for k in caps.keys()}
+        governed_capped = []
+
+        for row in governed_sorted:
+            metric_id, geo_id, pt_id, source_id, cat, freq, cov, n_overlap = row
+            cat = (cat or "uncategorized").lower()
+
+            cap = caps.get(cat, None)
+            if cap is None:
+                # If you want “uncapped” categories, omit them from family_caps.
+                governed_capped.append(row)
+                continue
+
+            if used.get(cat, 0) < int(cap):
+                governed_capped.append(row)
+                used[cat] = used.get(cat, 0) + 1
+
+        governed = governed_capped
+
+    # Debug: distribution after shared governance
+    print("[governance] category_counts_after_caps:", Counter([r[4] for r in governed]).most_common(20))
+    print("[governance] n_candidates_after_shared_gates:", len(governed))
 
     # governed rows: (metric_id, geo_id, pt_id, source_id, category, frequency, coverage_ratio, n_overlap)
     specs: List[FeatureSpec] = []
