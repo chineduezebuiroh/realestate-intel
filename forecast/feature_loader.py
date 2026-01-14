@@ -62,23 +62,57 @@ def parse_feature_id_to_spec(feature_id: str) -> FeatureSpec:
         lags=(lag,),
     )
 
-def specs_from_selected_feature_ids(feature_ids: list[str]) -> list[FeatureSpec]:
-    by_base = {}
+def parse_feature_id(fid: str) -> tuple[str, int]:
+    """
+    fid example:
+      avg_sale_to_list__20016_dc__13__redfin_lag12
+    returns:
+      (base_name="avg_sale_to_list__20016_dc__13__redfin", lag=12)
+    """
+    m = _LAG_RE.match(fid)
+    if not m:
+        raise ValueError(f"Invalid feature_id (expected *_lagN): {fid}")
+    return m.group("base"), int(m.group("lag"))
+
+def parse_base_name(base: str) -> tuple[str, str, Optional[str], Optional[str]]:
+    """
+    base example:
+      metric_id__geo_id__property_type_id__source_id
+    """
+    parts = base.split("__")
+    if len(parts) != 4:
+        raise ValueError(f"Invalid base feature name (expected 4 parts): {base}")
+    metric_id, geo_id, pt_id, source_id = parts
+    pt_id = pt_id if pt_id not in ("", "None", "null") else None
+    source_id = source_id if source_id not in ("", "None", "null") else None
+    return metric_id, geo_id, pt_id, source_id
+
+def specs_from_selected_feature_ids(feature_ids: list[str]) -> list["FeatureSpec"]:
+    by_base: dict[tuple[str, str, str, str, str], set[int]] = {}
+
     for fid in feature_ids:
-        spec = parse_feature_id_to_spec(fid)
-        key = (spec.metric_id, spec.geo_id, str(spec.property_type_id), str(spec.source_id))
-        by_base.setdefault(key, set()).update(spec.lags)
+        base, lag = parse_feature_id(fid)
+        metric_id, geo_id, pt_id, source_id = parse_base_name(base)
+
+        pt_norm = pt_id if pt_id is not None else "all"
+        if source_id is None:
+            raise ValueError(f"Missing source_id in feature base name: {base}")
+
+        key = (base, metric_id, geo_id, pt_norm, source_id)
+        by_base.setdefault(key, set()).add(lag)
 
     out = []
-    for (m,g,pt,src), lags in by_base.items():
-        out.append(FeatureSpec(
-            name=f"{m}__{g}__{pt}__{src}",
-            metric_id=m,
-            geo_id=g,
-            property_type_id=pt,
-            source_id=src,
-            lags=tuple(sorted(lags)),
-        ))
+    for (base, metric_id, geo_id, pt_norm, source_id), lags in by_base.items():
+        out.append(
+            FeatureSpec(
+                name=base,  # IMPORTANT: preserve exact base name used in feature columns
+                metric_id=metric_id,
+                geo_id=geo_id,
+                property_type_id=pt_norm,
+                source_id=source_id,
+                lags=tuple(sorted(lags)),
+            )
+        )
     return out
 
 def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
