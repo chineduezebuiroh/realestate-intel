@@ -27,6 +27,7 @@ from .backtest_utils import (
 
 from .design_matrix import build_train_and_future_exog_forecasted
 from .feature_loader import TargetSpec, specs_from_selected_feature_ids
+from .feature_policy import default_policy
 
 
 TEMP_DEBUG_LIMIT = None # set to a number to debug; set to 'None' when finished debugging
@@ -150,16 +151,16 @@ def run_backtest_sarimax_exog_single(
     #last_date = y_full.index[-1]
     results_summary = []
     
+    # Use policy max, not ad-hoc cap
+    policy = default_policy()
+    top_k = int(min(sarimax_max_exog, policy.sarimax_max_exog))
+    
     for anchor_date in anchors:
         print(f"\n[backtest_exog] Anchor at date={anchor_date.date()}")
 
         if not artifact_root or not xgb_batch_id:
             raise SystemExit("[backtest_exog] FAIL: require --artifact_root and --xgb_batch_id to load XGB shortlist.")
-        
-        # Use policy max, not ad-hoc cap
-        policy = default_policy()
-        top_k = int(min(sarimax_max_exog, policy.sarimax_max_exog))
-        
+
         feature_ids = _load_xgb_selected_feature_ids(
             artifact_root=artifact_root,
             xgb_batch_id=xgb_batch_id,
