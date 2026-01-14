@@ -75,7 +75,6 @@ def parse_feature_id_to_spec(feature_id: str) -> FeatureSpec:
         lags=(lag,),
     )
 
-
 def parse_feature_id(fid: str) -> tuple[str, int]:
     """
     fid example:
@@ -101,7 +100,6 @@ def parse_base_name(base: str) -> tuple[str, str, Optional[str], Optional[str]]:
     source_id = source_id if source_id not in ("", "None", "null") else None
     return metric_id, geo_id, pt_id, source_id
 
-
 def specs_from_selected_feature_ids(feature_ids: list[str]) -> list[FeatureSpec]:
     by_base = {}
     for fid in feature_ids:
@@ -124,7 +122,6 @@ def specs_from_selected_feature_ids(feature_ids: list[str]) -> list[FeatureSpec]
             )
         )
     return out
-
 
 def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
     """
@@ -161,6 +158,46 @@ def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
         "quarterly": max(int(n_quarters or 0), 1),
         "annual": max(int(n_years or 0), 1),
     }
+
+def load_series_from_fact_with_source(
+    metric_id: str,
+    geo_id: str,
+    property_type_id: Optional[str],
+    source_id: Optional[str],
+) -> pd.Series:
+    con = get_connection()
+    pt_id = property_type_id if property_type_id is not None else "all"
+
+    if source_id:
+        sql = """
+            SELECT date, value
+            FROM fact_timeseries
+            WHERE metric_id = ?
+              AND geo_id = ?
+              AND property_type_id = ?
+              AND source_id = ?
+            ORDER BY date
+        """
+        df = con.execute(sql, [metric_id, geo_id, pt_id, source_id]).fetchdf()
+    else:
+        # legacy / fallback
+        sql = """
+            SELECT date, value
+            FROM fact_timeseries
+            WHERE metric_id = ?
+              AND geo_id = ?
+              AND property_type_id = ?
+            ORDER BY date
+        """
+        df = con.execute(sql, [metric_id, geo_id, pt_id]).fetchdf()
+
+    con.close()
+
+    if df.empty:
+        raise ValueError(f"No data for metric={metric_id}, geo={geo_id}, pt={pt_id}, source={source_id}")
+
+    s = df.set_index("date")["value"].astype(float)
+    return s
 
 # ====================================================================
 # Load single series from fact_timeseries
