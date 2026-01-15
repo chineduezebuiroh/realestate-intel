@@ -286,9 +286,20 @@ def run_backtest_sarimax_exog_single(
         # ------------------------------------------------------------------
         # 6) Fit SARIMAX on integer index; forecast with exog_future
         # ------------------------------------------------------------------
-        endog = pd.Series(y_train.values)  # RangeIndex
-        exog_train = X_train_sel.to_numpy(dtype=float)
+        #endog = pd.Series(y_train.values)  # RangeIndex
+        endog = pd.Series(y_train.values, index=np.arange(len(y_train)))
 
+        # ---- Scale exog using TRAINING window only (stabilizes optimizer) ----
+        exog_train_df = X_train_sel.astype(float)
+        
+        mu = exog_train_df.mean(axis=0)
+        sd = exog_train_df.std(axis=0, ddof=0).replace(0.0, 1.0)  # avoid divide-by-zero
+        exog_train_z = ((exog_train_df - mu) / sd).to_numpy(dtype=float)
+        
+        # future exog must be present already (you assert no NaNs above)
+        exog_future_df = X_future_sel.astype(float)
+        exog_future_z = ((exog_future_df - mu) / sd).to_numpy(dtype=float)
+        
         assert not X_future_sel.isna().any().any(), "future exog contains NaNs"
         assert X_train_sel.index.is_monotonic_increasing
         assert not X_train_sel.index.duplicated().any()
@@ -296,19 +307,78 @@ def run_backtest_sarimax_exog_single(
     
         model = SARIMAX(
             endog=endog,
-            exog=exog_train,
+            exog=exog_train_z,
             order=order,
             seasonal_order=seasonal_order,
             enforce_stationarity=False,
             enforce_invertibility=False,
         )
+
         res = model.fit(disp=False)
-        converged = bool(getattr(res, "mle_retvals", {}).get("converged", True))
+        mle_ret = getattr(res, "mle_retvals", {}) or {}
+        converged = bool(mle_ret.get("converged", True))
         aic = float(getattr(res, "aic", np.nan))
         bic = float(getattr(res, "bic", np.nan))
-    
+        
+        # ---- Retry ladder if optimizer doesn't converge ----
+        retry_used = None
+        if not converged:
+            # Retry 1: simpler non-seasonal model (often fixes convergence)
+            try:
+                model2 = SARIMAX(
+                    endog=endog,
+                    exog=exog_train_z,
+                    order=(1, 1, 1),
+                    seasonal_order=(0, 0, 0, 0),
+                    enforce_stationarity=False,
+                    enforce_invertibility=False,
+                )
+                res2 = model2.fit(disp=False)
+                mle_ret2 = getattr(res2, "mle_retvals", {}) or {}
+                converged2 = bool(mle_ret2.get("converged", True))
+                if converged2:
+                    res = res2
+                    converged = True
+                    retry_used = "retry_nonseasonal_111"
+                    aic = float(getattr(res, "aic", np.nan))
+                    bic = float(getattr(res, "bic", np.nan))
+            except Exception:
+                pass
+        
+            # Retry 2: reduce exog dimensionality (only if still not converged)
+            # This is a last resort and should be rare once scaling is in place.
+            if not converged and exog_train_z.shape[1] > 10:
+                try:
+                    k = max(10, exog_train_z.shape[1] // 2)
+                    exog_train_z2 = exog_train_z[:, :k]
+                    exog_future_z2 = exog_future_z[:, :k]
+        
+                    model3 = SARIMAX(
+                        endog=endog,
+                        exog=exog_train_z2,
+                        order=(1, 1, 1),
+                        seasonal_order=(0, 0, 0, 0),
+                        enforce_stationarity=False,
+                        enforce_invertibility=False,
+                    )
+                    res3 = model3.fit(disp=False)
+                    mle_ret3 = getattr(res3, "mle_retvals", {}) or {}
+                    converged3 = bool(mle_ret3.get("converged", True))
+                    if converged3:
+                        res = res3
+                        converged = True
+                        retry_used = f"retry_nonseasonal_111_reduce_exog_{k}"
+                        aic = float(getattr(res, "aic", np.nan))
+                        bic = float(getattr(res, "bic", np.nan))
+        
+                        # IMPORTANT: if we reduced exog, we must also use reduced future exog
+                        exog_future_z = exog_future_z2
+                except Exception:
+                    pass
+
+
         exog_future = X_future_sel.to_numpy(dtype=float)
-        fc = res.get_forecast(steps=horizon_bt, exog=exog_future)
+        fc = res.get_forecast(steps=horizon_bt, exog=exog_future_z)
     
         mean_fc = pd.Series(np.asarray(fc.predicted_mean), index=test_idx, name="y_hat")
         ci = pd.DataFrame(np.asarray(fc.conf_int()), index=test_idx, columns=["y_hat_lo", "y_hat_hi"])
@@ -322,6 +392,11 @@ def run_backtest_sarimax_exog_single(
             "n_obs": int(len(y_train)),
             "anchor_date": str(anchor_date.date()),
             "converged": converged,
+            "exog_scaled": True,
+            "exog_scale_mode": "zscore_train",
+            "retry_used": retry_used,
+            "mle_converged": converged,   # redundant but explicit
+            #"mle_retvals": mle_ret if isinstance(mle_ret, dict) else None,
             "aic": aic,
             "bic": bic,
             "exog_backtest_type": "forecasted_exog_seasonal_naive_else_last",
