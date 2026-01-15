@@ -245,21 +245,23 @@ def build_design_matrix(
     target: TargetSpec,
     feature_specs: List[FeatureSpec],
     min_obs: int = 60,
+    drop_feature_na: bool = True,   # NEW
 ) -> Tuple[pd.Series, pd.DataFrame, Dict[str, pd.Series]]:
     """
-    Build a supervised-learning design matrix:
-
-      y_t ~ lagged features (and optionally lagged y)
-
+    Build a supervised-learning design matrix on the target’s month-end timeline.
+    
     Returns:
-      y: target series aligned with X (index = dates, name = 'y')
-      X: dataframe of lagged features, no NaNs on selected training rows
-      base_series: dict name -> base (unlagged) series (on full target timeline)
-
-    Notes:
-      - Target defines the timeline (NO inner join with exogs).
-      - Feature series are reindexed to target timeline (may contain NaNs).
-      - Training rows are those where y and all lagged features exist.
+      y: target series aligned to X (index = dates, name='y')
+      X: dataframe of lagged features aligned to the target timeline
+      base_series: dict[name -> unlagged series], reindexed to the target timeline
+    
+    Key behavior:
+      - The target defines the canonical timeline (month-end, deduped, sorted).
+      - Feature series are reindexed to the target timeline and may contain NaNs.
+      - If drop_feature_na=True, rows with any missing lagged feature are dropped
+        (complete-case matrix, suitable for models that can’t handle NaNs).
+      - If drop_feature_na=False, only rows with missing y are dropped; X may contain NaNs
+        (suitable for XGBoost, which can handle missing values).
     """
     # 1) Load target series
     y_raw = load_series_from_fact(
@@ -303,18 +305,21 @@ def build_design_matrix(
 
     df_features = pd.DataFrame(feature_cols, index=df_base.index)
 
-    # 5) Combine y and X, drop rows unusable for training
+    # 5) Combine y and X
     df_all = pd.concat([df_base["y"], df_features], axis=1)
+    
+    # Always require y
     df_all = df_all.dropna(subset=["y"])
-    if not df_features.empty:
+    
+    # Only require features if caller asks for complete-case training rows
+    if drop_feature_na and not df_features.empty:
         df_all = df_all.dropna(subset=list(df_features.columns))
-
-
+    
     if len(df_all) < min_obs:
         raise ValueError(
             f"Not enough observations after lagging/alignment: {len(df_all)} < {min_obs}"
         )
-
+    
     y = df_all["y"].copy()
     X = df_all.drop(columns=["y"]).copy()
 
@@ -331,8 +336,9 @@ def build_design_matrix_incremental(
     min_obs: int = 60,
     max_features: Optional[int] = None,
     load_target_fn=None,
+    *,
+    drop_feature_na: bool = False,   # NEW: False for XGB
 ) -> Tuple[pd.Series, pd.DataFrame, Dict[str, pd.Series], List[FeatureSpec]]:
-
     """
     Incrementally build a design matrix by trying candidate features one-by-one.
 
@@ -400,24 +406,25 @@ def build_design_matrix_incremental(
             y_trial, X_trial, base_trial = build_design_matrix(
                 target=target,
                 feature_specs=trial_specs,
-                min_obs=1,  # we'll enforce min_obs ourselves
+                min_obs=1,  # we'll enforce ourselves
+                drop_feature_na=drop_feature_na,
             )
         except Exception:
             # This feature makes alignment impossible; skip it.
             continue
 
-        if len(y_trial) >= min_obs:
+        # Effective rows for THIS candidate’s lagged columns (not all columns)
+        new_cols = [f"{spec.name}_lag{lag}" for lag in spec.lags]
+        df_eff = pd.concat([y_trial, X_trial[new_cols]], axis=1).dropna()
+        n_eff = len(df_eff)
+        
+        if n_eff >= min_obs:
             selected_specs = trial_specs
             current_y, current_X, current_base = y_trial, X_trial, base_trial
         
             if len(selected_specs) <= 10 or len(selected_specs) % 10 == 0:
-                print(f"[inc-build] +accept {spec.name} -> obs={len(y_trial)} feats={X_trial.shape[1]}")
+                print(f"[inc-build] +accept {spec.name} -> y_obs={len(y_trial)} n_eff={n_eff} feats={X_trial.shape[1]}")
 
-            """
-            # Print first 10 accepts, then every 10 thereafter
-            if len(selected_specs) <= 10 or len(selected_specs) % 10 == 0:
-                print(f"[inc-build] +accept {spec.name} -> obs={len(y_trial)} feats={X_trial.shape[1]}")
-            """
 
     if current_y is None or current_X is None or current_base is None:
         # Fallback: try with just the first candidate as a last resort, enforcing min_obs
