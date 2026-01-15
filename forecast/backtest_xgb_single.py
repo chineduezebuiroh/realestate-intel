@@ -109,7 +109,7 @@ def run_backtest_xgb_single(
     batch_id: Optional[str] = None,
     data_asof: Optional[str] = None,  # YYYY-MM-DD
     seed: int = 1337,
-    artifact_root: Optional[str] = None,
+    artifact_root: str = "runs",
     xgb_top_k: int = 100,
     anchors_csv: Optional[str] = None,
 ):
@@ -307,6 +307,15 @@ def run_backtest_xgb_single(
         fi["rank"] = np.arange(1, len(fi) + 1)
         fi_sel = fi.head(int(xgb_top_k)).copy()
 
+        # --- HARD SAFETY CHECKS (do not move this) ---
+        assert not fi_sel.empty, "XGB produced empty feature shortlist"
+        assert {"feature_id", "rank"}.issubset(fi_sel.columns), (
+            f"Invalid XGB shortlist columns: {list(fi_sel.columns)}"
+        )
+        assert fi_sel["feature_id"].astype(str).str.contains("_lag").all(), (
+            "XGB feature_id missing lag suffix — downstream SARIMAX will break"
+        )
+
         # annotate keys for deterministic downstream lookup
         anchor_key = anchor_date.date().isoformat()
         fi_sel["batch_id"] = batch_id
@@ -320,10 +329,9 @@ def run_backtest_xgb_single(
 
         if artifact_root:
             from pathlib import Path
-            out_dir = Path(artifact_root) / "xgb"
+            out_dir = Path(artifact_root) / batch_id / "xgb"
             out_dir.mkdir(parents=True, exist_ok=True)
             fi_sel.to_parquet(out_dir / f"selected_features__anchor={anchor_key}.parquet", index=False)
-
 
         # ---- Phase A placeholder future features ----
         # Carry-forward the last observed feature row for all future steps.
@@ -408,7 +416,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_id", type=str, default=None)
     parser.add_argument("--data_asof", type=str, default=None)
     parser.add_argument("--seed", type=int, default=1337)
-    parser.add_argument("--artifact_root", type=str, default=None)
+    parser.add_argument("--artifact_root", type=str, default="runs")
     parser.add_argument("--xgb_top_k", type=int, default=100)
     parser.add_argument(
         "--anchors",
