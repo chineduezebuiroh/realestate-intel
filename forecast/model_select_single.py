@@ -57,7 +57,6 @@ def latest_batch_eval_long(
     ),
     
     latest_common_data_asof AS (
-      -- choose the most recent data_asof that exists for ALL model families
       SELECT data_asof
       FROM candidate_runs
       GROUP BY data_asof
@@ -86,7 +85,7 @@ def latest_batch_eval_long(
       JOIN latest_batch_per_model lb
         ON r.model_name = lb.model_name AND r.batch_id = lb.batch_id
     ),
-
+    
     eval_preds AS (
       SELECT
         r.model_name,
