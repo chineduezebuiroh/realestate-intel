@@ -201,6 +201,10 @@ def run_backtest_xgb_single(
 
     # min_train_len is passed in as a function argument
     required_obs = min_train_len + horizon + DEFAULT_ANCHOR_BUFFER_MONTHS
+    if required_obs < (min_train_len + horizon):
+        raise ValueError("required_obs invariant broken")
+    print(f"[xgb_backtest] required_obs={required_obs} (min_train_len={min_train_len}, horizon={horizon}, buffer={DEFAULT_ANCHOR_BUFFER_MONTHS})")
+
     try:
         y_full, X_full, base_series_full, selected_specs = build_design_matrix_incremental(
             target=target,
@@ -208,11 +212,14 @@ def run_backtest_xgb_single(
             min_obs=required_obs,
             max_features=None,
             load_target_fn=load_target_series_for_spec,
+            drop_feature_na=False,   # <-- IMPORTANT for XGB
         )
     except ValueError as e:
         print(f"[xgb_backtest] Incremental design matrix build failed: {e}")
         print("[xgb_backtest] Skipping XGB backtest for this target.")
         return
+
+    print(f"[xgb_backtest] y_full_range={y_full.index.min().date()}..{y_full.index.max().date()} (n={len(y_full)})")
 
     # sanity: ensure feature ids are 4-part base + _lagK
     sample_cols = list(X_full.columns)[:20]
@@ -250,6 +257,11 @@ def run_backtest_xgb_single(
         f"n_obs={len(y_full)}, n_features={X_full.shape[1]}, "
         f"selected_series={len(selected_specs)}"
     )
+
+    print("[debug] raw target max:", load_target_series_for_spec(target).index.max())
+    print("[debug] y_full max:", y_full.index.max())
+    print("[debug] X_full max:", X_full.index.max())
+    print("[debug] X_full nulls last row:", int(X_full.loc[X_full.index.max()].isna().sum()))
 
     if anchors_csv:
         anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
