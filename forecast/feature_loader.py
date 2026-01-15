@@ -552,6 +552,51 @@ def discover_all_series_for_target(
 
         out.append((metric_id, geo_id, pt_id, source_id, cat, freq, cov, int(n_overlap)))
 
+    # ------------------------------------------------------------
+    # CES: prefer SA over NSA for the same base concept
+    # ------------------------------------------------------------
+    # If your CES metric ids look like:
+    #   ces_construction_sa, ces_construction_nsa
+    # then the "base concept" is the prefix without _sa/_nsa.
+    # Keep SA if available, otherwise keep NSA.
+    def _ces_base(mid: str) -> str:
+        if mid.endswith("_sa"):
+            return mid[:-3]
+        if mid.endswith("_nsa"):
+            return mid[:-4]
+        return mid
+
+    # Partition into CES vs non-CES
+    non_ces = []
+    ces_rows = []
+
+    for row in out:
+        metric_id, geo_id, pt_id, source_id, cat, freq, cov, n_overlap = row
+        if source_id == "ces" and (metric_id.endswith("_sa") or metric_id.endswith("_nsa")):
+            ces_rows.append(row)
+        else:
+            non_ces.append(row)
+
+    # Group CES rows by "same thing" except SA/NSA, and choose SA if present else NSA
+    chosen = []
+    by_key = {}
+    for row in ces_rows:
+        metric_id, geo_id, pt_id, source_id, cat, freq, cov, n_overlap = row
+        key = (_ces_base(metric_id), geo_id, str(pt_id), source_id)
+        by_key.setdefault(key, []).append(row)
+
+    for key, rows_k in by_key.items():
+        # choose SA if exists, else NSA; tie-break by higher coverage then higher overlap
+        sa = [r for r in rows_k if r[0].endswith("_sa")]
+        pool = sa if sa else rows_k
+        pool = sorted(pool, key=lambda r: (-float(r[6]), -int(r[7]), r[0]))  # cov desc, overlap desc, metric_id
+        chosen.append(pool[0])
+
+    out = non_ces + chosen
+
+    # Optional: deterministic ordering for downstream stability
+    out = sorted(out, key=lambda r: (r[4], r[0], r[1], str(r[2]), r[3]))
+
     return out
 
 
