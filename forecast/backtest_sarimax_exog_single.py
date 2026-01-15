@@ -28,6 +28,7 @@ from .backtest_utils import (
 from .design_matrix import build_train_and_future_exog_forecasted
 from .feature_loader import TargetSpec, specs_from_selected_feature_ids
 from .feature_policy import default_policy
+from .xgb_shortlist import load_xgb_selected_feature_ids
 
 
 TEMP_DEBUG_LIMIT = None # set to a number to debug; set to 'None' when finished debugging
@@ -169,7 +170,7 @@ def run_backtest_sarimax_exog_single(
         if not artifact_root or not xgb_batch_id:
             raise SystemExit("[backtest_exog] FAIL: require --artifact_root and --xgb_batch_id to load XGB shortlist.")
 
-        feature_ids = _load_xgb_selected_feature_ids(
+        feature_ids = load_xgb_selected_feature_ids(
             artifact_root=artifact_root,
             xgb_batch_id=xgb_batch_id,
             anchor_date=anchor_date,
