@@ -100,34 +100,85 @@ GROUP BY run_id;
 -- 4) Evaluation view — per run_id, multi-horizon metrics
 --    True flexible horizons means eval needs to be long-form by horizon.
 CREATE OR REPLACE VIEW v_forecast_eval_long AS
-WITH joined AS (
+WITH run_norm AS (
+    SELECT
+        run_id,
+        model_name,
+        model_version,
+        batch_id,
+        target_metric_id,
+        target_geo_id,
+        target_property_type_id,
+        train_end,
+        data_asof,
+        horizon_max_months,
+        CASE
+            WHEN target_property_type_id IS NULL THEN 'all'
+            WHEN target_property_type_id IN ('-1', 'all') THEN 'all'
+            ELSE target_property_type_id
+        END AS pt_run
+    FROM forecast_runs
+),
+fact_norm AS (
+    SELECT
+        metric_id,
+        geo_id,
+        date,
+        value,
+        CASE
+            WHEN property_type_id IS NULL THEN 'all'
+            WHEN property_type_id IN ('-1', 'all') THEN 'all'
+            ELSE property_type_id
+        END AS pt_fact
+    FROM fact_timeseries
+),
+joined AS (
     SELECT
         p.run_id,
         p.target_date,
         p.horizon_months,
         p.y_hat,
+        r.model_name,
+        r.model_version,
+        r.batch_id,
+        r.target_metric_id,
+        r.target_geo_id,
+        r.target_property_type_id,
+        r.train_end,
+        r.data_asof,
+        r.horizon_max_months,
         f.value AS actual
     FROM forecast_predictions p
-    JOIN forecast_runs r ON r.run_id = p.run_id
-    JOIN fact_timeseries f
+    JOIN run_norm r ON r.run_id = p.run_id
+    JOIN fact_norm f
       ON f.metric_id = r.target_metric_id
      AND f.geo_id = r.target_geo_id
-     AND (
-         (f.property_type_id IS NULL AND r.target_property_type_id IS NULL)
-         OR (f.property_type_id = r.target_property_type_id)
-     )
+     AND f.pt_fact = r.pt_run
      AND f.date = p.target_date
 ),
 errs AS (
     SELECT
         run_id,
+        model_name,
+        model_version,
+        batch_id,
+        target_metric_id,
+        target_geo_id,
+        target_property_type_id,
+        train_end,
+        data_asof,
+        horizon_max_months,
         horizon_months,
         AVG(ABS(actual - y_hat)) AS mae,
         SQRT(AVG(POWER(actual - y_hat, 2))) AS rmse,
         AVG(ABS((actual - y_hat) / NULLIF(actual, 0))) * 100.0 AS mape
     FROM joined
     WHERE actual IS NOT NULL
-    GROUP BY run_id, horizon_months
+    GROUP BY
+        run_id, model_name, model_version, batch_id,
+        target_metric_id, target_geo_id, target_property_type_id,
+        train_end, data_asof, horizon_max_months,
+        horizon_months
 )
 SELECT * FROM errs;
 """
