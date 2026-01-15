@@ -35,6 +35,7 @@ from .backtest_utils import (
 
 from .feature_catalog import load_catalog, property_type_ids_matching, metric_family
 from .feature_policy import default_policy
+from .feature_selection import score_candidates, select_scored_candidates, scored_to_feature_specs, default_bucket
 
 
 TEMP_DEBUG_LIMIT = None  # set to a number to debug; set to 'None' when finished debugging
@@ -138,6 +139,55 @@ def run_backtest_xgb_single(
     if not candidate_specs:
         print("[xgb_backtest] No candidate features; skipping XGB backtest.")
         return
+
+    # --- scoring window ---
+    y_full_for_window = load_target_series_for_spec(target)
+    train_end = y_full_for_window.index.max()
+    
+    scored = score_candidates(
+        target=target,
+        candidates=candidate_specs,
+        train_end=train_end,
+        min_eff=60,
+        lead_months=(0,1,2,3,4,5,6),
+        score_mode="yoy_xcorr",
+    )
+    
+    # --- selection caps: base series BEFORE lagging ---
+    policy = default_policy()
+    
+    # OPTIONAL: ensure key categories appear even if scores are close
+    category_minimums = {
+        "rates": 5,
+        "yields": 5,
+        "gdp": 3,
+    }
+    
+    # OPTIONAL: keep geo diversity (avoid 200 zipcodes dominating)
+    bucket_caps = {
+        "geo:target_equiv": 80,
+        "geo:zipcode_dc": 60,
+        "geo:county": 40,
+        "geo:msa": 40,
+        "geo:state": 40,
+        "geo:national": 40,
+        "geo:other": 40,
+    }
+    
+    picked = select_scored_candidates(
+        scored=scored,
+        max_base_series=250,  # start here
+        category_caps=policy.family_caps,
+        category_minimums=category_minimums,
+        bucket_caps=bucket_caps,
+        bucket_fn=lambda spec: default_bucket(spec, target),
+    )
+    
+    candidate_specs = scored_to_feature_specs(picked)
+    
+    print("[score] picked_base_series:", len(candidate_specs))
+    print("[score] top10:", [(p.spec.name, round(p.score, 3), p.spec.category, p.best_lead) for p in picked[:10]])
+
 
     if TEMP_DEBUG_LIMIT is not None:
         candidate_specs = candidate_specs[:TEMP_DEBUG_LIMIT]
