@@ -127,14 +127,6 @@ def run_backtest_xgb_single(
     xgb_out_dir = Path(artifact_root) / batch_id / "xgb"
     xgb_out_dir.mkdir(parents=True, exist_ok=True)
 
-    existing = sorted(xgb_out_dir.glob("selected_features__anchor=*.parquet"))
-    if existing:
-        raise SystemExit(
-            f"[xgb_backtest] REFUSING to overwrite XGB artifacts in non-empty dir: {xgb_out_dir}\n"
-            f"Found {len(existing)} existing artifacts (example: {existing[0].name}).\n"
-            "Use a fresh --batch_id (recommended) or delete the old artifacts."
-        )
-
     print(f"[xgb_backtest] batch_id={batch_id} artifact_dir={xgb_out_dir}")
 
     target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
@@ -354,19 +346,21 @@ def run_backtest_xgb_single(
         if artifact_root:
             #out_dir = Path(artifact_root) / batch_id / "xgb"
             #out_dir.mkdir(parents=True, exist_ok=True)
-            out_dir = xgb_out_dir
+            #out_dir = xgb_out_dir
         
-            # HARD GUARD: do not allow writing into a non-empty batch/xgb folder
-            existing = list(out_dir.glob("selected_features__anchor=*.parquet"))
-            if existing:
+            anchor_key = anchor_date.date().isoformat()
+            out_path = xgb_out_dir / f"selected_features__anchor={anchor_key}.parquet"
+            
+            if out_path.exists():
                 raise SystemExit(
-                    f"[xgb_backtest] REFUSING to write XGB artifacts into non-empty dir: {out_dir}\n"
-                    f"Found {len(existing)} existing artifacts (example: {existing[0].name}).\n"
-                    "Use a fresh --batch_id (recommended) or delete the old artifacts."
+                    f"[xgb_backtest] REFUSING to overwrite existing artifact for anchor={anchor_key}: {out_path}\n"
+                    "Use a fresh --batch_id or delete this specific file."
                 )
-        
+            
+            fi_sel.to_parquet(out_path, index=False)
+
             #fi_sel.to_parquet(out_dir / f"selected_features__anchor={anchor_key}.parquet", index=False)
-            fi_sel.to_parquet(xgb_out_dir / f"selected_features__anchor={anchor_key}.parquet", index=False)
+            #fi_sel.to_parquet(xgb_out_dir / f"selected_features__anchor={anchor_key}.parquet", index=False)
 
         # ---- Phase A placeholder future features ----
         # Carry-forward the last observed feature row for all future steps.
