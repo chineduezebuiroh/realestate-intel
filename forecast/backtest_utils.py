@@ -55,13 +55,23 @@ def choose_anchor_dates(
         return []
 
     # normalize index to month-end
-    idx = pd.DatetimeIndex(y.index).sort_values()
+    y2 = y.copy()
+    y2.index = pd.DatetimeIndex(y2.index)
+    y2.index = month_end_index(y2.index)          # your canonical function
+    y2 = y2[~y2.index.duplicated(keep="last")].sort_index()
+    
+    idx = pd.DatetimeIndex(y2.index)
     last_date = _month_end(idx.max())
     min_date = _month_end(idx.min())
+    
+    y_df = pd.DataFrame({"y": y2.values}, index=idx)
+
 
     # ALWAYS define anchor
     offset = latest_anchor_offset_months if latest_anchor_offset_months is not None else horizon
     anchor = _month_end(last_date - pd.DateOffset(months=int(offset)))
+
+    print(f"[anchors] y_min={min_date.date()} y_max={last_date.date()} offset={offset} first_anchor={anchor.date()}")
 
     anchors: List[pd.Timestamp] = []
 
@@ -75,4 +85,4 @@ def choose_anchor_dates(
         anchor = _month_end(anchor - pd.DateOffset(months=int(step_months)))
 
     # de-dupe + sorted
-    return sorted(set(anchors))
+    return sorted(anchors)
