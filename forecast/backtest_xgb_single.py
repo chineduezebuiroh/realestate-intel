@@ -125,6 +125,11 @@ def run_backtest_xgb_single(
 
     target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
 
+    # Anchor source-of-truth: raw target only (no exog contamination)
+    y_anchor = load_target_series_for_spec(target).copy()
+    y_anchor.index = month_end_index(y_anchor.index)
+    y_anchor = y_anchor[~y_anchor.index.duplicated(keep="last")].sort_index()
+
     catalog = load_catalog()
     policy = default_policy()
 
@@ -242,16 +247,20 @@ def run_backtest_xgb_single(
         anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
     else:
         anchors = choose_anchor_dates(
-            y_full,
+            y_anchor,
             horizon=horizon,
             min_train_len=min_train_len,
             step_months=anchor_step_months,
             max_anchors=max_anchors,
             latest_anchor_offset_months=latest_anchor_offset_months,
         )
-
     if not anchors:
         print("[xgb_backtest] Not enough history to run backtests.")
+        return
+
+    anchors = [a for a in anchors if a in X_full.index]
+    if not anchors:
+        print("[xgb_backtest] No anchors survive intersection with design-matrix timeline.")
         return
     
     print(f"[xgb_backtest] Found {len(anchors)} anchors.")
