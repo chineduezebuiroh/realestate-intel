@@ -22,6 +22,9 @@ class ScoredCandidate:
     n_eff: int
 
 
+# ===================================================
+# Helpers
+# ===================================================
 def _canon_monthly(s: pd.Series) -> pd.Series:
     s = s.copy()
     s.index = month_end_index(s.index)
@@ -42,6 +45,26 @@ def _score_pair_corr(y: pd.Series, x: pd.Series) -> float:
     return abs(c)
 
 
+def _prepare_xy(y: pd.Series, x: pd.Series, min_n: int = 36):
+    # align
+    df = pd.concat([y, x], axis=1, join="inner")
+    df = df.replace([np.inf, -np.inf], np.nan).dropna()
+
+    if len(df) < min_n:
+        return None
+
+    yv = df.iloc[:, 0].astype(float).to_numpy()
+    xv = df.iloc[:, 1].astype(float).to_numpy()
+
+    # reject constant series (std==0) -> corr undefined
+    if np.nanstd(yv) == 0 or np.nanstd(xv) == 0:
+        return None
+
+    return yv, xv, df.index
+
+# ===================================================
+# Main Logic
+# ===================================================
 def score_candidates(
     target: TargetSpec,
     candidates: List[FeatureSpec],
@@ -219,3 +242,39 @@ def select_scored_candidates(
 
 def scored_to_feature_specs(scored: List[ScoredCandidate]) -> List[FeatureSpec]:
     return [s.spec for s in scored]
+
+def score_corr0(y: pd.Series, x: pd.Series, min_n: int = 36) -> float:
+    prep = _prepare_xy(y, x, min_n=min_n)
+    if prep is None:
+        return float("-inf")
+    yv, xv, _ = prep
+    c = np.corrcoef(yv, xv)[0, 1]
+    if not np.isfinite(c):
+        return float("-inf")
+    return float(abs(c))
+
+def score_xcorr(y: pd.Series, x: pd.Series, lead_months=(0,1,2,3,6,12), min_n: int = 36):
+    best = float("-inf")
+    best_lead = None
+
+    for L in lead_months:
+        # shift x forward so that x at time t corresponds to original x at time t-L
+        xs = x.shift(L)
+
+        prep = _prepare_xy(y, xs, min_n=min_n)
+        if prep is None:
+            continue
+
+        yv, xv, _ = prep
+        c = np.corrcoef(yv, xv)[0, 1]
+        if not np.isfinite(c):
+            continue
+
+        s = float(abs(c))
+        if s > best:
+            best = s
+            best_lead = int(L)
+
+    if best == float("-inf"):
+        return best, None
+    return best, best_lead
