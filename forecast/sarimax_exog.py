@@ -9,126 +9,22 @@ import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-from forecast.feature_loader import TargetSpec, FeatureSpec, build_design_matrix
-from forecast.sarimax_redfin import run_sarimax_forecast as run_sarimax_univariate
+from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix
+from .sarimax_redfin import run_sarimax_forecast as run_sarimax_univariate
+from .design_matrix import build_train_and_future_exog_forecasted
+from .feature_selection import load_xgb_selected_features  # you'll add this tiny helper, see below
 
+from .db_forecast import (
+    get_connection,
+    new_batch_id,
+    insert_run,
+    insert_predictions,
+    store_selected_features_in_params,
+)
 
 # -----------------------------------------
 # DB helpers
 # -----------------------------------------
-
-def get_connection():
-    db_path = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
-    return duckdb.connect(db_path)
-
-
-def _next_run_id(con) -> int:
-    row = con.execute("SELECT COALESCE(MAX(run_id), 0) + 1 FROM forecast_runs").fetchone()
-    return int(row[0])
-
-
-def insert_forecast_run(
-    target: TargetSpec,
-    train_start: pd.Timestamp,
-    train_end: pd.Timestamp,
-    horizon_max_months: int,
-    algo_params: Dict,
-    model_name: str = "sarimax_exog",
-    model_version: str = "v1",
-    notes: Optional[str] = None,
-) -> int:
-    con = get_connection()
-    run_id = _next_run_id(con)
-
-    sql = """
-        INSERT INTO forecast_runs (
-            run_id,
-            model_name,
-            model_version,
-            target_metric_id,
-            target_geo_id,
-            target_property_type_id,
-            freq,
-            train_start,
-            train_end,
-            horizon_max_months,
-            algo_params_json,
-            notes,
-            is_active
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
-    """
-
-    params = [
-        run_id,
-        model_name,
-        model_version,
-        target.metric_id,
-        target.geo_id,
-        target.property_type_id,
-        "M",  # monthly
-        train_start.date(),
-        train_end.date(),
-        horizon_max_months,
-        json.dumps(algo_params),
-        notes,
-    ]
-
-    con.execute(sql, params)
-    return run_id
-
-
-def insert_predictions(
-    run_id: int,
-    forecast_values: np.ndarray,
-    conf_int: np.ndarray,
-    last_date: pd.Timestamp,
-    horizon_max_months: int,
-):
-    """
-    Insert forecast rows into forecast_predictions.
-
-    We build future dates as month-end stamps after last_date.
-    """
-    con = get_connection()
-
-    last_period = last_date.to_period("M")
-    future_periods = [last_period + i for i in range(1, horizon_max_months + 1)]
-    target_dates = [p.to_timestamp(how="end") for p in future_periods]
-
-    records = []
-    for i, (dt, y_hat, ci_row) in enumerate(zip(target_dates, forecast_values, conf_int), start=1):
-        horizon_steps = i
-        horizon_months = i
-        y_hat = float(y_hat)
-        y_hat_lo = float(ci_row[0]) if ci_row is not None else None
-        y_hat_hi = float(ci_row[1]) if ci_row is not None else None
-
-        records.append(
-            (
-                run_id,
-                dt.date(),
-                horizon_steps,
-                horizon_months,
-                y_hat,
-                y_hat_lo,
-                y_hat_hi,
-            )
-        )
-
-    sql = """
-        INSERT INTO forecast_predictions (
-            run_id,
-            target_date,
-            horizon_steps,
-            horizon_months,
-            y_hat,
-            y_hat_lo,
-            y_hat_hi
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """
-    con.executemany(sql, records)
-
 
 # -----------------------------------------
 # Core: SARIMAX with exogenous regressors
@@ -159,99 +55,234 @@ def run_sarimax_exog(
     metric_id: str,
     geo_id: str,
     property_type_id: Optional[str] = None,
-    feature_specs: Optional[List[FeatureSpec]] = None,
     horizon_max_months: int = 12,
-    order: Tuple[int, int, int] = (1, 1, 1),
-    seasonal_order: Tuple[int, int, int, int] = (1, 1, 1, 12),
+    feature_specs: Optional[List[FeatureSpec]] = None,  # still supported, but NOT the main path
     notes: Optional[str] = None,
+    *,
+    # NEW: shortlist-driven live config
+    xgb_batch_id: Optional[str] = None,
+    sarimax_max_exog: int = 30,
+    batch_id: Optional[str] = None,
+    data_asof: Optional[str] = None,  # YYYY-MM-DD
+    run_kind: str = "live",           # e.g. live_near, live_outlook
+    label: Optional[str] = None,      # e.g. "Near-term"
 ) -> int:
     """
-    End-to-end SARIMAX run with exogenous regressors.
+    Live SARIMAX(exog).
 
-    Cases:
-      - If feature_specs is None or empty -> delegate to univariate SARIMAX.
-      - Else:
-          * build_design_matrix() to get y, X, base_series
-          * fit SARIMAX(y, exog=X)
-          * carry-forward last exog row for future horizon
-          * write to forecast_runs + forecast_predictions
+    Preferred path (Phase B+):
+      - Provide xgb_batch_id -> load selected lag-level feature_ids from XGB artifacts/DB,
+        build train+future exog via build_train_and_future_exog_forecasted,
+        fit SARIMAX, forecast horizon_max_months.
+
+    Legacy/demo path:
+      - feature_specs provided explicitly -> build_design_matrix + carry-forward (discouraged).
     """
-    # Normalize pt_id to string or None
     pt_id_str = str(property_type_id) if property_type_id is not None else None
 
-    target = TargetSpec(
-        metric_id=metric_id,
-        geo_id=geo_id,
-        property_type_id=pt_id_str,
-    )
+    target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=pt_id_str)
 
-    # If no exogenous feature specs provided, just reuse the univariate pipeline
+    # Batch / asof normalization
+    batch_id = batch_id or new_batch_id()
+    # data_asof can be None; insert_run can store NULL. But you should pass it for determinism.
+    data_asof_dt = pd.to_datetime(data_asof).date() if data_asof else None
+
+    # ------------------------------------------------------------
+    # PATH 1 (preferred): shortlist-driven, forecasted future exog
+    # ------------------------------------------------------------
+    if xgb_batch_id:
+        # 1) Load shortlist feature_ids (lag-level columns) from XGB batch
+        feature_ids = load_xgb_selected_features(
+            xgb_batch_id=xgb_batch_id,
+            metric_id=metric_id,
+            geo_id=geo_id,
+            property_type_id=pt_id_str,
+            limit=sarimax_max_exog,
+        )
+        if not feature_ids:
+            raise SystemExit(f"[sarimax_exog] No selected features found for xgb_batch_id={xgb_batch_id}")
+
+        # 2) Build train + future exog (forecasted)
+        #    This should mimic your backtest path (no cheating).
+        res = build_train_and_future_exog_forecasted(
+            target=target,
+            feature_ids=feature_ids,
+            horizon=horizon_max_months,
+        )
+
+        # Support either (y_train, X_train, X_future, meta) OR (y_train, X_train, X_future)
+        if isinstance(res, tuple) and len(res) == 4:
+            y_train, X_train, X_future, meta = res
+        else:
+            y_train, X_train, X_future = res
+            meta = None
+
+        # 3) Guardrails
+        if len(y_train) < 60:
+            raise SystemExit(f"[sarimax_exog] Too little training history after exog alignment: n={len(y_train)}")
+
+        if X_future.isna().any().any():
+            bad_cols = X_future.columns[X_future.isna().any(axis=0)].tolist()
+            first_bad_date = X_future.index[X_future.isna().any(axis=1)][0]
+            raise SystemExit(
+                f"[sarimax_exog] FAIL: future exog has NaNs. bad_cols_count={len(bad_cols)} "
+                f"first_bad_date={first_bad_date.date()} example={bad_cols[:10]}"
+            )
+
+        # 4) Optional: log method breakdown if meta exists
+        if meta and isinstance(meta, dict):
+            # expected shape: meta[col] -> {"method": "..."}
+            methods = [meta.get(c, {}).get("method", "unknown") for c in X_future.columns]
+            counts = {}
+            for m in methods:
+                counts[m] = counts.get(m, 0) + 1
+            print(f"[sarimax_exog] future_exog_methods={counts}")
+
+        # 5) Fit SARIMAX (index-safe: use RangeIndex endog)
+        endog = pd.Series(y_train.values)  # RangeIndex
+        exog_train = X_train.to_numpy(dtype=float)
+
+        model = SARIMAX(
+            endog=endog,
+            exog=exog_train,
+            order=(1, 1, 1),
+            seasonal_order=(1, 1, 1, 12),
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        )
+        fit = model.fit(disp=False)
+
+        exog_future = X_future.to_numpy(dtype=float)
+        fc = fit.get_forecast(steps=horizon_max_months, exog=exog_future)
+
+        # Map forecast to dates
+        last_date = pd.Timestamp(y_train.index[-1])
+        last_period = last_date.to_period("M")
+        future_periods = [last_period + i for i in range(1, horizon_max_months + 1)]
+        target_dates = [p.to_timestamp(how="end") for p in future_periods]
+
+        mean_fc = np.asarray(fc.predicted_mean, dtype=float)
+        ci = np.asarray(fc.conf_int(), dtype=float)  # (h, 2)
+
+        # 6) Persist run + preds
+        algo_params = {
+            "order": (1, 1, 1),
+            "seasonal_order": (1, 1, 1, 12),
+            "n_obs": int(len(y_train)),
+            "xgb_batch_id": xgb_batch_id,
+            "sarimax_max_exog": int(sarimax_max_exog),
+            "exog_backtest_type": "forecasted_exog",
+            "label": label or "",
+        }
+
+        algo_params = store_selected_features_in_params(
+            algo_params,
+            selected_features=list(X_train.columns),  # lag-level actually used
+            selector_meta={
+                "method": "xgb_selected_features",
+                "xgb_batch_id": xgb_batch_id,
+                "sarimax_max_exog": int(sarimax_max_exog),
+            },
+        )
+
+        run_id = insert_run(
+            model_name="sarimax_exog",
+            model_version="v2_live_shortlist",
+            run_kind=run_kind,
+            target=target,
+            train_start=pd.Timestamp(y_train.index[0]).date(),
+            train_end=pd.Timestamp(y_train.index[-1]).date(),
+            horizon_max_months=int(horizon_max_months),
+            algo_params=algo_params,
+            batch_id=batch_id,
+            data_asof=data_asof_dt,
+            notes=notes or f"SARIMAX(exog) live shortlist ({label or run_kind})",
+            is_active=True,
+        )
+
+        insert_predictions(
+            run_id=run_id,
+            target_dates=[d.date() for d in target_dates],
+            y_hat=mean_fc,
+            y_hat_lo=ci[:, 0],
+            y_hat_hi=ci[:, 1],
+        )
+
+        print(f"[sarimax_exog] Created live run_id={run_id} batch_id={batch_id} label={label or run_kind}")
+        return int(run_id)
+
+    # ------------------------------------------------------------
+    # PATH 2 (legacy demo): explicit feature_specs + carry-forward
+    # ------------------------------------------------------------
     if not feature_specs:
         return run_sarimax_univariate(
             metric_id=metric_id,
             geo_id=geo_id,
             property_type_id=pt_id_str,
             horizon_max_months=horizon_max_months,
-            order=order,
-            seasonal_order=seasonal_order,
+            order=(1, 1, 1),
+            seasonal_order=(1, 1, 1, 12),
             notes=notes or "SARIMAX (no exog, delegated from sarimax_exog)",
         )
 
-    # Build design matrix using the shared feature loader
-    y, X, base_series = build_design_matrix(
-        target=target,
-        feature_specs=feature_specs,
-        min_obs=60,
-    )
+    y, X, _base_series = build_design_matrix(target=target, feature_specs=feature_specs, min_obs=60)
 
-    train_start = y.index[0]
-    train_end = y.index[-1]
-
-    # Fit SARIMAX with exogenous regressors
-    results = fit_sarimax_exog(
-        y=y,
-        X=X,
-        order=order,
-        seasonal_order=seasonal_order,
-    )
-
-    # Build future exog:
-    # simplest version: carry-forward the last observed row of X for all future steps
-    last_exog_row = X.iloc[[-1]]  # shape (1, k)
+    # carry-forward last row (discouraged; kept only so old CLI usage doesn't break)
+    last_exog_row = X.iloc[[-1]]
     exog_future = np.repeat(last_exog_row.values, horizon_max_months, axis=0)
 
-    fc = results.get_forecast(steps=horizon_max_months, exog=exog_future)
-    mean_forecast = fc.predicted_mean.values
-    ci = fc.conf_int().values  # shape: (horizon, 2)
+    model = SARIMAX(
+        endog=y,
+        exog=X,
+        order=(1, 1, 1),
+        seasonal_order=(1, 1, 1, 12),
+        enforce_stationarity=False,
+        enforce_invertibility=False,
+    )
+    fit = model.fit(disp=False)
+    fc = fit.get_forecast(steps=horizon_max_months, exog=exog_future)
+
+    last_date = y.index[-1]
+    last_period = last_date.to_period("M")
+    future_periods = [last_period + i for i in range(1, horizon_max_months + 1)]
+    target_dates = [p.to_timestamp(how="end") for p in future_periods]
+
+    mean_fc = np.asarray(fc.predicted_mean, dtype=float)
+    ci = np.asarray(fc.conf_int(), dtype=float)
 
     algo_params = {
-        "order": order,
-        "seasonal_order": seasonal_order,
-        "n_obs": int(y.shape[0]),
-        "exog_features": [f"{f.name} lags={f.lags}" for f in feature_specs],
+        "order": (1, 1, 1),
+        "seasonal_order": (1, 1, 1, 12),
+        "n_obs": int(len(y)),
+        "exog_mode": "carry_forward_last_row",
+        "label": label or "",
     }
 
-    run_id = insert_forecast_run(
-        target=target,
-        train_start=train_start,
-        train_end=train_end,
-        horizon_max_months=horizon_max_months,
-        algo_params=algo_params,
+    run_id = insert_run(
         model_name="sarimax_exog",
-        model_version="v1",
-        notes=notes or "SARIMAX with exogenous regressors",
+        model_version="v1_demo",
+        run_kind=run_kind,
+        target=target,
+        train_start=pd.Timestamp(y.index[0]).date(),
+        train_end=pd.Timestamp(y.index[-1]).date(),
+        horizon_max_months=int(horizon_max_months),
+        algo_params=algo_params,
+        batch_id=batch_id,
+        data_asof=data_asof_dt,
+        notes=notes or "SARIMAX(exog) demo carry-forward",
+        is_active=True,
     )
 
     insert_predictions(
         run_id=run_id,
-        forecast_values=mean_forecast,
-        conf_int=ci,
-        last_date=train_end,
-        horizon_max_months=horizon_max_months,
+        target_dates=[d.date() for d in target_dates],
+        y_hat=mean_fc,
+        y_hat_lo=ci[:, 0],
+        y_hat_hi=ci[:, 1],
     )
 
-    return run_id
-
+    print(f"[sarimax_exog] Created demo run_id={run_id} batch_id={batch_id}")
+    return int(run_id)
 
 # -----------------------------------------
 # CLI entry (univariate or default feature config only)
@@ -273,6 +304,13 @@ if __name__ == "__main__":
         action="store_true",
         help="If set, use a simple default exog config for this metric/geo (if defined in code).",
     )
+    parser.add_argument("--xgb_batch_id", default=None, help="Use XGB shortlist from this batch_id to choose exog.")
+    parser.add_argument("--sarimax_max_exog", type=int, default=30)
+    parser.add_argument("--batch_id", default=None)
+    parser.add_argument("--data_asof", default=None, help="YYYY-MM-DD")
+    parser.add_argument("--run_kind", default="live", help="e.g. live_near, live_outlook")
+    parser.add_argument("--label", default=None, help="Human label like 'Near-term' or '12-mo outlook'")
+
 
     args = parser.parse_args()
     pt_id = args.property_type_id
@@ -296,9 +334,15 @@ if __name__ == "__main__":
         metric_id=args.metric_id,
         geo_id=args.geo_id,
         property_type_id=pt_id,
-        feature_specs=feature_specs_cli,
         horizon_max_months=args.horizon,
-        notes="CLI SARIMAX exog demo run",
+        feature_specs=feature_specs_cli,
+        notes="CLI SARIMAX exog live run",
+        xgb_batch_id=args.xgb_batch_id,
+        sarimax_max_exog=args.sarimax_max_exog,
+        batch_id=args.batch_id,
+        data_asof=args.data_asof,
+        run_kind=args.run_kind,
+        label=args.label,
     )
 
     print(f"Created SARIMAX(exog) run_id={run_id}")
