@@ -86,17 +86,17 @@ def latest_batch_eval_long(
       JOIN latest_batch_per_model lb
         ON r.model_name = lb.model_name AND r.batch_id = lb.batch_id
     ),
-    
-    eval AS (
+
+    eval_preds AS (
       SELECT
         r.model_name,
         r.created_at,
         r.batch_id,
         e.run_id,
         e.horizon_months,
-        e.mae,
-        e.rmse,
-        e.mape
+        e.abs_err,
+        e.sq_err,
+        e.ape
       FROM batch_runs r
       JOIN v_forecast_eval_long e USING (run_id)
     )
@@ -106,12 +106,12 @@ def latest_batch_eval_long(
       batch_id,
       horizon_months,
       COUNT(DISTINCT run_id) AS n_runs,
-      AVG(mae)  AS mae_avg,
-      AVG(rmse) AS rmse_avg,
-      AVG(mape) AS mape_avg,
+      AVG(abs_err) AS mae_avg,
+      SQRT(AVG(sq_err)) AS rmse_avg,
+      AVG(ape) AS mape_avg,
       MIN(created_at) AS batch_start,
       MAX(created_at) AS batch_end
-    FROM eval
+    FROM eval_preds
     GROUP BY model_name, batch_id, horizon_months
     ORDER BY model_name, horizon_months;
     """
