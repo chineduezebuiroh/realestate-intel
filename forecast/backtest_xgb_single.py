@@ -38,9 +38,28 @@ from .feature_catalog import load_catalog, property_type_ids_matching, metric_fa
 from .feature_policy import default_policy
 from .feature_selection import score_candidates, select_scored_candidates, scored_to_feature_specs, default_bucket
 
-
 TEMP_DEBUG_LIMIT = None  # set to a number to debug; set to 'None' when finished debugging
 
+
+# ==========================================================
+# Constants
+# ==========================================================
+batch_id = batch_id or new_batch_id()
+artifact_root = artifact_root or "runs"   # or whatever default you use
+
+xgb_out_dir = Path(artifact_root) / batch_id / "xgb"
+xgb_out_dir.mkdir(parents=True, exist_ok=True)
+
+# ----------------------------------------------------------
+# Guard
+# ----------------------------------------------------------
+existing = sorted(xgb_out_dir.glob("selected_features__anchor=*.parquet"))
+if existing:
+    raise SystemExit(
+        f"[xgb_backtest] REFUSING to overwrite XGB artifacts in non-empty dir: {xgb_out_dir}\n"
+        f"Found {len(existing)} existing artifacts (example: {existing[0].name}).\n"
+        "Use a fresh --batch_id (recommended) or delete the old artifacts."
+    )
 
 # ==========================================================
 # Helpers
@@ -229,8 +248,6 @@ def run_backtest_xgb_single(
     X_full = X_full.copy()
     X_full.index = y_full.index
     
-    batch_id = batch_id or new_batch_id()
-    
     # data_asof: if not passed, compute from series after month-end normalization
     if data_asof is None:
         data_asof = y_full.index.max().date()  # or y.index.max().date() depending on script
@@ -255,9 +272,12 @@ def run_backtest_xgb_single(
             max_anchors=max_anchors,
             latest_anchor_offset_months=latest_anchor_offset_months,
         )
+
     if not anchors:
         print("[xgb_backtest] Not enough history to run backtests.")
         return
+
+    print("[xgb_backtest] anchors:", [a.date().isoformat() for a in anchors])
 
     anchors = [a for a in anchors if a in X_full.index]
     if not anchors:
@@ -338,7 +358,7 @@ def run_backtest_xgb_single(
         fi_sel["seed"] = int(seed)
         
         if artifact_root:
-            out_dir = Path(artifact_root) / "xgb"
+            out_dir = Path(artifact_root) / batch_id / "xgb"
             out_dir.mkdir(parents=True, exist_ok=True)
         
             # HARD GUARD: do not allow writing into a non-empty batch/xgb folder
@@ -350,7 +370,8 @@ def run_backtest_xgb_single(
                     "Use a fresh --batch_id (recommended) or delete the old artifacts."
                 )
         
-            fi_sel.to_parquet(out_dir / f"selected_features__anchor={anchor_key}.parquet", index=False)
+            #fi_sel.to_parquet(out_dir / f"selected_features__anchor={anchor_key}.parquet", index=False)
+            fi_sel.to_parquet(xgb_out_dir / f"selected_features__anchor={anchor_key}.parquet", index=False)
 
         # ---- Phase A placeholder future features ----
         # Carry-forward the last observed feature row for all future steps.
