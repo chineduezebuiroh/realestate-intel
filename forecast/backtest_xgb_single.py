@@ -131,10 +131,13 @@ def run_backtest_xgb_single(
 
     target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
 
-    # Anchor source-of-truth: raw target only (no exog contamination)
-    y_anchor = load_target_series_for_spec(target).copy()
-    y_anchor.index = month_end_index(y_anchor.index)
-    y_anchor = y_anchor[~y_anchor.index.duplicated(keep="last")].sort_index()
+    # Anchor source-of-truth: MUST share the exact timeline used for training
+    # (otherwise anchors can fall off the design-matrix index and you get silent drift)
+    y_anchor = y_full.copy()
+    y_anchor.index = X_full.index  # force same month-end convention + identical timestamps
+
+    if not y_anchor.index.equals(X_full.index):
+        raise ValueError("BUG: y_anchor.index must equal X_full.index")
 
     catalog = load_catalog()
     policy = default_policy()
@@ -265,12 +268,20 @@ def run_backtest_xgb_single(
 
     print("[xgb_backtest] anchors:", [a.date().isoformat() for a in anchors])
 
-    anchors = [a for a in anchors if a in X_full.index]
-    if not anchors:
-        print("[xgb_backtest] No anchors survive intersection with design-matrix timeline.")
-        return
+    # --- Anchor validation against design-matrix timeline ---
+    missing = [a for a in anchors if a not in X_full.index]
+    if missing:
+        print("[xgb_backtest] WARNING: some anchors not in design-matrix timeline:")
+        print("  missing:", [a.date().isoformat() for a in missing])
+        print("  X_full.index min/max:", X_full.index.min().date(), X_full.index.max().date())
+        print("  y_full.index min/max:", y_full.index.min().date(), y_full.index.max().date())
+        print("  X_full tail:", [d.date().isoformat() for d in X_full.index[-6:]])
+        print("  y_full tail:", [d.date().isoformat() for d in y_full.index[-6:]])
+        raise ValueError(f"Anchors not in X_full.index: {[a.date().isoformat() for a in missing]}")
     
+    # If we get here, all anchors are in X_full.index
     print(f"[xgb_backtest] Found {len(anchors)} anchors.")
+
     last_date = y_full.index[-1]
     feature_names = list(X_full.columns)
     results_summary = []
