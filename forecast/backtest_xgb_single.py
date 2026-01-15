@@ -2,6 +2,7 @@
 
 import os
 from typing import List, Dict, Optional
+from pathlib import Path
 
 import duckdb
 import numpy as np
@@ -335,11 +336,20 @@ def run_backtest_xgb_single(
         fi_sel["anchor_date"] = anchor_key
         fi_sel["horizon"] = int(horizon_bt)
         fi_sel["seed"] = int(seed)
-
+        
         if artifact_root:
-            from pathlib import Path
-            out_dir = Path(artifact_root) / batch_id / "xgb"
+            out_dir = Path(artifact_root) / "xgb"
             out_dir.mkdir(parents=True, exist_ok=True)
+        
+            # HARD GUARD: do not allow writing into a non-empty batch/xgb folder
+            existing = list(out_dir.glob("selected_features__anchor=*.parquet"))
+            if existing:
+                raise SystemExit(
+                    f"[xgb_backtest] REFUSING to write XGB artifacts into non-empty dir: {out_dir}\n"
+                    f"Found {len(existing)} existing artifacts (example: {existing[0].name}).\n"
+                    "Use a fresh --batch_id (recommended) or delete the old artifacts."
+                )
+        
             fi_sel.to_parquet(out_dir / f"selected_features__anchor={anchor_key}.parquet", index=False)
 
         # ---- Phase A placeholder future features ----
