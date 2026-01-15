@@ -40,27 +40,6 @@ from .feature_selection import score_candidates, select_scored_candidates, score
 
 TEMP_DEBUG_LIMIT = None  # set to a number to debug; set to 'None' when finished debugging
 
-
-# ==========================================================
-# Constants
-# ==========================================================
-batch_id = batch_id or new_batch_id()
-artifact_root = artifact_root or "runs"   # or whatever default you use
-
-xgb_out_dir = Path(artifact_root) / batch_id / "xgb"
-xgb_out_dir.mkdir(parents=True, exist_ok=True)
-
-# ----------------------------------------------------------
-# Guard
-# ----------------------------------------------------------
-existing = sorted(xgb_out_dir.glob("selected_features__anchor=*.parquet"))
-if existing:
-    raise SystemExit(
-        f"[xgb_backtest] REFUSING to overwrite XGB artifacts in non-empty dir: {xgb_out_dir}\n"
-        f"Found {len(existing)} existing artifacts (example: {existing[0].name}).\n"
-        "Use a fresh --batch_id (recommended) or delete the old artifacts."
-    )
-
 # ==========================================================
 # Helpers
 # ==========================================================
@@ -112,7 +91,6 @@ def _build_single_row_design(
     last_idx = df_all.index[-1]
     return df_all.loc[[last_idx]]  # shape (1, n_features)
 
-
 # ==========================================================
 # Main backtest entry
 # ==========================================================
@@ -142,6 +120,22 @@ def run_backtest_xgb_single(
       - iteratively forecast up to horizon months ahead using carry-forward exogs
       - store as backtest runs (is_active=FALSE)
     """
+    # ---- resolve batch + artifact path early (fail fast) ----
+    batch_id = batch_id or new_batch_id()
+    artifact_root = artifact_root or "runs"
+
+    xgb_out_dir = Path(artifact_root) / batch_id / "xgb"
+    xgb_out_dir.mkdir(parents=True, exist_ok=True)
+
+    existing = sorted(xgb_out_dir.glob("selected_features__anchor=*.parquet"))
+    if existing:
+        raise SystemExit(
+            f"[xgb_backtest] REFUSING to overwrite XGB artifacts in non-empty dir: {xgb_out_dir}\n"
+            f"Found {len(existing)} existing artifacts (example: {existing[0].name}).\n"
+            "Use a fresh --batch_id (recommended) or delete the old artifacts."
+        )
+
+    print(f"[xgb_backtest] batch_id={batch_id} artifact_dir={xgb_out_dir}")
 
     target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
 
@@ -358,8 +352,9 @@ def run_backtest_xgb_single(
         fi_sel["seed"] = int(seed)
         
         if artifact_root:
-            out_dir = Path(artifact_root) / batch_id / "xgb"
-            out_dir.mkdir(parents=True, exist_ok=True)
+            #out_dir = Path(artifact_root) / batch_id / "xgb"
+            #out_dir.mkdir(parents=True, exist_ok=True)
+            out_dir = xgb_out_dir
         
             # HARD GUARD: do not allow writing into a non-empty batch/xgb folder
             existing = list(out_dir.glob("selected_features__anchor=*.parquet"))
