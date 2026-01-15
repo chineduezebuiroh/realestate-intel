@@ -131,14 +131,6 @@ def run_backtest_xgb_single(
 
     target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
 
-    # Anchor source-of-truth: MUST share the exact timeline used for training
-    # (otherwise anchors can fall off the design-matrix index and you get silent drift)
-    y_anchor = y_full.copy()
-    y_anchor.index = X_full.index  # force same month-end convention + identical timestamps
-
-    if not y_anchor.index.equals(X_full.index):
-        raise ValueError("BUG: y_anchor.index must equal X_full.index")
-
     catalog = load_catalog()
     policy = default_policy()
 
@@ -236,6 +228,15 @@ def run_backtest_xgb_single(
         raise ValueError(f"X_full and y_full length mismatch: {len(X_full)} vs {len(y_full)}")
     X_full = X_full.copy()
     X_full.index = y_full.index
+
+    # Anchor source-of-truth: MUST share the exact timeline used for training
+    # (otherwise anchors can fall off the design-matrix index and you get silent drift)
+    y_anchor = y_full.copy()
+    y_anchor.index = X_full.index  # force same month-end convention + identical timestamps
+
+    if not y_anchor.index.equals(X_full.index):
+        raise ValueError("BUG: y_anchor.index must equal X_full.index")
+        
     
     # data_asof: if not passed, compute from series after month-end normalization
     if data_asof is None:
