@@ -85,4 +85,6 @@ def choose_anchor_dates(
         anchor = _month_end(anchor - pd.DateOffset(months=int(step_months)))
 
     # de-dupe + sorted
-    return sorted(anchors)
+    anchors = sorted(set(anchors), reverse=True)
+    return list(reversed(anchors[:max_anchors]))  # return ascending but pick newest
+
