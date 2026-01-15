@@ -304,9 +304,22 @@ def run_backtest_sarimax_exog_single(
                 f"[backtest_exog] Pruned {len(dropped_collinear)} collinear exog cols at |corr|>{COLL_THR}. "
                 f"Kept={len(keep_cols)}. Example dropped: {dropped_collinear[:5]}"
             )
-        
+
+        # Run once. If it’s noisy, delete it afterward.
+        if dropped_collinear:
+            c0 = dropped_collinear[0]
+            # compute max corr with kept (use abs)
+            max_corr = corr.loc[c0, feature_ids].abs().max()
+            print(f"[backtest_exog] Example drop reason: {c0} max|corr| with kept = {max_corr:.3f}")
+
         # Apply pruning to training matrices and downstream feature id list
         feature_ids = keep_cols
+        
+        # Guard: don't proceed if pruning leaves too few exogs
+        if len(feature_ids) < 3:
+            print(f"[backtest_exog] Too few exog after prune ({len(feature_ids)}); skipping anchor.")
+            continue
+            
         X_train_sel = X_train_sel[feature_ids].copy()
 
 
@@ -328,7 +341,6 @@ def run_backtest_sarimax_exog_single(
                 "first_bad_date=", first_bad_date.date(),
             )
             continue
-
 
         # ------------------------------------------------------------------
         # 6) Fit SARIMAX on integer index; forecast with exog_future
