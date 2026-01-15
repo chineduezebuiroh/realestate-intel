@@ -268,6 +268,53 @@ def run_backtest_sarimax_exog_single(
             print("[backtest_exog] Train shorter than min_train_len after exog selection; skipping anchor.")
             continue
 
+        # ---- Collinearity kill-switch (TRAINING ONLY) ----
+        # Keep XGB priority order (feature_ids), drop constant cols, then drop cols
+        # whose abs corr with any kept col exceeds threshold.
+        COLL_THR = 0.98
+        
+        # 1) Drop constant columns on training window
+        std = X_train_sel.std(axis=0, ddof=0)
+        nonconst_cols = std[std > 0].index.tolist()
+        dropped_const = [c for c in feature_ids if c not in set(nonconst_cols)]
+        
+        if dropped_const:
+            print(f"[backtest_exog] Dropping {len(dropped_const)} constant exog cols (train std=0). Example: {dropped_const[:5]}")
+        
+        X_train_sel = X_train_sel[nonconst_cols].copy()
+        feature_ids_nc = [c for c in feature_ids if c in set(nonconst_cols)]
+        
+        # 2) Greedy prune by correlation with already-kept columns (training only)
+        keep_cols = []
+        # precompute corr of all columns (on training rows) for speed + determinism
+        corr = X_train_sel.corr().abs()
+        
+        for c in feature_ids_nc:
+            if not keep_cols:
+                keep_cols.append(c)
+                continue
+            # if this col is too correlated with any already-kept col, drop it
+            if (corr.loc[c, keep_cols] > COLL_THR).any():
+                continue
+            keep_cols.append(c)
+        
+        dropped_collinear = [c for c in feature_ids_nc if c not in set(keep_cols)]
+        if dropped_collinear:
+            print(
+                f"[backtest_exog] Pruned {len(dropped_collinear)} collinear exog cols at |corr|>{COLL_THR}. "
+                f"Kept={len(keep_cols)}. Example dropped: {dropped_collinear[:5]}"
+            )
+        
+        # Apply pruning to training matrices and downstream feature id list
+        feature_ids = keep_cols
+        X_train_sel = X_train_sel[feature_ids].copy()
+
+
+        train_mask2 = y_train.notna() & X_train_sel.notna().all(axis=1)
+        y_train = y_train.loc[train_mask2].copy()
+        X_train_sel = X_train_sel.loc[train_mask2].copy()
+
+
         # Future exog for the backtest horizon
         X_future_sel = X_future_fc.reindex(test_idx)[feature_ids].copy()
 
