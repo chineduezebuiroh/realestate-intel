@@ -38,11 +38,29 @@ def _to_yoy(s: pd.Series) -> pd.Series:
     return s.pct_change(12)
 
 
-def _score_pair_corr(y: pd.Series, x: pd.Series) -> float:
-    c = float(y.corr(x))
-    if np.isnan(c):
+def _score_pair_corr(a: pd.Series, b: pd.Series) -> float:
+    """
+    Returns abs Pearson correlation, or 0.0 if undefined.
+    Bulletproof against NaN/inf/constant series.
+    """
+    aa = pd.to_numeric(a, errors="coerce").to_numpy(dtype=float)
+    bb = pd.to_numeric(b, errors="coerce").to_numpy(dtype=float)
+
+    mask = np.isfinite(aa) & np.isfinite(bb)
+    aa = aa[mask]
+    bb = bb[mask]
+
+    if aa.size < 3:
         return 0.0
-    return abs(c)
+
+    # constant => corr undefined
+    if np.std(aa) == 0.0 or np.std(bb) == 0.0:
+        return 0.0
+
+    r = np.corrcoef(aa, bb)[0, 1]
+    if not np.isfinite(r):
+        return 0.0
+    return float(abs(r))
 
 
 def _prepare_xy(y: pd.Series, x: pd.Series, min_n: int = 36):
@@ -117,10 +135,18 @@ def score_candidates(
 
         for lead in lead_months:
             xx = x_s.shift(lead)
-            df = pd.concat([y_s, xx], axis=1, join="inner").dropna()
+            #df = pd.concat([y_s, xx], axis=1, join="inner").dropna()
+            df = pd.concat({"y": y_s, "x": xx}, axis=1).dropna()
             if len(df) < min_eff:
                 continue
-            s_abs = _score_pair_corr(df.iloc[:, 0], df.iloc[:, 1])
+
+            #yv = df.iloc[:, 0]
+            #xv = df.iloc[:, 1]
+            yv, xv = df["y"], df["x"]
+            if yv.nunique() < 2 or xv.nunique() < 2:
+                continue
+            s_abs = _score_pair_corr(yv, xv)
+
             if s_abs > best_score:
                 best_score = s_abs
                 best_lead = int(lead)
