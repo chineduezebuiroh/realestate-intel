@@ -1,4 +1,4 @@
-# ingest/redfin_metro_to_timeseries.py
+# sources/redfin/ingest.py
 
 from pathlib import Path
 import pandas as pd
