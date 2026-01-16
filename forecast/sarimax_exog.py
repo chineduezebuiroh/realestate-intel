@@ -106,7 +106,6 @@ def run_sarimax_exog(
 
         train_end = pd.Timestamp(y_raw.index.max())   # live anchor (month-end)
         anchor_date = train_end                       # use live train_end as anchor for exog builder
-        print(f"[sarimax_exog] live_train_end={train_end.date()} shortlist_anchor={anchor_for_shortlist.date()}")
 
         # 2) Resolve which backtest anchor's shortlist to use
         anchor_for_shortlist = resolve_anchor_for_live(
@@ -114,6 +113,8 @@ def run_sarimax_exog(
             xgb_batch_id=xgb_batch_id,
             preferred_anchor=train_end,
         )
+
+        print(f"[sarimax_exog] live_train_end={train_end.date()} shortlist_anchor={anchor_for_shortlist.date()}")
 
         # 3) Load lag-level feature_ids from that anchor's shortlist
         feature_ids = load_xgb_selected_feature_ids(
