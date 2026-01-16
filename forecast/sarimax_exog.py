@@ -162,6 +162,26 @@ def run_sarimax_exog(
                 f"missing_count={len(missing_cols)} example={missing_cols[:10]}"
             )
 
+
+        # --- Live viability filter: must have lag features available at anchor_date ---
+        anchor_row = X_train_raw.loc[anchor_date, feature_ids]  # will align columns that exist
+        good = anchor_row.notna()
+        
+        kept_feature_ids = [c for c in feature_ids if c in good.index and bool(good.loc[c])]
+        dropped_feature_ids = [c for c in feature_ids if c not in set(kept_feature_ids)]
+        
+        print(f"[sarimax_exog] shortlist features={len(feature_ids)} kept_at_anchor={len(kept_feature_ids)} dropped_at_anchor={len(dropped_feature_ids)}")
+        if dropped_feature_ids:
+            print(f"[sarimax_exog] dropped examples: {dropped_feature_ids[:10]}")
+        
+        feature_ids = kept_feature_ids
+        
+        # If you drop too many, abort (otherwise you’ll fit garbage)
+        MIN_EXOG = 5
+        if len(feature_ids) < MIN_EXOG:
+            raise SystemExit(f"[sarimax_exog] FAIL: only {len(feature_ids)} usable exog columns at live anchor_date={anchor_date.date()}")
+
+
         # Select train window up to anchor_date
         y_train_full = y_full_raw.loc[:anchor_date].copy()
         X_train_sel = X_train_raw.loc[:anchor_date, feature_ids].copy()
