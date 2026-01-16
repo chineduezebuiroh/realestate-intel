@@ -187,8 +187,8 @@ import_redfin_local_state: venv
 
 # 🔁 Redfin: ingest + transform into fact_timeseries
 refresh-redfin: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/redfin_metro_to_timeseries.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) transform/redfin_to_fact.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) sources/redfin/ingest.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) sources/redfin/transform.py
 	@echo "✅ Refreshed Redfin → $(FULL_DB)"
 
 # 🔁 CES: expand spec, bulk API fetch, transform
