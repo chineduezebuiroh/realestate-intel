@@ -92,20 +92,30 @@ def run_sarimax_exog(
     # PATH 1 (preferred): shortlist-driven, forecasted future exog
     # ------------------------------------------------------------
     if xgb_batch_id:
-        # 1) Resolve which anchor's shortlist to use for LIVE
-        #    Live train_end can be later than your last backtest anchor, so we pick the
-        #    closest available anchor <= train_end (or the latest available if none <=).
-        y_raw = load_target_series_for_spec(target).copy()
+        # 1) Load target once (defines live train_end)
+        y_raw = load_series_from_fact(
+            metric_id=target.metric_id,
+            geo_id=target.geo_id,
+            property_type_id=target.property_type_id,
+        ).copy()
         y_raw.index = month_end_index(y_raw.index)
         y_raw = y_raw[~y_raw.index.duplicated(keep="last")].sort_index()
-        train_end = y_raw.index[-1]
 
+        if y_raw.empty:
+            raise SystemExit("[sarimax_exog] Target series is empty; cannot run live forecast.")
+
+        train_end = pd.Timestamp(y_raw.index.max())   # live anchor (month-end)
+        anchor_date = train_end                       # use live train_end as anchor for exog builder
+        print(f"[sarimax_exog] live_train_end={train_end.date()} shortlist_anchor={anchor_for_shortlist.date()}")
+
+        # 2) Resolve which backtest anchor's shortlist to use
         anchor_for_shortlist = resolve_anchor_for_live(
             artifact_root=artifact_root,
             xgb_batch_id=xgb_batch_id,
             preferred_anchor=train_end,
         )
 
+        # 3) Load lag-level feature_ids from that anchor's shortlist
         feature_ids = load_xgb_selected_feature_ids(
             artifact_root=artifact_root,
             xgb_batch_id=xgb_batch_id,
@@ -119,11 +129,10 @@ def run_sarimax_exog(
                 f"(anchor={anchor_for_shortlist.date().isoformat()})"
             )
 
-        # Convert lag-level ids -> FeatureSpecs
+        # 4) Convert lag-level ids -> FeatureSpecs (base series + lags)
         selected_specs = specs_from_selected_feature_ids(feature_ids)
-        
-        # Dedupe base series so we don't load/forecast the same unlaged series repeatedly
-        # Key should match how your design_matrix loads base series: (metric_id, geo_id, property_type_id, source_id, name)
+
+        # 5) Dedupe base series so we don't load/forecast the same base series repeatedly
         seen = set()
         deduped_specs = []
         for s in selected_specs:
@@ -133,18 +142,9 @@ def run_sarimax_exog(
             seen.add(k)
             deduped_specs.append(s)
         selected_specs = deduped_specs
-        
-        y_raw = load_series_from_fact(
-            metric_id=target.metric_id,
-            geo_id=target.geo_id,
-            property_type_id=target.property_type_id,
-        ).copy()
-        y_raw.index = month_end_index(y_raw.index)
-        y_raw = y_raw[~y_raw.index.duplicated(keep="last")].sort_index()
-        anchor_date = pd.Timestamp(y_raw.index.max())
 
-        # 2) Build train + future exog (forecasted)
-        #    This should mimic your backtest path (no cheating).
+
+        # Build lagged train/future exog (raw, NaNs allowed)
         y_full_raw, X_train_raw, X_future_fc, test_idx = build_train_and_future_exog_forecasted(
             target=target,
             feature_specs=selected_specs,
@@ -153,56 +153,42 @@ def run_sarimax_exog(
             method="seasonal_naive_else_last",
         )
 
+        # Validate shortlist columns exist
         missing_cols = [c for c in feature_ids if c not in X_train_raw.columns]
         if missing_cols:
-            raise SystemExit(f"... {missing_cols[:10]}")
-        
+            raise SystemExit(
+                f"[sarimax_exog] FAIL: shortlist feature_ids not in design matrix. "
+                f"missing_count={len(missing_cols)} example={missing_cols[:10]}"
+            )
+
+        # Select train window up to anchor_date
+        y_train_full = y_full_raw.loc[:anchor_date].copy()
         X_train_sel = X_train_raw.loc[:anchor_date, feature_ids].copy()
-        X_train_sel = X_train_sel.reindex(y_full_raw.loc[:anchor_date].index)
-        
-        train_mask = y_full_raw.loc[:anchor_date].notna() & X_train_sel.notna().all(axis=1)
-        y_train = y_full_raw.loc[:anchor_date].loc[train_mask].copy()
+
+        # Align and drop rows with any NA (endog or exog)
+        X_train_sel = X_train_sel.reindex(y_train_full.index)
+        train_mask = y_train_full.notna() & X_train_sel.notna().all(axis=1)
+
+        y_train = y_train_full.loc[train_mask].copy()
         X_train_sel = X_train_sel.loc[train_mask].copy()
-        
-        X_future_sel = X_future_fc.reindex(test_idx)[feature_ids].copy()
 
-        print("[sarimax_exog] sample feature_ids:", feature_ids[:5])
-        print("[sarimax_exog] sample X_train_raw cols:", list(X_train_raw.columns)[:5])
-        
-        missing_cols = [c for c in feature_ids if c not in X_train_raw.columns]
-        print("[sarimax_exog] missing selected cols:", len(missing_cols), missing_cols[:5])
-
-        # Support either (y_train, X_train, X_future, meta) OR (y_train, X_train, X_future)
-        if isinstance(res, tuple) and len(res) == 4:
-            y_train, X_train, X_future, meta = res
-        else:
-            y_train, X_train, X_future = res
-            meta = None
-
-        # 3) Guardrails
         if len(y_train) < 60:
             raise SystemExit(f"[sarimax_exog] Too little training history after exog alignment: n={len(y_train)}")
 
-        if X_future.isna().any().any():
-            bad_cols = X_future.columns[X_future.isna().any(axis=0)].tolist()
-            first_bad_date = X_future.index[X_future.isna().any(axis=1)][0]
+        # Select future horizon exog (must be complete)
+        X_future_sel = X_future_fc.reindex(test_idx)[feature_ids].copy()
+        if X_future_sel.isna().any().any():
+            bad_cols = X_future_sel.columns[X_future_sel.isna().any(axis=0)].tolist()
+            first_bad_date = X_future_sel.index[X_future_sel.isna().any(axis=1)][0]
             raise SystemExit(
                 f"[sarimax_exog] FAIL: future exog has NaNs. bad_cols_count={len(bad_cols)} "
                 f"first_bad_date={first_bad_date.date()} example={bad_cols[:10]}"
             )
 
-        # 4) Optional: log method breakdown if meta exists
-        if meta and isinstance(meta, dict):
-            # expected shape: meta[col] -> {"method": "..."}
-            methods = [meta.get(c, {}).get("method", "unknown") for c in X_future.columns]
-            counts = {}
-            for m in methods:
-                counts[m] = counts.get(m, 0) + 1
-            print(f"[sarimax_exog] future_exog_methods={counts}")
 
         # 5) Fit SARIMAX (index-safe: use RangeIndex endog)
         endog = pd.Series(y_train.values)  # RangeIndex
-        exog_train = X_train.to_numpy(dtype=float)
+        exog_train = X_train_sel.to_numpy(dtype=float)
 
         model = SARIMAX(
             endog=endog,
@@ -214,7 +200,7 @@ def run_sarimax_exog(
         )
         fit = model.fit(disp=False)
 
-        exog_future = X_future.to_numpy(dtype=float)
+        exog_future = X_future_sel.to_numpy(dtype=float)
         fc = fit.get_forecast(steps=horizon_max_months, exog=exog_future)
 
         # Map forecast to dates
@@ -239,7 +225,7 @@ def run_sarimax_exog(
 
         algo_params = store_selected_features_in_params(
             algo_params,
-            selected_features=list(X_train.columns),  # lag-level actually used
+            selected_features=list(X_train.columns),  # lag-level actually used; identical to 'selected_features=list(feature_ids)'
             selector_meta={
                 "method": "xgb_selected_features",
                 "xgb_batch_id": xgb_batch_id,
