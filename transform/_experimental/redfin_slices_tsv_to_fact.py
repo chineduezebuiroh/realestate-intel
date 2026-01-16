@@ -1,4 +1,4 @@
-# transform/redfin_to_fact_v2.py
+# transform/_experimental/redfin_slices_tsv_to_fact.py
 import os, duckdb, pandas as pd, yaml
 from glob import glob
 from pathlib import Path
