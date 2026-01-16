@@ -81,7 +81,7 @@ def run_sarimax_exog(
     """
     pt_id_str = str(property_type_id) if property_type_id is not None else None
 
-    target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=pt_id_str)
+    target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=pt_id_str, data_asof=args.data_asof)
 
     # Batch / asof normalization
     batch_id = batch_id or new_batch_id()
@@ -97,6 +97,7 @@ def run_sarimax_exog(
             metric_id=target.metric_id,
             geo_id=target.geo_id,
             property_type_id=target.property_type_id,
+            data_asof=args.data_asof,
         ).copy()
         y_raw.index = month_end_index(y_raw.index)
         y_raw = y_raw[~y_raw.index.duplicated(keep="last")].sort_index()
@@ -440,6 +441,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_asof", default=None, help="YYYY-MM-DD")
     parser.add_argument("--run_kind", default="live", help="e.g. live_near, live_outlook")
     parser.add_argument("--label", default=None, help="Human label like 'Near-term' or '12-mo outlook'")
+    parser.add_argument("--data_asof", type=str, default=None, help="Freeze data reads at month-end <= this date (YYYY-MM-DD).")
 
 
     args = parser.parse_args()
