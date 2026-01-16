@@ -9,11 +9,11 @@ import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix, load_target_series_for_spec
+from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix, specs_from_selected_feature_ids
 
 from .sarimax_univariate import run_sarimax_forecast as run_sarimax_univariate
 
-from .design_matrix import build_train_and_future_exog_forecasted
+from .design_matrix import build_train_and_future_exog_forecasted, load_series_from_fact  # if importable; otherwise import at top
 from .backtest_utils import month_end_index
 from .xgb_shortlist import load_xgb_selected_feature_ids, resolve_anchor_for_live
 
@@ -119,13 +119,58 @@ def run_sarimax_exog(
                 f"(anchor={anchor_for_shortlist.date().isoformat()})"
             )
 
+        # Convert lag-level ids -> FeatureSpecs
+        selected_specs = specs_from_selected_feature_ids(feature_ids)
+        
+        # Dedupe base series so we don't load/forecast the same unlaged series repeatedly
+        # Key should match how your design_matrix loads base series: (metric_id, geo_id, property_type_id, source_id, name)
+        seen = set()
+        deduped_specs = []
+        for s in selected_specs:
+            k = (s.metric_id, s.geo_id, s.property_type_id, getattr(s, "source_id", None), s.name)
+            if k in seen:
+                continue
+            seen.add(k)
+            deduped_specs.append(s)
+        selected_specs = deduped_specs
+        
+        y_raw = load_series_from_fact(
+            metric_id=target.metric_id,
+            geo_id=target.geo_id,
+            property_type_id=target.property_type_id,
+        ).copy()
+        y_raw.index = month_end_index(y_raw.index)
+        y_raw = y_raw[~y_raw.index.duplicated(keep="last")].sort_index()
+        anchor_date = pd.Timestamp(y_raw.index.max())
+
         # 2) Build train + future exog (forecasted)
         #    This should mimic your backtest path (no cheating).
-        res = build_train_and_future_exog_forecasted(
+        y_full_raw, X_train_raw, X_future_fc, test_idx = build_train_and_future_exog_forecasted(
             target=target,
-            feature_ids=feature_ids,
+            feature_specs=selected_specs,
+            anchor_date=anchor_date,
             horizon=horizon_max_months,
+            method="seasonal_naive_else_last",
         )
+
+        missing_cols = [c for c in feature_ids if c not in X_train_raw.columns]
+        if missing_cols:
+            raise SystemExit(f"... {missing_cols[:10]}")
+        
+        X_train_sel = X_train_raw.loc[:anchor_date, feature_ids].copy()
+        X_train_sel = X_train_sel.reindex(y_full_raw.loc[:anchor_date].index)
+        
+        train_mask = y_full_raw.loc[:anchor_date].notna() & X_train_sel.notna().all(axis=1)
+        y_train = y_full_raw.loc[:anchor_date].loc[train_mask].copy()
+        X_train_sel = X_train_sel.loc[train_mask].copy()
+        
+        X_future_sel = X_future_fc.reindex(test_idx)[feature_ids].copy()
+
+        print("[sarimax_exog] sample feature_ids:", feature_ids[:5])
+        print("[sarimax_exog] sample X_train_raw cols:", list(X_train_raw.columns)[:5])
+        
+        missing_cols = [c for c in feature_ids if c not in X_train_raw.columns]
+        print("[sarimax_exog] missing selected cols:", len(missing_cols), missing_cols[:5])
 
         # Support either (y_train, X_train, X_future, meta) OR (y_train, X_train, X_future)
         if isinstance(res, tuple) and len(res) == 4:
