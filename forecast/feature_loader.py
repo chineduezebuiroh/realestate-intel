@@ -11,6 +11,8 @@ import pandas as pd
 from .backtest_utils import month_end_index
 from .feature_policy import default_policy
 
+from forecast.asof import normalize_month_end  # add import near top
+
 # ====================================================================
 # Shared types
 # ====================================================================
@@ -20,6 +22,8 @@ class TargetSpec:
     geo_id: str
     # For Redfin, this is '-1', '6', '13', etc. For non-Redfin, use None -> 'all'.
     property_type_id: Optional[str] = None
+    # NEW: optional as-of date (string like '2025-12-31' or None)
+    data_asof: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -135,7 +139,7 @@ def specs_from_selected_feature_ids(feature_ids: list[str]) -> list[FeatureSpec]
     return out
 
 
-def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
+def _target_expected_buckets(con, target: TargetSpec, data_asof: Optional[str] = None) -> Dict[str, int]:
     """
     Compute how many distinct bucket periods exist in the target timeline:
       - monthly buckets (months)
@@ -145,6 +149,7 @@ def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
     These are used to compute coverage ratios for features by native frequency.
     """
     pt_id = target.property_type_id if target.property_type_id is not None else "all"
+    asof = normalize_month_end(data_asof if data_asof is not None else target.data_asof)
 
     sql = """
     WITH target_series AS (
@@ -153,6 +158,7 @@ def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
       WHERE metric_id = ?
         AND geo_id = ?
         AND property_type_id = ?
+        AND (? IS NULL OR date <= ?)
     )
     SELECT
       COUNT(DISTINCT date_trunc('month', date))   AS n_months,
@@ -161,7 +167,7 @@ def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
     FROM target_series
     """
     n_months, n_quarters, n_years = con.execute(
-        sql, [target.metric_id, target.geo_id, pt_id]
+        sql, [target.metric_id, target.geo_id, pt_id, asof, asof]
     ).fetchone()
 
     # Defensive: never allow 0 denominators
@@ -176,9 +182,11 @@ def load_series_from_fact_with_source(
     geo_id: str,
     property_type_id: Optional[str],
     source_id: Optional[str],
+    data_asof: Optional[str] = None,   # NEW
 ) -> pd.Series:
     con = get_connection()
     pt_id = property_type_id if property_type_id is not None else "all"
+    asof = normalize_month_end(data_asof)
 
     if source_id:
         sql = """
@@ -188,9 +196,10 @@ def load_series_from_fact_with_source(
               AND geo_id = ?
               AND property_type_id = ?
               AND source_id = ?
+              AND (? IS NULL OR date <= ?)
             ORDER BY date
         """
-        df = con.execute(sql, [metric_id, geo_id, pt_id, source_id]).fetchdf()
+        df = con.execute(sql, [metric_id, geo_id, pt_id, source_id, asof, asof]).fetchdf()
     else:
         # legacy / fallback
         sql = """
@@ -199,9 +208,10 @@ def load_series_from_fact_with_source(
             WHERE metric_id = ?
               AND geo_id = ?
               AND property_type_id = ?
+              AND (? IS NULL OR date <= ?)
             ORDER BY date
         """
-        df = con.execute(sql, [metric_id, geo_id, pt_id]).fetchdf()
+        df = con.execute(sql, [metric_id, geo_id, pt_id, asof, asof]).fetchdf()
 
     con.close()
 
@@ -218,6 +228,7 @@ def load_series_from_fact(
     metric_id: str,
     geo_id: str,
     property_type_id: Optional[str],
+    data_asof: Optional[str] = None,   # NEW
 ) -> pd.Series:
     """
     Load a single series from fact_timeseries for a given (metric, geo, pt_id).
@@ -226,6 +237,7 @@ def load_series_from_fact(
     """
     con = get_connection()
     pt_id = property_type_id if property_type_id is not None else "all"
+    asof = normalize_month_end(data_asof)
 
     sql = """
         SELECT date, value
@@ -233,11 +245,12 @@ def load_series_from_fact(
         WHERE metric_id = ?
           AND geo_id = ?
           AND property_type_id = ?
+          AND (? IS NULL OR date <= ?)
         ORDER BY date
     """
-    con = get_connection()
+
     try:
-        df = con.execute(sql, [metric_id, geo_id, pt_id]).fetchdf()
+        df = con.execute(sql, [metric_id, geo_id, pt_id, asof, asof]).fetchdf()
     finally:
         con.close()
 
@@ -465,6 +478,7 @@ def discover_all_series_for_target(
     min_overlap: int = 72,
     exclude_metrics: Optional[List[str]] = None,
     policy=None,
+    data_asof: Optional[str] = None,   # NEW
 ) -> List[Tuple[str, str, str, str, str, str, float, int]]:
     """
     Return governed candidates with metadata:
@@ -481,9 +495,11 @@ def discover_all_series_for_target(
     exclude_metrics_set = set(exclude_metrics or [])
 
     con = get_connection()
-    expected = _target_expected_buckets(con, target)
+    expected = _target_expected_buckets(con, target, data_asof=asof)
 
     pt_id = target.property_type_id if target.property_type_id is not None else "all"
+    asof = normalize_month_end(data_asof if data_asof is not None else target.data_asof)
+
 
     sql = """
     WITH target_series AS (
@@ -492,6 +508,7 @@ def discover_all_series_for_target(
         WHERE metric_id = ?
           AND geo_id = ?
           AND property_type_id = ?
+          AND (? IS NULL OR date <= ?)
     ),
     joined AS (
         SELECT
@@ -510,6 +527,7 @@ def discover_all_series_for_target(
         FROM target_series t
         JOIN fact_timeseries b
           ON t.date = b.date
+         AND (? IS NULL OR b.date <= ?)
         LEFT JOIN dim_metric d
           ON b.metric_id = d.metric_id
     ),
@@ -532,7 +550,7 @@ def discover_all_series_for_target(
     ORDER BY metric_id, geo_id, property_type_id, source_id
     """
 
-    rows = con.execute(sql, [target.metric_id, target.geo_id, pt_id, int(min_overlap)]).fetchall()
+    rows = con.execute(sql, [target.metric_id, target.geo_id, pt_id, asof, asof, asof, asof, int(min_overlap)]).fetchall()
     con.close()
 
     out = []
