@@ -123,6 +123,7 @@ def run_sarimax_exog(
             anchor_date=anchor_for_shortlist,
             top_k=int(sarimax_max_exog),
         )
+        feature_ids_initial = list(feature_ids)  # snapshot before any gating
 
         if not feature_ids:
             raise SystemExit(
@@ -279,6 +280,16 @@ def run_sarimax_exog(
             "exog_backtest_type": "forecasted_exog",
             "label": label or "",
         }
+
+        algo_params["shortlist_info"] = {
+            "shortlist_anchor": str(anchor_for_shortlist.date()),
+            "n_shortlist": int(len(feature_ids_initial)),
+            "n_kept_final": int(len(feature_ids)),
+            "dropped_at_anchor": list(dropped_feature_ids),
+            "dropped_future_nan": list(bad_future),
+        }
+
+        algo_params["exog_forecast_method"] = "seasonal_naive_else_last"
 
         algo_params = store_selected_features_in_params(
             algo_params,
