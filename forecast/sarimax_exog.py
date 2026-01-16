@@ -164,7 +164,10 @@ def run_sarimax_exog(
 
 
         # --- Live viability filter: must have lag features available at anchor_date ---
-        anchor_row = X_train_raw.loc[anchor_date, feature_ids]  # will align columns that exist
+        if anchor_date not in X_train_raw.index:
+            raise SystemExit(f"[sarimax_exog] FAIL: anchor_date {anchor_date.date()} not in X_train_raw index.")
+        anchor_row = X_train_raw.loc[anchor_date, feature_ids]
+
         good = anchor_row.notna()
         
         kept_feature_ids = [c for c in feature_ids if c in good.index and bool(good.loc[c])]
@@ -198,12 +201,45 @@ def run_sarimax_exog(
 
         # Select future horizon exog (must be complete)
         X_future_sel = X_future_fc.reindex(test_idx)[feature_ids].copy()
+
+
+        # --- Gate: selected features must be feasible for the entire future horizon ---
+        bad_future = X_future_sel.columns[X_future_sel.isna().any(axis=0)].tolist()
+        
+        if bad_future:
+            keep = [c for c in feature_ids if c not in bad_future]
+        
+            print(
+                f"[sarimax_exog] shortlist features={len(feature_ids)} "
+                f"kept_future_feasible={len(keep)} dropped_future_nan={len(bad_future)}"
+            )
+            print(f"[sarimax_exog] dropped_future examples: {bad_future[:10]}")
+        
+            # Rebuild train/future matrices using only feasible columns
+            feature_ids = keep
+            X_train_sel = X_train_raw.loc[:anchor_date, feature_ids].copy()
+            X_train_sel = X_train_sel.reindex(y_full_raw.loc[:anchor_date].index)
+            
+            y_train_full = y_full_raw.loc[:anchor_date]
+            train_mask = y_train_full.notna() & X_train_sel.notna().all(axis=1)
+            y_train = y_train_full.loc[train_mask].copy()
+            
+            X_train_sel = X_train_sel.loc[train_mask].copy()
+        
+            X_future_sel = X_future_fc.reindex(test_idx)[feature_ids].copy()
+        
+        # Hard fail if we’re left with nothing useful
+        if len(feature_ids) == 0:
+            raise SystemExit("[sarimax_exog] FAIL: 0 future-feasible features after gating.")
+
+
+        # Final hard fail (should be impossible if future-feasibility gate worked)
         if X_future_sel.isna().any().any():
             bad_cols = X_future_sel.columns[X_future_sel.isna().any(axis=0)].tolist()
             first_bad_date = X_future_sel.index[X_future_sel.isna().any(axis=1)][0]
             raise SystemExit(
-                f"[sarimax_exog] FAIL: future exog has NaNs. bad_cols_count={len(bad_cols)} "
-                f"first_bad_date={first_bad_date.date()} example={bad_cols[:10]}"
+                f"[sarimax_exog] FAIL: future exog still has NaNs AFTER gating. "
+                f"bad_cols_count={len(bad_cols)} first_bad_date={first_bad_date.date()} example={bad_cols[:10]}"
             )
 
 
@@ -246,7 +282,7 @@ def run_sarimax_exog(
 
         algo_params = store_selected_features_in_params(
             algo_params,
-            selected_features=list(X_train.columns),  # lag-level actually used; identical to 'selected_features=list(feature_ids)'
+            selected_features=list(X_train_sel.columns),  # lag-level actually used; identical to 'selected_features=list(feature_ids)'
             selector_meta={
                 "method": "xgb_selected_features",
                 "xgb_batch_id": xgb_batch_id,
