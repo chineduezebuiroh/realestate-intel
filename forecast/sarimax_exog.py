@@ -9,10 +9,14 @@ import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix
-from .sarimax_redfin import run_sarimax_forecast as run_sarimax_univariate
+from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix, load_target_series_for_spec
+
+from .sarimax_univariate import run_sarimax_forecast as run_sarimax_univariate
+
 from .design_matrix import build_train_and_future_exog_forecasted
-from .feature_selection import load_xgb_selected_features  # you'll add this tiny helper, see below
+from .backtest_utils import month_end_index
+from .xgb_shortlist import load_xgb_selected_feature_ids, resolve_anchor_for_live
+
 
 from .db_forecast import (
     get_connection,
@@ -62,6 +66,7 @@ def run_sarimax_exog(
     data_asof: Optional[str] = None,  # YYYY-MM-DD
     run_kind: str = "live",           # e.g. live_near, live_outlook
     label: Optional[str] = None,      # e.g. "Near-term"
+    artifact_root: str = "runs",      # where XGB shortlist artifacts live
 ) -> int:
     """
     Live SARIMAX(exog).
@@ -87,16 +92,32 @@ def run_sarimax_exog(
     # PATH 1 (preferred): shortlist-driven, forecasted future exog
     # ------------------------------------------------------------
     if xgb_batch_id:
-        # 1) Load shortlist feature_ids (lag-level columns) from XGB batch
-        feature_ids = load_xgb_selected_features(
+        # 1) Resolve which anchor's shortlist to use for LIVE
+        #    Live train_end can be later than your last backtest anchor, so we pick the
+        #    closest available anchor <= train_end (or the latest available if none <=).
+        y_raw = load_target_series_for_spec(target).copy()
+        y_raw.index = month_end_index(y_raw.index)
+        y_raw = y_raw[~y_raw.index.duplicated(keep="last")].sort_index()
+        train_end = y_raw.index[-1]
+
+        anchor_for_shortlist = resolve_anchor_for_live(
+            artifact_root=artifact_root,
             xgb_batch_id=xgb_batch_id,
-            metric_id=metric_id,
-            geo_id=geo_id,
-            property_type_id=pt_id_str,
-            limit=sarimax_max_exog,
+            preferred_anchor=train_end,
         )
+
+        feature_ids = load_xgb_selected_feature_ids(
+            artifact_root=artifact_root,
+            xgb_batch_id=xgb_batch_id,
+            anchor_date=anchor_for_shortlist,
+            top_k=int(sarimax_max_exog),
+        )
+
         if not feature_ids:
-            raise SystemExit(f"[sarimax_exog] No selected features found for xgb_batch_id={xgb_batch_id}")
+            raise SystemExit(
+                f"[sarimax_exog] No selected features found for xgb_batch_id={xgb_batch_id} "
+                f"(anchor={anchor_for_shortlist.date().isoformat()})"
+            )
 
         # 2) Build train + future exog (forecasted)
         #    This should mimic your backtest path (no cheating).
@@ -181,28 +202,35 @@ def run_sarimax_exog(
             },
         )
 
+        con = get_connection()
         run_id = insert_run(
+            con=con,
             model_name="sarimax_exog",
             model_version="v2_live_shortlist",
-            run_kind=run_kind,
-            target=target,
+            target_metric_id=target.metric_id,
+            target_geo_id=target.geo_id,
+            target_property_type_id=target.property_type_id,
+            freq="M",
             train_start=pd.Timestamp(y_train.index[0]).date(),
             train_end=pd.Timestamp(y_train.index[-1]).date(),
             horizon_max_months=int(horizon_max_months),
             algo_params=algo_params,
-            batch_id=batch_id,
-            data_asof=data_asof_dt,
             notes=notes or f"SARIMAX(exog) live shortlist ({label or run_kind})",
             is_active=True,
+            run_kind=run_kind,
+            batch_id=batch_id,
+            data_asof=data_asof_dt,
         )
 
         insert_predictions(
-            run_id=run_id,
+            con=con,
+            run_id=int(run_id),
             target_dates=[d.date() for d in target_dates],
             y_hat=mean_fc,
             y_hat_lo=ci[:, 0],
             y_hat_hi=ci[:, 1],
         )
+        con.close()
 
         print(f"[sarimax_exog] Created live run_id={run_id} batch_id={batch_id} label={label or run_kind}")
         return int(run_id)
@@ -254,28 +282,35 @@ def run_sarimax_exog(
         "label": label or "",
     }
 
+    con = get_connection()
     run_id = insert_run(
+        con=con,
         model_name="sarimax_exog",
         model_version="v1_demo",
-        run_kind=run_kind,
-        target=target,
+        target_metric_id=target.metric_id,
+        target_geo_id=target.geo_id,
+        target_property_type_id=target.property_type_id,
+        freq="M",
         train_start=pd.Timestamp(y.index[0]).date(),
         train_end=pd.Timestamp(y.index[-1]).date(),
         horizon_max_months=int(horizon_max_months),
         algo_params=algo_params,
-        batch_id=batch_id,
-        data_asof=data_asof_dt,
         notes=notes or "SARIMAX(exog) demo carry-forward",
         is_active=True,
+        run_kind=run_kind,
+        batch_id=batch_id,
+        data_asof=data_asof_dt,
     )
 
     insert_predictions(
-        run_id=run_id,
+        con=con,
+        run_id=int(run_id),
         target_dates=[d.date() for d in target_dates],
         y_hat=mean_fc,
         y_hat_lo=ci[:, 0],
         y_hat_hi=ci[:, 1],
     )
+    con.close()
 
     print(f"[sarimax_exog] Created demo run_id={run_id} batch_id={batch_id}")
     return int(run_id)
