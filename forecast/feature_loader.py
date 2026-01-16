@@ -100,28 +100,40 @@ def parse_base_name(base: str) -> tuple[str, str, Optional[str], Optional[str]]:
     source_id = source_id if source_id not in ("", "None", "null") else None
     return metric_id, geo_id, pt_id, source_id
 
+
 def specs_from_selected_feature_ids(feature_ids: list[str]) -> list[FeatureSpec]:
-    by_base = {}
+    by_base: dict[tuple[str, str, str, str], set[int]] = {}
+
     for fid in feature_ids:
         spec = parse_feature_id_to_spec(fid)
-        key = (spec.metric_id, spec.geo_id, str(spec.property_type_id), str(spec.source_id or ""))
+
+        # Enforce your own invariant: base must be 4-part (metric__geo__pt__source)
+        if not spec.source_id:
+            raise ValueError(f"feature_id missing source_id (would break 4-part base): {fid}")
+
+        m = str(spec.metric_id)
+        g = str(spec.geo_id)
+        pt = str(spec.property_type_id)  # keep whatever encoding your IDs use (e.g. -1, all, etc.)
+        src = str(spec.source_id)
+
+        key = (m, g, pt, src)
         by_base.setdefault(key, set()).update(spec.lags)
 
-    out = []
-    for (m, g, pt, src), lags in by_base.items():
-        src_val = src if src != "" else None
-        name = f"{m}__{g}__{pt}" + (f"__{src_val}" if src_val else "")
+    out: list[FeatureSpec] = []
+    for (m, g, pt, src), lags in sorted(by_base.items()):
+        name = f"{m}__{g}__{pt}__{src}"  # ALWAYS 4-part
         out.append(
             FeatureSpec(
                 name=name,
                 metric_id=m,
                 geo_id=g,
                 property_type_id=pt,
-                source_id=src_val,
+                source_id=src,
                 lags=tuple(sorted(lags)),
             )
         )
     return out
+
 
 def _target_expected_buckets(con, target: TargetSpec) -> Dict[str, int]:
     """
