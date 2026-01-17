@@ -179,8 +179,20 @@ def build_train_and_future_exog_forecasted(
             source_id=spec.source_id,   # ✅ critical
             data_asof=target.data_asof,
         ).copy()
+
         s.index = month_end_index(s.index)
         s = s[~s.index.duplicated(keep="last")].sort_index()
+        
+        # Ensure continuous month-end index within observed span (fixes alignment holes)
+        obs_start = s.index.min()
+        obs_end   = s.index.max()
+        full_obs_idx = pd.date_range(obs_start, obs_end, freq="M")
+        full_obs_idx = pd.DatetimeIndex(month_end_index(pd.DatetimeIndex(full_obs_idx)))
+        s = s.reindex(full_obs_idx).ffill()
+        
+        if s.isna().any():
+            print(f"[exog_debug] still has NaNs after ffill: {spec.name} n_nan={int(s.isna().sum())}")
+        
         base_exog[spec.name] = s
 
     # -------------------------
