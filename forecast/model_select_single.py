@@ -14,7 +14,7 @@ BACKTEST_MODELS = ("sarimax_backtest", "sarimax_exog_backtest", "xgb_backtest")
 
 # Map backtest family -> live module runner
 PROMOTION_CMD = {
-    "sarimax_backtest":     ["python", "-m", "forecast.sarimax_redfin"],
+    "sarimax_backtest":     ["python", "-m", "forecast.sarimax_univariate"],
     "sarimax_exog_backtest":["python", "-m", "forecast.sarimax_exog"],
     "xgb_backtest":         ["python", "-m", "forecast.xgb_regressor"],
 }
@@ -230,19 +230,54 @@ def deactivate_live_runs(con: duckdb.DuckDBPyConnection, target: Target) -> int:
     return int(cnt)
 
 
-def promote_winner(winner_model_name: str, target: Target, horizon: int) -> None:
+def deactivate_live_runs_by_kind(con: duckdb.DuckDBPyConnection, target: Target, run_kind: str) -> None:
+    q = """
+    UPDATE forecast_runs
+    SET is_active = FALSE
+    WHERE target_metric_id = ?
+      AND target_geo_id = ?
+      AND target_property_type_id = ?
+      AND run_kind = ?
+      AND is_active = TRUE
+      AND model_name NOT LIKE '%backtest%';
+    """
+    con.execute(q, [target.metric_id, target.geo_id, target.property_type_id, run_kind])
+
+
+def promote_winner(
+    winner_model_name: str,
+    target: Target,
+    horizon: int,
+    run_kind: str,
+    data_asof: str,
+    xgb_batch_id: str | None = None,
+    label: str | None = None,
+) -> None:
     """
     Runs the appropriate live forecaster CLI for the winning family.
     """
     if winner_model_name not in PROMOTION_CMD:
         raise ValueError(f"No promotion command mapping for winner model: {winner_model_name}")
 
+
     cmd = PROMOTION_CMD[winner_model_name] + [
         "--metric_id", target.metric_id,
         "--geo_id", target.geo_id,
         "--property_type_id", target.property_type_id,
         "--horizon", str(horizon),
+        "--run_kind", run_kind,
+        "--data_asof", data_asof,
     ]
+    
+    if label:
+        cmd += ["--label", label]
+    
+    # Only sarimax_exog needs XGB shortlist
+    if winner_model_name == "sarimax_exog_backtest":
+        if not xgb_batch_id:
+            raise ValueError("--xgb_batch_id is required to promote sarimax_exog.")
+        cmd += ["--xgb_batch_id", xgb_batch_id]
+
 
     print(f"[select] Promoting winner by running:\n  {' '.join(cmd)}")
     subprocess.check_call(cmd)
@@ -259,6 +294,11 @@ def main():
     ap.add_argument("--batch_hours", type=int, default=6, help="How far back from latest created_at counts as same batch (per model).")
     ap.add_argument("--promote", action="store_true", help="Deactivate existing live models for this target and run the winning live forecaster.")
     ap.add_argument("--live_horizon", type=int, default=12, help="Horizon for the promoted live forecast.")
+    ap.add_argument("--run_kind", default=None, help="Run kind to promote into (e.g. live_near or live_outlook).")
+    ap.add_argument("--data_asof", default=None, help="Required for promotion; freezes data reads (YYYY-MM-DD).")
+    ap.add_argument("--xgb_batch_id", default=None, help="Required for sarimax_exog promotion; shortlist batch_id.")
+    ap.add_argument("--label", default=None, help="Optional label for promoted live run.")
+
 
     args = ap.parse_args()
 
@@ -337,25 +377,27 @@ def main():
         f"(score={scored.iloc[0]['score']:.4f} using {args.metric} @ horizons={horizons})"
     )
 
-    """
     if args.promote:
-        # flip existing live runs off, then run live forecast for winner
-        print("[select] Deactivating existing live runs for this target...")
-        deactivate_live_runs(con, target)
-        promote_winner(winner, target, horizon=args.live_horizon)
-        print("[select] Promotion complete.")
+        if not args.run_kind or args.run_kind not in ("live_near", "live_outlook"):
+            raise SystemExit("[select] --run_kind must be provided as live_near or live_outlook when promoting.")
+        if not args.data_asof:
+            raise SystemExit("[select] --data_asof is required when promoting.")
 
-    con.close()
-    """
-
-    if args.promote:
         print("[select] Deactivating existing live runs for this target...")
-        deactivate_live_runs(con, target)
+        deactivate_live_runs_by_kind(con, target, args.run_kind)
     
         # IMPORTANT: release DuckDB lock before spawning subprocess
         con.close()
     
-        promote_winner(winner, target, horizon=args.live_horizon)
+        promote_winner(
+            winner,
+            target,
+            horizon=args.live_horizon,
+            run_kind=args.run_kind,
+            data_asof=args.data_asof,
+            xgb_batch_id=args.xgb_batch_id,
+            label=args.label,
+        )
         print("[select] Promotion complete.")
         return
     
