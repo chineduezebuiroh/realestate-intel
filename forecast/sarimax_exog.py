@@ -291,6 +291,7 @@ def run_sarimax_exog(
         }
 
         algo_params["exog_forecast_method"] = "seasonal_naive_else_last"
+        algo_params["data_asof"] = args.data_asof
 
         algo_params = store_selected_features_in_params(
             algo_params,
@@ -440,6 +441,9 @@ if __name__ == "__main__":
     parser.add_argument("--batch_id", default=None)
     parser.add_argument("--data_asof", default=None, help="YYYY-MM-DD")
     parser.add_argument("--run_kind", default="live", help="e.g. live_near, live_outlook")
+    if getattr(args, "run_kind", None) in ("live_near", "live_outlook") and not args.data_asof:
+        raise ValueError("--data_asof is required for live_near/live_outlook to keep runs deterministic.")
+
     parser.add_argument("--label", default=None, help="Human label like 'Near-term' or '12-mo outlook'")
     parser.add_argument("--data_asof", type=str, default=None, help="Freeze data reads at month-end <= this date (YYYY-MM-DD).")
 
