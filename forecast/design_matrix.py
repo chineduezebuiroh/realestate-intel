@@ -207,6 +207,11 @@ def build_train_and_future_exog_forecasted(
     test_idx_full = test_idx_full[~test_idx_full.duplicated()].sort_values()
     max_lag = max((lag for spec in feature_specs for lag in spec.lags), default=0)
 
+    
+    print(f"[exog_debug] horizon={horizon} max_lag={max_lag} base_future_len={horizon + max_lag}")
+    print(f"[exog_debug] test_idx_full[-1]={test_idx_full[-1].date() if len(test_idx_full) else None}")
+
+
     # We'll build base exog values on: (train timeline up to anchor) + (future horizon + max_lag)
     train_end = pd.Timestamp(anchor_date)
     train_idx = y_raw.index[y_raw.index <= train_end]
