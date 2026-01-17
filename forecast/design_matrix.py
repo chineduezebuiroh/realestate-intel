@@ -205,14 +205,21 @@ def build_train_and_future_exog_forecasted(
     test_idx_full = pd.DatetimeIndex(month_ends_after(anchor_date, horizon))
     test_idx_full = pd.DatetimeIndex(month_end_index(test_idx_full))
     test_idx_full = test_idx_full[~test_idx_full.duplicated()].sort_values()
+    max_lag = max((lag for spec in feature_specs for lag in spec.lags), default=0)
 
-
-    # We'll build base exog values on: (train timeline up to anchor) + (future horizon)
+    # We'll build base exog values on: (train timeline up to anchor) + (future horizon + max_lag)
     train_end = pd.Timestamp(anchor_date)
     train_idx = y_raw.index[y_raw.index <= train_end]
-    full_idx = pd.DatetimeIndex(train_idx.append(test_idx_full))
+    
+    # Extend the base-series forecast window so lagged features remain populated through horizon
+    base_future_idx = pd.DatetimeIndex(month_ends_after(anchor_date, horizon + max_lag))
+    base_future_idx = pd.DatetimeIndex(month_end_index(base_future_idx))
+    base_future_idx = base_future_idx[~base_future_idx.duplicated()].sort_values()
+    
+    full_idx = pd.DatetimeIndex(train_idx.append(base_future_idx))
     full_idx = pd.DatetimeIndex(month_end_index(full_idx))
     full_idx = full_idx[~full_idx.duplicated()].sort_values()
+
 
     if method != "seasonal_naive_else_last":
         raise ValueError(f"Unknown exog forecast method: {method}")
@@ -259,6 +266,9 @@ def build_train_and_future_exog_forecasted(
 
     # Future design matrix = rows on the horizon only
     X_future_fc = X_full_future.reindex(test_idx_full)
+    
+    # Diagnostics: future NaN counts by feature (helps understand gating)
+    # print("[exog] future NaNs per col:", X_future_fc.isna().sum().sort_values(ascending=False).head(10).to_dict())
     
     # Return target (full), train features (full timeline), future features (horizon), and horizon index
     return y_raw, X_train_raw, X_future_fc, test_idx_full
