@@ -439,16 +439,14 @@ if __name__ == "__main__":
     parser.add_argument("--xgb_batch_id", default=None, help="Use XGB shortlist from this batch_id to choose exog.")
     parser.add_argument("--sarimax_max_exog", type=int, default=30)
     parser.add_argument("--batch_id", default=None)
-    parser.add_argument("--data_asof", default=None, help="YYYY-MM-DD")
     parser.add_argument("--run_kind", default="live", help="e.g. live_near, live_outlook")
-    if getattr(args, "run_kind", None) in ("live_near", "live_outlook") and not args.data_asof:
-        raise ValueError("--data_asof is required for live_near/live_outlook to keep runs deterministic.")
 
     parser.add_argument("--label", default=None, help="Human label like 'Near-term' or '12-mo outlook'")
     parser.add_argument("--data_asof", type=str, default=None, help="Freeze data reads at month-end <= this date (YYYY-MM-DD).")
 
-
     args = parser.parse_args()
+    if args.run_kind in ("live_near", "live_outlook") and not args.data_asof:
+        raise ValueError("--data_asof is required for live_near/live_outlook to keep runs deterministic.")
     pt_id = args.property_type_id
 
     feature_specs_cli: Optional[List[FeatureSpec]] = None
