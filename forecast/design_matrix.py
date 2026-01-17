@@ -160,6 +160,7 @@ def build_train_and_future_exog_forecasted(
         metric_id=target.metric_id,
         geo_id=target.geo_id,
         property_type_id=target.property_type_id,
+        data_asof=target.data_asof,
     ).copy()
 
     y_raw.index = month_end_index(y_raw.index)
@@ -176,6 +177,7 @@ def build_train_and_future_exog_forecasted(
             geo_id=spec.geo_id,
             property_type_id=spec.property_type_id,
             source_id=spec.source_id,   # ✅ critical
+            data_asof=target.data_asof,
         ).copy()
         s.index = month_end_index(s.index)
         s = s[~s.index.duplicated(keep="last")].sort_index()
