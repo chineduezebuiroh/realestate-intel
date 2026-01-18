@@ -1,4 +1,4 @@
-# transform/ces_to_fact.py
+# sources/bls_ces/validate.py
 import os, sys, csv, duckdb
 from collections import defaultdict
 from datetime import date
@@ -104,7 +104,7 @@ def main():
 
     # helpful hint
     print("\nHint: ensure expected series are enabled in config/geo_manifest.csv, "
-          "regenerate with ingest/ces_expand_spec.py, then re-run ces_api_bulk.py.")
+          "regenerate with python -m sources.ces.expand_spec, then re-run python -m sources.ces.ingest."
 
     con.close()
     sys.exit(2 if STRICT else 0)
