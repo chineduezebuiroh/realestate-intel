@@ -1,6 +1,22 @@
 # sources/fred_unemp/ingest.py
-"""
 
+import os
+from pathlib import Path
+from typing import Dict
+
+import duckdb
+import pandas as pd
+from dotenv import load_dotenv
+
+from core.dates import to_month_end_date
+
+try:
+    from fredapi import Fred
+except ImportError:
+    Fred = None
+
+
+"""
 Fetch unemployment rates from FRED for any geos configured in geo_manifest.csv:
 
 Expected geo_manifest columns:
@@ -15,19 +31,6 @@ Metric:
 Rows are written into fact_timeseries:
   geo_id, metric_id, date, property_type_id='all', value, source_id='fred'
 """
-
-import os
-from pathlib import Path
-from typing import Dict
-
-import duckdb
-import pandas as pd
-from dotenv import load_dotenv
-
-try:
-    from fredapi import Fred
-except ImportError:
-    Fred = None
 
 load_dotenv()
 
@@ -101,7 +104,7 @@ def fetch_monthly_unemp(series_id: str, fred: Fred) -> pd.DataFrame:
 
     # Just normalize the index → "date" column
     df = df.reset_index().rename(columns={"index": "date"})
-    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df["date"] = to_month_end_date(df["date"])
 
     return df[["date", "value"]]
 
