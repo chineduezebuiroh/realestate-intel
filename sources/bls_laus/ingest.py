@@ -473,31 +473,28 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
 
 
 if os.getenv("LAUS_PROBE_ONE"):
-    import json
-    sid = os.getenv("LAUS_PROBE_ONE")
+    sid = os.getenv("LAUS_PROBE_ONE").strip()
     print("[probe] will fetch", sid)
-    payload = {
-        "seriesid": [sid],
-        "startyear": "1976",
-        "endyear": str(date.today().year),
-        "annualaverage": True,
-    }
-    if BLS_KEY:
-        payload["registrationkey"] = BLS_KEY
-    print("[probe] payload:", json.dumps(payload))
 
-    r = requests.post(BLS_API, json=payload, timeout=60)
-    print("[probe] status", r.status_code)
-    r.raise_for_status()
-    j = r.json()
-    series = j.get("Results", {}).get("series", [])
-    if not series:
-        print("[probe] no series returned:", j)
-    else:
-        data = series[0].get("data", [])
-        years = sorted({int(d["year"]) for d in data if str(d.get("period","")).startswith("M")})
-        print("[probe] year span:", (min(years) if years else None), "→", (max(years) if years else None), "count:", len([1 for d in data if str(d.get("period","")).startswith("M")]))
+    # IMPORTANT: use the same code path as ingest (windowed fetch)
+    blocks = fetch_series([sid])   # <- this should now be windowed in your new code
+
+    if not blocks:
+        print("[probe] no series returned")
+        raise SystemExit(0)
+
+    data = blocks[0].get("data", [])
+    years = sorted({
+        int(d["year"])
+        for d in data
+        if str(d.get("period", "")).startswith("M") and str(d.get("year", "")).isdigit()
+    })
+
+    print("[probe] year span:", (min(years) if years else None), "→", (max(years) if years else None),
+          "count:", len([1 for d in data if str(d.get("period","")).startswith("M")]))
+
     raise SystemExit(0)
+
 
 
 
