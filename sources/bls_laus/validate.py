@@ -52,27 +52,6 @@ def _geos_from_cfg(cfg_path: str) -> list[str]:
     return sorted(geos)
 
 
-
-def load_expected_metric_ids():
-    """Read config/laus_series.csv and produce the set of expected metric_ids per geo."""
-    expected = defaultdict(set)  # geo_id -> {metric_id,...}
-    if not os.path.exists(CFG_PATH):
-        return expected
-    with open(CFG_PATH, newline="") as f:
-        for r in csv.DictReader(f):
-            if not r: continue
-            geo = (r.get("geo_id") or "").strip()
-            sid = (r.get("series_id") or "").strip()
-            if not geo or not sid or geo.startswith("#") or sid.startswith("#"):
-                continue
-            base = BASE_NAMES.get(tail(sid), (r.get("metric_base") or "").strip())
-            if base and not base.startswith("laus_"):
-                base = "laus_" + base
-            base = base or "laus_unemployment_rate"
-            sfx  = sfx_from_sid(sid)
-            expected[geo].add(f"{base}_{sfx}")
-    return expected
-
 def main():
     con = duckdb.connect(DB_PATH)
 
