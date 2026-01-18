@@ -422,9 +422,6 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids_needed):
 
 
 def is_truncated_series(s_block_entry, min_ok_year=2010) -> bool:
-    sid = (s_block_entry or {}).get("seriesID", "")
-    if _is_state_sid(sid):
-        return False  # we handle states via file fallback logic; never mark as truncated here
     monthly = [d for d in s_block_entry.get("data", []) if str(d.get("period","")).startswith("M")]
     if not monthly:
         return True
@@ -583,45 +580,8 @@ def main():
         print(f"[laus] fetching {len(chunk)} series…")
         series_block = fetch_series_any(chunk)
 
-        # Filter out legacy/truncated SIDs so we don't insert 1990–1995 junk.
-        # BUT: for state SIDs (LAUST*/LASST*), never drop — replace from files if needed.
-        filtered_block = []
-        for s in series_block:
-            sid = s["seriesID"]
-
-            # Always protect state-level series
-            if _is_state_sid(sid):
-                if is_truncated_series(s, min_ok_year=2010):
-                    try:
-                        fb = fetch_lau_from_files([sid])
-                        if fb and _max_year_from_block_entry(fb[0]) >= 2010:
-                            print(f"[laus] replaced truncated API block for {sid} with file-backed history (state).")
-                            s = fb[0]  # use long file-backed block
-                        else:
-                            # Even state files missing? Very unlikely, but just log.
-                            print(f"[laus] WARNING: state {sid} still looks truncated and no long file history found — keeping as-is.")
-                    except FileNotFoundError:
-                        print(f"[laus] WARNING: state {sid} file fallback unavailable — keeping API block as-is.")
-                filtered_block.append(s)
-                continue
-
-            # Non-state series: skip truly legacy if we can't fix from files
-            if is_truncated_series(s, min_ok_year=2010):
-                try:
-                    fb = fetch_lau_from_files([sid])
-                    if fb and _max_year_from_block_entry(fb[0]) >= 2010:
-                        print(f"[laus] replaced truncated API block for {sid} with file-backed history.")
-                        s = fb[0]
-                        filtered_block.append(s)
-                    else:
-                        print(f"[laus] SKIP legacy/truncated {sid} (max_year<{2010}) — not inserting; use MSA/state for coverage.")
-                except FileNotFoundError:
-                    print(f"[laus] SKIP legacy/truncated {sid} (no file fallback available).")
-                continue  # handled in this branch
-
-            # Healthy non-state
-            filtered_block.append(s)
-
+        # fetch_series_any() already does API-first with file fallback for missing/short.
+        filtered_block = series_block
 
 
         # Log counts on kept series
