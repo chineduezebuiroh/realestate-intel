@@ -202,10 +202,11 @@ refresh-ces: venv
 
 # 🔁 LAUS
 refresh-laus: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/laus_expand_spec.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/laus_api_bulk.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) transform/laus_to_fact.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.bls_laus.expand_spec
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.bls_laus.ingest
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.bls_laus.validate
 	@echo "✅ Refreshed LAUS → $(FULL_DB)"
+
 
 # 🔁 Census ACS (adjust script names if different in your repo)
 refresh-census-acs: venv
