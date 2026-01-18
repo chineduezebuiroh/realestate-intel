@@ -1,7 +1,5 @@
-#!/usr/bin/env python
+# sources/fred_macro/ingest.py
 """
-ingest/fred_macro_api.py
-
 Unified FRED ingest that loads macro time series directly into DuckDB fact_timeseries.
 
 Pulls (US-level only):
