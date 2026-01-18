@@ -1,4 +1,4 @@
-# ingest/laus_api_bulk.py
+# sources/bls_laus/ingest.py
 import os, json, time, csv
 import requests
 import pandas as pd
