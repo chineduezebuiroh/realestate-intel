@@ -247,6 +247,16 @@ def build_train_and_future_exog_forecasted(
         # Put series onto the full index (train+future). Future starts as NaN.
         s_full = s.reindex(full_idx)
 
+        # --- NEW: ensure base exog is defined through train_end (anchor) ---
+        # Some sources lag by 1+ months versus the target. If anchor is NaN, lag12 features
+        # will be NaN forever. We carry-forward within the TRAIN portion up to train_end.
+        train_mask = (s_full.index <= train_end)
+        if train_mask.any():
+            s_train = s_full.loc[train_mask]
+            if s_train.isna().any():
+                s_full.loc[train_mask] = s_train.ffill()
+
+
         # Fill forward month-by-month across the FUTURE portion only
         # Rule: for month t in future:
         #   if value at (t-12) exists and is not NaN -> use it
