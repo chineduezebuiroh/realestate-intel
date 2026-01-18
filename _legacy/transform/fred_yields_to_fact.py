@@ -1,4 +1,4 @@
-# transform/fred_yields_to_fact.py
+# _legacy/transform/fred_yields_to_fact.py
 import os
 import duckdb
 import pandas as pd
