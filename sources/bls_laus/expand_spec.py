@@ -1,4 +1,4 @@
-# ingest/laus_expand_spec.py
+# sources/bls_laus/expand_spec.py
 import csv, sys, os, time, re
 from pathlib import Path
 
