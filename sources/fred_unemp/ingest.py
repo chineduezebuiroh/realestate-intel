@@ -266,6 +266,13 @@ def main():
     WHERE geo_id NOT IN (SELECT geo_id FROM dim_market);
     """)
 
+    # 🔁 Clear existing unemployment slice so date-normalization changes don't leave ghosts
+    con.execute("""
+        DELETE FROM fact_timeseries
+        WHERE source_id = ?
+          AND metric_id = ?;
+    """, [SOURCE_ID, UNEMP_METRIC_ID])
+
     ensure_dims(con)
     upsert_fact(con, all_df)
 
