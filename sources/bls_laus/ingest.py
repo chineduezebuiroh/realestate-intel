@@ -13,6 +13,7 @@ from io import StringIO
 
 import time
 import requests
+from glob import glob
 
 # Where ensure_bls_files() writes the flat files
 BLS_DIR = Path("config/bls")
@@ -21,11 +22,6 @@ BLS_DIR = Path("config/bls")
 REMAP_STALE = bool(int(os.getenv("LAUS_REMAP", "0")))
 
 LA_SERIES_URL = "https://download.bls.gov/pub/time.series/la/la.series"
-
-
-
-from glob import glob
-
 
 
 def _max_year_from_block_entry(b: dict) -> int:
@@ -117,11 +113,9 @@ def fetch_series_any(series_ids: list[str]) -> list[dict]:
         if sid not in have or _looks_short(blocks, sid, min_ok_year=2010)
     ]
 
-    # 🔧 Force states (LASST… + LAUST…) to come from files (API often returns truncated)
-    state_sids = [sid for sid in series_ids if sid.startswith(("LASST", "LAUST"))]
-    for sid in state_sids:
-        if sid not in missing_or_short:
-            missing_or_short.append(sid)
+    # After windowed API, do NOT force state fallback.
+    # Keep file fallback only for truly missing/short series.
+
 
     if missing_or_short:
         try:
@@ -292,26 +286,55 @@ def make_metric_id(base_metric: str, seasonal: str) -> str:
     return normalize_base_metric(base_metric) + tag
 
 
-from datetime import date
-def fetch_series(series_ids):
-    payload = {
-        "seriesid": series_ids,
-        "startyear": "1976",
-        "endyear": str(date.today().year),
-        "annualaverage": True,   # <-- include annual averages (M13)
-    }
+def fetch_series(series_ids: list[str]) -> list[dict]:
+    """
+    Call BLS timeseries endpoint in multiple ~20-year windows
+    and merge results per seriesID.
+    """
+    all_by_sid: dict[str, dict] = {}
+
     if BLS_KEY:
-        payload["registrationkey"] = BLS_KEY
         print(f"[laus] using BLS key: yes (len={len(BLS_KEY)})")
     else:
         print("[laus] using BLS key: no (public quota)")
 
-    r = requests.post(BLS_API, json=payload, timeout=60)
-    r.raise_for_status()
-    data = r.json()
-    if data.get("status") != "REQUEST_SUCCEEDED":
-        raise RuntimeError(f"BLS error: {data}")
-    return data["Results"]["series"]
+    current_year = date.today().year
+    start_year = 1976
+    window_span = 20
+
+    year_ranges: list[tuple[str, str]] = []
+    y = start_year
+    while y <= current_year:
+        end = min(y + window_span - 1, current_year)
+        year_ranges.append((str(y), str(end)))
+        y += window_span
+
+    for startyear, endyear in year_ranges:
+        payload = {
+            "seriesid": series_ids,
+            "startyear": startyear,
+            "endyear": endyear,
+            "annualaverage": True,
+        }
+        if BLS_KEY:
+            payload["registrationkey"] = BLS_KEY
+
+        print(f"[laus] requesting window {startyear}–{endyear} for {len(series_ids)} series …")
+        r = requests.post(BLS_API, json=payload, timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        if data.get("status") != "REQUEST_SUCCEEDED":
+            raise RuntimeError(f"BLS error for {startyear}-{endyear}: {data}")
+
+        for s in data.get("Results", {}).get("series", []):
+            sid = s.get("seriesID")
+            if not sid:
+                continue
+            if sid not in all_by_sid:
+                all_by_sid[sid] = {"seriesID": sid, "data": []}
+            all_by_sid[sid]["data"].extend(s.get("data", []))
+
+    return list(all_by_sid.values())
 
 
 def to_df(series_block, sid_to_rowmeta):
