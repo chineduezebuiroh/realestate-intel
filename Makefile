@@ -224,11 +224,15 @@ refresh-bea: venv
 	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/bea_gdp_qtr_api.py
 	@echo "✅ Refreshed BEA GDP → $(FULL_DB)"
 
-# 🔁 FRED (macro + unemployment) – adjust to match actual scripts
-refresh-fred: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_macro_api.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/fred_unemployment_api.py
-	@echo "✅ Refreshed FRED → $(FULL_DB)"
+# 🔁 FRED Macro: ingest (includes derived spreads inside)
+refresh-fred-macro: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.fred_macro.ingest
+	@echo "✅ Refreshed FRED Macro → $(FULL_DB)"
+
+# 🔁 FRED Unemployment: ingest
+refresh-fred-unemp: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.fred_unemp.ingest
+	@echo "✅ Refreshed FRED Unemp → $(FULL_DB)"
 
 # 🔁 Everything (if you want a single "full refresh" button)
 refresh-all: refresh-redfin refresh-ces refresh-laus refresh-census-acs refresh-census-permits refresh-bea refresh-fred
