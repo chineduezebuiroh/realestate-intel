@@ -429,21 +429,24 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
           )
     )
 
-    con.register("df_stage", df[["geo_id","metric_id","date","property_type_id","value","source_id"]])
+    # right before con.register("df_stage", ...)
+    keys = df[["geo_id","metric_id","property_type_id","source_id"]].drop_duplicates()
+    con.register("laus_keys", keys)
     con.execute("""
-    DELETE FROM fact_timeseries AS f
-    WHERE EXISTS (
-      SELECT 1 FROM df_stage s
-      WHERE s.geo_id=f.geo_id AND s.metric_id=f.metric_id
-        AND s.date=f.date AND s.property_type_id=f.property_type_id
-    )
+    DELETE FROM fact_timeseries f
+    USING laus_keys k
+    WHERE f.geo_id=k.geo_id
+      AND f.metric_id=k.metric_id
+      AND f.property_type_id=k.property_type_id
+      AND f.source_id=k.source_id;
     """)
+
+    con.register("df_stage", df[["geo_id","metric_id","date","property_type_id","value","source_id"]])
     con.execute("""
     INSERT INTO fact_timeseries(geo_id,metric_id,date,property_type_id,value,source_id)
     SELECT geo_id,metric_id,date,property_type_id,CAST(value AS DOUBLE),source_id
     FROM df_stage
     """)
-
 
 
 if os.getenv("LAUS_PROBE_ONE"):
