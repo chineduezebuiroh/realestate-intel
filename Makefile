@@ -192,12 +192,13 @@ refresh-redfin: venv
 	@echo "✅ Refreshed Redfin → $(FULL_DB)"
 
 
-# 🔁 CES: expand spec, bulk API fetch, transform
+# 🔁 CES: expand spec, bulk API fetch, validate
 refresh-ces: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/ces_expand_spec.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/ces_api_bulk.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) transform/ces_to_fact.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.bls_ces.expand_spec
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.bls_ces.ingest
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.bls_ces.validate
 	@echo "✅ Refreshed CES → $(FULL_DB)"
+
 
 # 🔁 LAUS
 refresh-laus: venv
