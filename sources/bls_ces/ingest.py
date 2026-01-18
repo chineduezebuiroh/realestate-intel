@@ -1,4 +1,4 @@
-# ingest/ces_api_bulk.py
+# sources/bls_ces/ingest.py
 import os, csv, time, json
 from pathlib import Path
 from datetime import date
@@ -21,8 +21,9 @@ FILTER_GEOS = set(
               if os.getenv("CES_FILTER_GEOS") else [])
 )
 
-# ---------- helpers ----------
-
+# ================================================== 
+# ---------- Helpers ----------
+# ================================================== 
 def seasonal_suffix_from_sid(series_id: str) -> str:
     """SMS* => SA, SMU* => NSA."""
     s = (series_id or "").upper().strip()
@@ -32,12 +33,6 @@ def seasonal_suffix_from_sid(series_id: str) -> str:
         return "nsa"
     # Default conservative
     return "nsa"
-
-"""
-def metric_id_from_row(metric_base: str, seasonal_tag: str) -> str:
-    sfx = "_sa" if (seasonal_tag or "").lower() == "sa" else "_nsa"
-    return metric_base + sfx
-"""
 
 
 def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids: list[str]):
@@ -108,31 +103,6 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
     """)
 
 
-"""
-def fetch_series(series_ids: list[str]) -> list[dict]:
-    #Call BLS timeseries endpoint. Include annualaverage=True then drop M13 later.
-    payload = {
-        "seriesid": series_ids,
-        "startyear": "2000",                # CES typically starts ~1990/1991 for locals
-        "endyear": str(date.today().year),
-        "annualaverage": True,
-    }
-    if BLS_KEY:
-        payload["registrationkey"] = BLS_KEY
-        print(f"[ces] using BLS key: yes (len={len(BLS_KEY)})")
-    else:
-        print("[ces] using BLS key: no (public quota)")
-
-    r = requests.post(BLS_API, json=payload, timeout=60)
-    r.raise_for_status()
-    j = r.json()
-    if j.get("status") != "REQUEST_SUCCEEDED":
-        raise RuntimeError(f"BLS error: {j}")
-    return j["Results"]["series"]
-"""
-
-
-
 def fetch_series(series_ids: list[str]) -> list[dict]:
     """
     Call BLS timeseries endpoint in multiple non-overlapping ~20-year windows
@@ -195,8 +165,6 @@ def fetch_series(series_ids: list[str]) -> list[dict]:
     return list(all_by_sid.values())
 
 
-
-
 def to_df(series_block: list[dict], sid_to_meta: dict) -> pd.DataFrame:
     rows = []
     for s in series_block:
@@ -251,37 +219,11 @@ def main():
     print("[ces] START ces_api_bulk")
 
     if not GEN_PATH.exists():
-        raise SystemExit("[ces] missing config/ces_series.generated.csv — run ces_expand_spec.py first.")
+        raise SystemExit("[ces] missing config/ces_series.generated.csv — run bls_ces/expand_spec.py first.")
 
     # Read the generated CES config and prepare series/meta
     rows, series_ids = [], []
     sid_to_meta = {}
-    """
-    with GEN_PATH.open(newline="", encoding="utf-8") as f:
-        rdr = csv.DictReader(f)
-        for r in rdr:
-            if not r: continue
-            sid   = (r.get("series_id") or "").strip()
-            geo   = (r.get("geo_id") or "").strip()
-            if not sid or not geo:
-                continue
-            if FILTER_GEOS and geo.lower() not in FILTER_GEOS:
-                continue
-
-            # prefer seasonal from series_id, fallback to CSV
-            sfx = seasonal_suffix_from_sid(sid)
-            if sfx not in ("sa","nsa"):
-                sfx = (r.get("seasonal") or "NSA").strip().lower()
-
-            mid = metric_id_from_row("SA" if sfx=="sa" else "NSA")
-
-            series_ids.append(sid)
-            sid_to_meta[sid] = {
-                "geo_id": geo,
-                "metric_id": mid,
-            }
-            rows.append(r)
-    """
 
     with GEN_PATH.open(newline="", encoding="utf-8") as f:
         rdr = csv.DictReader(f)
@@ -345,8 +287,7 @@ def main():
     # 🔁 Always start with a clean CES slice in fact_timeseries
     con.execute("""
         DELETE FROM fact_timeseries
-        WHERE source_id = 'ces'
-           OR metric_id LIKE 'ces_%';
+        WHERE source_id = 'ces';
     """)
     print("[ces] cleared existing CES rows from fact_timeseries")
 
