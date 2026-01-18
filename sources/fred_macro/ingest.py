@@ -1,4 +1,20 @@
 # sources/fred_macro/ingest.py
+
+import os
+from pathlib import Path
+from typing import Dict
+
+import duckdb
+import pandas as pd
+from dotenv import load_dotenv
+
+from core.dates import to_month_end_index
+
+try:
+    from fredapi import Fred
+except ImportError:
+    Fred = None
+
 """
 Unified FRED ingest that loads macro time series directly into DuckDB fact_timeseries.
 
@@ -28,19 +44,6 @@ Pulls (US-level only):
 All series are written as:
   geo_id, metric_id, date, property_type_id='all', value, source_id='fred'
 """
-
-import os
-from pathlib import Path
-from typing import Dict
-
-import duckdb
-import pandas as pd
-from dotenv import load_dotenv
-
-try:
-    from fredapi import Fred
-except ImportError:
-    Fred = None
 
 # -------------------------------------------------------------------
 # Config
@@ -188,11 +191,6 @@ def get_fred_client() -> Fred | None:
         print("[fred] FRED_API_KEY not set; skipping FRED macro ingest.")
         return None
     return Fred(api_key=FRED_API_KEY)
-
-
-def to_month_end_index(idx: pd.Index) -> pd.DatetimeIndex:
-    dt = pd.to_datetime(idx).tz_localize(None)
-    return dt.to_period("M").to_timestamp("M")
 
 
 def fetch_monthly_avg(series_id: str, fred: Fred) -> pd.DataFrame:
