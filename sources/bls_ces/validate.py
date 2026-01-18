@@ -105,6 +105,7 @@ def main():
     # helpful hint
     print("\nHint: ensure expected series are enabled in config/geo_manifest.csv, "
           "regenerate with python -m sources.ces.expand_spec, then re-run python -m sources.ces.ingest."
+    )
 
     con.close()
     sys.exit(2 if STRICT else 0)
