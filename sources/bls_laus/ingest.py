@@ -98,40 +98,6 @@ def fetch_lau_from_files(series_ids: list[str]) -> list[dict]:
     return out
 
 
-
-#def fetch_series_any(series_ids: list[str]) -> list[dict]:
-    """
-    blocks: list[dict] = []
-    have: set[str] = set()
-
-    # 1) API path
-    try:
-        api_blocks = fetch_series(series_ids)
-        blocks.extend(api_blocks)
-        have = {b.get("seriesID") for b in api_blocks if b.get("seriesID")}
-    except Exception as e:
-        print(f"[laus] API fetch error (will fallback to files): {e}")
-        have = set()
-
-    # 2) File fallback for MISSING or SHORT SIDs
-    missing_or_short = [
-        sid for sid in series_ids
-        if sid not in have or _looks_short(blocks, sid, min_ok_year=2010)
-    ]
-    if missing_or_short:
-        try:
-            file_blocks = fetch_lau_from_files(missing_or_short)
-            # replace any existing entries for those SIDs with the file-backed ones
-            replace = set(missing_or_short)
-            keep = [b for b in blocks if b.get("seriesID") not in replace]
-            blocks = keep + file_blocks
-            print(f"[laus] filled {len(file_blocks)} missing/short series from local LAU files.")
-        except FileNotFoundError as e:
-            print(f"[laus] File fallback unavailable: {e}")
-
-    return blocks
-    """
-
 def fetch_series_any(series_ids: list[str]) -> list[dict]:
     blocks: list[dict] = []
     have: set[str] = set()
@@ -171,7 +137,6 @@ def fetch_series_any(series_ids: list[str]) -> list[dict]:
     return blocks
 
 
-
 def _max_year_from_block(series_block) -> int:
     years = []
     for s in series_block or []:
@@ -182,7 +147,6 @@ def _max_year_from_block(series_block) -> int:
                 except:
                     pass
     return max(years) if years else -1
-
 
 
 def choose_latest_series(la_series_df, area_code, measure_code, seasonal, allow_sa_to_nsa_fallback=True):
@@ -211,14 +175,12 @@ def choose_latest_series(la_series_df, area_code, measure_code, seasonal, allow_
     return latest["series_id"]
 
 
-
 def _norm_area_name(x: str) -> str:
     x = (x or "").lower()
     x = x.replace(" city,", ",").replace(" county,", ",")
     x = x.replace(" city", "").replace(" county", "")
     return " ".join(x.split())
     
-
 
 def needs_refresh(n_rows: int, first_date: pd.Timestamp | None, last_date: pd.Timestamp | None) -> bool:
     # You already added a detector; keep your logic.
@@ -229,34 +191,12 @@ def needs_refresh(n_rows: int, first_date: pd.Timestamp | None, last_date: pd.Ti
     return False
 
 
-
-#def _looks_short(blocks: list[dict], sid: str) -> bool:
-    """
-    Return True if the block for sid looks truncated (e.g., ends in the 1990s).
-    """
-    """
-    for b in blocks:
-        if b.get("seriesID") != sid:
-            continue
-        months = [d for d in b.get("data", []) if str(d.get("period","")).startswith("M")]
-        if not months:
-            return True
-        try:
-            max_year = max(int(d["year"]) for d in months if d.get("year"))
-        except Exception:
-            return True
-        return max_year < 2000  # tweak if you want stricter logic
-    # no block found -> short
-    return True
-    """
-
 def _looks_short(blocks: list[dict], sid: str, min_ok_year: int = 2010) -> bool:
     for b in blocks:
         if b.get("seriesID") == sid:
             return _max_year_from_block_entry(b) < min_ok_year
     # if we didn’t even get a block for the sid, treat as short/missing
     return True
-
 
 
 def detect_stale_series(series_block):
@@ -277,7 +217,6 @@ def detect_stale_series(series_block):
     return out
 
 
-
 def suffix_from_sid(series_id: str) -> str:
     sid = (series_id or "").upper().strip()
     # Any 'LAS' prefix => Seasonally Adjusted; any 'LAU' => Not Seasonally Adjusted
@@ -288,12 +227,10 @@ def suffix_from_sid(series_id: str) -> str:
     return "nsa"
 
 
-
 def _is_state_sid(sid: str) -> bool:
     """True if this is a state-level series (NSA=LAUST…, SA=LASST…)."""
     sid = (sid or "").upper()
     return sid.startswith("LAUST") or sid.startswith("LASST")
-
 
 
 def base_from_sid(series_id: str) -> str:
@@ -306,6 +243,7 @@ def base_from_sid(series_id: str) -> str:
         "006": "laus_labor_force",
     }.get(tail, "laus_unemployment_rate")
 
+
 def sfx_from_csv(seasonal: str) -> str:
     v = (seasonal or "").strip().upper()
     if v in ("SA","S"): return "sa"
@@ -316,7 +254,6 @@ def sfx_from_csv(seasonal: str) -> str:
 BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
 DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
-
 
 
 def seasonal_suffix(series_id: str, seasonal_field: str | None) -> str:
@@ -331,7 +268,6 @@ def seasonal_suffix(series_id: str, seasonal_field: str | None) -> str:
     if sid.startswith("LAU"):
         return "nsa"
     return "nsa"
-
 
 
 # ---- seasonal + metric id helpers ----
@@ -356,7 +292,6 @@ def make_metric_id(base_metric: str, seasonal: str) -> str:
     return normalize_base_metric(base_metric) + tag
 
 
-
 from datetime import date
 def fetch_series(series_ids):
     payload = {
@@ -377,7 +312,6 @@ def fetch_series(series_ids):
     if data.get("status") != "REQUEST_SUCCEEDED":
         raise RuntimeError(f"BLS error: {data}")
     return data["Results"]["series"]
-
 
 
 def to_df(series_block, sid_to_rowmeta):
@@ -436,7 +370,6 @@ def to_df(series_block, sid_to_rowmeta):
     return pd.DataFrame(rows)
 
 
-
 def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids_needed):
     # Source (idempotent)
     con.execute("""
@@ -465,11 +398,6 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids_needed):
         """, [mid, name, unit, cat, mid])
 
 
-
-import pandas as pd
-
-
-
 def is_truncated_series(s_block_entry, min_ok_year=2010) -> bool:
     sid = (s_block_entry or {}).get("seriesID", "")
     if _is_state_sid(sid):
@@ -486,7 +414,6 @@ def is_truncated_series(s_block_entry, min_ok_year=2010) -> bool:
     if not years:
         return True
     return max(years) < min_ok_year
-
 
 
 def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
