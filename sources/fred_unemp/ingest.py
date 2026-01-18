@@ -1,6 +1,5 @@
-#!/usr/bin/env python
+# sources/fred_unemp/ingest.py
 """
-ingest/fred_unemployment_api.py
 
 Fetch unemployment rates from FRED for any geos configured in geo_manifest.csv:
 
