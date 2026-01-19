@@ -119,14 +119,24 @@ def resolve_asof(
     """
     if source_max_dates:
         global_asof = min(source_max_dates.values())
+        # Coerce pandas.Timestamp -> datetime.date
+        if hasattr(global_asof, "date"):
+            global_asof = global_asof.date()
     else:
         global_asof = None
 
     if policy == "global_min":
         return AsOfResolution(global_asof=global_asof, asof_by_source={})
 
-    # per_source
-    return AsOfResolution(global_asof=global_asof, asof_by_source=dict(source_max_dates))
+    # per_source (also coerce any Timestamp values defensively)
+    asof_by_source = {}
+    for k, v in source_max_dates.items():
+        if v is None:
+            continue
+        asof_by_source[k] = v.date() if hasattr(v, "date") else v
+
+    return AsOfResolution(global_asof=global_asof, asof_by_source=asof_by_source)
+
 
 
 def resolve_targetspec_asof(
