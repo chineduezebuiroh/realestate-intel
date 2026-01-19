@@ -3,6 +3,7 @@
 import os
 import json
 from typing import Optional, List, Dict, Tuple
+from datetime import date
 
 import duckdb
 import numpy as np
@@ -16,7 +17,7 @@ from .sarimax_univariate import run_sarimax_forecast as run_sarimax_univariate
 from .design_matrix import build_train_and_future_exog_forecasted, load_series_from_fact  # if importable; otherwise import at top
 from .backtest_utils import month_end_index
 from .xgb_shortlist import load_xgb_selected_feature_ids, resolve_anchor_for_live
-
+from .asof_policy import resolve_asof
 
 from .db_forecast import (
     get_connection,
@@ -25,6 +26,7 @@ from .db_forecast import (
     insert_predictions,
     store_selected_features_in_params,
 )
+
 
 # -----------------------------------------
 # Core: SARIMAX with exogenous regressors
@@ -81,24 +83,47 @@ def run_sarimax_exog(
     """
     pt_id_str = str(property_type_id) if property_type_id is not None else None
 
-    target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=pt_id_str, data_asof=args.data_asof)
+    # normalize to date (or None)
+    data_asof_dt = pd.to_datetime(data_asof).date() if data_asof else None
+    
+    target = TargetSpec(
+        metric_id=metric_id,
+        geo_id=geo_id,
+        property_type_id=pt_id_str,
+        data_asof=data_asof_dt,
+    )
 
     # Batch / asof normalization
     batch_id = batch_id or new_batch_id()
-    # data_asof can be None; insert_run can store NULL. But you should pass it for determinism.
-    data_asof_dt = pd.to_datetime(data_asof).date() if data_asof else None
 
     # ------------------------------------------------------------
     # PATH 1 (preferred): shortlist-driven, forecasted future exog
     # ------------------------------------------------------------
     if xgb_batch_id:
+        con = get_connection()
+
+        # If caller passed --data_asof, that is the request.
+        # resolve_asof will clamp to month-end and/or to available data as needed.
+        data_asof_dt, asof_by_source = resolve_asof(
+            con=con,
+            target=target,
+            feature_specs=None,              # we'll resolve again after shortlist load
+            requested_asof=data_asof_dt,     # you may need to add this param to resolve_asof if missing
+            mode="global_min",
+        )
+        
+        # push resolved values back into the TargetSpec
+        target.data_asof = data_asof_dt
+        target.asof_by_source = asof_by_source
+
         # 1) Load target once (defines live train_end)
         y_raw = load_series_from_fact(
             metric_id=target.metric_id,
             geo_id=target.geo_id,
             property_type_id=target.property_type_id,
-            data_asof=args.data_asof,
+            data_asof=target.data_asof,
         ).copy()
+
         y_raw.index = month_end_index(y_raw.index)
         y_raw = y_raw[~y_raw.index.duplicated(keep="last")].sort_index()
 
@@ -146,6 +171,17 @@ def run_sarimax_exog(
             deduped_specs.append(s)
         selected_specs = deduped_specs
 
+        # Now that we know the actual exog sources, resolve asof deterministically
+        data_asof_dt, asof_by_source = resolve_asof(
+            con=con,
+            target=target,
+            feature_specs=selected_specs,
+            requested_asof=target.data_asof,
+            mode="global_min",
+        )
+        target.data_asof = data_asof_dt
+        target.asof_by_source = asof_by_source
+
 
         # Build lagged train/future exog (raw, NaNs allowed)
         y_full_raw, X_train_raw, X_future_fc, test_idx = build_train_and_future_exog_forecasted(
@@ -154,6 +190,8 @@ def run_sarimax_exog(
             anchor_date=anchor_date,
             horizon=horizon_max_months,
             method="seasonal_naive_else_last",
+            data_asof=target.data_asof,
+            asof_by_source=target.asof_by_source,
         )
 
         # Validate shortlist columns exist
