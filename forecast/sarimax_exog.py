@@ -113,17 +113,6 @@ def run_sarimax_exog(
                 mode="global_min",
             )
             """
-            # clamp requested_asof to what's actually available under the policy
-            requested = data_asof_dt
-            effective_asof = min(requested, res.global_asof) if (requested and res.global_asof) else (requested or res.global_asof)
-            
-            target.data_asof = effective_asof
-            target.asof_by_source = res.asof_by_source  # you can keep this for future per-source mode
-
-        
-            # push resolved values back into the TargetSpec
-            target.data_asof = data_asof_dt
-            target.asof_by_source = asof_by_source
 
             # 1) Load target once (defines live train_end)
             y_raw = load_series_from_fact(
@@ -193,26 +182,7 @@ def run_sarimax_exog(
             
             target.data_asof = effective
             target.asof_by_source = res.asof_by_source  # will be {} in global_min
-            print(f"[sarimax_exog] requested_asof={requested} resolved_global_asof={global_max} effective_asof={effective}")
-
-
-            policy = AsOfPolicy(
-                mode="global_min",
-                requested_asof=data_asof_dt,
-            )
-            
-            source_max_dates = load_source_max_dates(
-                con,
-                target=target,
-                feature_specs=selected_specs,
-            )
-            
-            resolution = resolve_asof(policy, source_max_dates)
-            
-            # whatever your AsOfResolution fields are called—likely:
-            target.data_asof = resolution.data_asof
-            target.asof_by_source = resolution.asof_by_source
-            
+            print(f"[sarimax_exog] requested_asof={requested} resolved_global_asof={global_max} effective_asof={effective}")            
 
             # Build lagged train/future exog (raw, NaNs allowed)
             y_full_raw, X_train_raw, X_future_fc, test_idx = build_train_and_future_exog_forecasted(
