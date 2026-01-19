@@ -311,7 +311,7 @@ def run_backtest_xgb_single(
         # ------------------------------------------------------------
         # Guard: require future y for the full horizon (skip if missing)
         # ------------------------------------------------------------
-        test_idx = month_ends_after(anchor_date, horizon=args.horizon)
+        test_idx = month_ends_after(anchor_date, steps=args.horizon)
         y_test = y_full.reindex(test_idx)
     
         if y_test.isna().any():
