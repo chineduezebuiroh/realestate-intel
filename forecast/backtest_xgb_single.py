@@ -28,6 +28,7 @@ from .db_forecast import (
 from .backtest_utils import (
     choose_anchor_dates,
     month_end_index,
+    month_ends_after,
     DEFAULT_MIN_TRAIN_LEN,
     DEFAULT_ANCHOR_STEP_MONTHS,
     DEFAULT_MAX_ANCHORS,
@@ -306,6 +307,21 @@ def run_backtest_xgb_single(
     
     for anchor_date in anchors:
         print(f"\n[xgb_backtest] Anchor at date={anchor_date.date()}")
+
+        # ------------------------------------------------------------
+        # Guard: require future y for the full horizon (skip if missing)
+        # ------------------------------------------------------------
+        test_idx = month_ends_after(anchor_date, horizon=args.horizon)
+        y_test = y_full.reindex(test_idx)
+    
+        if y_test.isna().any():
+            missing = [d.date().isoformat() for d in y_test.index[y_test.isna()]]
+            print(
+                f"[xgb_backtest] SKIP anchor={anchor_date.date().isoformat()} "
+                f"missing future y for horizon={args.horizon}: {missing}"
+            )
+            continue
+
 
         y_train = y_full.loc[:anchor_date]
         X_train = X_full.loc[:anchor_date]
