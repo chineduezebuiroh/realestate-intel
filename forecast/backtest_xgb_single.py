@@ -489,7 +489,7 @@ if __name__ == "__main__":
     policy = default_policy()
 
     if args.purpose == "selector":
-        # enforce selector horizon (don’t trust CLI)
+        # 1) enforce selector horizon (don’t trust CLI)
         if args.horizon != policy.xgb_selector_horizon_months:
             print(
                 f"[xgb] selector purpose: overriding --horizon {args.horizon} -> "
@@ -497,12 +497,30 @@ if __name__ == "__main__":
             )
         args.horizon = int(policy.xgb_selector_horizon_months)
     
-        # enforce freshest possible anchors (unless you *explicitly* override elsewhere)
-        if args.latest_anchor_offset_months is None:
-            args.latest_anchor_offset_months = int(policy.xgb_selector_latest_anchor_offset_months)
+        # 2) enforce selector anchor cadence + count (fresh shortlist)
+        args.anchor_step_months = int(policy.xgb_selector_anchor_step_months)
+        args.max_anchors = int(policy.xgb_selector_max_anchors)
+    
+        # 3) enforce "latest backtestable anchor"
+        # Must be >= horizon, otherwise the newest anchor has no future y to score against.
+        # Default behavior: offset = horizon (best balance of freshness + backtestability)
+        if policy.xgb_selector_latest_anchor_offset_months is None:
+            args.latest_anchor_offset_months = int(args.horizon)
             print(
                 f"[xgb] selector purpose: setting latest_anchor_offset_months="
-                f"{args.latest_anchor_offset_months} (policy)"
+                f"{args.latest_anchor_offset_months} (default = horizon for backtestability)"
+            )
+        else:
+            args.latest_anchor_offset_months = int(policy.xgb_selector_latest_anchor_offset_months)
+            if args.latest_anchor_offset_months < args.horizon:
+                raise ValueError(
+                    f"[xgb] selector purpose: invalid policy: "
+                    f"xgb_selector_latest_anchor_offset_months={args.latest_anchor_offset_months} "
+                    f"< horizon={args.horizon} (would create non-backtestable latest anchor)"
+                )
+            print(
+                f"[xgb] selector purpose: setting latest_anchor_offset_months="
+                f"{args.latest_anchor_offset_months} (policy override)"
             )
 
     run_backtest_xgb_single(
