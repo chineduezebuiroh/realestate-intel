@@ -113,9 +113,6 @@ def run_sarimax_exog(
                 mode="global_min",
             )
             """
-            source_max_dates = load_source_max_dates(con, target=target, feature_specs=selected_specs)
-            res = resolve_asof("global_min", source_max_dates)
-            
             # clamp requested_asof to what's actually available under the policy
             requested = data_asof_dt
             effective_asof = min(requested, res.global_asof) if (requested and res.global_asof) else (requested or res.global_asof)
@@ -182,6 +179,22 @@ def run_sarimax_exog(
                 seen.add(k)
                 deduped_specs.append(s)
             selected_specs = deduped_specs
+
+            # --------------------------------------------
+            # Resolve data_asof AFTER we know the sources
+            # --------------------------------------------            
+            source_max_dates = load_source_max_dates(con, target=target, feature_specs=selected_specs)
+            res = resolve_asof("global_min", source_max_dates)
+            
+            # clamp requested_asof (target.data_asof) to availability (res.global_asof)
+            requested = target.data_asof
+            global_max = res.global_asof
+            effective = min(requested, global_max) if (requested and global_max) else (requested or global_max)
+            
+            target.data_asof = effective
+            target.asof_by_source = res.asof_by_source  # will be {} in global_min
+            print(f"[sarimax_exog] requested_asof={requested} resolved_global_asof={global_max} effective_asof={effective}")
+
 
             policy = AsOfPolicy(
                 mode="global_min",
