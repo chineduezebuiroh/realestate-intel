@@ -284,13 +284,18 @@ def run_backtest_xgb_single(
     # --- Anchor validation against design-matrix timeline ---
     missing = [a for a in anchors if a not in X_full.index]
     if missing:
-        print("[xgb_backtest] WARNING: some anchors not in design-matrix timeline:")
+        print("[xgb_backtest] WARNING: some anchors not in design-matrix timeline (dropping them):")
         print("  missing:", [a.date().isoformat() for a in missing])
         print("  X_full.index min/max:", X_full.index.min().date(), X_full.index.max().date())
         print("  y_full.index min/max:", y_full.index.min().date(), y_full.index.max().date())
         print("  X_full tail:", [d.date().isoformat() for d in X_full.index[-6:]])
         print("  y_full tail:", [d.date().isoformat() for d in y_full.index[-6:]])
-        raise ValueError(f"Anchors not in X_full.index: {[a.date().isoformat() for a in missing]}")
+    
+        anchors = [a for a in anchors if a in X_full.index]
+    
+    if not anchors:
+        raise ValueError("After dropping invalid anchors, 0 anchors remain. Data gap too severe.")
+
     
     # If we get here, all anchors are in X_full.index
     print(f"[xgb_backtest] Found {len(anchors)} anchors.")
