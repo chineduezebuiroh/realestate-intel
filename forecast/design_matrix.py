@@ -2,9 +2,9 @@ from __future__ import annotations
 
 # forecast/design_matrix.py
 
-from dataclasses import dataclass
-from typing import Dict, List, Tuple
-
+from dataclasses import dataclass, replace
+from typing import Dict, List, Tuple, Optional
+from datetime import date
 import numpy as np
 import pandas as pd
 
@@ -13,7 +13,6 @@ from .feature_loader import FeatureSpec, TargetSpec, load_series_from_fact, load
 
 from .exog_forecast import forecast_exog_seasonal_naive
 from .asof_policy import get_source_max_dates, resolve_asof
-
 
 # ================================================================
 # Helpers
@@ -131,17 +130,24 @@ def _forecast_base_seasonal_naive_else_last(
 
     return out
 
-
 # ================================================================
 # Primary Function
 # ================================================================
 def build_train_and_future_exog_forecasted(
-    target: TargetSpec,
-    feature_specs: List[FeatureSpec],
-    anchor_date: pd.Timestamp,
-    horizon: int,
-    method: str = "seasonal_naive_else_last",
+    target,
+    feature_specs,
+    anchor_date,
+    horizon,
+    method="seasonal_naive_else_last",
+    *,
+    data_asof: Optional[date] = None,
+    asof_by_source: Optional[Dict[str, date]] = None,
 ) -> Tuple[pd.Series, pd.DataFrame, pd.DataFrame, pd.DatetimeIndex]:
+    # If caller provided overrides, push them into TargetSpec
+    if data_asof is not None:
+        target = replace(target, data_asof=data_asof)
+    if asof_by_source is not None:
+        target = replace(target, asof_by_source=asof_by_source)
     """
     Build:
       - y_full_raw: target on full month-end timeline
@@ -162,6 +168,7 @@ def build_train_and_future_exog_forecasted(
         geo_id=target.geo_id,
         property_type_id=target.property_type_id,
         data_asof=target.data_asof,
+        asof_by_source=target.asof_by_source,
     ).copy()
 
     y_raw.index = month_end_index(y_raw.index)
@@ -179,6 +186,7 @@ def build_train_and_future_exog_forecasted(
             property_type_id=spec.property_type_id,
             source_id=spec.source_id,   # ✅ critical
             data_asof=target.data_asof,
+            asof_by_source=target.asof_by_source,
         ).copy()
 
         s.index = month_end_index(s.index)
