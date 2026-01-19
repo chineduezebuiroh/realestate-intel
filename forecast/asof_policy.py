@@ -21,7 +21,6 @@ class AsOfResolution:
     asof_by_source: Dict[str, date]
 
 
-
 def load_source_max_dates(
     con: duckdb.DuckDBPyConnection,
     *,
@@ -29,25 +28,26 @@ def load_source_max_dates(
     feature_specs: Optional[Iterable] = None,
 ) -> Dict[str, date]:
     """
-    Return {source_id: max(date)} for the sources relevant to this run.
-    Includes target source(s) + feature source(s). If feature_specs is None, uses all sources.
+    Return {source_id: max(date)} for sources relevant to this run.
+    If feature_specs is None or has no source_id, returns max dates for ALL sources.
     """
-    # If you have source_id on TargetSpec, include it; if not, we infer via metric lookup or just include all.
     sources = set()
     if feature_specs:
         for s in feature_specs:
-            if getattr(s, "source_id", None):
-                sources.add(s.source_id)
+            sid = getattr(s, "source_id", None)
+            if sid:
+                sources.add(str(sid))
 
-    # If we know sources, restrict query; else compute for all sources.
     if sources:
-        con.register("srcs", [(s,) for s in sorted(sources)])
-        df = con.execute("""
+        placeholders = ",".join(["?"] * len(sources))
+        sql = f"""
             SELECT source_id, MAX(date) AS max_date
             FROM fact_timeseries
-            WHERE source_id IN (SELECT * FROM srcs)
+            WHERE source_id IN ({placeholders})
             GROUP BY 1
-        """).fetchdf()
+        """
+        params = list(sorted(sources))
+        df = con.execute(sql, params).fetchdf()
     else:
         df = con.execute("""
             SELECT source_id, MAX(date) AS max_date
@@ -62,6 +62,7 @@ def load_source_max_dates(
         if sid and mx is not None:
             out[str(sid)] = mx if isinstance(mx, date) else mx.date()
     return out
+
 
 
 def get_source_max_dates(
