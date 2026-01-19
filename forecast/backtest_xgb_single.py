@@ -477,9 +477,33 @@ if __name__ == "__main__":
         default=None,
         help="Comma-separated anchor dates YYYY-MM-DD. If provided, overrides internal anchor selection.",
     )
-
+    parser.add_argument(
+        "--purpose",
+        choices=["forecast", "selector"],
+        default="forecast",
+        help="forecast = XGB predicts target; selector = produce freshest shortlist for SARIMAX-exog",
+    )
 
     args = parser.parse_args()
+
+    policy = default_policy()
+
+    if args.purpose == "selector":
+        # enforce selector horizon (don’t trust CLI)
+        if args.horizon != policy.xgb_selector_horizon_months:
+            print(
+                f"[xgb] selector purpose: overriding --horizon {args.horizon} -> "
+                f"{policy.xgb_selector_horizon_months} (policy.xgb_selector_horizon_months)"
+            )
+        args.horizon = int(policy.xgb_selector_horizon_months)
+    
+        # enforce freshest possible anchors (unless you *explicitly* override elsewhere)
+        if args.latest_anchor_offset_months is None:
+            args.latest_anchor_offset_months = int(policy.xgb_selector_latest_anchor_offset_months)
+            print(
+                f"[xgb] selector purpose: setting latest_anchor_offset_months="
+                f"{args.latest_anchor_offset_months} (policy)"
+            )
 
     run_backtest_xgb_single(
         metric_id=args.metric_id,
