@@ -38,6 +38,14 @@ def load_source_max_dates(
             if sid:
                 sources.add(str(sid))
 
+    # include target's source if possible
+    try:
+        target_src = getattr(target, "source_id", None)
+        if target_src:
+            sources.add(str(target_src))
+    except Exception:
+        pass
+
     if sources:
         placeholders = ",".join(["?"] * len(sources))
         sql = f"""
@@ -48,12 +56,12 @@ def load_source_max_dates(
         """
         params = list(sorted(sources))
         df = con.execute(sql, params).fetchdf()
+
     else:
-        df = con.execute("""
-            SELECT source_id, MAX(date) AS max_date
-            FROM fact_timeseries
-            GROUP BY 1
-        """).fetchdf()
+        raise ValueError(
+            "load_source_max_dates: no source_ids available (feature_specs missing source_id and target has no source_id). "
+            "Refuse to compute asof from ALL sources."
+        )
 
     out: Dict[str, date] = {}
     
