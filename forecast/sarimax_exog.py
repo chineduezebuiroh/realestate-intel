@@ -517,7 +517,7 @@ if __name__ == "__main__":
         xgb_batch_id=args.xgb_batch_id,
         sarimax_max_exog=args.sarimax_max_exog,
         batch_id=args.batch_id,
-        data_asof=target.data_asof,
+        data_asof=args.data_asof,
         run_kind=args.run_kind,
         label=args.label,
     )
