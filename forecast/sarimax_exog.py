@@ -137,9 +137,24 @@ def run_sarimax_exog(
                 xgb_batch_id=xgb_batch_id,
                 preferred_anchor=train_end,
             )
-    
+            months_diff = (train_end.to_period("M") - anchor_for_shortlist.to_period("M")).n
+            if months_diff > 3:
+                print(f"[sarimax_exog] WARNING: shortlist anchor is {months_diff} months behind live_train_end.")
+                # optionally: raise SystemExit(...)
+
             print(f"[sarimax_exog] live_train_end={train_end.date()} shortlist_anchor={anchor_for_shortlist.date()}")
-    
+
+            # --- Policy: forbid stale shortlists ---
+            MAX_SHORTLIST_STALENESS_MONTHS = 6  # tighten later if needed
+            
+            staleness_months = (train_end.to_period("M") - anchor_for_shortlist.to_period("M")).n
+            if staleness_months > MAX_SHORTLIST_STALENESS_MONTHS:
+                raise SystemExit(
+                    f"[sarimax_exog] FAIL: shortlist_anchor is stale by {staleness_months} months "
+                    f"(anchor={anchor_for_shortlist.date()}, train_end={train_end.date()}). "
+                    f"Re-run XGB shortlist closer to data_asof or relax the policy."
+                )
+
             # 3) Load lag-level feature_ids from that anchor's shortlist
             feature_ids = load_xgb_selected_feature_ids(
                 artifact_root=artifact_root,
@@ -237,6 +252,12 @@ def run_sarimax_exog(
             y_train = y_train_full.loc[train_mask].copy()
             X_train_sel = X_train_sel.loc[train_mask].copy()
     
+            print(
+                f"[sarimax_exog] train_rows: y_raw={len(y_raw)} "
+                f"-> y_train_full={len(y_train_full)} "
+                f"-> after_complete_case={len(y_train)} "
+                f"(dropped={len(y_train_full)-len(y_train)})"
+            )
             if len(y_train) < 60:
                 raise SystemExit(f"[sarimax_exog] Too little training history after exog alignment: n={len(y_train)}")
     
@@ -327,11 +348,19 @@ def run_sarimax_exog(
                 "n_kept_final": int(len(feature_ids)),
                 "dropped_at_anchor": list(dropped_feature_ids),
                 "dropped_future_nan": list(bad_future),
+                "staleness_months": int(staleness_months),
+                "train_end": str(pd.Timestamp(y_train.index[-1]).date()),
             }
     
             algo_params["exog_forecast_method"] = "seasonal_naive_else_last"
             algo_params["data_asof"] = str(target.data_asof) if target.data_asof else None
-    
+
+            algo_params["train_rows"] = {
+                "y_raw": int(len(y_raw)),
+                "y_train_full": int(len(y_train_full)),
+                "y_train_complete_case": int(len(y_train)),
+            }
+
             algo_params = store_selected_features_in_params(
                 algo_params,
                 selected_features=list(X_train_sel.columns),  # lag-level actually used; identical to 'selected_features=list(feature_ids)'
