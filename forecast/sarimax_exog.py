@@ -370,7 +370,8 @@ def run_sarimax_exog(
                     "sarimax_max_exog": int(sarimax_max_exog),
                 },
             )
-    
+            
+            algo_params["selected_features"] = list(X_train_sel.columns)
             con = get_connection()
             run_id = insert_run(
                 con=con,
