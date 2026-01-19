@@ -56,13 +56,23 @@ def load_source_max_dates(
         """).fetchdf()
 
     out: Dict[str, date] = {}
-    for _, row in df.iterrows():
-        sid = row["source_id"]
-        mx = row["max_date"]
-        if sid and mx is not None:
-            out[str(sid)] = mx if isinstance(mx, date) else mx.date()
+    
+    # Use itertuples for speed + more predictable types
+    for row in df.itertuples(index=False):
+        sid = getattr(row, "source_id", None)
+        mx = getattr(row, "max_date", None)
+    
+        if not sid or mx is None:
+            continue
+    
+        # Normalize to python datetime.date, always
+        if hasattr(mx, "date"):
+            mx = mx.date()
+    
+        # At this point mx MUST be a date
+        out[str(sid)] = mx
+    
     return out
-
 
 
 def get_source_max_dates(
