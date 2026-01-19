@@ -17,7 +17,7 @@ from .sarimax_univariate import run_sarimax_forecast as run_sarimax_univariate
 from .design_matrix import build_train_and_future_exog_forecasted, load_series_from_fact  # if importable; otherwise import at top
 from .backtest_utils import month_end_index
 from .xgb_shortlist import load_xgb_selected_feature_ids, resolve_anchor_for_live
-from .asof_policy import resolve_asof
+from .asof_policy import resolve_asof, load_source_max_dates, AsOfPolicy
 
 from .db_forecast import (
     get_connection,
@@ -171,18 +171,24 @@ def run_sarimax_exog(
                 seen.add(k)
                 deduped_specs.append(s)
             selected_specs = deduped_specs
-    
-            # Now that we know the actual exog sources, resolve asof deterministically
-            data_asof_dt, asof_by_source = resolve_asof(
-                con=con,
+
+            policy = AsOfPolicy(
+                mode="global_min",
+                requested_asof=data_asof_dt,
+            )
+            
+            source_max_dates = load_source_max_dates(
+                con,
                 target=target,
                 feature_specs=selected_specs,
-                requested_asof=target.data_asof,
-                mode="global_min",
             )
-            target.data_asof = data_asof_dt
-            target.asof_by_source = asof_by_source
-
+            
+            resolution = resolve_asof(policy, source_max_dates)
+            
+            # whatever your AsOfResolution fields are called—likely:
+            target.data_asof = resolution.data_asof
+            target.asof_by_source = resolution.asof_by_source
+            
 
             # Build lagged train/future exog (raw, NaNs allowed)
             y_full_raw, X_train_raw, X_future_fc, test_idx = build_train_and_future_exog_forecasted(
@@ -373,8 +379,8 @@ def run_sarimax_exog(
 
         finally:
             con.close()
-            print(f"[sarimax_exog] Created live run_id={run_id} batch_id={batch_id} label={label or run_kind}")
-        
+            
+        print(f"[sarimax_exog] Created live run_id={run_id} batch_id={batch_id} label={label or run_kind}")
         return int(run_id)
 
     # ------------------------------------------------------------
@@ -455,8 +461,8 @@ def run_sarimax_exog(
         )
     finally:
         con.close()
-        print(f"[sarimax_exog] Created demo run_id={run_id} batch_id={batch_id}")
-    
+        
+    print(f"[sarimax_exog] Created demo run_id={run_id} batch_id={batch_id}")
     return int(run_id)
 
 # -----------------------------------------
