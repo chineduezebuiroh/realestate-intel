@@ -21,6 +21,11 @@ class FeaturePolicy:
     seed: int = 1337
     xgb_top_k: int = 100
     sarimax_max_exog: int = 30
+    
+    # inside your Policy / FeaturePolicy dataclass
+    xgb_selector_horizon_months: int = 1          # selector uses 1–3 months
+    xgb_selector_latest_anchor_offset_months: int = 0  # 0 = allow latest possible anchor up to data_asof
+
 
 
 def default_policy() -> FeaturePolicy:
@@ -55,4 +60,6 @@ def default_policy() -> FeaturePolicy:
         seed=1337,
         xgb_top_k=100,
         sarimax_max_exog=30,
+        xgb_selector_horizon_months = 1,          # selector uses 1–3 months
+        xgb_selector_latest_anchor_offset_months = 0,
     )
