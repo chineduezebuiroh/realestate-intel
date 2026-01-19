@@ -83,3 +83,20 @@ def resolve_asof(
 
     # per_source
     return AsOfResolution(global_asof=global_asof, asof_by_source=dict(source_max_dates))
+
+
+def resolve_targetspec_asof(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    exog_source_ids: list[str],
+    policy: AsOfPolicy,
+    explicit_data_asof: Optional[date] = None,
+) -> AsOfResolution:
+    source_max_dates = get_source_max_dates(con, source_ids=exog_source_ids)
+    asof_res = resolve_asof(policy, source_max_dates)
+
+    # explicit CLI/user value wins
+    if explicit_data_asof is not None:
+        return AsOfResolution(global_asof=explicit_data_asof, asof_by_source=asof_res.asof_by_source)
+
+    return asof_res
