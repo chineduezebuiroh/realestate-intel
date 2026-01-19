@@ -42,7 +42,7 @@ def _parse_data_asof(s: str | None):
     return pd.to_datetime(s).date()
 
 
-def _load_target_y(target: "TargetSpec") -> pd.Series:
+def _load_target_y(target: "TargetSpec", data_asof=None) -> pd.Series:
     con = get_connection()
     pt = target.property_type_id if target.property_type_id is not None else "all"
     df = con.execute(
@@ -52,9 +52,10 @@ def _load_target_y(target: "TargetSpec") -> pd.Series:
         WHERE metric_id = ?
           AND geo_id = ?
           AND property_type_id = ?
+          AND (? IS NULL OR date <= ?)
         ORDER BY date
         """,
-        [target.metric_id, target.geo_id, pt],
+        [target.metric_id, target.geo_id, pt, data_asof, data_asof],
     ).fetchdf()
     con.close()
 
@@ -101,14 +102,22 @@ def run_backtest_sarimax_exog_single(
         property_type_id=property_type_id,
     )
 
-    y_full_for_anchors = _load_target_y(target)
-    # batch_id + data_asof
     batch_id = batch_id or new_batch_id()
-    if data_asof is None:
-        data_asof = y_full_for_anchors.index.max().date()
-    else:
-        data_asof = _parse_data_asof(data_asof)
-    print(f"[backtest_exog] batch_id={batch_id} data_asof={data_asof}")
+    data_asof_dt = _parse_data_asof(data_asof)  # may be None
+    
+    # Load the series clamped to requested asof (or unclamped if None)
+    y_full_for_anchors = _load_target_y(target, data_asof=data_asof_dt)
+    
+    # If caller didn't specify, choose a deterministic default:
+    # use the last available date in the CLAMPED series (still deterministic relative to requested),
+    # but do NOT silently "upgrade" it to newest ingested data.
+    if data_asof_dt is None:
+        data_asof_dt = y_full_for_anchors.index.max().date()
+    
+    target.data_asof = data_asof_dt
+    target.asof_by_source = None
+    
+    print(f"[backtest_exog] batch_id={batch_id} data_asof={data_asof_dt}")
 
     
     if anchors_csv:
@@ -170,6 +179,7 @@ def run_backtest_sarimax_exog_single(
         # - test_idx_full: month-end DatetimeIndex length=horizon
         #
         # If your helper returns slightly different names, adapt them here once.
+        target.data_asof = anchor_date.date()
         y_full_raw, X_train_raw, X_future_fc, test_idx_full = build_train_and_future_exog_forecasted(
             target=target,
             feature_specs=selected_specs,   # IMPORTANT: use the specs you ended up selecting
