@@ -102,7 +102,7 @@ def run_sarimax_exog(
                 property_type_id=pt_id_str,
                 data_asof=data_asof_dt,
             )
-
+            """
             # If caller passed --data_asof, that is the request.
             # resolve_asof will clamp to month-end and/or to available data as needed.
             data_asof_dt, asof_by_source = resolve_asof(
@@ -112,6 +112,17 @@ def run_sarimax_exog(
                 requested_asof=data_asof_dt,     # you may need to add this param to resolve_asof if missing
                 mode="global_min",
             )
+            """
+            source_max_dates = load_source_max_dates(con, target=target, feature_specs=selected_specs)
+            res = resolve_asof("global_min", source_max_dates)
+            
+            # clamp requested_asof to what's actually available under the policy
+            requested = data_asof_dt
+            effective_asof = min(requested, res.global_asof) if (requested and res.global_asof) else (requested or res.global_asof)
+            
+            target.data_asof = effective_asof
+            target.asof_by_source = res.asof_by_source  # you can keep this for future per-source mode
+
         
             # push resolved values back into the TargetSpec
             target.data_asof = data_asof_dt
