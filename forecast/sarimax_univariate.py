@@ -88,16 +88,27 @@ def load_series(
             f"No data found for metric={target.metric_id}, geo={target.geo_id}, pt={pt_id}"
         )
 
+    # Build series
     s = df.set_index("date")["value"].astype(float)
-    # --- normalize to month-end, dedupe, sort ---
+
+    # Normalize index: month-end timestamps (matches the rest of your system)
     s.index = pd.to_datetime(s.index)
     s.index = s.index.to_period("M").to_timestamp(how="end")
-    s = s[~s.index.duplicated(keep="last")].sort_index()
-    # --- apply live cutoff ---
-    if data_asof is not None:
-        data_asof = pd.to_datetime(data_asof).to_period("M").to_timestamp(how="end")
-        s = s.loc[:data_asof]
 
+    # Deduplicate + sort (keep last)
+    s = s[~s.index.duplicated(keep="last")].sort_index()
+
+    # Enforce monthly grid so statsmodels gets a supported index
+    full_idx = pd.date_range(s.index.min(), s.index.max(), freq="ME")  # month-end
+    s = s.reindex(full_idx)
+
+    # Hard fail on missing values (otherwise your model “works” but is garbage)
+    if s.isna().any():
+        miss = s.index[s.isna()]
+        raise ValueError(
+            f"Missing target values after monthly reindex: n_missing={len(miss)} "
+            f"first_missing={miss[0].date()} last_missing={miss[-1].date()}"
+        )
 
     if len(s) < min_obs:
         raise ValueError(
@@ -105,10 +116,7 @@ def load_series(
             f"{len(s)} < {min_obs}"
         )
 
-    # We could enforce monthly frequency here, but to avoid surprises,
-    # just return the series as-is for now.
     return s
-
 
 # -----------------------------------------
 # Model fitting
