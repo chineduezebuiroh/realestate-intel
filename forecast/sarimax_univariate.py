@@ -3,7 +3,7 @@
 import os
 import json
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, List
 from datetime import date
 
 import duckdb
@@ -45,8 +45,8 @@ def load_series(
     target: TargetSpec,
     min_obs: int = 36,
     *,
-    data_asof: Optional[pd.Timestamp] = None,  # month-end cutoff (optional)
-) -> pd.Series:
+    data_asof: Optional[pd.Timestamp] = None,
+) -> Tuple[pd.Series, List[str]]:
     """
     Load a univariate series from fact_timeseries for a given target.
 
@@ -120,14 +120,41 @@ def load_series(
                 f"first_missing={miss[0].date()} last_missing={miss[-1].date()}"
             )
 
+    # Optional cutoff for live runs
+    if data_asof is not None:
+        # accept date, Timestamp, etc.
+        cutoff = pd.Timestamp(data_asof).to_period("M").to_timestamp(how="end")
+        s = s.loc[:cutoff]
 
-    if len(s) < min_obs:
+    # Normalize to month-end index
+    s.index = pd.to_datetime(s.index)
+    s.index = s.index.to_period("M").to_timestamp(how="end")
+
+    # Deduplicate month ends, keep last
+    s = s[~s.index.duplicated(keep="last")].sort_index()
+
+    # Reindex to full monthly month-end grid
+    full_idx = pd.date_range(s.index.min(), s.index.max(), freq="ME")
+    s2 = s.reindex(full_idx)
+
+    missing_mask = s2.isna()
+    dropped_months = []
+    if missing_mask.any():
+        miss = s2.index[missing_mask]
+        dropped_months = [d.date().isoformat() for d in miss]
+        print(
+            f"[sarimax_univariate] WARNING: dropping missing months after reindex: "
+            f"n_missing={len(miss)} first={miss[0].date()} last={miss[-1].date()}"
+        )
+        s2 = s2.dropna()
+
+    if len(s2) < min_obs:
         raise ValueError(
             f"Not enough observations for {target.metric_id}/{target.geo_id}/{pt_id}: "
             f"{len(s)} < {min_obs}"
         )
 
-    return s
+    return s2.astype(float), dropped_months
 
 # -----------------------------------------
 # Model fitting
@@ -325,7 +352,7 @@ def run_sarimax_forecast(
     )
 
     data_asof_dt = pd.to_datetime(data_asof).date() if data_asof else None
-    y = load_series(target, data_asof=data_asof_dt)
+    y, dropped_months = load_series(target, data_asof=data_asof_dt)
     train_start = y.index[0]
     train_end = y.index[-1]
 
@@ -341,6 +368,7 @@ def run_sarimax_forecast(
         "n_obs": int(len(y)),
         "data_asof": str(data_asof_dt) if data_asof_dt else None,
         "run_kind": str(run_kind) if run_kind else None,
+        "dropped_missing_months": dropped_months,  # <-- THIS
     }
     algo_params["dropped_missing_months"] = True  # set to False if none were dropped
 
