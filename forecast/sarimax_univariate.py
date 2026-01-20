@@ -4,6 +4,7 @@ import os
 import json
 from dataclasses import dataclass
 from typing import Optional, Tuple, Dict
+from datetime import date
 
 import duckdb
 import numpy as np
@@ -40,10 +41,11 @@ class TargetSpec:
 # -----------------------------------------
 # Data loading
 # -----------------------------------------
-
 def load_series(
     target: TargetSpec,
     min_obs: int = 36,
+    *,
+    data_asof: Optional[pd.Timestamp] = None,  # month-end cutoff (optional)
 ) -> pd.Series:
     """
     Load a univariate series from fact_timeseries for a given target.
@@ -66,9 +68,20 @@ def load_series(
         WHERE metric_id = ?
           AND geo_id = ?
           AND property_type_id = ?
-        ORDER BY date
     """
-    df = con.execute(sql, [target.metric_id, target.geo_id, pt_id]).fetchdf()
+    params = [target.metric_id, target.geo_id, pt_id]
+    
+    if data_asof is not None:
+        # Ensure we compare apples-to-apples with your monthly indexing
+        # (use date-only; DuckDB DATE compares cleanly)
+        sql += " AND date <= ?"
+        params.append(pd.Timestamp(data_asof).date())
+    
+    sql += " ORDER BY date"
+    
+    df = con.execute(sql, params).fetchdf()
+
+    con.close()
 
     if df.empty:
         raise ValueError(
@@ -129,7 +142,11 @@ def insert_forecast_run(
     train_end: pd.Timestamp,
     horizon_max_months: int,
     algo_params: Dict,
-    model_name: str = "sarimax",
+    *,
+    run_kind: str = "live",
+    data_asof: Optional[date] = None,
+    batch_id: Optional[str] = None,
+    model_name: str = "sarimax_univariate",
     model_version: str = "v1",
     notes: Optional[str] = None,
 ) -> int:
@@ -153,18 +170,19 @@ def insert_forecast_run(
             horizon_max_months,
             algo_params_json,
             notes,
-            is_active
+            is_active,
+            run_kind,
+            batch_id,
+            data_asof
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?)
     """
-
     params = [
         run_id,
         model_name,
         model_version,
         target.metric_id,
         target.geo_id,
-        # Store Redfin pt IDs as strings ('-1', '6', etc.). None => NULL.
         target.property_type_id,
         target.freq,
         train_start.date(),
@@ -172,9 +190,14 @@ def insert_forecast_run(
         horizon_max_months,
         json.dumps(algo_params),
         notes,
+        run_kind,
+        batch_id,
+        data_asof,
     ]
 
+
     con.execute(sql, params)
+    con.close()
     return run_id
 
 
@@ -243,6 +266,9 @@ def run_sarimax_forecast(
     horizon_max_months: int = 12,
     order: Tuple[int, int, int] = (1, 1, 1),
     seasonal_order: Tuple[int, int, int, int] = (1, 1, 1, 12),
+    *,
+    data_asof: Optional[str] = None,
+    run_kind: str = "live",
     notes: Optional[str] = None,
 ) -> int:
     """
@@ -268,7 +294,8 @@ def run_sarimax_forecast(
         freq="M",
     )
 
-    y = load_series(target)
+    data_asof_dt = pd.to_datetime(data_asof).date() if data_asof else None
+    y = load_series(target, data_asof=data_asof_dt)
     train_start = y.index[0]
     train_end = y.index[-1]
 
@@ -282,6 +309,7 @@ def run_sarimax_forecast(
         "order": order,
         "seasonal_order": seasonal_order,
         "n_obs": len(y),
+        "data_asof": str(data_asof_dt) if data_asof_dt else None,
     }
 
     run_id = insert_forecast_run(
@@ -290,10 +318,14 @@ def run_sarimax_forecast(
         train_end=train_end,
         horizon_max_months=horizon_max_months,
         algo_params=algo_params,
-        model_name="sarimax",
+        run_kind=run_kind,
+        data_asof=data_asof_dt,
+        batch_id=None,
+        model_name="sarimax_univariate",
         model_version="v1",
         notes=notes,
     )
+
 
     insert_predictions(
         run_id=run_id,
@@ -321,6 +353,19 @@ if __name__ == "__main__":
         help="Redfin property type id as string (e.g. -1, 6, 13). Omit for non-Redfin/all.",
     )
     parser.add_argument("--horizon", type=int, default=12)
+    parser.add_argument(
+        "--data_asof",
+        type=str,
+        default=None,
+        help="YYYY-MM-DD cutoff for training data (live runs)"
+    )
+    parser.add_argument(
+        "--run_kind",
+        type=str,
+        default="live",
+        help="Run classification (e.g. live_near, live_outlook)"
+    )
+
 
     args = parser.parse_args()
 
@@ -329,6 +374,8 @@ if __name__ == "__main__":
         geo_id=args.geo_id,
         property_type_id=args.property_type_id,
         horizon_max_months=args.horizon,
+        data_asof=args.data_asof,
+        run_kind=args.run_kind,
         notes="AUTO: promoted winner from model_select_single - SARIMAX",
     )
 
