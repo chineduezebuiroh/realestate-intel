@@ -98,16 +98,21 @@ def load_series(
     # Deduplicate + sort (keep last)
     s = s[~s.index.duplicated(keep="last")].sort_index()
 
+    # Optional cutoff for live runs
+    if data_asof is not None:
+        # accept date, Timestamp, etc.
+        cutoff = pd.Timestamp(data_asof).to_period("M").to_timestamp(how="end")
+        s = s.loc[:cutoff]
+
     # Enforce monthly grid so statsmodels gets a supported index
     full_idx = pd.date_range(s.index.min(), s.index.max(), freq="ME")  # month-end
     s = s.reindex(full_idx)
+    dropped_months: list[str] = []
 
-    # Hard fail on missing values (otherwise your model “works” but is garbage)
     if s.isna().any():
         miss = s.index[s.isna()]
-        # Allow small gaps by dropping them, but be strict:
-        # - only allow up to 2 missing months
-        # - and only if they are within the last 12 months (publication gaps / revisions)
+        dropped_months = [d.date().isoformat() for d in miss]
+
         if len(miss) <= 2 and miss.min() >= (s.index.max() - pd.offsets.MonthEnd(12)):
             print(
                 f"[sarimax_univariate] WARNING: dropping missing months after reindex: "
@@ -120,42 +125,14 @@ def load_series(
                 f"first_missing={miss[0].date()} last_missing={miss[-1].date()}"
             )
 
-    # Optional cutoff for live runs
-    if data_asof is not None:
-        # accept date, Timestamp, etc.
-        cutoff = pd.Timestamp(data_asof).to_period("M").to_timestamp(how="end")
-        s = s.loc[:cutoff]
-
-    # Normalize to month-end index
-    s.index = pd.to_datetime(s.index)
-    s.index = s.index.to_period("M").to_timestamp(how="end")
-
-    # Deduplicate month ends, keep last
-    s = s[~s.index.duplicated(keep="last")].sort_index()
-
-    # Reindex to full monthly month-end grid
-    full_idx = pd.date_range(s.index.min(), s.index.max(), freq="ME")
-    s2 = s.reindex(full_idx)
-
-    missing_mask = s2.isna()
-    dropped_months = []
-    if missing_mask.any():
-        miss = s2.index[missing_mask]
-        dropped_months = [d.date().isoformat() for d in miss]
-        print(
-            f"[sarimax_univariate] WARNING: dropping missing months after reindex: "
-            f"n_missing={len(miss)} first={miss[0].date()} last={miss[-1].date()}"
-        )
-        s2 = s2.dropna()
-
-    if len(s2) < min_obs:
+    if len(s) < min_obs:
         raise ValueError(
             f"Not enough observations for {target.metric_id}/{target.geo_id}/{pt_id}: "
             f"{len(s)} < {min_obs}"
         )
 
-    return s2.astype(float), dropped_months
-
+    return s.astype(float), dropped_months
+    
 # -----------------------------------------
 # Model fitting
 # -----------------------------------------
@@ -370,8 +347,6 @@ def run_sarimax_forecast(
         "run_kind": str(run_kind) if run_kind else None,
         "dropped_missing_months": dropped_months,  # <-- THIS
     }
-    algo_params["dropped_missing_months"] = True  # set to False if none were dropped
-
 
     run_id = insert_forecast_run(
         target=target,
