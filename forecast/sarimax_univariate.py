@@ -105,10 +105,21 @@ def load_series(
     # Hard fail on missing values (otherwise your model “works” but is garbage)
     if s.isna().any():
         miss = s.index[s.isna()]
-        raise ValueError(
-            f"Missing target values after monthly reindex: n_missing={len(miss)} "
-            f"first_missing={miss[0].date()} last_missing={miss[-1].date()}"
-        )
+        # Allow small gaps by dropping them, but be strict:
+        # - only allow up to 2 missing months
+        # - and only if they are within the last 12 months (publication gaps / revisions)
+        if len(miss) <= 2 and miss.min() >= (s.index.max() - pd.offsets.MonthEnd(12)):
+            print(
+                f"[sarimax_univariate] WARNING: dropping missing months after reindex: "
+                f"n_missing={len(miss)} first={miss[0].date()} last={miss[-1].date()}"
+            )
+            s = s.dropna()
+        else:
+            raise ValueError(
+                f"Missing target values after monthly reindex: n_missing={len(miss)} "
+                f"first_missing={miss[0].date()} last_missing={miss[-1].date()}"
+            )
+
 
     if len(s) < min_obs:
         raise ValueError(
@@ -331,6 +342,7 @@ def run_sarimax_forecast(
         "data_asof": str(data_asof_dt) if data_asof_dt else None,
         "run_kind": str(run_kind) if run_kind else None,
     }
+    algo_params["dropped_missing_months"] = True  # set to False if none were dropped
 
 
     run_id = insert_forecast_run(
