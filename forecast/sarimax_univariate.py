@@ -89,6 +89,15 @@ def load_series(
         )
 
     s = df.set_index("date")["value"].astype(float)
+    # --- normalize to month-end, dedupe, sort ---
+    s.index = pd.to_datetime(s.index)
+    s.index = s.index.to_period("M").to_timestamp(how="end")
+    s = s[~s.index.duplicated(keep="last")].sort_index()
+    # --- apply live cutoff ---
+    if data_asof is not None:
+        data_asof = pd.to_datetime(data_asof).to_period("M").to_timestamp(how="end")
+        s = s.loc[:data_asof]
+
 
     if len(s) < min_obs:
         raise ValueError(
@@ -109,17 +118,19 @@ def fit_sarimax(
     y: pd.Series,
     order: Tuple[int, int, int] = (1, 1, 1),
     seasonal_order: Tuple[int, int, int, int] = (1, 1, 1, 12),
-) -> SARIMAX:
+):
     """
     Fit a univariate SARIMAX model.
     """
+    endog = pd.Series(y.values)  # RangeIndex for statsmodels stability
     model = SARIMAX(
-        endog=y,
+        endog=endog,
         order=order,
         seasonal_order=seasonal_order,
         enforce_stationarity=False,
         enforce_invertibility=False,
     )
+
     results = model.fit(disp=False)
     return results
 
@@ -308,9 +319,11 @@ def run_sarimax_forecast(
     algo_params = {
         "order": order,
         "seasonal_order": seasonal_order,
-        "n_obs": len(y),
+        "n_obs": int(len(y)),
         "data_asof": str(data_asof_dt) if data_asof_dt else None,
+        "run_kind": str(run_kind) if run_kind else None,
     }
+
 
     run_id = insert_forecast_run(
         target=target,
@@ -319,7 +332,7 @@ def run_sarimax_forecast(
         horizon_max_months=horizon_max_months,
         algo_params=algo_params,
         run_kind=run_kind,
-        data_asof=data_asof_dt,
+        data_asof=str(data_asof_dt) if data_asof_dt else None,
         batch_id=None,
         model_name="sarimax_univariate",
         model_version="v1",
