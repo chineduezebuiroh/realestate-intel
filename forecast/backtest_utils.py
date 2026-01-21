@@ -63,28 +63,32 @@ def choose_anchor_dates(
     idx = pd.DatetimeIndex(y2.index)
     last_date = _month_end(idx.max())
     min_date = _month_end(idx.min())
-    
+
     y_df = pd.DataFrame({"y": y2.values}, index=idx)
 
 
     # ALWAYS define anchor
     offset = latest_anchor_offset_months if latest_anchor_offset_months is not None else horizon
     anchor = _month_end(last_date - pd.DateOffset(months=int(offset)))
+    # If anchor isn't in the timeline, move to the nearest prior available month in idx
+    if anchor not in idx:
+        prior = idx[idx <= anchor]
+        if len(prior) == 0:
+            return []
+        anchor = _month_end(prior.max())
+
 
     print(f"[anchors] y_min={min_date.date()} y_max={last_date.date()} offset={offset} first_anchor={anchor.date()}")
 
     anchors: List[pd.Timestamp] = []
 
-    # train-length check uses counts up to anchor
-    y_df = pd.DataFrame({"y": y.values}, index=idx)
 
     while anchor >= min_date and len(anchors) < max_anchors:
-        n_train = int(y_df.loc[:anchor].shape[0])
+        n_train = int(y_df.loc[:anchor, "y"].dropna().shape[0])
         if n_train >= min_train_len:
             anchors.append(anchor)
         anchor = _month_end(anchor - pd.DateOffset(months=int(step_months)))
 
     # de-dupe + sorted
-    anchors = sorted(set(anchors), reverse=True)
-    return list(reversed(anchors[:max_anchors]))  # return ascending but pick newest
-
+    anchors = sorted(set(anchors))
+    return anchors[-max_anchors:]  # ascending, keep newest max_anchors
