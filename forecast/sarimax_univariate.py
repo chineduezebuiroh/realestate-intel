@@ -122,6 +122,11 @@ def load_series(
     tail_missing_months = [d.date().isoformat() for d in tail_missing_idx]
     interior_missing_months = [d.date().isoformat() for d in interior_missing_idx]
 
+    missing_months_full_grid = list(missing_months)
+    missing_tail_months_full_grid = list(tail_missing_months)
+    missing_interior_months_full_grid = list(interior_missing_months)
+
+
     # Decide effective_end: clamp ONLY for tail gaps
     effective_end = requested_end
     asof_clamp_reason = None
@@ -173,12 +178,20 @@ def load_series(
         "effective_asof": effective_end.date().isoformat() if effective_end is not None else None,
         "asof_clamp_reason": asof_clamp_reason,
         "last_observed_month": last_obs.date().isoformat() if last_obs is not None else None,
-        "missing_months": missing_months,
-        "missing_tail_months": tail_missing_months,
-        "missing_interior_months": interior_missing_months,
+    
+        # Missingness on the full monthly grid up to requested_asof (BEFORE clamp)
+        "missing_months_full_grid": missing_months_full_grid,
+        "missing_tail_months_full_grid": missing_tail_months_full_grid,
+        "missing_interior_months_full_grid": missing_interior_months_full_grid,
+    
+        # Missingness remaining after clamping (interior gaps only)
+        "missing_months_after_clamp": missing_months,
+        "missing_interior_months_after_clamp": interior_missing_months,
+    
         "tail_gap_months": int(tail_gap_months),
         "n_obs_non_missing": n_obs_non_missing,
     }
+
 
     # IMPORTANT: do NOT drop NaNs here. Interior gaps remain as NaN by design.
     return s.astype(float), dq
@@ -425,6 +438,13 @@ def run_sarimax_forecast(
         "data_asof_effective": dq.get("effective_asof"),
         "asof_clamp_reason": dq.get("asof_clamp_reason"),
         "run_kind": str(run_kind) if run_kind else None,
+    
+        # Canonical, machine-checkable DQ fields (stable across models)
+        "target_missing_months": dq.get("missing_months_full_grid") or [],
+        "target_missing_months_tail": dq.get("missing_tail_months_full_grid") or [],
+        "target_missing_months_interior": dq.get("missing_interior_months_full_grid") or [],
+    
+        # Full details for debugging / forensics
         "data_quality": dq,
     }
 
