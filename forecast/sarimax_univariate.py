@@ -98,32 +98,19 @@ def load_series(
     # Deduplicate + sort (keep last)
     s = s[~s.index.duplicated(keep="last")].sort_index()
 
-    # Optional cutoff for live runs
-    if data_asof is not None:
-        # accept date, Timestamp, etc.
-        cutoff = pd.Timestamp(data_asof).to_period("M").to_timestamp(how="end")
-        s = s.loc[:cutoff]
-
     # Enforce monthly grid so statsmodels gets a supported index
     full_idx = pd.date_range(s.index.min(), s.index.max(), freq="ME")  # month-end
     s = s.reindex(full_idx)
-    dropped_months: list[str] = []
+    missing_months: list[str] = []
 
     if s.isna().any():
         miss = s.index[s.isna()]
-        dropped_months = [d.date().isoformat() for d in miss]
-
-        if len(miss) <= 2 and miss.min() >= (s.index.max() - pd.offsets.MonthEnd(12)):
-            print(
-                f"[sarimax_univariate] WARNING: dropping missing months after reindex: "
-                f"n_missing={len(miss)} first={miss[0].date()} last={miss[-1].date()}"
-            )
-            s = s.dropna()
-        else:
-            raise ValueError(
-                f"Missing target values after monthly reindex: n_missing={len(miss)} "
-                f"first_missing={miss[0].date()} last_missing={miss[-1].date()}"
-            )
+        missing_months = [d.date().isoformat() for d in miss]
+        print(
+            f"[sarimax_univariate] WARNING: missing months after reindex: "
+            f"n_missing={len(miss)} first={miss[0].date()} last={miss[-1].date()}"
+        )
+        # DO NOT drop here. Option A clamps effective_asof in run_sarimax_forecast.
 
     if len(s) < min_obs:
         raise ValueError(
@@ -131,7 +118,7 @@ def load_series(
             f"{len(s)} < {min_obs}"
         )
 
-    return s.astype(float), dropped_months
+    return s.astype(float), missing_months
     
 # -----------------------------------------
 # Model fitting
@@ -329,9 +316,44 @@ def run_sarimax_forecast(
     )
 
     data_asof_dt = pd.to_datetime(data_asof).date() if data_asof else None
-    y, dropped_months = load_series(target, data_asof=data_asof_dt)
+    
+    # Load history up to requested_asof (or full history if None), then detect missing months on monthly grid.
+    y_full, missing_months = load_series(target, data_asof=data_asof_dt)
+    
+    # Requested as-of as month-end Timestamp
+    requested_asof_ts = (
+        pd.Timestamp(data_asof_dt).to_period("M").to_timestamp(how="end")
+        if data_asof_dt
+        else y_full.index.max()
+    )
+    
+    # Consider only missing months up to requested_asof (ignore any beyond)
+    missing_up_to_req = sorted([m for m in missing_months if pd.Timestamp(m) <= requested_asof_ts])
+    
+    effective_asof_ts = requested_asof_ts
+    asof_clamp_reason = None
+    
+    if missing_up_to_req:
+        first_missing_ts = pd.Timestamp(missing_up_to_req[0]).to_period("M").to_timestamp(how="end")
+        effective_asof_ts = first_missing_ts - pd.offsets.MonthEnd(1)
+        asof_clamp_reason = {
+            "requested_asof": requested_asof_ts.date().isoformat(),
+            "first_missing_month": first_missing_ts.date().isoformat(),
+            "effective_asof": effective_asof_ts.date().isoformat(),
+        }
+        print(f"[sarimax_univariate] WARNING: clamping data_asof due to missing months: {asof_clamp_reason}")
+    
+    # Slice to effective_asof and drop NA (should be gap-free at the end now)
+    y = y_full.loc[:effective_asof_ts].dropna()
+    
+    if len(y) < 36:
+        raise SystemExit(
+            f"[sarimax_univariate] FAIL: not enough observations after clamping: n_obs={len(y)}"
+        )
+    
     train_start = y.index[0]
     train_end = y.index[-1]
+
 
     results = fit_sarimax(y, order=order, seasonal_order=seasonal_order)
 
@@ -343,9 +365,14 @@ def run_sarimax_forecast(
         "order": order,
         "seasonal_order": seasonal_order,
         "n_obs": int(len(y)),
-        "data_asof": str(data_asof_dt) if data_asof_dt else None,
         "run_kind": str(run_kind) if run_kind else None,
-        "dropped_missing_months": dropped_months,  # <-- THIS
+        "data_asof_requested": str(data_asof_dt) if data_asof_dt else None,
+        "data_asof_effective": train_end.date().isoformat(),
+        "asof_clamp_reason": asof_clamp_reason,
+        "data_quality": {
+            "target_missing_months_up_to_requested": missing_up_to_req,
+            "is_degraded": bool(missing_up_to_req),
+        },
     }
 
     run_id = insert_forecast_run(
@@ -355,7 +382,7 @@ def run_sarimax_forecast(
         horizon_max_months=horizon_max_months,
         algo_params=algo_params,
         run_kind=run_kind,
-        data_asof=str(data_asof_dt) if data_asof_dt else None,
+        data_asof=train_end.date().isoformat(),
         batch_id=None,
         model_name="sarimax_univariate",
         model_version="v1",
