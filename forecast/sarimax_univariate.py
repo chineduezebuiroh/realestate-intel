@@ -46,20 +46,21 @@ def load_series(
     min_obs: int = 36,
     *,
     data_asof: Optional[pd.Timestamp] = None,
-) -> Tuple[pd.Series, List[str]]:
+    tail_gap_months: int = 3,   # "tail" window size (months). 3 is a sane default.
+) -> Tuple[pd.Series, Dict]:
     """
-    Load a univariate series from fact_timeseries for a given target.
+    Load a univariate series from fact_timeseries for a given target, reindexed to month-end.
 
-    Uses:
-      - metric_id
-      - geo_id
-      - property_type_id (or 'all' if None)
+    Hybrid missingness policy:
+      - Tail gaps (missing months near requested end): clamp effective_asof to the last
+        month-end BEFORE the first missing month in the tail window.
+      - Interior gaps: keep NaNs (do NOT clamp forever).
 
-    Returns a pandas Series indexed by date.
+    Returns:
+      (series, data_quality_dict)
     """
     con = get_connection()
 
-    # Map None -> 'all' to match your fact_timeseries schema
     pt_id = target.property_type_id if target.property_type_id is not None else "all"
 
     sql = """
@@ -70,17 +71,17 @@ def load_series(
           AND property_type_id = ?
     """
     params = [target.metric_id, target.geo_id, pt_id]
-    
+
+    # IMPORTANT: we still filter by data_asof at SQL level for determinism,
+    # but we reindex up to requested_end so missing months show up explicitly.
+    requested_end = None
     if data_asof is not None:
-        # Ensure we compare apples-to-apples with your monthly indexing
-        # (use date-only; DuckDB DATE compares cleanly)
+        requested_end = pd.Timestamp(data_asof).to_period("M").to_timestamp(how="end")
         sql += " AND date <= ?"
         params.append(pd.Timestamp(data_asof).date())
-    
-    sql += " ORDER BY date"
-    
-    df = con.execute(sql, params).fetchdf()
 
+    sql += " ORDER BY date"
+    df = con.execute(sql, params).fetchdf()
     con.close()
 
     if df.empty:
@@ -91,35 +92,97 @@ def load_series(
     # Build series
     s = df.set_index("date")["value"].astype(float)
 
-    # Normalize index: month-end timestamps (matches the rest of your system)
+    # Normalize index: month-end timestamps
     s.index = pd.to_datetime(s.index)
     s.index = s.index.to_period("M").to_timestamp(how="end")
 
     # Deduplicate + sort (keep last)
     s = s[~s.index.duplicated(keep="last")].sort_index()
 
-    # Enforce monthly grid so statsmodels gets a supported index
-    full_idx = pd.date_range(s.index.min(), s.index.max(), freq="ME")  # month-end
-    s = s.reindex(full_idx)
-    missing_months: list[str] = []
+    # If caller didn't pass data_asof, requested_end is last observed month-end
+    if requested_end is None:
+        requested_end = s.index.max()
 
-    if s.isna().any():
-        miss = s.index[s.isna()]
-        missing_months = [d.date().isoformat() for d in miss]
+    # Reindex to full month-end grid THROUGH requested_end
+    full_idx = pd.date_range(s.index.min(), requested_end, freq="ME")
+    s = s.reindex(full_idx)
+
+    # Identify missing months
+    missing_idx = s.index[s.isna()]
+    missing_months = [d.date().isoformat() for d in missing_idx]
+
+    # Last observed (non-missing) month-end
+    last_obs = s.index[s.notna()].max() if s.notna().any() else None
+
+    # Classify tail vs interior missingness relative to requested_end
+    tail_start = (requested_end - pd.offsets.MonthEnd(tail_gap_months - 1)) if tail_gap_months > 1 else requested_end
+    tail_missing_idx = missing_idx[(missing_idx >= tail_start) & (missing_idx <= requested_end)]
+    interior_missing_idx = missing_idx[missing_idx < tail_start]
+
+    tail_missing_months = [d.date().isoformat() for d in tail_missing_idx]
+    interior_missing_months = [d.date().isoformat() for d in interior_missing_idx]
+
+    # Decide effective_end: clamp ONLY for tail gaps
+    effective_end = requested_end
+    asof_clamp_reason = None
+
+    if len(missing_idx) > 0:
         print(
             f"[sarimax_univariate] WARNING: missing months after reindex: "
-            f"n_missing={len(miss)} first={miss[0].date()} last={miss[-1].date()}"
+            f"n_missing={len(missing_idx)} first={missing_idx[0].date()} last={missing_idx[-1].date()}"
         )
-        # DO NOT drop here. Option A clamps effective_asof in run_sarimax_forecast.
 
-    if len(s) < min_obs:
+    if len(tail_missing_idx) > 0:
+        first_tail_missing = tail_missing_idx.min()
+        effective_end = (first_tail_missing - pd.offsets.MonthEnd(1)).to_period("M").to_timestamp(how="end")
+
+        asof_clamp_reason = {
+            "policy": "clamp_tail_gap",
+            "requested_asof": requested_end.date().isoformat(),
+            "tail_window_start": tail_start.date().isoformat(),
+            "first_missing_month_in_tail": first_tail_missing.date().isoformat(),
+            "effective_asof": effective_end.date().isoformat(),
+        }
+
+        print(
+            f"[sarimax_univariate] WARNING: clamping data_asof due to missing months: {asof_clamp_reason}"
+        )
+
+        # Clamp series to effective_end (removes tail missingness)
+        s = s.loc[:effective_end]
+
+        # Recompute missingness AFTER clamp (interior gaps may remain)
+        missing_idx = s.index[s.isna()]
+        missing_months = [d.date().isoformat() for d in missing_idx]
+        interior_missing_idx = missing_idx  # after clamp, remaining missing are interior by definition
+        interior_missing_months = [d.date().isoformat() for d in interior_missing_idx]
+        tail_missing_months = []
+
+        last_obs = s.index[s.notna()].max() if s.notna().any() else None
+
+    # Minimum observations check should be on NON-missing observations
+    n_obs_non_missing = int(s.notna().sum())
+    if n_obs_non_missing < min_obs:
         raise ValueError(
             f"Not enough observations for {target.metric_id}/{target.geo_id}/{pt_id}: "
-            f"{len(s)} < {min_obs}"
+            f"{n_obs_non_missing} < {min_obs}"
         )
 
-    return s.astype(float), missing_months
-    
+    dq = {
+        "requested_asof": requested_end.date().isoformat() if requested_end is not None else None,
+        "effective_asof": effective_end.date().isoformat() if effective_end is not None else None,
+        "asof_clamp_reason": asof_clamp_reason,
+        "last_observed_month": last_obs.date().isoformat() if last_obs is not None else None,
+        "missing_months": missing_months,
+        "missing_tail_months": tail_missing_months,
+        "missing_interior_months": interior_missing_months,
+        "tail_gap_months": int(tail_gap_months),
+        "n_obs_non_missing": n_obs_non_missing,
+    }
+
+    # IMPORTANT: do NOT drop NaNs here. Interior gaps remain as NaN by design.
+    return s.astype(float), dq
+
 # -----------------------------------------
 # Model fitting
 # -----------------------------------------
@@ -318,7 +381,13 @@ def run_sarimax_forecast(
     data_asof_dt = pd.to_datetime(data_asof).date() if data_asof else None
     
     # Load history up to requested_asof (or full history if None), then detect missing months on monthly grid.
-    y_full, missing_months = load_series(target, data_asof=data_asof_dt)
+    y_full, dq = load_series(target, data_asof=data_asof_dt, tail_gap_months=3)
+    effective_asof_dt: Optional[date] = (
+        pd.to_datetime(dq["effective_asof"]).date()
+        if dq.get("effective_asof")
+        else None
+    )
+
     
     # Requested as-of as month-end Timestamp
     requested_asof_ts = (
@@ -364,15 +433,12 @@ def run_sarimax_forecast(
     algo_params = {
         "order": order,
         "seasonal_order": seasonal_order,
-        "n_obs": int(len(y)),
+        "n_obs": int(dq.get("n_obs_non_missing") or len(y)),
+        "data_asof_requested": dq.get("requested_asof"),
+        "data_asof_effective": dq.get("effective_asof"),
+        "asof_clamp_reason": dq.get("asof_clamp_reason"),
         "run_kind": str(run_kind) if run_kind else None,
-        "data_asof_requested": str(data_asof_dt) if data_asof_dt else None,
-        "data_asof_effective": train_end.date().isoformat(),
-        "asof_clamp_reason": asof_clamp_reason,
-        "data_quality": {
-            "target_missing_months_up_to_requested": missing_up_to_req,
-            "is_degraded": bool(missing_up_to_req),
-        },
+        "data_quality": dq,
     }
 
     run_id = insert_forecast_run(
@@ -382,13 +448,12 @@ def run_sarimax_forecast(
         horizon_max_months=horizon_max_months,
         algo_params=algo_params,
         run_kind=run_kind,
-        data_asof=train_end.date().isoformat(),
+        data_asof=effective_asof_dt,   # <-- change THIS
         batch_id=None,
         model_name="sarimax_univariate",
         model_version="v1",
         notes=notes,
     )
-
 
     insert_predictions(
         run_id=run_id,
@@ -399,7 +464,6 @@ def run_sarimax_forecast(
     )
 
     return run_id
-
 
 # -----------------------------------------
 # CLI entry point
