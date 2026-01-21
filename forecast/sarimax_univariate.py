@@ -394,6 +394,10 @@ def run_sarimax_forecast(
     asof_clamp_reason = dq.get("asof_clamp_reason")
     
     effective_asof_dt = pd.to_datetime(effective_asof).date() if effective_asof else None
+    effective_asof_ts = (
+        pd.Timestamp(effective_asof_dt).to_period("M").to_timestamp(how="end")
+        if effective_asof_dt else None
+    )
     
     # Slice to effective_asof and drop NA (should be gap-free at the end now)
     y = y_full.loc[:effective_asof_ts].dropna()
