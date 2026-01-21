@@ -1,6 +1,7 @@
 # forecast/backtest_xgb_single.py
 
 import os
+import json
 from typing import List, Dict, Optional
 from pathlib import Path
 
@@ -244,15 +245,77 @@ def run_backtest_xgb_single(
 
     if not y_anchor.index.equals(X_full.index):
         raise ValueError("BUG: y_anchor.index must equal X_full.index")
-        
-    
-    # data_asof: if not passed, compute from series after month-end normalization
-    if data_asof is None:
-        data_asof = y_full.index.max().date()  # or y.index.max().date() depending on script
-    else:
-        data_asof = _parse_data_asof(data_asof)
-    print(f"[xgb_backtest] batch_id={batch_id} data_asof={data_asof}")
 
+    # ---------------------------
+    # DQ policy: clamp tail gaps
+    # ---------------------------
+    TAIL_GAP_MONTHS = 3  # keep aligned with sarimax_univariate default
+    
+    # 1) requested_end (month-end timestamp)
+    if data_asof is None:
+        requested_end = y_full.index.max()
+        requested_asof_dt = requested_end.date()
+    else:
+        requested_asof_dt = _parse_data_asof(data_asof)  # expects YYYY-MM-DD -> date
+        requested_end = pd.Timestamp(requested_asof_dt).to_period("M").to_timestamp(how="end")
+    
+    # 2) reindex y to full month-end grid THROUGH requested_end so gaps become explicit
+    full_idx = pd.date_range(y_full.index.min(), requested_end, freq="ME")
+    y_grid = y_full.reindex(full_idx)
+    
+    missing_idx = y_grid.index[y_grid.isna()]
+    
+    tail_start = (
+        requested_end - pd.offsets.MonthEnd(TAIL_GAP_MONTHS - 1)
+        if TAIL_GAP_MONTHS > 1 else requested_end
+    )
+    tail_missing = missing_idx[(missing_idx >= tail_start) & (missing_idx <= requested_end)]
+    
+    effective_end = requested_end
+    asof_clamp_reason = None
+    
+    if len(missing_idx) > 0:
+        print(
+            f"[xgb_backtest] WARNING: missing months on monthly grid: "
+            f"n_missing={len(missing_idx)} first={missing_idx[0].date()} last={missing_idx[-1].date()}"
+        )
+    
+    if len(tail_missing) > 0:
+        first_tail_missing = tail_missing.min()
+        effective_end = (
+            first_tail_missing - pd.offsets.MonthEnd(1)
+        ).to_period("M").to_timestamp(how="end")
+    
+        asof_clamp_reason = {
+            "policy": "clamp_tail_gap",
+            "requested_asof": requested_end.date().isoformat(),
+            "tail_window_start": tail_start.date().isoformat(),
+            "first_missing_month_in_tail": first_tail_missing.date().isoformat(),
+            "effective_asof": effective_end.date().isoformat(),
+        }
+        print(f"[xgb_backtest] WARNING: clamping data_asof due to tail gap: {asof_clamp_reason}")
+    
+    # 3) set data_asof to effective_end (THIS is what propagates downstream)
+    data_asof = effective_end.date()
+    
+    # 4) clamp y/X to effective_end using the SAME timeline
+    #    NOTE: we also align X to y_grid index so the mask is consistent.
+    y_grid_eff = y_grid.loc[:effective_end]
+    
+    # Keep only rows where y exists (missing months cannot be trained on)
+    mask = y_grid_eff.notna()
+    
+    # Reindex X onto the same monthly grid (it should already be compatible)
+    X_grid_eff = X_full.reindex(y_grid_eff.index)
+    
+    y_full = y_grid_eff.loc[mask].copy()
+    X_full = X_grid_eff.loc[mask].copy()
+    
+    # y_anchor is the source-of-truth timeline for anchors
+    y_anchor = y_full.copy()
+    
+    print(f"[xgb_backtest] batch_id={batch_id} data_asof_effective={data_asof} (requested={requested_asof_dt})")
+    
     print(
         f"[xgb_backtest] Final design matrix: "
         f"n_obs={len(y_full)}, n_features={X_full.shape[1]}, "
@@ -311,14 +374,14 @@ def run_backtest_xgb_single(
         # ------------------------------------------------------------
         # Guard: require future y for the full horizon (skip if missing)
         # ------------------------------------------------------------
-        test_idx = month_ends_after(anchor_date, steps=args.horizon)
+        test_idx = month_ends_after(anchor_date, steps=horizon)
         y_test = y_full.reindex(test_idx)
     
         if y_test.isna().any():
             missing = [d.date().isoformat() for d in y_test.index[y_test.isna()]]
             print(
                 f"[xgb_backtest] SKIP anchor={anchor_date.date().isoformat()} "
-                f"missing future y for horizon={args.horizon}: {missing}"
+                f"missing future y for horizon={horizon}: {missing}"
             )
             continue
 
@@ -387,6 +450,10 @@ def run_backtest_xgb_single(
         fi_sel["anchor_date"] = anchor_key
         fi_sel["horizon"] = int(horizon_bt)
         fi_sel["seed"] = int(seed)
+        fi_sel["data_asof_requested"] = str(requested_asof_dt) if requested_asof_dt else None
+        fi_sel["data_asof_effective"] = str(data_asof) if data_asof else None
+        fi_sel["asof_clamp_reason"] = json.dumps(asof_clamp_reason) if asof_clamp_reason else None
+
         
         if artifact_root:
             #out_dir = Path(artifact_root) / batch_id / "xgb"
@@ -428,6 +495,10 @@ def run_backtest_xgb_single(
             "n_obs": int(y_train.shape[0]),
             "n_features": int(X_train.shape[1]),
         }
+        algo_params["data_asof_requested"] = requested_asof_dt.isoformat() if requested_asof_dt else None
+        algo_params["data_asof_effective"] = data_asof.isoformat() if data_asof else None
+        algo_params["asof_clamp_reason"] = asof_clamp_reason
+
         
         con = get_connection()
         
