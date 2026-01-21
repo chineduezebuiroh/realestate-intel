@@ -388,29 +388,12 @@ def run_sarimax_forecast(
         else None
     )
 
+    # for auditability
+    requested_asof = dq.get("requested_asof")
+    effective_asof = dq.get("effective_asof")
+    asof_clamp_reason = dq.get("asof_clamp_reason")
     
-    # Requested as-of as month-end Timestamp
-    requested_asof_ts = (
-        pd.Timestamp(data_asof_dt).to_period("M").to_timestamp(how="end")
-        if data_asof_dt
-        else y_full.index.max()
-    )
-    
-    # Consider only missing months up to requested_asof (ignore any beyond)
-    missing_up_to_req = sorted([m for m in missing_months if pd.Timestamp(m) <= requested_asof_ts])
-    
-    effective_asof_ts = requested_asof_ts
-    asof_clamp_reason = None
-    
-    if missing_up_to_req:
-        first_missing_ts = pd.Timestamp(missing_up_to_req[0]).to_period("M").to_timestamp(how="end")
-        effective_asof_ts = first_missing_ts - pd.offsets.MonthEnd(1)
-        asof_clamp_reason = {
-            "requested_asof": requested_asof_ts.date().isoformat(),
-            "first_missing_month": first_missing_ts.date().isoformat(),
-            "effective_asof": effective_asof_ts.date().isoformat(),
-        }
-        print(f"[sarimax_univariate] WARNING: clamping data_asof due to missing months: {asof_clamp_reason}")
+    effective_asof_dt = pd.to_datetime(effective_asof).date() if effective_asof else None
     
     # Slice to effective_asof and drop NA (should be gap-free at the end now)
     y = y_full.loc[:effective_asof_ts].dropna()
