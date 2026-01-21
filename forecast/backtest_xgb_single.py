@@ -315,6 +315,20 @@ def run_backtest_xgb_single(
     y_anchor = y_full.copy()
     
     print(f"[xgb_backtest] batch_id={batch_id} data_asof_effective={data_asof} (requested={requested_asof_dt})")
+
+    # --- DQ: drop feature columns missing at effective_asof (selector must not rank unusable features) ---
+    effective_asof_ts = pd.Timestamp(data_asof_effective).to_period("M").to_timestamp(how="end")
+    
+    if effective_asof_ts not in X_full.index:
+        raise ValueError(f"[xgb_backtest] effective_asof_ts not in X_full.index: {effective_asof_ts}")
+    
+    na_cols = X_full.loc[effective_asof_ts].isna()
+    drop_cols = na_cols[na_cols].index.tolist()
+    
+    if drop_cols:
+        print(f"[xgb_backtest] WARNING: dropping features missing at effective_asof: n={len(drop_cols)}")
+        X_full = X_full.drop(columns=drop_cols)
+
     
     print(
         f"[xgb_backtest] Final design matrix: "
@@ -325,7 +339,7 @@ def run_backtest_xgb_single(
     print("[debug] raw target max:", load_target_series_for_spec(target).index.max())
     print("[debug] y_full max:", y_full.index.max())
     print("[debug] X_full max:", X_full.index.max())
-    print("[debug] X_full nulls last row:", int(X_full.loc[X_full.index.max()].isna().sum()))
+    print("[debug] X_full nulls last row (after drop):", int(X_full.loc[effective_asof_ts].isna().sum()))
 
     if anchors_csv:
         anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
@@ -344,6 +358,11 @@ def run_backtest_xgb_single(
         return
 
     print("[xgb_backtest] anchors:", [a.date().isoformat() for a in anchors])
+
+    # --- selector purpose: only run the latest anchor (speed + relevance) ---
+    if purpose == "selector":
+        anchors = [anchors[-1]]  # keep newest only
+        print(f"[xgb_backtest] selector: restricting to latest anchor={anchors[0].date().isoformat()}")
 
     # --- Anchor validation against design-matrix timeline ---
     missing = [a for a in anchors if a not in X_full.index]
