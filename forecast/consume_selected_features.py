@@ -138,6 +138,10 @@ def consume_selected_features(
 
     # enforce top_k deterministically by rank
     df = df.sort_values("rank", ascending=True).head(int(top_k)).copy()
+    # This is the canonical, rank-ordered lag-level feature list
+    ordered_feature_ids = df["feature_id"].astype(str).tolist()
+    if len(ordered_feature_ids) != int(top_k):
+        raise SystemExit(f"[consume] REFUSING: expected top_k={top_k} rows, got {len(ordered_feature_ids)}")
 
     # --- ordered feature_ids for audit (must match top_k selection) ---
     feature_ids = df["feature_id"].astype(str).tolist()
@@ -168,9 +172,22 @@ def consume_selected_features(
         min_obs=min_obs,
         drop_feature_na=True,
     )
+    
+    # Contract: X must contain exactly the rank-ordered lag-level ids
+    missing = [c for c in ordered_feature_ids if c not in X.columns]
+    extra = [c for c in X.columns if c not in set(ordered_feature_ids)]
+    if missing:
+        raise SystemExit(f"[consume] REFUSING: missing columns in X: n={len(missing)} example={missing[:10]}")
+    if extra:
+        raise SystemExit(f"[consume] REFUSING: unexpected extra columns in X: n={len(extra)} example={extra[:10]}")
+    
+    # Force the canonical order (rank order) — THIS fixes your bridge refusal
+    X = X.loc[:, ordered_feature_ids].copy()
+    
     if X.shape[1] != int(top_k):
         raise SystemExit(f"[consume] REFUSING: X has {X.shape[1]} features, expected top_k={top_k}")
-    
+
+
     MIN_ROWS = 120  # pick a sane floor for now; later move to policy
     if len(X) < MIN_ROWS:
         raise SystemExit(f"[consume] REFUSING: n_rows={len(X)} < MIN_ROWS={MIN_ROWS}")
@@ -207,7 +224,7 @@ def consume_selected_features(
         "data_asof_requested": data_asof_requested.isoformat(),
         "data_asof_effective": data_asof_effective.isoformat(),
         "feature_set_sha256": sha_vals[0],
-        "feature_ids": feature_ids,                    # NEW (ordered)
+        "feature_ids": ordered_feature_ids,  # NEW (ordered)
         "design_matrix_sha256": design_matrix_sha256,  # NEW
         "top_k": int(top_k),
         "n_rows": int(df_out.shape[0]),
