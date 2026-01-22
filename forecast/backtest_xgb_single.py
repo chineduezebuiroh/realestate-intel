@@ -50,6 +50,11 @@ def _parse_data_asof(s: str | None):
         return None
     return pd.to_datetime(s).date()
 
+
+def _base_id_from_feature_id(feature_id: str) -> str:
+    # strips "_lagK"
+    return feature_id.rsplit("_lag", 1)[0]
+
 # ==========================================================
 # Helpers for iterative forecasting
 # ==========================================================
@@ -319,6 +324,29 @@ def run_backtest_xgb_single(
     
     y_full = y_grid_eff.loc[mask].copy()
     X_full = X_grid_eff.loc[mask].copy()
+
+
+    # --- DQ: base-series coverage on effective training mask ---
+    min_base_coverage = 0.95  # keep aligned with your sparse feature policy
+    
+    # coverage per column
+    col_coverage = 1.0 - X_full.isna().mean(axis=0)
+    
+    # group columns by base_id and take MIN coverage across its lag columns
+    base_to_cols: Dict[str, List[str]] = {}
+    for c in X_full.columns:
+        base = _base_id_from_feature_id(str(c))
+        base_to_cols.setdefault(base, []).append(c)
+    
+    base_min_cov = {b: float(col_coverage[cols].min()) for b, cols in base_to_cols.items()}
+    bad_bases = {b for b, cov in base_min_cov.items() if cov < min_base_coverage}
+    
+    if bad_bases:
+        # drop all columns belonging to those base series
+        drop_cols = [c for b in bad_bases for c in base_to_cols[b]]
+        print(f"[xgb_backtest] WARNING: dropping base series for low coverage: n_base={len(bad_bases)} n_cols={len(drop_cols)} min_ratio={min_base_coverage}")
+        X_full = X_full.drop(columns=drop_cols)
+
     
     # y_anchor is the source-of-truth timeline for anchors
     y_anchor = y_full.copy()
