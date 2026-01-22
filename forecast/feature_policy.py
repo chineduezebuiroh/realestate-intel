@@ -27,6 +27,11 @@ class FeaturePolicy:
     xgb_selector_latest_anchor_offset_months: Optional[int] = None
     xgb_selector_anchor_step_months: int = 1
     xgb_selector_max_anchors: int = 12
+    
+    # --- Data quality thresholds ---
+    min_feature_coverage_ratio: float = 0.95
+    max_consecutive_missing_months: int = 2
+    tail_gap_months: int = 3
 
 
 def default_policy() -> FeaturePolicy:
