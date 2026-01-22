@@ -671,7 +671,7 @@ def discover_all_series_for_target(
 
 def build_universal_feature_specs(
     target: TargetSpec,
-    lag_scheme: List[int] = [1, 2, 3, 6, 12],
+    lag_scheme: List[int] = [1, 3, 6, 12],
     min_obs: int = 60,
 ) -> List[FeatureSpec]:
     max_lag = max(lag_scheme)
