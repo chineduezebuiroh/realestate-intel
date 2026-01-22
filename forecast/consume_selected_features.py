@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+import hashlib
 
 from typing import List, Optional, Tuple, Dict, Set
 
@@ -101,6 +102,7 @@ def consume_selected_features(
     top_k: int = 100,
     artifact_root: str = "runs",
     min_obs: int = 60,
+    overwrite: bool = False,   # NEW
 ) -> Path:
     """
     Build a deterministic SARIMAX-exog design matrix from the selector artifact.
@@ -137,8 +139,15 @@ def consume_selected_features(
     # enforce top_k deterministically by rank
     df = df.sort_values("rank", ascending=True).head(int(top_k)).copy()
 
+    # --- ordered feature_ids for audit (must match top_k selection) ---
+    feature_ids = df["feature_id"].astype(str).tolist()
+    if len(feature_ids) != int(top_k):
+        raise SystemExit(f"[consume] REFUSING: expected {top_k} feature_ids, got {len(feature_ids)}")
+
     # use EFFECTIVE as-of
+    data_asof_requested = _parse_date(str(df["data_asof_requested"].iloc[0]))
     data_asof_effective = _parse_date(str(df["data_asof_effective"].iloc[0]))
+
 
     # build target spec pinned to as-of
     target = TargetSpec(
@@ -179,22 +188,27 @@ def consume_selected_features(
 
     out_path = out_dir / f"design_matrix__anchor={anchor_dt.isoformat()}__asof={data_asof_effective.isoformat()}.parquet"
 
-    if out_path.exists():
+    if out_path.exists() and not overwrite:
         raise SystemExit(
             f"REFUSING to overwrite existing design matrix: {out_path}\n"
-            "Use a fresh --batch_id or delete this file."
+            "Use --overwrite, a fresh --batch_id, or delete this file."
         )
 
     # store y + X together (simple)
     df_out = pd.concat([y.rename("y"), X], axis=1)
     df_out.to_parquet(out_path, index=True)
+    design_matrix_sha256 = hashlib.sha256(out_path.read_bytes()).hexdigest()
 
     # audit sidecar
     audit = {
+        "audit_version": "v1",
         "batch_id": batch_id,
         "anchor_date": anchor_dt.isoformat(),
+        "data_asof_requested": data_asof_requested.isoformat(),
         "data_asof_effective": data_asof_effective.isoformat(),
         "feature_set_sha256": sha_vals[0],
+        "feature_ids": feature_ids,                    # NEW (ordered)
+        "design_matrix_sha256": design_matrix_sha256,  # NEW
         "top_k": int(top_k),
         "n_rows": int(df_out.shape[0]),
         "n_features": int(X.shape[1]),
@@ -206,6 +220,7 @@ def consume_selected_features(
         "selector_artifact": str(in_path),
         "design_matrix_artifact": str(out_path),
     }
+
     (out_path.with_suffix(".json")).write_text(json.dumps(audit, indent=2))
 
     print(f"[consume] wrote design matrix: {out_path}")
@@ -225,6 +240,8 @@ def main():
     ap.add_argument("--top_k", type=int, default=100)
     ap.add_argument("--artifact_root", type=str, default="runs")
     ap.add_argument("--min_obs", type=int, default=60)
+    ap.add_argument("--overwrite", action="store_true", help="Allow overwriting existing design matrix artifacts")
+    
     args = ap.parse_args()
 
     consume_selected_features(
@@ -236,6 +253,7 @@ def main():
         top_k=args.top_k,
         artifact_root=args.artifact_root,
         min_obs=args.min_obs,
+        overwrite=args.overwrite,   # NEW
     )
 
 
