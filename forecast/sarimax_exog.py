@@ -18,6 +18,7 @@ from .design_matrix import build_train_and_future_exog_forecasted, load_series_f
 from .backtest_utils import month_end_index
 from .xgb_shortlist import load_xgb_selected_feature_ids, resolve_anchor_for_live
 from .asof_policy import resolve_asof, load_source_max_dates, AsOfPolicy
+from .artifacts import load_design_matrix_artifact
 
 from .db_forecast import (
     get_connection,
@@ -69,6 +70,8 @@ def run_sarimax_exog(
     run_kind: str = "live",           # e.g. live_near, live_outlook
     label: Optional[str] = None,      # e.g. "Near-term"
     artifact_root: str = "runs",      # where XGB shortlist artifacts live
+    design_matrix_path: Optional[str] = None,
+    design_matrix_audit_path: Optional[str] = None,
 ) -> int:
     """
     Live SARIMAX(exog).
@@ -85,6 +88,127 @@ def run_sarimax_exog(
 
     # Batch / asof normalization
     batch_id = batch_id or new_batch_id()
+
+    # normalize to date (or None) for deterministic DB annotation
+    data_asof_dt = pd.to_datetime(data_asof).date() if data_asof else None
+
+    # Define target early so PATH 2 doesn't reference an undefined variable
+    target = TargetSpec(
+        metric_id=metric_id,
+        geo_id=geo_id,
+        property_type_id=pt_id_str,
+        data_asof=data_asof_dt,
+    )
+
+    # ------------------------------------------------------------
+    # PATH 0 (bridge): artifact-driven design matrix (no rebuilding)
+    # ------------------------------------------------------------
+    if design_matrix_path and design_matrix_audit_path:
+        art = load_design_matrix_artifact(design_matrix_path, design_matrix_audit_path)
+
+        # Contract sanity: target must match what caller claims
+        audit_target = (art.audit.get("target") or {})
+        if audit_target:
+            if audit_target.get("metric_id") and audit_target["metric_id"] != metric_id:
+                raise SystemExit("[sarimax_exog] REFUSING: metric_id does not match audit target")
+            if audit_target.get("geo_id") and audit_target["geo_id"] != geo_id:
+                raise SystemExit("[sarimax_exog] REFUSING: geo_id does not match audit target")
+            if audit_target.get("property_type_id") and str(audit_target["property_type_id"]) != str(property_type_id):
+                raise SystemExit("[sarimax_exog] REFUSING: property_type_id does not match audit target")
+
+        # Use audit as-of if present (this is the whole point)
+        effective_asof = art.audit.get("data_asof_effective")
+        if effective_asof:
+            target.data_asof = pd.to_datetime(effective_asof).date()
+
+        y = art.y.copy()
+        X = art.X.copy()
+
+        # Tripwire: refuse garbage
+        if X.shape[1] == 0:
+            raise SystemExit("[sarimax_exog] REFUSING: artifact has 0 exog columns")
+        if len(y) < 120:
+            raise SystemExit(f"[sarimax_exog] REFUSING: too few rows for bridge run: n={len(y)}")
+
+        # Bridge forecast method: carry-forward last exog row (temporary, but deterministic)
+        last_exog_row = X.iloc[[-1]]
+        exog_future = np.repeat(last_exog_row.values, horizon_max_months, axis=0)
+
+        # Fit SARIMAX on this exact matrix
+        endog = pd.Series(y.values)  # RangeIndex for statsmodels stability
+        exog_train = X.to_numpy(dtype=float)
+
+        model = SARIMAX(
+            endog=endog,
+            exog=exog_train,
+            order=(1, 1, 1),
+            seasonal_order=(1, 1, 1, 12),
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        )
+        fit = model.fit(disp=False)
+        fc = fit.get_forecast(steps=horizon_max_months, exog=exog_future)
+
+        # Build future dates off last y index (month-end)
+        last_date = pd.Timestamp(y.index[-1]).to_period("M")
+        future_periods = [last_date + i for i in range(1, horizon_max_months + 1)]
+        target_dates = [p.to_timestamp(how="end") for p in future_periods]
+
+        mean_fc = np.asarray(fc.predicted_mean, dtype=float)
+        ci = np.asarray(fc.conf_int(), dtype=float)
+
+        algo_params = {
+            "order": (1, 1, 1),
+            "seasonal_order": (1, 1, 1, 12),
+            "n_obs": int(len(y)),
+            "bridge_mode": "artifact_design_matrix",
+            "exog_mode": "carry_forward_last_row",
+            "design_matrix_path": str(design_matrix_path),
+            "design_matrix_audit_path": str(design_matrix_audit_path),
+            "design_matrix_sha256": art.audit.get("design_matrix_sha256"),
+            "feature_set_sha256": art.audit.get("feature_set_sha256"),
+            "feature_ids": list(X.columns),
+            "label": label or "",
+            "data_asof_effective": art.audit.get("data_asof_effective"),
+            "data_asof_requested": art.audit.get("data_asof_requested"),
+            "anchor_date": art.audit.get("anchor_date"),
+        }
+
+        con = get_connection()
+        try:
+            run_id = insert_run(
+                con=con,
+                model_name="sarimax_exog",
+                model_version="v0_bridge_artifact",
+                target_metric_id=target.metric_id,
+                target_geo_id=target.geo_id,
+                target_property_type_id=target.property_type_id,
+                freq="M",
+                train_start=pd.Timestamp(y.index[0]).date(),
+                train_end=pd.Timestamp(y.index[-1]).date(),
+                horizon_max_months=int(horizon_max_months),
+                algo_params=algo_params,
+                notes=notes or f"SARIMAX(exog) BRIDGE (artifact-driven) ({label or run_kind})",
+                is_active=True,
+                run_kind=run_kind,
+                batch_id=batch_id,
+                data_asof=target.data_asof,
+            )
+
+            insert_predictions(
+                con=con,
+                run_id=int(run_id),
+                target_dates=[d.date() for d in target_dates],
+                y_hat=mean_fc,
+                y_hat_lo=ci[:, 0],
+                y_hat_hi=ci[:, 1],
+            )
+        finally:
+            con.close()
+
+        print(f"[sarimax_exog] Created BRIDGE run_id={run_id} batch_id={batch_id} label={label or run_kind}")
+        return int(run_id)
+
 
     # ------------------------------------------------------------
     # PATH 1 (preferred): shortlist-driven, forecasted future exog
@@ -516,6 +640,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--label", default=None, help="Human label like 'Near-term' or '12-mo outlook'")
     parser.add_argument("--data_asof", type=str, default=None, help="Freeze data reads at month-end <= this date (YYYY-MM-DD).")
+    parser.add_argument("--design_matrix_path", default=None, help="Run from an emitted design-matrix parquet (bridge mode).")
+    parser.add_argument("--design_matrix_audit_path", default=None, help="Audit JSON sidecar for the design matrix (bridge mode).")
+
 
     args = parser.parse_args()
     if args.run_kind in ("live_near", "live_outlook") and not args.data_asof:
@@ -550,6 +677,9 @@ if __name__ == "__main__":
         data_asof=args.data_asof,
         run_kind=args.run_kind,
         label=args.label,
+        design_matrix_path=args.design_matrix_path,
+        design_matrix_audit_path=args.design_matrix_audit_path,
+
     )
 
     print(f"Created SARIMAX(exog) run_id={run_id}")
