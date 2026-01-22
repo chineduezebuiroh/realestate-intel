@@ -185,7 +185,7 @@ def run_sarimax_exog(
         }
         algo_params["fit_diag"] = {
             "converged": getattr(fit, "mle_retvals", {}).get("converged", None),
-            "nobs": int(getattr(fit, "nobs", len(y_train))),
+            "nobs": int(getattr(fit, "nobs", len(endog))),
             "aic": float(getattr(fit, "aic", np.nan)),
             "bic": float(getattr(fit, "bic", np.nan)),
         }
@@ -386,7 +386,7 @@ def run_sarimax_exog(
             y_train_full = y_full_raw.loc[:anchor_date].copy()
             X_train_sel = X_train_raw.loc[:anchor_date, feature_ids].copy()
     
-            # Align and drop rows with any NA (endog or exog)
+            # Align and drop rows with any NA ( or exog)
             X_train_sel = X_train_sel.reindex(y_train_full.index)
             train_mask = y_train_full.notna() & X_train_sel.notna().all(axis=1)
     
@@ -446,8 +446,9 @@ def run_sarimax_exog(
                 )
     
     
-            # 5) Fit SARIMAX (index-safe: use RangeIndex endog)
+            # 5) Fit SARIMAX (index-safe: use RangeIndex )
             endog = pd.Series(y_train.values)  # RangeIndex
+            assert len(endog) == X_train_sel.shape[0]
             exog_train = X_train_sel.to_numpy(dtype=float)
     
             model = SARIMAX(
