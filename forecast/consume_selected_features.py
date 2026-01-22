@@ -6,7 +6,8 @@ import json
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import List, Optional, Tuple, Dict
+
+from typing import List, Optional, Tuple, Dict, Set
 
 import pandas as pd
 
@@ -34,28 +35,59 @@ def _parse_feature_id(fid: str) -> Tuple[str, int]:
 
 
 def _feature_specs_from_selected_features(df: pd.DataFrame) -> List[FeatureSpec]:
-    # group lags by base id
-    base_to_lags: Dict[str, List[int]] = {}
-    for fid in df["feature_id"].astype(str):
-        base, lag = _parse_feature_id(fid)
-        base_to_lags.setdefault(base, []).append(lag)
+    """
+    Convert selected_features parquet rows (feature_id like base_lagK) into FeatureSpec objects.
+
+    Expected feature_id format:
+      {metric_id}__{geo_id}__{property_type_id}__{source_id}_lag{K}
+    """
+    if "feature_id" not in df.columns:
+        raise ValueError("selected_features df missing required column: feature_id")
+
+    # base -> (metric_id, geo_id, property_type_id, source_id, lags)
+    base_to_lags: Dict[str, Set[int]] = {}
+    base_to_parts: Dict[str, Tuple[str, str, str, str]] = {}
+
+    for fid in df["feature_id"].astype(str).tolist():
+        if "_lag" not in fid:
+            raise ValueError(f"Bad feature_id (missing _lag): {fid}")
+
+        base, lag_str = fid.rsplit("_lag", 1)
+        try:
+            lag = int(lag_str)
+        except Exception:
+            raise ValueError(f"Bad feature_id lag suffix: {fid}")
+
+        parts = base.split("__")
+        if len(parts) != 4:
+            raise ValueError(f"Bad feature_id base (expected 4-part '__' id): {fid}")
+
+        metric_id, geo_id, pt_raw, source_id = parts
+
+        base_to_lags.setdefault(base, set()).add(lag)
+        base_to_parts.setdefault(base, (metric_id, geo_id, pt_raw, source_id))
 
     specs: List[FeatureSpec] = []
-    for base, lags in base_to_lags.items():
-        metric_id, geo_id, property_type_id, source_id = base.split("__")
-        lags_sorted = sorted(set(int(x) for x in lags))
+    for base, lags_set in sorted(base_to_lags.items()):
+        metric_id, geo_id, pt_raw, source_id = base_to_parts[base]
+
+        # Normalize property_type_id: "all" -> None (your loader treats None as 'all')
+        property_type_id = None if pt_raw == "all" else pt_raw
+
         specs.append(
             FeatureSpec(
+                name=base,                       # <-- REQUIRED, and must match base_id exactly
                 metric_id=metric_id,
                 geo_id=geo_id,
                 property_type_id=property_type_id,
                 source_id=source_id,
-                lags=lags_sorted,
+                lags=tuple(sorted(lags_set)),
             )
         )
 
-    # deterministic ordering
-    specs = sorted(specs, key=lambda s: (s.metric_id, s.geo_id, str(s.property_type_id), str(s.source_id)))
+    if not specs:
+        raise ValueError("No FeatureSpecs constructed from selected_features (empty after parsing).")
+
     return specs
 
 
@@ -117,6 +149,8 @@ def consume_selected_features(
     )
 
     specs = _feature_specs_from_selected_features(df)
+    if len(specs) == 0:
+        raise SystemExit("[consume] 0 specs after parsing — refusing to run.")
 
     # Build design matrix (complete-case for SARIMAX-exog)
     y, X, base_series = build_design_matrix(
