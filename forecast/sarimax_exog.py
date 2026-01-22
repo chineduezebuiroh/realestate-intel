@@ -679,7 +679,6 @@ if __name__ == "__main__":
         label=args.label,
         design_matrix_path=args.design_matrix_path,
         design_matrix_audit_path=args.design_matrix_audit_path,
-
     )
 
     print(f"Created SARIMAX(exog) run_id={run_id}")
