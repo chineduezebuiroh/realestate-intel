@@ -159,6 +159,13 @@ def consume_selected_features(
         min_obs=min_obs,
         drop_feature_na=True,
     )
+    if X.shape[1] != int(top_k):
+        raise SystemExit(f"[consume] REFUSING: X has {X.shape[1]} features, expected top_k={top_k}")
+    
+    MIN_ROWS = 120  # pick a sane floor for now; later move to policy
+    if len(X) < MIN_ROWS:
+        raise SystemExit(f"[consume] REFUSING: n_rows={len(X)} < MIN_ROWS={MIN_ROWS}")
+
 
     # extra sanity: month-end index
     y.index = month_end_index(y.index)
