@@ -2,6 +2,7 @@
 
 import os
 import json
+import hashlib
 from typing import List, Dict, Optional
 from pathlib import Path
 
@@ -519,16 +520,24 @@ def run_backtest_xgb_single(
         # annotate keys for deterministic downstream lookup
         anchor_key = anchor_date.date().isoformat()
         fi_sel["batch_id"] = batch_id
+        
         fi_sel["data_asof"] = str(data_asof_effective) if data_asof_effective else None  # canonical for downstream
+        
         fi_sel["geo_id"] = geo_id
         fi_sel["metric_id"] = metric_id
         fi_sel["property_type_id"] = property_type_id
         fi_sel["anchor_date"] = anchor_key
         fi_sel["horizon"] = int(horizon_bt)
         fi_sel["seed"] = int(seed)
+        
         fi_sel["data_asof_requested"] = str(data_asof_requested) if data_asof_requested else None
         fi_sel["data_asof_effective"] = str(data_asof_effective) if data_asof_effective else None
         fi_sel["asof_clamp_reason"] = json.dumps(asof_clamp_reason) if asof_clamp_reason else None
+
+        # deterministic checksum so consumers can assert identity
+        fid_list = fi_sel["feature_id"].astype(str).tolist()
+        fi_sel["feature_set_sha256"] = hashlib.sha256("\n".join(fid_list).encode("utf-8")).hexdigest()
+
 
         if artifact_root:
             #out_dir = Path(artifact_root) / batch_id / "xgb"
