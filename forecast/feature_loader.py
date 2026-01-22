@@ -422,7 +422,13 @@ def build_design_matrix_incremental(
         raise ValueError("No candidate specs provided to build_design_matrix_incremental.")
     
     print(f"[inc-build] target={target.metric_id}/{target.geo_id}/{target.property_type_id}")
-    print(f"[inc-build] candidates={len(candidate_specs)} min_obs={min_obs} max_features={max_features}")    
+    print(f"[inc-build] candidates={len(candidate_specs)} min_obs={min_obs} max_features={max_features}")
+
+    policy = default_policy()
+    # DQ thresholds (policy-owned; fallback if not yet added)
+    min_cov = float(getattr(policy, "min_feature_coverage_ratio", 0.95))
+    max_consec_missing = int(getattr(policy, "max_consecutive_missing_months", 2))
+
 
     selected_specs: List[FeatureSpec] = []
     current_y: Optional[pd.Series] = None
@@ -435,6 +441,25 @@ def build_design_matrix_incremental(
             "build_design_matrix_incremental requires load_target_fn so we can validate "
             "target history without exog contamination."
         )
+
+    def _max_consecutive_missing(mask: pd.Series) -> int:
+        # mask=True where missing
+        cur = 0
+        best = 0
+        for v in mask.astype(bool).values:
+            if v:
+                cur += 1
+                if cur > best:
+                    best = cur
+            else:
+                cur = 0
+        return int(best)
+
+    def _coverage_ratio(s: pd.Series) -> float:
+        if s is None or len(s) == 0:
+            return 0.0
+        return float(s.notna().sum() / len(s))
+
 
     y_raw = load_target_fn(target).copy()
     y_raw.index = month_end_index(y_raw.index)
@@ -468,6 +493,32 @@ def build_design_matrix_incremental(
             # This feature makes alignment impossible; skip it.
             continue
 
+        # ----------------------------
+        # DQ gate (BEFORE acceptance)
+        # ----------------------------
+        # Use the base (unlagged) series aligned to the *training* timeline.
+        # build_design_matrix already reindexes base_series to the target timeline.
+        s_base = base_trial.get(spec.name)
+        if s_base is None:
+            continue
+
+        # Align to y_trial index (the only months we can train on anyway)
+        s_aligned = s_base.reindex(y_trial.index)
+
+        cov = _coverage_ratio(s_aligned)
+        max_consec = _max_consecutive_missing(s_aligned.isna())
+
+        if cov < min_cov:
+            # Reject early: this series will burn quota + create junk lag columns
+            if len(selected_specs) <= 10 or i % 50 == 0:
+                print(f"[inc-build] -reject {spec.name} coverage={cov:.3f} < {min_cov:.3f}")
+            continue
+
+        if max_consec > max_consec_missing:
+            if len(selected_specs) <= 10 or i % 50 == 0:
+                print(f"[inc-build] -reject {spec.name} max_consec_missing={max_consec} > {max_consec_missing}")
+            continue
+
         # Effective rows for THIS candidate’s lagged columns (not all columns)
         new_cols = [f"{spec.name}_lag{lag}" for lag in spec.lags]
         df_eff = pd.concat([y_trial, X_trial[new_cols]], axis=1).dropna()
@@ -478,7 +529,8 @@ def build_design_matrix_incremental(
             current_y, current_X, current_base = y_trial, X_trial, base_trial
         
             if len(selected_specs) <= 10 or len(selected_specs) % 10 == 0:
-                print(f"[inc-build] +accept {spec.name} -> y_obs={len(y_trial)} n_eff={n_eff} feats={X_trial.shape[1]}")
+                print(f"[inc-build] +accept {spec.name} -> y_obs={len(y_trial)} n_eff={n_eff} cov={cov:.3f} max_consec={max_consec} feats={X_trial.shape[1]}")
+
 
 
     if current_y is None or current_X is None or current_base is None:
