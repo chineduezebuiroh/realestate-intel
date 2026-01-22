@@ -1,0 +1,203 @@
+from __future__ import annotations
+# forecast/consume_selected_features.py
+
+import argparse
+import json
+from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
+from typing import List, Optional, Tuple, Dict
+
+import pandas as pd
+
+from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix
+from .backtest_utils import month_end_index
+
+
+def _parse_date(s: str) -> date:
+    return pd.to_datetime(s).date()
+
+
+def _parse_feature_id(fid: str) -> Tuple[str, int]:
+    """
+    feature_id format:
+      <metric_id>__<geo_id>__<property_type_id>__<source_id>_lagK
+    """
+    if "_lag" not in fid:
+        raise ValueError(f"feature_id missing _lag: {fid}")
+    base, lag_s = fid.rsplit("_lag", 1)
+    lag = int(lag_s)
+    parts = base.split("__")
+    if len(parts) != 4:
+        raise ValueError(f"feature_id base not 4-part: {fid}")
+    return base, lag
+
+
+def _feature_specs_from_selected_features(df: pd.DataFrame) -> List[FeatureSpec]:
+    # group lags by base id
+    base_to_lags: Dict[str, List[int]] = {}
+    for fid in df["feature_id"].astype(str):
+        base, lag = _parse_feature_id(fid)
+        base_to_lags.setdefault(base, []).append(lag)
+
+    specs: List[FeatureSpec] = []
+    for base, lags in base_to_lags.items():
+        metric_id, geo_id, property_type_id, source_id = base.split("__")
+        lags_sorted = sorted(set(int(x) for x in lags))
+        specs.append(
+            FeatureSpec(
+                metric_id=metric_id,
+                geo_id=geo_id,
+                property_type_id=property_type_id,
+                source_id=source_id,
+                lags=lags_sorted,
+            )
+        )
+
+    # deterministic ordering
+    specs = sorted(specs, key=lambda s: (s.metric_id, s.geo_id, str(s.property_type_id), str(s.source_id)))
+    return specs
+
+
+def consume_selected_features(
+    *,
+    batch_id: str,
+    anchor_date: str,
+    target_metric_id: str,
+    target_geo_id: str,
+    target_property_type_id: str,
+    top_k: int = 100,
+    artifact_root: str = "runs",
+    min_obs: int = 60,
+) -> Path:
+    """
+    Build a deterministic SARIMAX-exog design matrix from the selector artifact.
+
+    Returns path to the emitted design matrix parquet.
+    """
+    anchor_dt = _parse_date(anchor_date)
+
+    in_path = Path(artifact_root) / batch_id / "xgb" / f"selected_features__anchor={anchor_dt.isoformat()}.parquet"
+    if not in_path.exists():
+        raise FileNotFoundError(f"Missing selector artifact: {in_path}")
+
+    df = pd.read_parquet(in_path)
+    if df.empty:
+        raise ValueError(f"Selector artifact empty: {in_path}")
+
+    # --- contract checks ---
+    required_cols = {
+        "feature_id",
+        "rank",
+        "data_asof",
+        "data_asof_requested",
+        "data_asof_effective",
+        "feature_set_sha256",
+    }
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise ValueError(f"Selector artifact missing columns: {sorted(missing)}")
+
+    sha_vals = df["feature_set_sha256"].dropna().unique().tolist()
+    if len(sha_vals) != 1:
+        raise ValueError(f"Expected exactly 1 feature_set_sha256, got {len(sha_vals)}")
+
+    # enforce top_k deterministically by rank
+    df = df.sort_values("rank", ascending=True).head(int(top_k)).copy()
+
+    # use EFFECTIVE as-of
+    data_asof_effective = _parse_date(str(df["data_asof_effective"].iloc[0]))
+
+    # build target spec pinned to as-of
+    target = TargetSpec(
+        metric_id=target_metric_id,
+        geo_id=target_geo_id,
+        property_type_id=str(target_property_type_id),
+        data_asof=data_asof_effective,
+        freq="M",
+    )
+
+    specs = _feature_specs_from_selected_features(df)
+
+    # Build design matrix (complete-case for SARIMAX-exog)
+    y, X, base_series = build_design_matrix(
+        target=target,
+        feature_specs=specs,
+        min_obs=min_obs,
+        drop_feature_na=True,
+    )
+
+    # extra sanity: month-end index
+    y.index = month_end_index(y.index)
+    X.index = month_end_index(X.index)
+
+    if len(X.columns) == 0:
+        raise ValueError("Built empty X; refusing to emit design matrix.")
+
+    out_dir = Path(artifact_root) / batch_id / "sarimax_exog"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    out_path = out_dir / f"design_matrix__anchor={anchor_dt.isoformat()}__asof={data_asof_effective.isoformat()}.parquet"
+
+    if out_path.exists():
+        raise SystemExit(
+            f"REFUSING to overwrite existing design matrix: {out_path}\n"
+            "Use a fresh --batch_id or delete this file."
+        )
+
+    # store y + X together (simple)
+    df_out = pd.concat([y.rename("y"), X], axis=1)
+    df_out.to_parquet(out_path, index=True)
+
+    # audit sidecar
+    audit = {
+        "batch_id": batch_id,
+        "anchor_date": anchor_dt.isoformat(),
+        "data_asof_effective": data_asof_effective.isoformat(),
+        "feature_set_sha256": sha_vals[0],
+        "top_k": int(top_k),
+        "n_rows": int(df_out.shape[0]),
+        "n_features": int(X.shape[1]),
+        "target": {
+            "metric_id": target_metric_id,
+            "geo_id": target_geo_id,
+            "property_type_id": str(target_property_type_id),
+        },
+        "selector_artifact": str(in_path),
+        "design_matrix_artifact": str(out_path),
+    }
+    (out_path.with_suffix(".json")).write_text(json.dumps(audit, indent=2))
+
+    print(f"[consume] wrote design matrix: {out_path}")
+    print(f"[consume] wrote audit: {out_path.with_suffix('.json')}")
+    print(f"[consume] n_rows={df_out.shape[0]} n_features={X.shape[1]} asof={data_asof_effective.isoformat()}")
+
+    return out_path
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--batch_id", required=True)
+    ap.add_argument("--anchor_date", required=True)  # YYYY-MM-DD
+    ap.add_argument("--metric_id", required=True)
+    ap.add_argument("--geo_id", required=True)
+    ap.add_argument("--property_type_id", required=True)
+    ap.add_argument("--top_k", type=int, default=100)
+    ap.add_argument("--artifact_root", type=str, default="runs")
+    ap.add_argument("--min_obs", type=int, default=60)
+    args = ap.parse_args()
+
+    consume_selected_features(
+        batch_id=args.batch_id,
+        anchor_date=args.anchor_date,
+        target_metric_id=args.metric_id,
+        target_geo_id=args.geo_id,
+        target_property_type_id=args.property_type_id,
+        top_k=args.top_k,
+        artifact_root=args.artifact_root,
+        min_obs=args.min_obs,
+    )
+
+
+if __name__ == "__main__":
+    main()
