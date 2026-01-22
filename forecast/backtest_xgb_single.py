@@ -97,6 +97,7 @@ def _build_single_row_design(
 # Main backtest entry
 # ==========================================================
 def run_backtest_xgb_single(
+    purpose: str,
     metric_id: str = "median_sale_price",
     geo_id: str = "dc_city",
     property_type_id: str = "-1",
@@ -122,6 +123,10 @@ def run_backtest_xgb_single(
       - iteratively forecast up to horizon months ahead using carry-forward exogs
       - store as backtest runs (is_active=FALSE)
     """
+    purpose = (purpose or "").strip().lower()
+    if purpose not in {"selector", "backtest"}:
+        raise ValueError(f"Invalid purpose={purpose!r}. Expected 'selector' or 'backtest'.")
+
     # ---- resolve batch + artifact path early (fail fast) ----
     batch_id = batch_id or new_batch_id()
     artifact_root = artifact_root or "runs"
@@ -648,6 +653,7 @@ if __name__ == "__main__":
             )
 
     run_backtest_xgb_single(
+        purpose=args.purpose,
         metric_id=args.metric_id,
         geo_id=args.geo_id,
         property_type_id=args.property_type_id,
