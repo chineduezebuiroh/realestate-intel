@@ -340,13 +340,14 @@ def run_backtest_xgb_single(
         base_to_cols.setdefault(base, []).append(c)
     
     base_min_cov = {b: float(col_coverage[cols].min()) for b, cols in base_to_cols.items()}
+    """
     bad_bases = {b for b, cov in base_min_cov.items() if cov < min_base_coverage}
-    
     if bad_bases:
         # drop all columns belonging to those base series
         drop_cols = [c for b in bad_bases for c in base_to_cols[b]]
         print(f"[xgb_backtest] WARNING: dropping base series for low coverage: n_base={len(bad_bases)} n_cols={len(drop_cols)} min_ratio={min_base_coverage}")
         X_full = X_full.drop(columns=drop_cols)
+    """
 
     
     # y_anchor is the source-of-truth timeline for anchors
@@ -377,6 +378,14 @@ def run_backtest_xgb_single(
               f"(min_ratio={min_non_missing_ratio})")
         X_full = X_full.drop(columns=sparse_cols)
 
+    # -------------------------
+    # HARD GUARD (must be here)
+    # -------------------------
+    if X_full.shape[1] == 0:
+        raise SystemExit(
+            "[xgb_backtest] FAIL: 0 feature columns remain after DQ drops. "
+            "Disable aggressive base-series dropping and inspect coverage/base-id parsing."
+        )
 
     print(
         f"[xgb_backtest] Final design matrix: "
