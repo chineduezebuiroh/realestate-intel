@@ -114,7 +114,6 @@ def consume_selected_features(
         geo_id=target_geo_id,
         property_type_id=str(target_property_type_id),
         data_asof=data_asof_effective,
-        freq="M",
     )
 
     specs = _feature_specs_from_selected_features(df)
