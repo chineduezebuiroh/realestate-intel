@@ -147,6 +147,16 @@ def run_sarimax_exog(
             enforce_invertibility=False,
         )
         fit = model.fit(disp=False)
+        
+        # --- Convergence tripwire (don’t silently bless garbage) ---
+        try:
+            converged = bool(getattr(fit, "mle_retvals", {}).get("converged", True))
+        except Exception:
+            converged = True
+        
+        if not converged:
+            print("[sarimax_exog] WARNING: fit did not converge (mle_retvals.converged=False)")
+
         fc = fit.get_forecast(steps=horizon_max_months, exog=exog_future)
 
         # Build future dates off last y index (month-end)
@@ -173,6 +183,13 @@ def run_sarimax_exog(
             "data_asof_requested": art.audit.get("data_asof_requested"),
             "anchor_date": art.audit.get("anchor_date"),
         }
+        algo_params["fit_diag"] = {
+            "converged": getattr(fit, "mle_retvals", {}).get("converged", None),
+            "nobs": int(getattr(fit, "nobs", len(y_train))),
+            "aic": float(getattr(fit, "aic", np.nan)),
+            "bic": float(getattr(fit, "bic", np.nan)),
+        }
+
 
         con = get_connection()
         try:
