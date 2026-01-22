@@ -294,9 +294,13 @@ def run_backtest_xgb_single(
             "effective_asof": effective_end.date().isoformat(),
         }
         print(f"[xgb_backtest] WARNING: clamping data_asof due to tail gap: {asof_clamp_reason}")
+        
     
     # 3) set data_asof to effective_end (THIS is what propagates downstream)
-    data_asof = effective_end.date()
+    # Preserve requested vs effective explicitly
+    data_asof_requested = requested_asof_dt          # <- this must be set earlier when you parse the CLI arg
+    data_asof_effective = effective_end.date()       # <- you already computed effective_end
+    data_asof = data_asof_effective
     
     # 4) clamp y/X to effective_end using the SAME timeline
     #    NOTE: we also align X to y_grid index so the mask is consistent.
@@ -314,10 +318,11 @@ def run_backtest_xgb_single(
     # y_anchor is the source-of-truth timeline for anchors
     y_anchor = y_full.copy()
     
-    print(f"[xgb_backtest] batch_id={batch_id} data_asof_effective={data_asof} (requested={requested_asof_dt})")
+    print(f"[xgb_backtest] batch_id={batch_id} data_asof_effective={data_asof_effective} (requested={data_asof_requested})")
 
+    
     # --- DQ: drop feature columns missing at effective_asof (selector must not rank unusable features) ---
-    effective_asof_ts = pd.Timestamp(data_asof_effective).to_period("M").to_timestamp(how="end")
+    effective_asof_ts = effective_end
     
     if effective_asof_ts not in X_full.index:
         raise ValueError(f"[xgb_backtest] effective_asof_ts not in X_full.index: {effective_asof_ts}")
@@ -329,7 +334,16 @@ def run_backtest_xgb_single(
         print(f"[xgb_backtest] WARNING: dropping features missing at effective_asof: n={len(drop_cols)}")
         X_full = X_full.drop(columns=drop_cols)
 
-    
+    # Drop features that are too sparse over the training window (cheap sanity gate)
+    min_non_missing_ratio = 0.95
+    non_missing_ratio = X_full.notna().mean(axis=0)
+    sparse_cols = non_missing_ratio[non_missing_ratio < min_non_missing_ratio].index.tolist()
+    if sparse_cols:
+        print(f"[xgb_backtest] WARNING: dropping sparse features: n={len(sparse_cols)} "
+              f"(min_ratio={min_non_missing_ratio})")
+        X_full = X_full.drop(columns=sparse_cols)
+
+
     print(
         f"[xgb_backtest] Final design matrix: "
         f"n_obs={len(y_full)}, n_features={X_full.shape[1]}, "
@@ -462,18 +476,17 @@ def run_backtest_xgb_single(
         # annotate keys for deterministic downstream lookup
         anchor_key = anchor_date.date().isoformat()
         fi_sel["batch_id"] = batch_id
-        fi_sel["data_asof"] = str(data_asof)
+        fi_sel["data_asof"] = str(data_asof_effective) if data_asof_effective else None  # canonical for downstream
         fi_sel["geo_id"] = geo_id
         fi_sel["metric_id"] = metric_id
         fi_sel["property_type_id"] = property_type_id
         fi_sel["anchor_date"] = anchor_key
         fi_sel["horizon"] = int(horizon_bt)
         fi_sel["seed"] = int(seed)
-        fi_sel["data_asof_requested"] = str(requested_asof_dt) if requested_asof_dt else None
-        fi_sel["data_asof_effective"] = str(data_asof) if data_asof else None
+        fi_sel["data_asof_requested"] = str(data_asof_requested) if data_asof_requested else None
+        fi_sel["data_asof_effective"] = str(data_asof_effective) if data_asof_effective else None
         fi_sel["asof_clamp_reason"] = json.dumps(asof_clamp_reason) if asof_clamp_reason else None
 
-        
         if artifact_root:
             #out_dir = Path(artifact_root) / batch_id / "xgb"
             #out_dir.mkdir(parents=True, exist_ok=True)
