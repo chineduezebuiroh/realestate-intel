@@ -259,7 +259,8 @@ def run_backtest_xgb_single(
     # ---------------------------
     # DQ policy: clamp tail gaps
     # ---------------------------
-    TAIL_GAP_MONTHS = 3  # keep aligned with sarimax_univariate default
+    policy = default_policy()
+    TAIL_GAP_MONTHS = int(getattr(policy, "tail_gap_months", 3))
     
     # 1) requested_end (month-end timestamp)
     if data_asof is None:
@@ -327,7 +328,7 @@ def run_backtest_xgb_single(
 
 
     # --- DQ: base-series coverage on effective training mask ---
-    min_base_coverage = 0.95  # keep aligned with your sparse feature policy
+    min_base_coverage = float(policy.min_feature_coverage_ratio)  # keep aligned with your sparse feature policy
     
     # coverage per column
     col_coverage = 1.0 - X_full.isna().mean(axis=0)
@@ -368,7 +369,7 @@ def run_backtest_xgb_single(
         X_full = X_full.drop(columns=drop_cols)
 
     # Drop features that are too sparse over the training window (cheap sanity gate)
-    min_non_missing_ratio = 0.95
+    min_non_missing_ratio = float(policy.min_feature_coverage_ratio)
     non_missing_ratio = X_full.notna().mean(axis=0)
     sparse_cols = non_missing_ratio[non_missing_ratio < min_non_missing_ratio].index.tolist()
     if sparse_cols:
