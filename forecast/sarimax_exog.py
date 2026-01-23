@@ -748,3 +748,7 @@ if __name__ == "__main__":
     )
 
     print(f"Created SARIMAX(exog) run_id={run_id}")
+
+# --- Phase C shim: canonical runner lives under forecast/models/sarimax_exog ---
+from forecast.models.sarimax_exog.bridge_runner import run_bridge_from_design_matrix_artifact  # noqa
+
