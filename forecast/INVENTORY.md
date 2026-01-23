@@ -53,3 +53,8 @@
 
 ## Repair / maintenance (evaluate necessity)
 - forecast/catalog_repair.py
+
+## Contracts (new; Phase C)
+- forecast/contracts/keys.py
+- forecast/contracts/errors.py
+- forecast/contracts/serialize.py
