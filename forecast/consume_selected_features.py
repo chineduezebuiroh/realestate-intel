@@ -220,6 +220,10 @@ def consume_selected_features(
     df_out.to_parquet(out_path, index=True)
     design_matrix_sha256 = hashlib.sha256(out_path.read_bytes()).hexdigest()
 
+    anchor_ts = _month_end(pd.Timestamp(anchor_dt))
+    n_future_available = int((df_out.index > anchor_ts).sum())
+
+
     # audit sidecar
     audit = {
         "audit_version": "v1",
@@ -240,6 +244,7 @@ def consume_selected_features(
         },
         "selector_artifact": str(in_path),
         "design_matrix_artifact": str(out_path),
+        "max_horizon_available": int(n_future_available),
     }
 
     (out_path.with_suffix(".json")).write_text(json.dumps(audit, indent=2))
