@@ -184,24 +184,39 @@ def run_sarimax_exog(
             "seasonal_order": (1, 1, 1, 12),
             "n_obs": int(len(y)),
             "bridge_mode": "artifact_design_matrix",
-            "exog_mode": "carry_forward_last_row",
+        
+            # IMPORTANT: this is NOT the legacy carry-forward path; it's artifact-driven.
+            "exog_mode": "artifact_design_matrix",
+        
             "design_matrix_path": str(design_matrix_path),
             "design_matrix_audit_path": str(design_matrix_audit_path),
             "design_matrix_sha256": art.audit.get("design_matrix_sha256"),
             "feature_set_sha256": art.audit.get("feature_set_sha256"),
+        
+            # Contract: keep both names, same ordered list (and order matters).
             "feature_ids": list(X.columns),
+            "selected_features": list(X.columns),
+        
+            "selector_meta": {
+                "method": "artifact_design_matrix",
+                "source_batch_id": art.audit.get("batch_id"),
+                "selector_artifact": art.audit.get("selector_artifact"),
+                "top_k": art.audit.get("top_k"),
+                "anchor_date": art.audit.get("anchor_date"),
+            },
+        
             "label": label or "",
             "data_asof_effective": art.audit.get("data_asof_effective"),
             "data_asof_requested": art.audit.get("data_asof_requested"),
             "anchor_date": art.audit.get("anchor_date"),
         }
+
         algo_params["fit_diag"] = {
-            "converged": getattr(fit, "mle_retvals", {}).get("converged", None),
+            "converged": bool(converged),
             "nobs": int(getattr(fit, "nobs", len(endog))),
             "aic": float(getattr(fit, "aic", np.nan)),
             "bic": float(getattr(fit, "bic", np.nan)),
         }
-
 
         con = get_connection()
         try:
