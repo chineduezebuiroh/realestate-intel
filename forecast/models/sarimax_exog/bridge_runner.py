@@ -9,6 +9,14 @@ from forecast.backtest_utils import month_end_index
 from forecast.models.sarimax_exog.core import SarimaxExogSpec, fit_sarimax_exog, forecast_sarimax_exog
 
 
+def _enforce_month_end_freq(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    # normalize to month-end timestamps and attach freq
+    idx = pd.to_datetime(idx)
+    idx = idx.to_period("M").to_timestamp(how="end")
+    # set freq explicitly (ME = month end)
+    return pd.DatetimeIndex(idx, freq="ME")
+
+
 def _split_y_and_exog(df: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
     if "y" not in df.columns:
         raise ValueError("[sarimax_exog_bridge] design matrix artifact missing required 'y' column")
@@ -52,7 +60,14 @@ def run_bridge_from_design_matrix_artifact(
     df = pd.read_parquet(design_matrix_parquet_path)
     with open(design_matrix_audit_json_path, "r") as f:
         audit: Dict[str, Any] = __import__("json").load(f)
-    
+
+    max_h = audit.get("max_horizon_available")
+    if max_h is not None and horizon > int(max_h):
+        raise ValueError(
+            f"[sarimax_exog_bridge] horizon={horizon} exceeds audit.max_horizon_available={max_h} "
+            f"for this artifact."
+        )
+
     feature_ids = audit.get("feature_ids")
     if not feature_ids:
         raise ValueError("[sarimax_exog_bridge] audit missing feature_ids")
@@ -75,6 +90,9 @@ def run_bridge_from_design_matrix_artifact(
             f"anchor={anchor_ts.date()} horizon={horizon} available_future_rows={n_future_available}\n"
             "Pick a smaller horizon, or generate future exog rows via an exog-forecasting policy."
         )
+
+    y_full.index = _enforce_month_end_freq(y_full.index)
+    X_full.index = _enforce_month_end_freq(X_full.index)
 
     y_train = y_full.loc[:anchor_ts]
     X_train = X_full.loc[:anchor_ts]
@@ -102,6 +120,7 @@ def run_bridge_from_design_matrix_artifact(
         raise ValueError(
             f"[sarimax_exog_bridge] insufficient future exog rows for horizon={horizon}: got {len(X_future)}"
         )
+    X_future.index = _enforce_month_end_freq(X_future.index)
     
     spec = SarimaxExogSpec()
     res = fit_sarimax_exog(y_train=y_train, X_train=X_train, spec=spec)
