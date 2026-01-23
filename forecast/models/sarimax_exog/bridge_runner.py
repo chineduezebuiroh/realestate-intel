@@ -9,11 +9,19 @@ from forecast.backtest_utils import month_end_index
 from forecast.models.sarimax_exog.core import SarimaxExogSpec, fit_sarimax_exog, forecast_sarimax_exog
 
 
-def _assert_feature_order(X: pd.DataFrame, feature_ids: List[str]) -> None:
+def _split_y_and_exog(df: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
+    if "y" not in df.columns:
+        raise ValueError("[sarimax_exog_bridge] design matrix artifact missing required 'y' column")
+    y = df["y"].astype(float)
+    X = df.drop(columns=["y"])
+    return y, X
+
+
+def _assert_exog_order(X: pd.DataFrame, feature_ids: List[str]) -> None:
     cols = list(map(str, X.columns))
     if cols != list(map(str, feature_ids)):
         raise ValueError(
-            "[sarimax_exog_bridge] column order mismatch vs feature_ids\n"
+            "[sarimax_exog_bridge] exog column order mismatch vs feature_ids\n"
             f"X_cols[:5]={cols[:5]}\n"
             f"feature_ids[:5]={feature_ids[:5]}"
         )
@@ -39,40 +47,41 @@ def run_bridge_from_design_matrix_artifact(
     model_version: str = "v0_bridge_artifact",
 ) -> int:
     # ---- load artifacts ----
-    X = pd.read_parquet(design_matrix_parquet_path)
+
+    df = pd.read_parquet(design_matrix_parquet_path)
     with open(design_matrix_audit_json_path, "r") as f:
         audit: Dict[str, Any] = __import__("json").load(f)
-
+    
     feature_ids = audit.get("feature_ids")
     if not feature_ids:
         raise ValueError("[sarimax_exog_bridge] audit missing feature_ids")
-    _assert_feature_order(X, feature_ids)
-
-    # ---- infer y column handling ----
-    # Assumption: design matrix artifact contains ONLY exog columns (not y).
-    # y is loaded elsewhere in your current sarimax_exog.py; we preserve that
-    # by importing and calling your existing helper.
-    from forecast.sarimax_exog import load_target_series  # legacy helper; we will move later
-    y_full = load_target_series(metric_id, geo_id, property_type_id)
-
-    y_full = y_full.copy()
-    y_full.index = month_end_index(y_full.index)
-    y_full = y_full[~y_full.index.duplicated(keep="last")].sort_index()
-
+    
+    y_full, X_full = _split_y_and_exog(df)
+    _assert_exog_order(X_full, feature_ids)
+    
     anchor_ts = pd.Timestamp(anchor_date).to_period("M").to_timestamp(how="end")
     if anchor_ts not in y_full.index:
         raise ValueError(f"[sarimax_exog_bridge] anchor not in y index: {anchor_ts}")
-    if anchor_ts not in X.index:
+    if anchor_ts not in X_full.index:
         raise ValueError(f"[sarimax_exog_bridge] anchor not in X index: {anchor_ts}")
-
+    
     y_train = y_full.loc[:anchor_ts]
-    X_train = X.loc[:anchor_ts]
+    X_train = X_full.loc[:anchor_ts]
+    
+    # Future exog rows come from artifact rows AFTER anchor
+    X_future = X_full.loc[anchor_ts:].iloc[1 : horizon + 1].copy()
+    if len(X_future) != horizon:
+        raise ValueError(
+            f"[sarimax_exog_bridge] insufficient future exog rows for horizon={horizon}: got {len(X_future)}"
+        )
+    
+    spec = SarimaxExogSpec()
+    res = fit_sarimax_exog(y_train=y_train, X_train=X_train, spec=spec)
+    mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future, steps=horizon)
+    
+    target_dates = [d.date() for d in X_future.index]
 
-    # future exog must be provided by artifact too; we assume artifact contains rows beyond anchor.
-    X_future = X.loc[anchor_ts:].copy()
-    # forecast steps are months after anchor, so we need rows 1..horizon ahead
-    # Use the next horizon rows after anchor
-    X_future = X_future.iloc[1 : horizon + 1]
+    
     if len(X_future) != horizon:
         raise ValueError(
             f"[sarimax_exog_bridge] insufficient future exog rows for horizon={horizon}: "
