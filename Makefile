@@ -247,6 +247,21 @@ make-public-db: venv
 	@echo "✅ Built data/market_public.duckdb from $(FULL_DB)"
 
 # -----------------------------------------------------------------------------
+# Backtesting, Forecasting, Promotion
+# -----------------------------------------------------------------------------
+backtest:
+	python -m forecast.cli.backtest
+
+live:
+	python -m forecast.cli.live
+
+xgb_select:
+	python -m forecast.cli.select_xgb
+
+model_select:
+	python -m forecast.cli.model_select
+
+# -----------------------------------------------------------------------------
 # Publish-only:
 #   - rebuild public DB
 #   - enforce <100 MB
