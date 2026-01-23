@@ -65,7 +65,17 @@ def run_bridge_from_design_matrix_artifact(
         raise ValueError(f"[sarimax_exog_bridge] anchor not in y index: {anchor_ts}")
     if anchor_ts not in X_full.index:
         raise ValueError(f"[sarimax_exog_bridge] anchor not in X index: {anchor_ts}")
+
+    # How many future exog rows exist in the artifact after anchor?
+    n_future_available = int((X_full.index > anchor_ts).sum())
     
+    if horizon > n_future_available:
+        raise ValueError(
+            "[sarimax_exog_bridge] requested horizon exceeds future exog available in artifact.\n"
+            f"anchor={anchor_ts.date()} horizon={horizon} available_future_rows={n_future_available}\n"
+            "Pick a smaller horizon, or generate future exog rows via an exog-forecasting policy."
+        )
+
     y_train = y_full.loc[:anchor_ts]
     X_train = X_full.loc[:anchor_ts]
     
