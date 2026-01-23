@@ -249,6 +249,9 @@ make-public-db: venv
 # -----------------------------------------------------------------------------
 # Backtesting, Forecasting, Promotion
 # -----------------------------------------------------------------------------
+xgb_forecast_backtest:
+	python -m forecast.cli.backtest_xgb_forecast
+
 backtest:
 	python -m forecast.cli.backtest
 
