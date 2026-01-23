@@ -1,4 +1,5 @@
 from __future__ import annotations
+# forecast/models/sarimax_exog/bridge_runner.py
 
 from typing import Optional, List, Dict, Any
 
@@ -121,50 +122,31 @@ def run_bridge_from_design_matrix_artifact(
         raise ValueError(
             f"[sarimax_exog_bridge] insufficient future exog rows for horizon={horizon}: got {len(X_future)}"
         )
-
-
-
-
+    
+    train_start_date = pd.to_datetime(y_train.index[0]).date()
+    train_end_date = anchor_ts.date()
 
     # Statsmodels-friendly monthly index (handles missing months without freq pinning)
     y_train_sm = y_train.copy()
     X_train_sm = X_train.copy()
     X_future_sm = X_future.copy()
+
     
     y_train_sm.index = _to_monthly_period_index(y_train_sm.index)
     X_train_sm.index = _to_monthly_period_index(X_train_sm.index)
     X_future_sm.index = _to_monthly_period_index(X_future_sm.index)
 
 
-
-
-
-    
     
     spec = SarimaxExogSpec()
-    """
-    res = fit_sarimax_exog(y_train=y_train, X_train=X_train, spec=spec)
-    mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future, steps=horizon)
-    """
     res = fit_sarimax_exog(y_train=y_train_sm, X_train=X_train_sm, spec=spec)
     mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future_sm, steps=horizon)
 
     
-    target_dates = [d.date() for d in X_future.index]
+    #target_dates = [d.date() for d in X_future.index]
+    target_dates = [pd.to_datetime(d).date() for d in X_future.index]
 
-    
-    if len(X_future) != horizon:
-        raise ValueError(
-            f"[sarimax_exog_bridge] insufficient future exog rows for horizon={horizon}: "
-            f"got {len(X_future)}"
-        )
 
-    spec = SarimaxExogSpec()
-    res = fit_sarimax_exog(y_train=y_train, X_train=X_train, spec=spec)
-    mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future, steps=horizon)
-
-    # build target_dates from X_future index
-    target_dates = [d.date() for d in X_future.index]
 
     algo_params = {
         "model_version": model_version,
@@ -184,8 +166,8 @@ def run_bridge_from_design_matrix_artifact(
             "target_geo_id": geo_id,
             "target_property_type_id": property_type_id,
             "freq": freq,
-            "train_start": str(y_train.index[0].date()),
-            "train_end": str(anchor_ts.date()),
+            "train_start": train_start_date,
+            "train_end": train_end_date,
             "horizon_max_months": int(horizon),
         },
     }
@@ -199,8 +181,8 @@ def run_bridge_from_design_matrix_artifact(
         target_geo_id=geo_id,
         target_property_type_id=property_type_id,
         freq=freq,
-        train_start=y_train.index[0].date(),
-        train_end=anchor_ts.date(),
+        train_start=train_start_date,
+        train_end=train_end_date,
         horizon_max_months=horizon,
         algo_params=algo_params,
         notes=f"SARIMAX(exog) bridge run anchor={anchor_date}",
