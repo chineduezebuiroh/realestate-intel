@@ -16,6 +16,10 @@ from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix
 from .backtest_utils import month_end_index
 
 
+def _month_end(ts: pd.Timestamp) -> pd.Timestamp:
+    return ts.to_period("M").to_timestamp(how="end")
+
+
 def _parse_date(s: str) -> date:
     return pd.to_datetime(s).date()
 
