@@ -168,16 +168,16 @@ def main() -> int:
                 "anchor_date": str(anchor_date.date()),
                 
                 "contracts": {
-                    "run_kind": "...",
-                    "anchor_date": "...",
-                    "data_asof_effective": "...",
-                    "target_metric_id": "...",
-                    "target_geo_id": "...",
-                    "target_property_type_id": "...",
-                    "freq": "...",
-                    "train_start": "...",
-                    "train_end": "...",
-                    "horizon_max_months": ...
+                    "run_kind": "backtest",
+                    "anchor_date": str(anchor_date.date()),
+                    "data_asof_effective": str(data_asof),
+                    "target_metric_id": metric_id,
+                    "target_geo_id": geo_id,
+                    "target_property_type_id": property_type_id,
+                    "freq": "M",
+                    "train_start": str(y_train.index[0].date()),
+                    "train_end": str(anchor_date.date()),
+                    "horizon_max_months": int(horizon_bt),
                 }
             }
             
@@ -185,7 +185,7 @@ def main() -> int:
     
             run_id = insert_run(
                 con=con,
-                model_name="sarimax_backtest",
+                model_name="sarimax_univariate",
                 model_version="v1",
                 target_metric_id=metric_id,
                 target_geo_id=geo_id,
