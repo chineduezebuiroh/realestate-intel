@@ -9,12 +9,9 @@ from forecast.backtest_utils import month_end_index
 from forecast.models.sarimax_exog.core import SarimaxExogSpec, fit_sarimax_exog, forecast_sarimax_exog
 
 
-def _enforce_month_end_freq(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    # normalize to month-end timestamps and attach freq
+def _to_monthly_period_index(idx: pd.DatetimeIndex) -> pd.PeriodIndex:
     idx = pd.to_datetime(idx)
-    idx = idx.to_period("M").to_timestamp(how="end")
-    # set freq explicitly (ME = month end)
-    return pd.DatetimeIndex(idx, freq="ME")
+    return idx.to_period("M")
 
 
 def _split_y_and_exog(df: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
@@ -91,9 +88,6 @@ def run_bridge_from_design_matrix_artifact(
             "Pick a smaller horizon, or generate future exog rows via an exog-forecasting policy."
         )
 
-    y_full.index = _enforce_month_end_freq(y_full.index)
-    X_full.index = _enforce_month_end_freq(X_full.index)
-
     y_train = y_full.loc[:anchor_ts]
     X_train = X_full.loc[:anchor_ts]
     
@@ -116,15 +110,45 @@ def run_bridge_from_design_matrix_artifact(
         # legacy behavior: try to use rows inside the design matrix artifact
         X_future = X_full.loc[anchor_ts:].iloc[1 : horizon + 1].copy()
     
+    
+    p = _to_monthly_period_index(X_future.index)
+    # require consecutive monthly periods
+    if len(p) >= 2 and (p[1:] - p[:-1]).astype(int).max() != 1:
+        raise ValueError("[sarimax_exog_bridge] X_future months are not consecutive; cannot forecast deterministically.")
+
+    
     if len(X_future) != horizon:
         raise ValueError(
             f"[sarimax_exog_bridge] insufficient future exog rows for horizon={horizon}: got {len(X_future)}"
         )
-    X_future.index = _enforce_month_end_freq(X_future.index)
+
+
+
+
+
+    # Statsmodels-friendly monthly index (handles missing months without freq pinning)
+    y_train_sm = y_train.copy()
+    X_train_sm = X_train.copy()
+    X_future_sm = X_future.copy()
+    
+    y_train_sm.index = _to_monthly_period_index(y_train_sm.index)
+    X_train_sm.index = _to_monthly_period_index(X_train_sm.index)
+    X_future_sm.index = _to_monthly_period_index(X_future_sm.index)
+
+
+
+
+
+    
     
     spec = SarimaxExogSpec()
+    """
     res = fit_sarimax_exog(y_train=y_train, X_train=X_train, spec=spec)
     mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future, steps=horizon)
+    """
+    res = fit_sarimax_exog(y_train=y_train_sm, X_train=X_train_sm, spec=spec)
+    mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future_sm, steps=horizon)
+
     
     target_dates = [d.date() for d in X_future.index]
 
