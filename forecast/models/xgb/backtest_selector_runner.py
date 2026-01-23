@@ -456,7 +456,7 @@ def run_xgb_selector(
     xgb_top_k: int = 100,
     anchors_csv: Optional[str] = None,
 ):
-    """
+"""
 """
     Backtest XGBoost for a single target series using a universal feature set.
 
@@ -466,7 +466,7 @@ def run_xgb_selector(
       - iteratively forecast up to horizon months ahead using carry-forward exogs
       - store as backtest runs (is_active=FALSE)
 """
-    """
+"""
 
     # ---- resolve batch + artifact path early (fail fast) ----
     batch_id = batch_id or new_batch_id()
@@ -917,7 +917,7 @@ def run_xgb_selector(
         algo_params["asof_clamp_reason"] = asof_clamp_reason
 
         
-        """
+"""
 """
         run_id = insert_run(
             con=con,
@@ -938,11 +938,11 @@ def run_xgb_selector(
             data_asof=data_asof,
         )
 """
-        """
+"""
         last_period = anchor_date.to_period("M")
         future_periods = [last_period + i for i in range(1, horizon_bt + 1)]
         target_dates = [p.to_timestamp(how="end").date() for p in future_periods]
-        """
+"""
 """
         insert_predictions(
             con=con,
@@ -953,7 +953,7 @@ def run_xgb_selector(
             y_hat_hi=None,
         )
 """
-        """
+"""
 
         print(f"[xgb_backtest] Created XGB backtest run_id={run_id} for anchor={anchor_date.date()}")
         results_summary.append({"anchor_date": anchor_date, "run_id": run_id})
