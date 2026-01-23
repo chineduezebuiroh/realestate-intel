@@ -166,6 +166,19 @@ def main() -> int:
                 "seasonal_order": (1, 1, 1, 12),
                 "n_obs": int(len(y_train)),
                 "anchor_date": str(anchor_date.date()),
+                
+                "contracts": {
+                    "run_kind": "...",
+                    "anchor_date": "...",
+                    "data_asof_effective": "...",
+                    "target_metric_id": "...",
+                    "target_geo_id": "...",
+                    "target_property_type_id": "...",
+                    "freq": "...",
+                    "train_start": "...",
+                    "train_end": "...",
+                    "horizon_max_months": ...
+                }
             }
             
             con = get_connection()
