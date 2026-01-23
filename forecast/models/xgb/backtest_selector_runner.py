@@ -219,7 +219,11 @@ def run_xgb_selector(
     y_anchor.index = X_full.index
 
     if anchors_csv:
-        anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
+        anchors = [
+            pd.Timestamp(s.strip()).to_period("M").to_timestamp(how="end")
+            for s in anchors_csv.split(",")
+            if s.strip()
+        ]
     else:
         anchors = choose_anchor_dates(
             y_anchor,
@@ -237,8 +241,14 @@ def run_xgb_selector(
         raise ValueError(f"[xgb_selector] selector batch must have exactly 1 anchor, got {len(anchors)}")
 
     anchor_date = anchors[0]
+    anchor_date = anchor_date.to_period("M").to_timestamp(how="end")
+
     if anchor_date not in X_full.index:
-        raise ValueError(f"[xgb_selector] anchor_date not in design matrix timeline: {anchor_date}")
+        # Debug-friendly message
+        raise ValueError(
+            f"[xgb_selector] anchor_date not in design matrix timeline: {anchor_date} "
+            f"(X_full tail={list(X_full.index[-3:])})"
+        )
 
     # 6) train XGB on <= anchor_date and rank importances
     y_train = y_full.loc[:anchor_date]
