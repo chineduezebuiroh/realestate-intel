@@ -21,9 +21,13 @@ def fit_sarimax_exog(
     X_train: pd.DataFrame,
     spec: SarimaxExogSpec,
 ):
+    # Pass numpy arrays to avoid statsmodels index/freq issues
+    y_arr = y_train.astype(float).to_numpy()
+    X_arr = X_train.astype(float).to_numpy()
+
     model = SARIMAX(
-        endog=y_train,
-        exog=X_train,
+        endog=y_arr,
+        exog=X_arr,
         order=spec.order,
         seasonal_order=spec.seasonal_order,
         enforce_stationarity=spec.enforce_stationarity,
@@ -38,11 +42,18 @@ def forecast_sarimax_exog(
     X_future: pd.DataFrame,
     steps: int,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
-    fc = res.get_forecast(steps=steps, exog=X_future)
-    mean_fc = fc.predicted_mean.values.astype(float)
+    Xf_arr = X_future.astype(float).to_numpy()
+
+    fc = res.get_forecast(steps=steps, exog=Xf_arr)
+    mean_fc = fc.predicted_mean.astype(float)
     ci = None
     try:
-        ci = fc.conf_int().values.astype(float)
+        ci = fc.conf_int().astype(float)
     except Exception:
         ci = None
+
+    # Normalize outputs to numpy arrays
+    mean_fc = np.asarray(mean_fc, dtype=float)
+    ci = np.asarray(ci, dtype=float) if ci is not None else None
     return mean_fc, ci
+
