@@ -217,6 +217,9 @@ def run_sarimax_exog(
             "aic": float(getattr(fit, "aic", np.nan)),
             "bic": float(getattr(fit, "bic", np.nan)),
         }
+        algo_params["fit_diag"]["fit_quality"] = "ok" if converged else "nonconverged"
+        algo_params["fit_diag"]["is_valid_for_live"] = False
+
 
         con = get_connection()
         try:
