@@ -8,7 +8,8 @@
 
 ## Model Families
 ### SARIMAX Univariate
-- backtest runner: forecast/backtest_sarimax_single.py
+- canonical runner: forecast/models/sarimax_univariate/backtest_runner.py
+- legacy shim: forecast/backtest_sarimax_single.py
 - model code: forecast/sarimax_univariate.py
 
 ### SARIMAX Exog
