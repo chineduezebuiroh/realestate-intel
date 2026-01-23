@@ -89,6 +89,15 @@ def run_sarimax_exog(
     # Batch / asof normalization
     batch_id = batch_id or new_batch_id()
 
+    if run_kind == "bridge" and batch_id:
+        existing = con.execute(
+            "select count(*) from forecast_runs where batch_id = ? and run_kind = 'bridge'",
+            [batch_id]
+        ).fetchone()[0]
+        if existing:
+            raise SystemExit(f"[sarimax_exog] REFUSING: bridge batch_id already used: {batch_id}")
+
+
     # normalize to date (or None) for deterministic DB annotation
     data_asof_dt = pd.to_datetime(data_asof).date() if data_asof else None
 
