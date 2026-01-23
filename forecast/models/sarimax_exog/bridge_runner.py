@@ -6,7 +6,6 @@ from typing import Optional, List, Dict, Any
 import pandas as pd
 
 from forecast.db_forecast import get_connection, insert_run, insert_predictions
-from forecast.backtest_utils import month_end_index
 from forecast.models.sarimax_exog.core import SarimaxExogSpec, fit_sarimax_exog, forecast_sarimax_exog
 
 
@@ -47,11 +46,10 @@ def run_bridge_from_design_matrix_artifact(
     anchor_date: str,  # YYYY-MM-DD
     horizon: int,
     batch_id: str,
-    data_asof: str,
+    data_asof: Optional[str] = None,
     run_kind: str,  # "backtest" or "live"
     is_active: bool,
     model_version: str = "v0_bridge_artifact",
-    future_exog_parquet_path: Optional[str] = None,
 ) -> int:
     # ---- load artifacts ----
 
@@ -65,6 +63,12 @@ def run_bridge_from_design_matrix_artifact(
             f"[sarimax_exog_bridge] horizon={horizon} exceeds audit.max_horizon_available={max_h} "
             f"for this artifact."
         )
+
+    if data_asof is None:
+        data_asof = str(audit.get("data_asof_effective") or "").strip()
+    if not data_asof:
+        raise ValueError("[sarimax_exog_bridge] data_asof missing and audit has no data_asof_effective")
+
 
     feature_ids = audit.get("feature_ids")
     if not feature_ids:
@@ -92,25 +96,8 @@ def run_bridge_from_design_matrix_artifact(
     y_train = y_full.loc[:anchor_ts]
     X_train = X_full.loc[:anchor_ts]
     
-    # Future exog rows come from artifact rows AFTER anchor
-    if future_exog_parquet_path:
-        X_future = pd.read_parquet(future_exog_parquet_path)
-    
-        # allow either:
-        # 1) contains only exog columns, or
-        # 2) contains y + exog (we ignore y)
-        if "y" in X_future.columns:
-            X_future = X_future.drop(columns=["y"])
-    
-        _assert_exog_order(X_future, feature_ids)
-    
-        # normalize to month-end + ensure we take rows after anchor
-        X_future = X_future.loc[pd.Timestamp(anchor_date).to_period("M").to_timestamp(how="end"):]
-        X_future = X_future.iloc[1 : horizon + 1].copy()
-    else:
-        # legacy behavior: try to use rows inside the design matrix artifact
-        X_future = X_full.loc[anchor_ts:].iloc[1 : horizon + 1].copy()
-    
+    # legacy behavior: try to use rows inside the design matrix artifact
+    X_future = X_full.loc[anchor_ts:].iloc[1 : horizon + 1].copy()
     
     p = _to_monthly_period_index(X_future.index)
     # require consecutive monthly periods
