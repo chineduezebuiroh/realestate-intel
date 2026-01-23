@@ -6,6 +6,11 @@
 - forecast/cli/select_xgb.py
 - forecast/cli/model_select.py
 
+- forecast/cli/backtest_xgb_forecast.py → XGB forecast backtest (DB predictions)
+- forecast/cli/backtest_xgb_selector.py → XGB selector (artifact-only)
+- forecast/backtest_xgb_single.py → legacy shim → selector runner
+- forecast/backtest_sarimax_single.py → legacy shim → sarimax univariate runner
+
 ## Model Families
 ### SARIMAX Univariate
 - canonical runner: forecast/models/sarimax_univariate/backtest_runner.py
@@ -18,10 +23,12 @@
 - bridge artifacts: forecast/consume_selected_features.py + forecast/artifacts.py
 
 ### XGB Forecast
+- canonical runner: forecast/models/xgb/backtest_forecast_runner.py
 - model code: forecast/xgb_regressor.py
 - (runner may be embedded elsewhere; locate and list)
 
 ### XGB Selector
+- canonical runner: forecast/models/xgb/backtest_selector_runner.py
 - forecast/backtest_xgb_single.py
 - shortlist helpers: forecast/xgb_shortlist.py
 
