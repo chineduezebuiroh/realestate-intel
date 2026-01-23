@@ -7,6 +7,12 @@ import json
 from forecast.models.sarimax_exog.bridge_runner import run_bridge_from_design_matrix_artifact
 
 
+def _parse_asof_from_name(name: str) -> str:
+    # expects ...__asof=YYYY-MM-DD.json
+    part = name.split("__asof=", 1)[1]
+    return part.replace(".json", "")
+
+
 def _find_latest_design_matrix_artifact(runs_root: str = "runs") -> tuple[str, str, dict]:
     """
     Finds the most recent design matrix artifact by scanning runs/.
@@ -17,11 +23,11 @@ def _find_latest_design_matrix_artifact(runs_root: str = "runs") -> tuple[str, s
         raise FileNotFoundError(f"[sarimax_exog_live] runs root not found: {runs_root}")
 
     # heuristic: look for audit jsons, then choose most recent mtime
-    audits = list(root.glob("**/design_matrix__anchor=**__asof=**.json"))
+    audits = [p for p in root.rglob("*.json") if p.name.startswith("design_matrix__anchor=") and "__asof=" in p.name]
     if not audits:
         raise FileNotFoundError("[sarimax_exog_live] no design matrix audit jsons found under runs/")
 
-    audits.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    audits.sort(key=lambda p: _parse_asof_from_name(p.name), reverse=True)
     audit_path = audits[0]
     parquet_path = str(audit_path).replace(".json", ".parquet")
 
