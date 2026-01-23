@@ -45,7 +45,7 @@ def run_live_latest_artifact(
     freq: str = "M",
     horizon: int = 12,
     batch_id: str,
-    data_asof: str,
+    #data_asof: str,
     runs_root: str = "runs",
 ) -> int:
     parquet_path, audit_path, audit = _find_latest_design_matrix_artifact(runs_root=runs_root)
@@ -55,6 +55,11 @@ def run_live_latest_artifact(
     if not anchor_date:
         raise ValueError("[sarimax_exog_live] audit missing anchor_date")
 
+    data_asof_effective = audit.get("data_asof_effective")
+    if not data_asof_effective:
+        # fallback parse from filename (__asof=YYYY-MM-DD.json)
+        data_asof_effective = audit_path.split("__asof=")[1].replace(".json", "")
+    
     return run_bridge_from_design_matrix_artifact(
         metric_id=metric_id,
         geo_id=geo_id,
@@ -65,7 +70,7 @@ def run_live_latest_artifact(
         anchor_date=anchor_date,
         horizon=horizon,
         batch_id=batch_id,
-        data_asof=data_asof,
+        data_asof=data_asof_effective,
         run_kind="live",
         is_active=True,
     )
