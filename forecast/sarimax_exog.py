@@ -502,7 +502,12 @@ def run_sarimax_exog(
                 "staleness_months": int(staleness_months),
                 "train_end": str(pd.Timestamp(y_train.index[-1]).date()),
             }
-    
+
+            algo_params["data_asof"] = str(data_asof_dt) if data_asof_dt else None
+            algo_params["data_asof_requested"] = str(data_asof_requested) if data_asof_requested else None
+            algo_params["data_asof_effective"] = str(data_asof_effective) if data_asof_effective else None
+            algo_params["anchor_date"] = str(anchor_date.date())  # you already have this
+
             algo_params["exog_forecast_method"] = "seasonal_naive_else_last"
             algo_params["data_asof"] = str(target.data_asof) if target.data_asof else None
 
@@ -511,6 +516,19 @@ def run_sarimax_exog(
                 "y_train_full": int(len(y_train_full)),
                 "y_train_complete_case": int(len(y_train)),
             }
+
+            # BRIDGE: artifact design matrix means exog is coming from the parquet, not carry-forward
+            algo_params["bridge_mode"] = "artifact_design_matrix"
+            algo_params["exog_mode"] = "artifact_design_matrix"   # <-- change this (do NOT say carry_forward)
+            
+            # The actual columns used (ordered) — this is what downstream consumers should rely on
+            algo_params["selected_features"] = list(X.columns)     # X here = exog matrix used in the fit
+            algo_params["feature_ids"] = list(X.columns)           # keep if you want both; but they MUST match
+            
+            # Optional but recommended: prove ordering integrity
+            if algo_params["feature_ids"] != list(X.columns):
+                raise SystemExit("[sarimax_exog] FAIL: feature_ids != X.columns order (bridge)")
+
 
             algo_params = store_selected_features_in_params(
                 algo_params,
