@@ -69,6 +69,7 @@ def write_exog_future_artifact(
     feature_ids: List[str],
     X_future: pd.DataFrame,
     design_matrix_audit: Dict[str, Any],
+    overwrite: bool = False,
 ) -> Tuple[Path, Path]:
     """
     Writes:
@@ -82,11 +83,21 @@ def write_exog_future_artifact(
     audit_path = parquet_path.with_suffix(".json")
 
     # refuse overwrite (consistent with rest of artifacts)
-    if parquet_path.exists() or audit_path.exists():
-        raise SystemExit(f"[sarimax_exog_live] REFUSING to overwrite existing exog_future artifact: {parquet_path}")
+    if (parquet_path.exists() or audit_path.exists()) and not overwrite:
+        raise SystemExit(
+            "[sarimax_exog_live] REFUSING to overwrite existing exog_future artifact:\n"
+            f"  {parquet_path}\n"
+            "Use a fresh --batch_id (recommended) or pass overwrite=True (dev only)."
+        )
 
     X_future.to_parquet(parquet_path, index=True)
     x_sha = _sha256_bytes(parquet_path.read_bytes())
+
+
+    design_matrix_parquet = design_matrix_audit.get("design_matrix_artifact")
+    design_matrix_audit_json = None
+    if isinstance(design_matrix_parquet, str) and design_matrix_parquet.endswith(".parquet"):
+        design_matrix_audit_json = design_matrix_parquet.replace(".parquet", ".json")
 
     audit = {
         "audit_version": "v1",
@@ -94,14 +105,21 @@ def write_exog_future_artifact(
         "anchor_date": anchor_date,
         "data_asof_effective": data_asof_effective,
         "horizon": int(horizon),
-        "feature_ids": list(feature_ids),
+        "feature_ids": list(feature_ids),  # ordered
         "exog_future_sha256": x_sha,
         "design_matrix_sha256": design_matrix_audit.get("design_matrix_sha256"),
         "feature_set_sha256": design_matrix_audit.get("feature_set_sha256"),
-        "inputs": {
-            "design_matrix_audit_json": design_matrix_audit.get("design_matrix_artifact", None) or "<unknown>",
+        "artifacts": {
+            "exog_future_parquet": str(parquet_path),
+            "exog_future_audit_json": str(audit_path),
+            "design_matrix_parquet": design_matrix_parquet,
+            "design_matrix_audit_json": design_matrix_audit_json,
         },
-        "artifact": str(parquet_path),
+        "inputs": {
+            "design_matrix_audit": design_matrix_audit,  # optional but useful; remove later if too noisy
+        },
     }
+
+    
     audit_path.write_text(json.dumps(audit, indent=2))
     return parquet_path, audit_path
