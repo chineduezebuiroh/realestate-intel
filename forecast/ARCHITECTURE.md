@@ -145,18 +145,7 @@ Therefore:
 
 ---
 
-### 7. Non-Negotiable Invariants
-
-- Feature identity comes only from selector artifacts.
-- Column order is enforced by `feature_ids` in audits.
-- All artifacts are immutable and checksum-verified (sha256).
-- No runner may silently regenerate features or reorder columns.
-
-Violating any invariant invalidates comparisons across models.
-
-
-
-- SARIMAX-exog Evaluation: Bridge vs Live
+### 7. SARIMAX-exog Evaluation Diagram: Bridge vs Live
   
                 ┌──────────────────────────┐
                 │   XGB SELECTOR (past)    │
@@ -186,3 +175,12 @@ Violating any invariant invalidates comparisons across models.
         │ (perfect-X eval)    │   │ (live-faithful)     │
         └─────────────────────┘   └─────────────────────┘
 
+
+### 8. Non-Negotiable Invariants
+
+- Feature identity comes only from selector artifacts.
+- Column order is enforced by `feature_ids` in audits.
+- All artifacts are immutable and checksum-verified (sha256).
+- No runner may silently regenerate features or reorder columns.
+
+Violating any invariant invalidates comparisons across models.
