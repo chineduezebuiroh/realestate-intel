@@ -80,15 +80,79 @@ def main() -> int:
     
     scores = score_runs(df)
 
+    def _format_summary_md(scores: pd.DataFrame, audit: dict, cohort_info: dict | None) -> str:
+        # aggregate table
+        agg = (
+            scores.groupby("model_name")
+            .agg(
+                n_runs=("run_id", "nunique"),
+                median_wape=("wape", "median"),
+                mean_wape=("wape", "mean"),
+                median_rmse=("rmse", "median"),
+                mean_rmse=("rmse", "mean"),
+            )
+            .sort_values(["median_wape", "median_rmse"])
+        )
+    
+        # per-anchor wins on WAPE
+        wins = {}
+        ties = 0
+        total = 0
+        for anchor, g in scores.groupby("anchor_date"):
+            g2 = g.sort_values("wape", ascending=True)
+            if len(g2) < 2:
+                continue
+            total += 1
+            if abs(float(g2.iloc[0]["wape"]) - float(g2.iloc[1]["wape"])) < 1e-12:
+                ties += 1
+            else:
+                m = str(g2.iloc[0]["model_name"])
+                wins[m] = wins.get(m, 0) + 1
+    
+        # spec section
+        spec = audit.get("spec", {})
+        lines = []
+        lines.append("# Eval Summary")
+        lines.append("")
+        lines.append("## Spec")
+        for k in ["metric_id","geo_id","property_type_id","freq","run_kinds","horizon","data_asof_exact","cohort","cohort_models","require_full_horizon"]:
+            if k in spec:
+                lines.append(f"- **{k}**: `{spec.get(k)}`")
+        lines.append("")
+        if cohort_info:
+            lines.append("## Cohort")
+            lines.append(f"- **n_anchors**: `{cohort_info.get('n_anchors')}`")
+            lines.append(f"- **models**: `{cohort_info.get('models')}`")
+            lines.append(f"- **anchors**: `{cohort_info.get('anchors')}`")
+            lines.append("")
+        lines.append("## Aggregate (lower is better)")
+        lines.append("")
+        lines.append(agg.to_markdown())
+        lines.append("")
+        lines.append("## WAPE wins per anchor")
+        lines.append(f"- wins: `{wins}`")
+        lines.append(f"- ties: `{ties}`")
+        lines.append(f"- total_anchors_scored: `{total}`")
+        lines.append("")
+        lines.append("## Artifacts")
+        lines.append(f"- score_table: `{audit['artifacts']['score_table']}`")
+        lines.append(f"- eval_frame: `{audit['artifacts']['eval_frame']}`")
+        lines.append(f"- sha256.score_table: `{audit['sha256']['score_table']}`")
+        lines.append(f"- sha256.eval_frame: `{audit['sha256']['eval_frame']}`")
+        lines.append("")
+        return "\n".join(lines)
+
+
     out_dir = Path(args.artifact_root) / args.eval_batch_id / "eval"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     score_path = out_dir / "score_table.parquet"
     frame_path = out_dir / "eval_frame.parquet"
     audit_path = out_dir / "audit.json"
+    summary_path = out_dir / "summary.md"
 
     # refuse overwrite
-    for p in (score_path, frame_path, audit_path):
+    for p in (score_path, frame_path, audit_path, summary_path):
         if p.exists():
             raise SystemExit(f"[eval] REFUSING to overwrite existing evaluation artifact: {p}")
 
@@ -138,6 +202,9 @@ def main() -> int:
     audit["cohort"] = cohort_info
     
     audit_path.write_text(json.dumps(audit, indent=2))
+    summary_path.write_text(_format_summary_md(scores, audit, cohort_info))
+    print(f"[eval] wrote summary: {summary_path}")
+
     print(f"[eval] wrote score_table: {score_path}")
     print(f"[eval] wrote eval_frame: {frame_path}")
     print(f"[eval] wrote audit: {audit_path}")
