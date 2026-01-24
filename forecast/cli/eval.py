@@ -35,6 +35,11 @@ def main() -> int:
     ap.add_argument("--no_complete_cohort", action="store_true")
     ap.add_argument("--no_dedupe", action="store_true")
 
+    ap.add_argument("--horizon", type=int, default=None, help="Require exact horizon_max_months for scored runs")
+    ap.add_argument("--data_asof", type=str, default=None, help="Require runs to have exact data_asof (YYYY-MM-DD)")
+    ap.add_argument("--cohort", type=str, default=None, help="Cohort rule: latest_common")
+    ap.add_argument("--cohort_model", action="append", default=None, help="Restrict cohort intersection to these model_name(s)")
+
 
     args = ap.parse_args()
 
@@ -53,9 +58,23 @@ def main() -> int:
         dedupe_latest_per_model_anchor=not bool(args.no_dedupe),
         require_models=tuple(args.require_model) if args.require_model else None,
         require_complete_cohort=not bool(args.no_complete_cohort),
+
+        horizon=args.horizon,
+        data_asof_exact=args.data_asof,
+        cohort=args.cohort,
+        cohort_models=tuple(args.cohort_model) if args.cohort_model else None,
     )
 
     df = build_eval_frame(spec)
+
+    cohort_info = None
+    if spec.cohort:
+        cohort_info = {
+            "anchors": sorted(df["train_end"].astype(str).unique().tolist()),
+            "models": sorted(df["model_name"].astype(str).unique().tolist()),
+            "n_anchors": int(df["train_end"].nunique()),
+        }
+    
     scores = score_runs(df)
 
     out_dir = Path(args.artifact_root) / args.eval_batch_id / "eval"
@@ -85,6 +104,12 @@ def main() -> int:
             "model_names": list(spec.model_names) if spec.model_names else None,
             "anchor_dates": list(spec.anchor_dates) if spec.anchor_dates else None,
             "require_full_horizon": spec.require_full_horizon,
+            
+            "horizon": spec.horizon,
+            "data_asof_exact": spec.data_asof_exact,
+            "cohort": spec.cohort,
+            "cohort_models": list(spec.cohort_models) if spec.cohort_models else None,
+
         },
         "artifacts": {
             "score_table": str(score_path),
@@ -99,6 +124,8 @@ def main() -> int:
             "n_runs_scored": int(scores["run_id"].nunique()) if not scores.empty else 0,
         },
     }
+    audit["cohort"] = cohort_info
+    
     audit_path.write_text(json.dumps(audit, indent=2))
     print(f"[eval] wrote score_table: {score_path}")
     print(f"[eval] wrote eval_frame: {frame_path}")
