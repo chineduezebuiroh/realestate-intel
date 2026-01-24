@@ -21,7 +21,7 @@ def main() -> int:
     ap.add_argument("--property_type_id", required=True)
     ap.add_argument("--freq", default="M")
 
-    ap.add_argument("--run_kind", action="append", default=["backtest"])
+    ap.add_argument("--run_kind", action="append", default=None)
     ap.add_argument("--batch_id", action="append", default=None)
     ap.add_argument("--model_name", action="append", default=None)
     ap.add_argument("--anchor", action="append", default=None)
@@ -43,12 +43,14 @@ def main() -> int:
 
     args = ap.parse_args()
 
+    run_kinds = tuple(args.run_kind) if args.run_kind else ("backtest",)
+
     spec = EvalSpec(
         metric_id=args.metric_id,
         geo_id=args.geo_id,
         property_type_id=args.property_type_id,
         freq=args.freq,
-        run_kinds=tuple(args.run_kind),
+        run_kinds=run_kinds,
         batch_ids=tuple(args.batch_id) if args.batch_id else None,
         model_names=tuple(args.model_name) if args.model_name else None,
         anchor_dates=tuple(args.anchor) if args.anchor else None,
