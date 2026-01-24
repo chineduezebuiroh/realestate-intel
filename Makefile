@@ -258,8 +258,13 @@ xgb_forecast_backtest:
 backtest:
 	python -m forecast.cli.backtest
 
+
+sarimax_exog_live:
+	python -m forecast.cli.live_sarimax_exog --metric_id median_sale_price --geo_id dc_city --property_type_id 6 --horizon 12 --batch_id $$(python -c "from forecast.db_forecast import new_batch_id; print(new_batch_id())") --inactive
+
 live:
 	python -m forecast.cli.live
+
 
 xgb_select:
 	python -m forecast.cli.select_xgb
