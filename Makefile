@@ -272,6 +272,23 @@ xgb_select:
 model_select:
 	python -m forecast.cli.model_select
 
+
+# -----------------------------------------------------------------------------
+# Evaluation
+# -----------------------------------------------------------------------------
+eval:
+	python -m forecast.cli.eval --help
+
+eval_pt6_backtests:
+	python -m forecast.cli.eval \
+	  --metric_id median_sale_price \
+	  --geo_id dc_city \
+	  --property_type_id 6 \
+	  --freq M \
+	  --run_kind backtest \
+	  --eval_batch_id 20260124T_EVAL_PT6_BACKTESTS
+
+
 # -----------------------------------------------------------------------------
 # Publish-only:
 #   - rebuild public DB
