@@ -71,10 +71,11 @@ def main() -> int:
 
     cohort_info = None
     if spec.cohort:
+        anchors = sorted(pd.to_datetime(df["train_end"]).dt.date.astype(str).unique().tolist())
         cohort_info = {
-            "anchors": sorted(df["train_end"].astype(str).unique().tolist()),
+            "anchors": anchors,
             "models": sorted(df["model_name"].astype(str).unique().tolist()),
-            "n_anchors": int(df["train_end"].nunique()),
+            "n_anchors": int(pd.to_datetime(df["train_end"]).dt.date.nunique()),
         }
     
     scores = score_runs(df)
@@ -90,6 +91,14 @@ def main() -> int:
     for p in (score_path, frame_path, audit_path):
         if p.exists():
             raise SystemExit(f"[eval] REFUSING to overwrite existing evaluation artifact: {p}")
+
+    if args.cohort:
+        scores["cohort"] = args.cohort
+        scores["cohort_models"] = ",".join(args.cohort_model) if args.cohort_model else None
+        scores["cohort_data_asof_exact"] = args.data_asof
+        scores["cohort_horizon"] = args.horizon
+
+
 
     scores.to_parquet(score_path, index=False)
     df.to_parquet(frame_path, index=False)
