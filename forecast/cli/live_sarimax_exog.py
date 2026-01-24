@@ -16,6 +16,7 @@ def main() -> int:
     ap.add_argument("--runs_root", default="runs")
     ap.add_argument("--artifact_root", default="runs")
     ap.add_argument("--inactive", action="store_true", help="Write run as inactive (is_active=False)")
+    ap.add_argument("--prefer_batch_id", default=None)
 
     args = ap.parse_args()
 
@@ -28,6 +29,7 @@ def main() -> int:
         runs_root=args.runs_root,
         artifact_root=args.artifact_root,
         is_active=(not args.inactive),
+        prefer_batch_id=args.prefer_batch_id,
     )
     print(f"live run_id = {run_id}")
     return 0
