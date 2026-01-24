@@ -1,38 +1,41 @@
 from __future__ import annotations
 # forecast/cli/backtest.py
+#
+# LEGACY SHIM ONLY.
+# This entrypoint exists temporarily to keep older workflows working.
+# Phase C canonical backtests must use:
+#   - forecast/cli/backtest_xgb_forecast.py
+#   - forecast/cli/backtest_xgb_selector.py
+#   - forecast/cli/backtest_sarimax_univariate.py
+#   - (later) forecast/cli/backtest_sarimax_exog_bridge.py / livefaithful
+#
+# This file intentionally does NOT attempt to construct Phase C identity keys.
 
 import argparse
-from forecast.contracts.keys import TargetKey, SelectorBatchKey
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser("forecast.cli.backtest")
-    # Keep minimal: pass through to existing runner for now
+    p = argparse.ArgumentParser("forecast.cli.backtest (LEGACY)")
+    p.add_argument("--legacy_ok", action="store_true", help="Allow running legacy batch backtest orchestration.")
+    # passthrough args legacy may read internally
     p.add_argument("--batch_id", required=False)
     p.add_argument("--data_asof", required=False)
     return p
 
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    
-    # Phase C Step 1: establish canonical identity (non-fatal for now)
-    if args.batch_id:
-        # NOTE: these IDs may be numeric in your system; keep as strings
-        # We'll tighten once we thread real args through.
-        _ = SelectorBatchKey(
-            batch_id=args.batch_id,
-            target=TargetKey(
-                target_metric_id="UNKNOWN",
-                target_geo_id="UNKNOWN",
-                target_property_type_id="UNKNOWN",
-                freq="M",
-            ),
+
+    if not args.legacy_ok:
+        raise SystemExit(
+            "[forecast.cli.backtest] REFUSING: this is a legacy shim.\n"
+            "Use a specific Phase C CLI (e.g. forecast.cli.backtest_sarimax_univariate) instead.\n"
+            "If you really intend to run legacy orchestration, pass --legacy_ok."
         )
 
-    # Phase C Step 0: canonical entrypoint wrapper only.
-    # Defer to existing orchestration.
     from forecast.run_backtest_batch import main as legacy_main
-    return int(legacy_main())  # legacy main probably reads args internally; keep as-is
+    return int(legacy_main())
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
