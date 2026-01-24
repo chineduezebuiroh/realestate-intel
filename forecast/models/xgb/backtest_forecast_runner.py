@@ -128,17 +128,29 @@ def run_backtest_xgb_forecast(
     data_asof: Optional[str] = None,
     anchors_csv: Optional[str] = None,
 ):
+    batch_id = batch_id or new_batch_id()
+
     s = load_target_series(metric_id, geo_id, property_type_id)
 
     s = s.copy()
     s.index = month_end_index(s.index)
     s = s[~s.index.duplicated(keep="last")].sort_index()
 
-    lags = lags or [1, 2, 3, 6, 12]
+    
+    # IMPORTANT: resolve + clamp as-of BEFORE choosing anchors
+    data_asof_date = _parse_data_asof(data_asof, s.index.max())  # returns date
+    data_asof_ts = pd.Timestamp(data_asof_date).to_period("M").to_timestamp(how="end")
 
-    batch_id = batch_id or new_batch_id()
-    data_asof = _parse_data_asof(data_asof, s.index.max())
-    print(f"[xgb_forecast_backtest] batch_id={batch_id} data_asof={data_asof}")
+    # clamp history to as-of (this makes as-of REAL, not cosmetic)
+    s = s.loc[:data_asof_ts].copy()
+    if s.empty:
+        raise ValueError(f"[xgb_forecast_backtest] no target data <= data_asof={data_asof_date}")
+    
+    print(f"[xgb_forecast_backtest] batch_id={batch_id} data_asof={data_asof_date}")
+
+    
+    lags = lags or [1, 3, 6, 12]
+
 
     if anchors_csv:
         anchors = [pd.Timestamp(a.strip()) for a in anchors_csv.split(",") if a.strip()]
@@ -187,7 +199,7 @@ def run_backtest_xgb_forecast(
             "contracts": {
                 "run_kind": "backtest",
                 "anchor_date": str(anchor_date.date()),
-                "data_asof_effective": str(data_asof),
+                "data_asof_effective": str(data_asof_date),
                 "target_metric_id": metric_id,
                 "target_geo_id": geo_id,
                 "target_property_type_id": property_type_id,
@@ -215,7 +227,7 @@ def run_backtest_xgb_forecast(
             is_active=False,
             run_kind="backtest",
             batch_id=batch_id,
-            data_asof=data_asof,
+            data_asof=data_asof_date,
         )
 
         target_dates = [d.date() for d in future_index]
