@@ -18,33 +18,71 @@ def _parse_asof_from_name(name: str) -> pd.Timestamp:
     return pd.Timestamp(part)
 
 
-def _find_latest_design_matrix_artifact(runs_root: str = "runs") -> Tuple[str, str, Dict[str, Any]]:
+def _find_latest_design_matrix_artifact(
+    *,
+    runs_root: str,
+    metric_id: str,
+    geo_id: str,
+    property_type_id: str,
+) -> Tuple[str, str, Dict[str, Any]]:
     """
-    Finds the most recent design matrix artifact by scanning runs/.
-    Returns: (parquet_path, audit_json_path, audit_dict)
-
-    Selection rule (explicit, deterministic enough for Phase C):
-      - sort by audit filename __asof= (descending), then by mtime (descending)
+    Find latest SARIMAX-exog design matrix artifact for a specific target.
+    Selection:
+      - filter by audit.target.{metric_id,geo_id,property_type_id}
+      - sort by (data_asof_effective desc, anchor_date desc, mtime desc)
     """
     root = Path(runs_root)
     if not root.exists():
         raise FileNotFoundError(f"[sarimax_exog_live] runs root not found: {runs_root}")
 
-    audits = [
+    candidates = [
         p for p in root.rglob("*.json")
         if p.name.startswith("design_matrix__anchor=") and "__asof=" in p.name
     ]
-    if not audits:
+    if not candidates:
         raise FileNotFoundError("[sarimax_exog_live] no design matrix audit jsons found under runs/")
 
-    audits.sort(key=lambda p: (_parse_asof_from_name(p.name), p.stat().st_mtime), reverse=True)
-    audit_path = audits[0]
-    parquet_path = audit_path.with_suffix(".parquet")
+    matched: list[tuple[pd.Timestamp, pd.Timestamp, float, Path, dict]] = []
 
+    for audit_path in candidates:
+        try:
+            audit = json.loads(audit_path.read_text())
+        except Exception:
+            continue
+
+        tgt = audit.get("target") or {}
+        if str(tgt.get("metric_id")) != str(metric_id):
+            continue
+        if str(tgt.get("geo_id")) != str(geo_id):
+            continue
+        if str(tgt.get("property_type_id")) != str(property_type_id):
+            continue
+
+        asof = audit.get("data_asof_effective")
+        anchor = audit.get("anchor_date")
+        if not asof or not anchor:
+            continue
+
+        try:
+            asof_ts = pd.Timestamp(asof)
+            anchor_ts = pd.Timestamp(anchor)
+        except Exception:
+            continue
+
+        matched.append((asof_ts, anchor_ts, audit_path.stat().st_mtime, audit_path, audit))
+
+    if not matched:
+        raise FileNotFoundError(
+            "[sarimax_exog_live] no matching design matrix audits found for target "
+            f"metric={metric_id} geo={geo_id} pt={property_type_id}"
+        )
+
+    matched.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+    _, _, _, audit_path, audit = matched[0]
+    parquet_path = audit_path.with_suffix(".parquet")
     if not parquet_path.exists():
         raise FileNotFoundError(f"[sarimax_exog_live] missing parquet for audit: {audit_path}")
 
-    audit = json.loads(audit_path.read_text())
     return str(parquet_path), str(audit_path), audit
 
 
@@ -72,7 +110,12 @@ def run_live_latest_artifact(
 
     This is NOT the bridge runner. Bridge is backtest/validation-only.
     """
-    design_parquet_path, design_audit_path, audit = _find_latest_design_matrix_artifact(runs_root=runs_root)
+    design_parquet_path, design_audit_path, audit = _find_latest_design_matrix_artifact(
+    runs_root=runs_root,
+    metric_id=metric_id,
+    geo_id=geo_id,
+    property_type_id=str(property_type_id),
+)
 
     # --- audit contract ---
     feature_ids = audit.get("feature_ids")
