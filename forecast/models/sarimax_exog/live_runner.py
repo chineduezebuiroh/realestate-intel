@@ -24,6 +24,7 @@ def _find_latest_design_matrix_artifact(
     metric_id: str,
     geo_id: str,
     property_type_id: str,
+    prefer_batch_id: Optional[str] = None,
 ) -> Tuple[str, str, Dict[str, Any]]:
     """
     Find latest SARIMAX-exog design matrix artifact for a specific target.
@@ -34,6 +35,10 @@ def _find_latest_design_matrix_artifact(
     root = Path(runs_root)
     if not root.exists():
         raise FileNotFoundError(f"[sarimax_exog_live] runs root not found: {runs_root}")
+
+    root = Path(runs_root)
+    if prefer_batch_id:
+        root = root / prefer_batch_id / "sarimax_exog"
 
     candidates = [
         p for p in root.rglob("*.json")
@@ -97,6 +102,7 @@ def run_live_latest_artifact(
     runs_root: str = "runs",
     artifact_root: str = "runs",
     is_active: bool = True,
+    prefer_batch_id: Optional[str] = None,
 ) -> int:
     """
     Live SARIMAX(exog) run:
@@ -111,11 +117,12 @@ def run_live_latest_artifact(
     This is NOT the bridge runner. Bridge is backtest/validation-only.
     """
     design_parquet_path, design_audit_path, audit = _find_latest_design_matrix_artifact(
-    runs_root=runs_root,
-    metric_id=metric_id,
-    geo_id=geo_id,
-    property_type_id=str(property_type_id),
-)
+        runs_root=runs_root,
+        metric_id=metric_id,
+        geo_id=geo_id,
+        property_type_id=str(property_type_id),
+        prefer_batch_id=prefer_batch_id,
+    )
 
     # --- audit contract ---
     feature_ids = audit.get("feature_ids")
@@ -187,6 +194,7 @@ def run_live_latest_artifact(
         feature_ids=list(map(str, feature_ids)),
         X_future=X_future,
         design_matrix_audit=audit,
+        overwrite=False,
     )
     exog_audit = json.loads(Path(exog_audit_path).read_text())
     print(f"[sarimax_exog_live] using design_matrix={design_parquet_path}")
