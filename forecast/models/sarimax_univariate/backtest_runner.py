@@ -105,6 +105,16 @@ def run_backtest_sarimax_single(
     data_asof = _parse_data_asof(data_asof, s.index.max())
     print(f"[backtest] batch_id={batch_id} data_asof={data_asof}")
 
+    # IMPORTANT: clamp history to as-of (make as-of REAL, not cosmetic)
+    data_asof_ts = pd.Timestamp(data_asof).to_period("M").to_timestamp(how="end")
+    s = s.loc[:data_asof_ts].copy()
+    if s.empty:
+        raise ValueError(f"[backtest] no target data <= data_asof={data_asof}")
+    
+    # re-check max after clamp
+    s = s[~s.index.duplicated(keep="last")].sort_index()
+
+
     if anchors_csv:
         anchors = [pd.Timestamp(s.strip()) for s in anchors_csv.split(",") if s.strip()]
     else:
