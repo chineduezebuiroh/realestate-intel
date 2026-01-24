@@ -27,6 +27,11 @@ class EvalSpec:
     anchor_dates: Optional[Tuple[str, ...]] = None  # YYYY-MM-DD
     # evaluation trimming
     require_full_horizon: bool = True
+    # in EvalSpec
+    prefer_batch_ids: Optional[Tuple[str, ...]] = None
+    dedupe_latest_per_model_anchor: bool = True
+    require_models: Optional[Tuple[str, ...]] = None
+    require_complete_cohort: bool = True
 
 
 def _load_runs(spec: EvalSpec) -> pd.DataFrame:
@@ -79,6 +84,43 @@ def _load_runs(spec: EvalSpec) -> pd.DataFrame:
         df = df[df["train_end"].isin(anchors)].copy()
         if df.empty:
             raise ValueError("[eval] anchor_dates filter removed all runs")
+
+    # --- prefer_batch_ids: if present, restrict to those batches first ---
+    if getattr(spec, "prefer_batch_ids", None):
+        pref = set(spec.prefer_batch_ids)
+        df_pref = df[df["batch_id"].isin(pref)].copy()
+        if df_pref.empty:
+            raise ValueError("[eval] prefer_batch_ids filter removed all runs")
+        df = df_pref
+
+    # --- dedupe: keep exactly 1 run per (model_name, train_end) ---
+    # deterministic: take max(run_id) within each group
+    if getattr(spec, "dedupe_latest_per_model_anchor", True):
+        df["train_end"] = pd.to_datetime(df["train_end"])
+        df = (
+            df.sort_values(["model_name", "train_end", "run_id"])
+              .groupby(["model_name", "train_end"], as_index=False)
+              .tail(1)
+              .copy()
+        )
+
+    # --- require_models: restrict cohort to known set ---
+    if getattr(spec, "require_models", None):
+        req = set(spec.require_models)
+        present = set(df["model_name"].astype(str).unique().tolist())
+        missing = sorted(req - present)
+        if missing:
+            raise ValueError(f"[eval] missing required models in cohort: {missing}")
+        df = df[df["model_name"].isin(req)].copy()
+
+    # --- require_complete_cohort: keep only anchors where all models exist ---
+    if getattr(spec, "require_complete_cohort", False):
+        n_models = df["model_name"].nunique()
+        counts = df.groupby("train_end")["model_name"].nunique()
+        ok_anchors = counts[counts == n_models].index
+        df = df[df["train_end"].isin(ok_anchors)].copy()
+        if df.empty:
+            raise ValueError("[eval] require_complete_cohort removed all runs (no anchor has full cohort)")
 
     return df
 
@@ -134,7 +176,11 @@ def build_eval_frame(spec: EvalSpec) -> pd.DataFrame:
 
     # compute horizon step relative to train_end
     df["train_end"] = pd.to_datetime(df["train_end"])
-    df["h_step"] = df.apply(lambda r: _month_step(r["train_end"], r["target_date"]), axis=1)
+    anchor_p = df["train_end"].dt.to_period("M")
+    target_p = df["target_date"].dt.to_period("M")
+    df["h_step"] = (target_p.dt.year - anchor_p.dt.year) * 12 + (target_p.dt.month - anchor_p.dt.month)
+    df["h_step"] = df["h_step"].astype(int)
+
 
     # keep only true future horizons (1..H)
     df = df[(df["h_step"] >= 1) & (df["h_step"] <= df["horizon_max_months"])].copy()
