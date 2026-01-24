@@ -67,9 +67,9 @@ def _load_runs(spec: EvalSpec) -> pd.DataFrame:
         params.append(int(spec.horizon))
 
     # NEW: data_asof exact filter (recommended for fair comparisons)
-    if spec.data_asof_exact is not None:
-        where.append("date(data_asof) = date(?)")
-        params.append(str(pd.to_datetime(spec.data_asof_exact).date()))
+    if spec.data_asof_exact:
+        where.append("CAST(data_asof AS DATE) = CAST(? AS DATE)")
+        params.append(spec.data_asof_exact)
 
     sql = f"""
         SELECT
