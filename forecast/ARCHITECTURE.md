@@ -43,6 +43,7 @@ If this section is violated, results are not comparable.
 
 ### 2. The Anchor Diagram (this is the reference)
 
+```text
 XGB selector
    │
    ▼
@@ -60,7 +61,9 @@ design_matrix (artifact: y + X, ordered, hashed)
    └──► SARIMAX-exog LIVE
            (generates exog_future deterministically, then forecasts)
 
+```
 ---
+
 
 Everything downstream of `design_matrix` is **feature-identity frozen**.
 
