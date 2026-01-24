@@ -175,6 +175,7 @@ Therefore:
         │ (perfect-X eval)    │   │ (live-faithful)     │
         └─────────────────────┘   └─────────────────────┘
 
+---
 
 ### 8. Non-Negotiable Invariants
 
