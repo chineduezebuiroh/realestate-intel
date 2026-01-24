@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Set
 
 import pandas as pd
 
@@ -32,6 +32,11 @@ class EvalSpec:
     dedupe_latest_per_model_anchor: bool = True
     require_models: Optional[Tuple[str, ...]] = None
     require_complete_cohort: bool = True
+    # NEW (Step 6)
+    horizon: Optional[int] = None                   # if set, require horizon_max_months == horizon
+    data_asof_exact: Optional[str] = None           # if set, require runs.data_asof == this date
+    cohort: Optional[str] = None                    # None or "latest_common"
+    cohort_models: Optional[Tuple[str, ...]] = None # if set, restrict to these model_names for cohorting
 
 
 def _load_runs(spec: EvalSpec) -> pd.DataFrame:
@@ -56,6 +61,16 @@ def _load_runs(spec: EvalSpec) -> pd.DataFrame:
         where.append(f"model_name IN ({','.join(['?']*len(spec.model_names))})")
         params.extend(list(spec.model_names))
 
+    # NEW: horizon exact filter
+    if spec.horizon is not None:
+        where.append("horizon_max_months = ?")
+        params.append(int(spec.horizon))
+
+    # NEW: data_asof exact filter (recommended for fair comparisons)
+    if spec.data_asof_exact is not None:
+        where.append("date(data_asof) = date(?)")
+        params.append(str(pd.to_datetime(spec.data_asof_exact).date()))
+
     sql = f"""
         SELECT
             run_id,
@@ -74,6 +89,7 @@ def _load_runs(spec: EvalSpec) -> pd.DataFrame:
     """
     df = con.execute(sql, params).fetchdf()
     con.close()
+    
 
     if df.empty:
         raise ValueError("[eval] no forecast_runs matched the eval spec")
@@ -163,8 +179,72 @@ def _month_step(anchor: pd.Timestamp, target_date: pd.Timestamp) -> int:
     return int((t.year - a.year) * 12 + (t.month - a.month))
 
 
+def _apply_cohort_latest_common(runs: pd.DataFrame, spec: EvalSpec) -> pd.DataFrame:
+    """
+    Keep only anchors that are common across the cohort model set.
+    Also, if multiple runs exist for same (model_name, anchor_date), choose latest by run_id.
+    """
+    runs = runs.copy()
+    runs["train_end"] = pd.to_datetime(runs["train_end"]).dt.date
+
+    # Determine which models participate in the cohort intersection
+    if spec.cohort_models:
+        cohort_models = list(spec.cohort_models)
+        runs = runs[runs["model_name"].isin(cohort_models)].copy()
+    else:
+        cohort_models = sorted(runs["model_name"].astype(str).unique().tolist())
+
+    if len(cohort_models) < 2:
+        raise ValueError("[eval] cohort needs at least 2 models present")
+
+    # For stability: if duplicates per (model, anchor), pick latest run_id
+    runs = (
+        runs.sort_values(["model_name", "train_end", "run_id"])
+            .groupby(["model_name", "train_end"], as_index=False)
+            .tail(1)
+    )
+
+    # Compute intersection of anchors
+    anchor_sets = []
+    for m in cohort_models:
+        s = set(runs.loc[runs["model_name"] == m, "train_end"].tolist())
+        anchor_sets.append(s)
+
+    common = set.intersection(*anchor_sets) if anchor_sets else set()
+    if not common:
+        raise ValueError("[eval] cohort_latest_common found no common anchors across models")
+
+    runs = runs[runs["train_end"].isin(sorted(common))].copy()
+
+    # Final sanity: ensure every model has every anchor
+    piv = runs.pivot_table(index="train_end", columns="model_name", values="run_id", aggfunc="count", fill_value=0)
+    missing = piv[(piv == 0).any(axis=1)]
+    if not missing.empty:
+        # Shouldn't happen, but refuse loudly if it does
+        raise ValueError(f"[eval] cohort_latest_common internal mismatch; missing models on some anchors:\n{missing}")
+
+    return runs
+
+
 def build_eval_frame(spec: EvalSpec) -> pd.DataFrame:
     runs = _load_runs(spec)
+
+
+    # optional anchor filter (existing)
+    if spec.anchor_dates:
+        anchors = set(pd.to_datetime(list(spec.anchor_dates)).date)
+        runs["train_end"] = pd.to_datetime(runs["train_end"]).dt.date
+        runs = runs[runs["train_end"].isin(anchors)].copy()
+        if runs.empty:
+            raise ValueError("[eval] anchor_dates filter removed all runs")
+
+    # NEW: cohorting
+    if spec.cohort:
+        if spec.cohort != "latest_common":
+            raise ValueError(f"[eval] unknown cohort: {spec.cohort}")
+        runs = _apply_cohort_latest_common(runs, spec)
+
+
     preds = _load_predictions(runs["run_id"].astype(int).tolist())
     actuals = _load_actuals(spec.metric_id, spec.geo_id, spec.property_type_id)
 
