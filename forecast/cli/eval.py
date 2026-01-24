@@ -127,7 +127,7 @@ def main() -> int:
             lines.append("")
         lines.append("## Aggregate (lower is better)")
         lines.append("")
-        lines.append(agg.to_markdown())
+        lines.append(agg.reset_index().to_string(index=False))
         lines.append("")
         lines.append("## WAPE wins per anchor")
         lines.append(f"- wins: `{wins}`")
