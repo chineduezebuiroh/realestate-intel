@@ -29,6 +29,12 @@ def main() -> int:
     ap.add_argument("--eval_batch_id", required=True)
     ap.add_argument("--artifact_root", default="runs")
     ap.add_argument("--allow_partial", action="store_true", help="Allow runs with incomplete horizons")
+    
+    ap.add_argument("--prefer_batch_id", action="append", default=None)
+    ap.add_argument("--require_model", action="append", default=None)
+    ap.add_argument("--no_complete_cohort", action="store_true")
+    ap.add_argument("--no_dedupe", action="store_true")
+
 
     args = ap.parse_args()
 
@@ -42,6 +48,11 @@ def main() -> int:
         model_names=tuple(args.model_name) if args.model_name else None,
         anchor_dates=tuple(args.anchor) if args.anchor else None,
         require_full_horizon=not bool(args.allow_partial),
+        # New fields
+        prefer_batch_ids=tuple(args.prefer_batch_id) if args.prefer_batch_id else None,
+        dedupe_latest_per_model_anchor=not bool(args.no_dedupe),
+        require_models=tuple(args.require_model) if args.require_model else None,
+        require_complete_cohort=not bool(args.no_complete_cohort),
     )
 
     df = build_eval_frame(spec)
