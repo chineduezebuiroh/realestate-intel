@@ -253,6 +253,14 @@ def build_train_and_future_exog_forecasted(
         index=full_idx,
     )
 
+    # -------------------------
+    # 4.5) Enforce "unknown future exog" for forecasted modes
+    # -------------------------
+    if method != "perfect_future":
+        # Anything after anchor is "future" and must be treated as unknown,
+        # even if it exists in the fact table at data_asof.
+        df_base_realized.loc[df_base_realized.index > train_end, :] = np.nan
+
     
     if method not in ("seasonal_naive_else_last", "perfect_future"):
         raise ValueError(f"Unknown exog forecast method: {method}")
