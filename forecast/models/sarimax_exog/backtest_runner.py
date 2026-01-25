@@ -179,7 +179,7 @@ def run_backtest_sarimax_exog_single(
         # - test_idx_full: month-end DatetimeIndex length=horizon
         #
         # If your helper returns slightly different names, adapt them here once.
-        target.data_asof = anchor_date.date()
+        #target.data_asof = anchor_date.date()
         y_full_raw, X_train_raw, X_future_fc, test_idx_full = build_train_and_future_exog_forecasted(
             target=target,
             feature_specs=selected_specs,   # IMPORTANT: use the specs you ended up selecting
