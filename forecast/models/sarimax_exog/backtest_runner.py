@@ -88,6 +88,7 @@ def run_backtest_sarimax_exog_single(
     sarimax_max_exog: int = 30,
     seed: int = 1337,
     anchors_csv: Optional[str] = None,
+    exog_method: str = "seasonal_naive_else_last",
 ):
     """
     Backtest SARIMAX with exogenous regressors for a single target series.
@@ -206,14 +207,13 @@ def run_backtest_sarimax_exog_single(
         # - test_idx_full: month-end DatetimeIndex length=horizon
         #
         # If your helper returns slightly different names, adapt them here once.
-        #target.data_asof = anchor_date.date()
         y_full_raw, X_train_raw, X_future_fc, test_idx_full = build_train_and_future_exog_forecasted(
             target=target,
             feature_specs=selected_specs,   # IMPORTANT: use the specs you ended up selecting
             anchor_date=anchor_date,
             horizon=horizon,
             # seasonal-naive (t-12) else last value is your rule:
-            method="seasonal_naive_else_last", # once Option 2 is active
+            method=exog_method, 
         )
     
         # y_train_raw is the target up to anchor (keep as Series)
@@ -493,6 +493,7 @@ def run_backtest_sarimax_exog_single(
             "xgb_batch_id": xgb_batch_id,
             "sarimax_max_exog": int(sarimax_max_exog),
         }
+        algo_params["exog_method"] = exog_method
 
         algo_params = store_selected_features_in_params(
             algo_params,
@@ -505,10 +506,12 @@ def run_backtest_sarimax_exog_single(
         )        
     
         con = get_connection()
+
+        model_name = "sarimax_exog_bridge" if exog_method == "perfect_future" else "sarimax_exog_backtest"
     
         run_id = insert_run(
             con=con,
-            model_name="sarimax_exog_backtest",
+            model_name=model_name,
             model_version="v1",
             target_metric_id=target.metric_id,
             target_geo_id=target.geo_id,
@@ -569,6 +572,9 @@ if __name__ == "__main__":
         default=None,
         help="Comma-separated anchor dates YYYY-MM-DD. If provided, overrides internal anchor selection.",
     )
+    parser.add_argument("--exog_method", default="seasonal_naive_else_last",
+               choices=["seasonal_naive_else_last", "perfect_future"])
+
 
     args = parser.parse_args()
 
@@ -588,4 +594,5 @@ if __name__ == "__main__":
         xgb_batch_id=args.xgb_batch_id,
         sarimax_max_exog=args.sarimax_max_exog,
         anchors_csv=args.anchors,
+        exog_method=args.exog_method,
     )
