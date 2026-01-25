@@ -100,51 +100,7 @@ def run_xgb_selector(
         candidate_specs = candidate_specs[: int(TEMP_DEBUG_LIMIT)]
         print(f"[xgb_selector] TEMP: truncating candidates to {len(candidate_specs)}")
 
-    # 2) scoring window (full target)
-    y_full_for_window = load_target_series_for_spec(target)
-    train_end = y_full_for_window.index.max()
 
-    
-    anchor_ts = pd.Timestamp(anchor_date)
-    anchor_ts = month_end_index(pd.DatetimeIndex([anchor_ts]))[0]  # keep your canonical month-end
-    
-    scored = score_candidates(
-        target=target,
-        candidates=candidate_specs,
-        train_end=anchor_ts,          # ✅ CRITICAL
-        min_eff=60,
-        lead_months=(0, 1, 2, 3, 4, 5, 6),
-        score_mode="yoy_xcorr",
-    )
-
-
-    # caps/minimums — keep what you had
-    category_minimums = {"rates": 5, "yields": 5, "gdp": 3}
-    bucket_caps = {
-        "geo:target_equiv": 80,
-        "geo:zipcode_dc": 60,
-        "geo:county": 40,
-        "geo:msa": 40,
-        "geo:state": 40,
-        "geo:national": 40,
-        "geo:other": 40,
-    }
-
-    picked = select_scored_candidates(
-        scored=scored,
-        max_base_series=250,
-        category_caps=policy.family_caps,
-        category_minimums=category_minimums,
-        bucket_caps=bucket_caps,
-        bucket_fn=lambda spec: default_bucket(spec, target),
-        redfin_tier_caps=redfin_caps,
-    )
-
-    candidate_specs = scored_to_feature_specs(picked)
-
-    if not candidate_specs:
-        print("[xgb_selector] No picked candidate specs after caps; skipping.")
-        return
 
     # 3) build design matrix incrementally (respecting your DQ choices)
     required_obs = min_train_len + horizon + DEFAULT_ANCHOR_BUFFER_MONTHS
@@ -265,6 +221,47 @@ def run_xgb_selector(
             f"(X_full tail={list(X_full.index[-3:])})"
         )
 
+    # 5.5) score candidates using ONLY history up to anchor_date (no leakage)
+    anchor_ts = month_end_index(pd.DatetimeIndex([pd.Timestamp(anchor_date)]))[0]
+
+    scored = score_candidates(
+        target=target,
+        candidates=candidate_specs,
+        train_end=anchor_ts,
+        min_eff=60,
+        lead_months=(0, 1, 2, 3, 4, 5, 6),
+        score_mode="yoy_xcorr",
+    )
+
+    # caps/minimums — keep what you had
+    category_minimums = {"rates": 5, "yields": 5, "gdp": 3}
+    bucket_caps = {
+        "geo:target_equiv": 80,
+        "geo:zipcode_dc": 60,
+        "geo:county": 40,
+        "geo:msa": 40,
+        "geo:state": 40,
+        "geo:national": 40,
+        "geo:other": 40,
+    }
+
+    picked = select_scored_candidates(
+        scored=scored,
+        max_base_series=250,
+        category_caps=policy.family_caps,
+        category_minimums=category_minimums,
+        bucket_caps=bucket_caps,
+        bucket_fn=lambda spec: default_bucket(spec, target),
+        redfin_tier_caps=redfin_caps,
+    )
+
+    candidate_specs = scored_to_feature_specs(picked)
+
+    if not candidate_specs:
+        print("[xgb_selector] No picked candidate specs after caps; skipping.")
+        return
+
+    
     # 6) train XGB on <= anchor_date and rank importances
     y_train = y_full.loc[:anchor_date]
     X_train = X_full.loc[:anchor_date]
