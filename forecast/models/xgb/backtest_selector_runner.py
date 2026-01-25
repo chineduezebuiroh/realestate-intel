@@ -101,6 +101,84 @@ def run_xgb_selector(
         print(f"[xgb_selector] TEMP: truncating candidates to {len(candidate_specs)}")
 
 
+    # 2) pick the single anchor FIRST (selector contract)
+    # We only need y to choose anchors; do NOT build the full X yet.
+    y_for_anchors = load_target_series_for_spec(target).copy()
+    y_for_anchors.index = month_end_index(y_for_anchors.index)
+    y_for_anchors = y_for_anchors[~y_for_anchors.index.duplicated(keep="last")].sort_index()
+
+    if anchors_csv:
+        anchors = [
+            pd.Timestamp(s.strip()).to_period("M").to_timestamp(how="end")
+            for s in anchors_csv.split(",")
+            if s.strip()
+        ]
+    else:
+        anchors = choose_anchor_dates(
+            y_for_anchors,
+            horizon=horizon,
+            min_train_len=min_train_len,
+            step_months=anchor_step_months,
+            max_anchors=max_anchors,
+            latest_anchor_offset_months=latest_anchor_offset_months,
+        )
+
+    if not anchors:
+        raise ValueError("[xgb_selector] No anchors available.")
+
+    if len(anchors) != 1:
+        raise ValueError(f"[xgb_selector] selector batch must have exactly 1 anchor, got {len(anchors)}")
+
+    anchor_date = anchors[0].to_period("M").to_timestamp(how="end")
+    anchor_ts = month_end_index(pd.DatetimeIndex([pd.Timestamp(anchor_date)]))[0]
+
+
+    scored = score_candidates(
+        target=target,
+        candidates=candidate_specs,
+        train_end=anchor_ts,
+        min_eff=60,
+        lead_months=(0, 1, 2, 3, 4, 5, 6),
+        score_mode="yoy_xcorr",
+    )
+
+    # caps/minimums — keep what you had
+    category_minimums = {"rates": 5, "yields": 5, "gdp": 3}
+    bucket_caps = {
+        "geo:target_equiv": 80,
+        "geo:zipcode_dc": 60,
+        "geo:county": 40,
+        "geo:msa": 40,
+        "geo:state": 40,
+        "geo:national": 40,
+        "geo:other": 40,
+    }
+
+    picked = select_scored_candidates(
+        scored=scored,
+        max_base_series=250,
+        category_caps=policy.family_caps,
+        category_minimums=category_minimums,
+        bucket_caps=bucket_caps,
+        bucket_fn=lambda spec: default_bucket(spec, target),
+        redfin_tier_caps=redfin_caps,
+    )
+
+    print("[xgb_selector] anchor=", anchor_date.date().isoformat())
+    print("[xgb_selector] picked_base_series=", len(picked))
+    print("[xgb_selector] picked_redfin_tiers=",
+          {t: sum(1 for it in picked if (getattr(it.spec, "source_id", "") or "").lower()=="redfin" and redfin_metric_tier(it.spec.metric_id)==t)
+           for t in (0,1,2,3)})
+    print("[xgb_selector] top20_picked=", [it.spec.name for it in picked[:20]])
+
+
+    candidate_specs = scored_to_feature_specs(picked)
+
+    if not candidate_specs:
+        print("[xgb_selector] No picked candidate specs after caps; skipping.")
+        return
+
+
 
     # 3) build design matrix incrementally (respecting your DQ choices)
     required_obs = min_train_len + horizon + DEFAULT_ANCHOR_BUFFER_MONTHS
@@ -184,82 +262,6 @@ def run_xgb_selector(
 
     if X_full.shape[1] == 0:
         raise SystemExit("[xgb_selector] FAIL: 0 features remain after DQ drops.")
-
-    # 5) anchor selection (must end as exactly one anchor)
-    y_anchor = y_full.copy()
-    y_anchor.index = X_full.index
-
-    if anchors_csv:
-        anchors = [
-            pd.Timestamp(s.strip()).to_period("M").to_timestamp(how="end")
-            for s in anchors_csv.split(",")
-            if s.strip()
-        ]
-    else:
-        anchors = choose_anchor_dates(
-            y_anchor,
-            horizon=horizon,
-            min_train_len=min_train_len,
-            step_months=anchor_step_months,
-            max_anchors=max_anchors,
-            latest_anchor_offset_months=latest_anchor_offset_months,
-        )
-
-    if not anchors:
-        raise ValueError("[xgb_selector] No anchors available.")
-
-    if len(anchors) != 1:
-        raise ValueError(f"[xgb_selector] selector batch must have exactly 1 anchor, got {len(anchors)}")
-
-    anchor_date = anchors[0]
-    anchor_date = anchor_date.to_period("M").to_timestamp(how="end")
-
-    if anchor_date not in X_full.index:
-        # Debug-friendly message
-        raise ValueError(
-            f"[xgb_selector] anchor_date not in design matrix timeline: {anchor_date} "
-            f"(X_full tail={list(X_full.index[-3:])})"
-        )
-
-    # 5.5) score candidates using ONLY history up to anchor_date (no leakage)
-    anchor_ts = month_end_index(pd.DatetimeIndex([pd.Timestamp(anchor_date)]))[0]
-
-    scored = score_candidates(
-        target=target,
-        candidates=candidate_specs,
-        train_end=anchor_ts,
-        min_eff=60,
-        lead_months=(0, 1, 2, 3, 4, 5, 6),
-        score_mode="yoy_xcorr",
-    )
-
-    # caps/minimums — keep what you had
-    category_minimums = {"rates": 5, "yields": 5, "gdp": 3}
-    bucket_caps = {
-        "geo:target_equiv": 80,
-        "geo:zipcode_dc": 60,
-        "geo:county": 40,
-        "geo:msa": 40,
-        "geo:state": 40,
-        "geo:national": 40,
-        "geo:other": 40,
-    }
-
-    picked = select_scored_candidates(
-        scored=scored,
-        max_base_series=250,
-        category_caps=policy.family_caps,
-        category_minimums=category_minimums,
-        bucket_caps=bucket_caps,
-        bucket_fn=lambda spec: default_bucket(spec, target),
-        redfin_tier_caps=redfin_caps,
-    )
-
-    candidate_specs = scored_to_feature_specs(picked)
-
-    if not candidate_specs:
-        print("[xgb_selector] No picked candidate specs after caps; skipping.")
-        return
 
     
     # 6) train XGB on <= anchor_date and rank importances
