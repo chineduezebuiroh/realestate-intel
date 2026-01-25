@@ -357,6 +357,37 @@ def select_scored_candidates(
                 if need <= 0:
                     break
 
+    
+    # 1.5) satisfy Redfin tier minimums (if enabled)
+    if redfin_tier_caps is not None and redfin_tier_quota is not None:
+        mins = redfin_tier_caps.mins()
+        for t in (0, 1, 2, 3):
+            need = int(mins.get(t, 0))
+            if need <= 0:
+                continue
+
+            # Don't try to exceed the computed quota for that tier
+            need = min(need, int(redfin_tier_quota.get(t, 0)))
+
+            while need > 0 and len(picked) < max_base_series:
+                took_one = False
+                for item in scored:
+                    if item in picked:
+                        continue
+                    if not is_redfin(item):
+                        continue
+                    if tier_of(item) != t:
+                        continue
+                    if can_take(item):
+                        take(item)
+                        need -= 1
+                        took_one = True
+                        break
+                if not took_one:
+                    # can't satisfy this tier minimum under other caps/buckets
+                    break
+
+
     # 2) fill remainder
     for item in scored:
         if len(picked) >= max_base_series:
