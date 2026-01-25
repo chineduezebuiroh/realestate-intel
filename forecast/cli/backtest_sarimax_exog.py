@@ -26,13 +26,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--xgb_batch_id", type=str, required=True)
     ap.add_argument("--sarimax_max_exog", type=int, default=30)
     ap.add_argument("--seed", type=int, default=1337)
-
     ap.add_argument(
         "--anchors",
         type=str,
         default=None,
         help="Comma-separated anchor dates YYYY-MM-DD (optional). Overrides internal anchor selection.",
     )
+    p.add_argument(
+        "--exog_method",
+        type=str,
+        default="seasonal_naive_else_last",
+        choices=["seasonal_naive_else_last", "perfect_future"],
+        help="How to produce FUTURE exog rows. seasonal_naive_else_last = forecasted exog; perfect_future = realized exog (cheating upper bound).",
+    )
+
 
     args = ap.parse_args(argv)
 
@@ -52,6 +59,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         xgb_batch_id=args.xgb_batch_id,
         sarimax_max_exog=int(args.sarimax_max_exog),
         anchors_csv=args.anchors,
+        exog_method=args.exog_method,
     )
     return 0
 
