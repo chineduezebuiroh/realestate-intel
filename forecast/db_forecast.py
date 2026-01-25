@@ -21,6 +21,24 @@ def _jsonify(d: Optional[Dict[str, Any]]) -> Optional[str]:
     return json.dumps(d, default=str)
 
 
+def _coerce_date(x):
+    if x is None:
+        return None
+    # already a date (but not datetime)
+    if isinstance(x, dt.date) and not isinstance(x, dt.datetime):
+        return x
+    # datetime -> date
+    if isinstance(x, dt.datetime):
+        return x.date()
+    # string -> date
+    if isinstance(x, str):
+        s = x.strip()
+        if not s:
+            return None
+        return dt.date.fromisoformat(s)  # expects YYYY-MM-DD
+    raise TypeError(f"data_asof must be date|datetime|YYYY-MM-DD str|None, got {type(x)}")
+
+
 def deactivate_live_runs(con, target_metric_id: str, target_geo_id: str, target_property_type_id: Optional[str]):
     # Deactivate only *live* runs (not backtests)
     con.execute(
@@ -57,10 +75,12 @@ def insert_run(
     is_active: bool,
     run_kind: str,               # 'backtest' | 'live' | 'adhoc'
     batch_id: Optional[str],     # required for backtest batches; ok None for adhoc/live if you want
-    data_asof,                   # date (or None)
+    data_asof,                   # date|datetime|YYYY-MM-DD str (or None)
 ) -> int:
     # We let DuckDB generate run_id if you have identity; otherwise use MAX+1
     # Your schema currently has run_id BIGINT PRI with no identity, so we do MAX+1.
+    data_asof = _coerce_date(data_asof)
+    
     row = con.execute("SELECT COALESCE(MAX(run_id), 0) + 1 FROM forecast_runs").fetchone()
     run_id = int(row[0])
 
