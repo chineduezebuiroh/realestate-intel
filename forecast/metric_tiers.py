@@ -78,6 +78,10 @@ class RedfinTierShareCaps:
     Shares apply ONLY within the Redfin portion of the final selected base-series set.
     Must sum to 1.0.
     """
+    # Absolute cap on how many *Redfin base-series* are allowed in the final pick set.
+    # This is what makes “Redfin doesn’t dominate everything” real.
+    redfin_cap_n: int = 120
+
     tier0: float = 0.30
     tier1: float = 0.35
     tier2: float = 0.25
@@ -99,3 +103,7 @@ class RedfinTierShareCaps:
         s = self.tier0 + self.tier1 + self.tier2 + self.tier3
         if abs(s - 1.0) > 1e-6:
             raise ValueError(f"RedfinTierShareCaps shares must sum to 1.0, got {s}")
+
+        if int(self.redfin_cap_n) <= 0:
+            raise ValueError(f"RedfinTierShareCaps.redfin_cap_n must be > 0, got {self.redfin_cap_n}")
+
