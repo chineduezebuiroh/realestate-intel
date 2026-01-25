@@ -75,6 +75,11 @@ def run_xgb_selector(
       - invariant columns present
     """
     policy = default_policy()
+    
+    redfin_caps = RedfinTierShareCaps(
+        tier0=0.30, tier1=0.35, tier2=0.25, tier3=0.10,
+        redfin_cap_n=int(round(0.70 * 250)),
+    )
 
     batch_id = batch_id or new_batch_id()
     out_dir = Path(artifact_root or "runs") / batch_id / "xgb"
@@ -124,7 +129,9 @@ def run_xgb_selector(
         category_minimums=category_minimums,
         bucket_caps=bucket_caps,
         bucket_fn=lambda spec: default_bucket(spec, target),
+        redfin_tier_caps=redfin_caps,
     )
+
     candidate_specs = scored_to_feature_specs(picked)
 
     if not candidate_specs:
