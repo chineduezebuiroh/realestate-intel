@@ -243,7 +243,19 @@ def select_scored_candidates(
 
         # This is the *budget* of Redfin base-series we allow in the pick set.
         # IMPORTANT: this is not max_base_series — it's explicitly "how much Redfin can occupy".
-        R = int(getattr(redfin_tier_caps, "redfin_cap_n"))
+        redfin_items = [it for it in scored if is_redfin(it)]
+        # Redfin budget is bounded by:
+        # - user-requested redfin_cap_n
+        # - total pick budget max_base_series
+        # - how many redfin candidates even exist
+        R = min(
+            int(getattr(redfin_tier_caps, "redfin_cap_n")),
+            int(max_base_series),
+            int(len(redfin_items)),
+        )
+
+        if R <= 0:
+            redfin_tier_quota = None
 
         shares = redfin_tier_caps.shares()
         mins = redfin_tier_caps.mins()
@@ -287,7 +299,15 @@ def select_scored_candidates(
         print(f"[selector] redfin_tier_quota={redfin_tier_quota} redfin_cap_n={R}")
 
 
+    def used_redfin_total() -> int:
+        return sum(used_redfin_tier.values())
+
     def can_take(item: ScoredCandidate) -> bool:
+        if redfin_tier_quota is not None and is_redfin(item):
+            # Hard cap on total redfin count
+            if used_redfin_total() >= int(R):
+                return False
+
         # Redfin tier gate (only if enabled)
         if redfin_tier_quota is not None and is_redfin(item):
             t = tier_of(item)
