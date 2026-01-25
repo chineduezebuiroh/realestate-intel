@@ -339,6 +339,28 @@ def select_scored_candidates(
             used_redfin_tier[t] = used_redfin_tier.get(t, 0) + 1
 
 
+    # 0) satisfy Redfin tier minimums first (if enabled)
+    if redfin_tier_quota is not None and redfin_tier_caps is not None:
+        tier_mins = redfin_tier_caps.mins()
+        for t in (0, 1, 2, 3):
+            need = int(tier_mins.get(t, 0))
+            if need <= 0:
+                continue
+            for item in scored:
+                if len(picked) >= max_base_series:
+                    break
+                if not is_redfin(item):
+                    continue
+                if tier_of(item) != t:
+                    continue
+                if item in picked:
+                    continue
+                if can_take(item):
+                    take(item)
+                    need -= 1
+                    if need <= 0:
+                        break
+
     # 1) satisfy minimums
     for cat, min_n in category_minimums.items():
         need = int(min_n)
