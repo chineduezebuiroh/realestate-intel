@@ -97,6 +97,9 @@ def run_backtest_sarimax_exog_single(
     - SARIMAX builds exog matrices from the selected feature ids
     - It forecasts exogs via build_train_and_future_exog_forecasted
     """
+    if exog_method not in ("seasonal_naive_else_last", "perfect_future"):
+        raise ValueError(f"[backtest_exog] unknown exog_method={exog_method}")
+
     target = TargetSpec(
         metric_id=metric_id,
         geo_id=geo_id,
