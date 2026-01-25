@@ -80,7 +80,7 @@ class RedfinTierShareCaps:
     """
     # Absolute cap on how many *Redfin base-series* are allowed in the final pick set.
     # This is what makes “Redfin doesn’t dominate everything” real.
-    redfin_cap_n: int = 120
+    redfin_cap_n: int = 160
 
     tier0: float = 0.30
     tier1: float = 0.35
