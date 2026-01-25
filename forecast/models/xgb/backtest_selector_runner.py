@@ -25,6 +25,7 @@ from forecast.backtest_utils import (
     DEFAULT_MAX_ANCHORS,
     DEFAULT_ANCHOR_BUFFER_MONTHS,
 )
+
 from forecast.feature_policy import default_policy
 from forecast.feature_selection import (
     score_candidates,
@@ -103,14 +104,19 @@ def run_xgb_selector(
     y_full_for_window = load_target_series_for_spec(target)
     train_end = y_full_for_window.index.max()
 
+    
+    anchor_ts = pd.Timestamp(anchor_date)
+    anchor_ts = month_end_index(pd.DatetimeIndex([anchor_ts]))[0]  # keep your canonical month-end
+    
     scored = score_candidates(
         target=target,
         candidates=candidate_specs,
-        train_end=train_end,
+        train_end=anchor_ts,          # ✅ CRITICAL
         min_eff=60,
         lead_months=(0, 1, 2, 3, 4, 5, 6),
         score_mode="yoy_xcorr",
     )
+
 
     # caps/minimums — keep what you had
     category_minimums = {"rates": 5, "yields": 5, "gdp": 3}
