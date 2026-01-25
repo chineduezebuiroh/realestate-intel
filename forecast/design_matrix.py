@@ -253,10 +253,10 @@ def build_train_and_future_exog_forecasted(
         index=full_idx,
     )
 
-    """
+    
     if method not in ("seasonal_naive_else_last", "perfect_future"):
         raise ValueError(f"Unknown exog forecast method: {method}")
-
+    """
     base_exog_fc: Dict[str, pd.Series] = {}
 
     for name, s in base_exog.items():
