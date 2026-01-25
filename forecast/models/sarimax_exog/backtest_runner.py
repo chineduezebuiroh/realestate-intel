@@ -158,6 +158,33 @@ def run_backtest_sarimax_exog_single(
         )
         if not feature_ids:
             raise SystemExit("[backtest_exog] FAIL: XGB shortlist returned 0 features.")
+
+
+        def _base_id_from_feature_id(fid: str) -> str:
+            # assumes lag features look like "..._lag6"
+            return fid.rsplit("_lag", 1)[0]
+        
+        def _lag_from_feature_id(fid: str) -> int:
+            return int(fid.rsplit("_lag", 1)[1])
+        
+        def _choose_single_lag_per_base(feature_ids_in: list[str]) -> list[str]:
+            """
+            Keep only one lag-level feature per base series.
+            Deterministic rule: keep the smallest lag (can change later if you prefer rank-based).
+            """
+            best: dict[str, tuple[str, int]] = {}
+            for fid in feature_ids_in:
+                base = _base_id_from_feature_id(fid)
+                lag = _lag_from_feature_id(fid)
+                if base not in best or lag < best[base][1]:
+                    best[base] = (fid, lag)
+            return [v[0] for v in best.values()]
+        
+        # IMPORTANT: dedupe base-series before any SARIMAX exog work
+        feature_ids = _choose_single_lag_per_base(list(feature_ids))
+        
+        print(f"[backtest_exog] After base-series dedupe: {len(feature_ids)} lag-features remain.")
+
         
         selected_specs = specs_from_selected_feature_ids(feature_ids)
 
@@ -241,14 +268,36 @@ def run_backtest_sarimax_exog_single(
         X_train_sel = X_train_raw.loc[:anchor_date, feature_ids].copy()
         X_train_sel = X_train_sel.reindex(y_train_raw.index)  # align to target timeline
 
-        # Complete-case on selected exog only
-        train_mask = y_train_raw.notna() & X_train_sel.notna().all(axis=1)
-        y_train = y_train_raw.loc[train_mask].copy()
-        X_train_sel = X_train_sel.loc[train_mask].copy()
 
-        if len(y_train) < min_train_len:
-            print("[backtest_exog] Train shorter than min_train_len after exog selection; skipping anchor.")
+        # -------------------------------
+        # TRAIN WINDOW MASKING (parity)
+        # Goal: do NOT shrink the early y-history just because some exog lags are missing.
+        # We only enforce full exog completeness after we already have min_train_len y rows.
+        # -------------------------------
+        
+        # 1) y-only availability
+        y_mask = y_train_raw.notna()
+        y_idx = y_train_raw.index[y_mask]
+        
+        if len(y_idx) < min_train_len:
+            print("[backtest_exog] Train shorter than min_train_len (y-only); skipping anchor.")
             continue
+        
+        # 2) exog completeness mask (row-wise)
+        X_row_ok = X_train_sel.notna().all(axis=1)
+        
+        # 3) allow the earliest min_train_len y rows even if exog has NaNs
+        early_idx = set(y_idx[:min_train_len])
+        final_mask = y_mask & (y_train_raw.index.isin(early_idx) | X_row_ok)
+        
+        y_train = y_train_raw.loc[final_mask].copy()
+        X_train_sel = X_train_sel.loc[final_mask].copy()
+        
+        # still guard
+        if len(y_train) < min_train_len:
+            print("[backtest_exog] Train shorter than min_train_len after parity mask; skipping anchor.")
+            continue
+
 
         # ---- Collinearity kill-switch (TRAINING ONLY) ----
         # Keep XGB priority order (feature_ids), drop constant cols, then drop cols
