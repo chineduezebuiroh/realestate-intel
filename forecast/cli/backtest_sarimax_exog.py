@@ -32,7 +32,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=None,
         help="Comma-separated anchor dates YYYY-MM-DD (optional). Overrides internal anchor selection.",
     )
-    p.add_argument(
+    ap.add_argument(
         "--exog_method",
         type=str,
         default="seasonal_naive_else_last",
