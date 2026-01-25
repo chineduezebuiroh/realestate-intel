@@ -7,8 +7,9 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from .backtest_utils import month_end_index
-from .feature_loader import FeatureSpec, TargetSpec, load_series_from_fact
+from forecast.backtest_utils import month_end_index
+from forecast.feature_loader import FeatureSpec, TargetSpec, load_series_from_fact
+from forecast.metric_tiers import canon_geo_id, redfin_metric_tier, RedfinTierShareCaps
 
 
 DC_EQUIV = {"dc_city", "dc_county", "dc_state"}
@@ -164,11 +165,15 @@ def default_bucket(spec: FeatureSpec, target: TargetSpec) -> str:
     Simple geo diversity buckets + DC equivalence.
     You can refine later.
     """
-    g = spec.geo_id
+    spec_geo = canon_geo_id(spec.geo_id)
+    target_geo = canon_geo_id(target.geo_id)
+
+    
+    g = spec_geo
     if g in DC_EQUIV:
         g = "dc_equiv"
 
-    if g == target.geo_id or (target.geo_id in DC_EQUIV and g == "dc_equiv"):
+    if g == target_geo or (target_geo in DC_EQUIV and g == "dc_equiv"):
         return "geo:target_equiv"
 
     # coarse geography types by naming convention
@@ -196,6 +201,7 @@ def select_scored_candidates(
     category_minimums: Optional[Dict[str, int]] = None,
     bucket_caps: Optional[Dict[str, int]] = None,
     bucket_fn=None,
+    redfin_tier_caps: Optional[RedfinTierShareCaps] = None,
 ) -> List[ScoredCandidate]:
     """
     Greedy deterministic selection on scored base series, BEFORE lag expansion.
@@ -210,13 +216,84 @@ def select_scored_candidates(
     used_bucket: Dict[str, int] = {}
     picked: List[ScoredCandidate] = []
 
+
     def cat_of(item: ScoredCandidate) -> str:
         return (item.spec.category or "uncategorized").lower()
 
     def bucket_of(item: ScoredCandidate) -> str:
         return bucket_fn(item.spec)
 
+
+    # ----------------------------
+    # Redfin tier caps (optional)
+    # ----------------------------
+    used_redfin_tier: Dict[int, int] = {0: 0, 1: 0, 2: 0, 3: 0}
+    redfin_tier_quota: Optional[Dict[int, int]] = None
+
+    def is_redfin(item: ScoredCandidate) -> bool:
+        sid = getattr(item.spec, "source_id", None)
+        return (sid or "").strip().lower() == "redfin"
+
+    def tier_of(item: ScoredCandidate) -> int:
+        return int(redfin_metric_tier(getattr(item.spec, "metric_id", "")))
+
+    if redfin_tier_caps is not None:
+        # You imported RedfinTierShareCaps already; assume it has validate()/shares()/mins()
+        redfin_tier_caps.validate()
+
+        # This is the *budget* of Redfin base-series we allow in the pick set.
+        # IMPORTANT: this is not max_base_series — it's explicitly "how much Redfin can occupy".
+        R = int(getattr(redfin_tier_caps, "redfin_cap_n"))
+
+        shares = redfin_tier_caps.shares()
+        mins = redfin_tier_caps.mins()
+
+        # floor allocation
+        quota = {t: int(mins.get(t, 0)) for t in (0, 1, 2, 3)}
+        if sum(quota.values()) > R:
+            # truncate floors deterministically
+            quota = {0: 0, 1: 0, 2: 0, 3: 0}
+            remaining = R
+            for t in (0, 1, 2, 3):
+                take_n = min(int(mins.get(t, 0)), remaining)
+                quota[t] = take_n
+                remaining -= take_n
+                if remaining <= 0:
+                    break
+            redfin_tier_quota = quota
+        else:
+            remaining = R - sum(quota.values())
+
+            # proportional fill
+            raw = {t: int(np.floor(shares.get(t, 0.0) * R)) for t in (0, 1, 2, 3)}
+            raw = {t: max(0, raw[t] - quota[t]) for t in raw}
+
+            # stable priority for allocating raw + leftovers
+            for t in (1, 0, 2, 3):
+                if remaining <= 0:
+                    break
+                add = min(raw.get(t, 0), remaining)
+                quota[t] += add
+                remaining -= add
+
+            for t in (1, 0, 2, 3):
+                if remaining <= 0:
+                    break
+                quota[t] += 1
+                remaining -= 1
+
+            redfin_tier_quota = quota
+
+        print(f"[selector] redfin_tier_quota={redfin_tier_quota} redfin_cap_n={R}")
+
+
     def can_take(item: ScoredCandidate) -> bool:
+        # Redfin tier gate (only if enabled)
+        if redfin_tier_quota is not None and is_redfin(item):
+            t = tier_of(item)
+            if used_redfin_tier.get(t, 0) >= int(redfin_tier_quota.get(t, 0)):
+                return False
+
         cat = cat_of(item)
         cap = category_caps.get(cat)
         if cap is not None and used_cat.get(cat, 0) >= int(cap):
@@ -228,6 +305,7 @@ def select_scored_candidates(
             return False
 
         return True
+    
 
     def take(item: ScoredCandidate):
         cat = cat_of(item)
@@ -235,6 +313,11 @@ def select_scored_candidates(
         picked.append(item)
         used_cat[cat] = used_cat.get(cat, 0) + 1
         used_bucket[b] = used_bucket.get(b, 0) + 1
+
+        if redfin_tier_quota is not None and is_redfin(item):
+            t = tier_of(item)
+            used_redfin_tier[t] = used_redfin_tier.get(t, 0) + 1
+
 
     # 1) satisfy minimums
     for cat, min_n in category_minimums.items():
@@ -262,6 +345,9 @@ def select_scored_candidates(
             continue
         if can_take(item):
             take(item)
+
+    if redfin_tier_quota is not None:
+        print(f"[selector] redfin_tier_quota={redfin_tier_quota} used={used_redfin_tier}")
 
     return picked
 
