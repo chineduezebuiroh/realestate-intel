@@ -246,8 +246,15 @@ def build_train_and_future_exog_forecasted(
     full_idx = pd.DatetimeIndex(month_end_index(full_idx))
     full_idx = full_idx[~full_idx.duplicated()].sort_values()
 
+    
+    # realized base series on full_idx (includes actual values in the future if they exist in fact table)
+    df_base_realized = pd.DataFrame(
+        {name: s.reindex(full_idx) for name, s in base_exog.items()},
+        index=full_idx,
+    )
 
-    if method != "seasonal_naive_else_last":
+    """
+    if method not in ("seasonal_naive_else_last", "perfect_future"):
         raise ValueError(f"Unknown exog forecast method: {method}")
 
     base_exog_fc: Dict[str, pd.Series] = {}
@@ -291,6 +298,55 @@ def build_train_and_future_exog_forecasted(
     # 5) Build FUTURE lagged features from the forecasted base exog
     # -------------------------
     df_base_future = pd.DataFrame({name: s.reindex(full_idx) for name, s in base_exog_fc.items()}, index=full_idx)
+    """
+
+
+
+
+
+    if method == "perfect_future":
+        # Use realized base series (cheating exog): no forecasting, just whatever fact tables contain.
+        df_base_future = df_base_realized
+    
+    else:
+        # forecasted exog (Type 2 backtest)
+        base_exog_fc: Dict[str, pd.Series] = {}
+    
+        for name, s in base_exog.items():
+            s_full = s.reindex(full_idx)
+    
+            # ensure defined through anchor within TRAIN window
+            train_mask = (s_full.index <= train_end)
+            if train_mask.any():
+                s_train = s_full.loc[train_mask]
+                if s_train.isna().any():
+                    s_full.loc[train_mask] = s_train.ffill()
+    
+            for t in test_idx_full:
+                if pd.notna(s_full.loc[t]):
+                    continue
+                t12 = pd.Timestamp(t) - pd.DateOffset(months=12)
+                t12 = pd.DatetimeIndex(month_end_index(pd.DatetimeIndex([t12])))[0]
+                if t12 in s_full.index and pd.notna(s_full.loc[t12]):
+                    s_full.loc[t] = s_full.loc[t12]
+                else:
+                    prev = s_full.loc[:t].dropna()
+                    if len(prev) > 0:
+                        s_full.loc[t] = prev.iloc[-1]
+    
+            base_exog_fc[name] = s_full
+    
+        df_base_future = pd.DataFrame(
+            {name: s.reindex(full_idx) for name, s in base_exog_fc.items()},
+            index=full_idx,
+        )
+
+
+
+
+
+
+    
 
     feature_cols_future = {}
     for spec in feature_specs:
