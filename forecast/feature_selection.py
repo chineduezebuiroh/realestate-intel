@@ -314,6 +314,10 @@ def select_scored_candidates(
     def bucket_of(item: ScoredCandidate) -> str:
         return bucket_fn(item.spec)
 
+    def metric_pt_key(item: ScoredCandidate) -> Tuple[str, str]:
+        mid = str(getattr(item.spec, "metric_id", ""))
+        pt = str(getattr(item.spec, "property_type_id", ""))
+        return (mid, pt)
 
     # ----------------------------
     # Redfin tier caps (optional)
@@ -523,10 +527,25 @@ def select_scored_candidates(
 
     if redfin_tier_quota is not None:
         print(f"[selector] redfin_tier_quota={redfin_tier_quota} used={used_redfin_tier}")
-
+    """
     if metric_pt_cap is not None:
         top = sorted(metric_pt_used.items(), key=lambda kv: -kv[1])[:10]
         print(f"[selector] metric_pt_cap={metric_pt_cap} top_metric_pt_used={top}")
+    """
+        # Debug: concentration diagnostics
+    metric_counts = Counter([str(it.spec.metric_id) for it in picked])
+    metric_pt_counts = Counter([(str(it.spec.metric_id), str(it.spec.property_type_id)) for it in picked])
+
+    print(
+        f"[selector] picked_n={len(picked)} "
+        f"unique_metrics={len(metric_counts)} "
+        f"unique_metric_pt={len(metric_pt_counts)} "
+        f"top_metrics={metric_counts.most_common(10)} "
+        f"top_metric_pt={metric_pt_counts.most_common(10)}"
+    )
+
+    if metric_pt_cap is not None:
+        print(f"[selector] metric_pt_cap={int(metric_pt_cap)}")
 
     return picked
 
