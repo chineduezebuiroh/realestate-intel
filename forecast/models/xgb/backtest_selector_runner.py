@@ -38,7 +38,6 @@ from forecast.metric_tiers import RedfinTierShareCaps, redfin_metric_tier
 
 
 TEMP_DEBUG_LIMIT = None  # set to an int for debugging; None for normal operation
-METRIC_PT_CAP = 10  # NEW: max base series per (metric_id, property_type_id)
 
 
 def _parse_data_asof(s: Optional[str]):
