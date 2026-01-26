@@ -738,39 +738,10 @@ def build_universal_feature_specs(
         policy=policy,
     )
 
-    # ----------------------------
-    # Family caps (dim_metric.category)
-    # ----------------------------
-    caps = policy.family_caps or {}
-    if caps:
-        # Deterministic order so caps are stable run-to-run
-        governed_sorted = sorted(
-            governed,
-            key=lambda r: (r[4], r[0], r[1], str(r[2]), r[3])  # category, metric_id, geo_id, pt_id, source_id
-        )
+    # Debug: distribution in the FULL universe after shared gates (no category caps here)
+    print("[governance] category_counts_universe:", Counter([(r[4] or "uncategorized") for r in governed]).most_common(20))
+    print("[governance] n_candidates_universe:", len(governed))
 
-        used = {k: 0 for k in caps.keys()}
-        governed_capped = []
-
-        for row in governed_sorted:
-            metric_id, geo_id, pt_id, source_id, cat, freq, cov, n_overlap = row
-            cat = (cat or "uncategorized").lower()
-
-            cap = caps.get(cat, None)
-            if cap is None:
-                # If you want “uncapped” categories, omit them from family_caps.
-                governed_capped.append(row)
-                continue
-
-            if used.get(cat, 0) < int(cap):
-                governed_capped.append(row)
-                used[cat] = used.get(cat, 0) + 1
-
-        governed = governed_capped
-
-    # Debug: distribution after shared governance
-    print("[governance] category_counts_after_caps:", Counter([r[4] for r in governed]).most_common(20))
-    print("[governance] n_candidates_after_shared_gates:", len(governed))
 
     # governed rows: (metric_id, geo_id, pt_id, source_id, category, frequency, coverage_ratio, n_overlap)
     specs: List[FeatureSpec] = []
