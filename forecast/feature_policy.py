@@ -61,7 +61,7 @@ def default_policy() -> FeaturePolicy:
             # Decide intentionally:
             # "-1" = All Residential, "-2" = Single Units Only
             # If you *really* want to exclude, do it here.
-            "redfin": {"-1"},
+            "redfin": {"-1", "-2"},
         },
         seed=1337,
         xgb_top_k=100,
