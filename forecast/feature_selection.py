@@ -42,13 +42,11 @@ def _to_yoy(s: pd.Series) -> pd.Series:
 def _to_dlog(s: pd.Series) -> pd.Series:
     """
     Monthly log-diff transform.
-    Good for level series (prices, counts) to remove scale/trend.
+    Uses log1p to tolerate zeros. Clips negatives to NaN (shouldn't happen in these series).
     """
     s = _canon_monthly(s)
-    s = s.where(s > 0)  # only positive, just in case
-    s = s.replace(0, np.nan)
-    # log-diff is robust for positive-valued series (prices, inventory, etc.)
-    return np.log(s).diff(1)
+    s = s.where(s >= 0)               # negative values -> NaN
+    return np.log1p(s).diff(1)
 
 
 def _best_xcorr(
