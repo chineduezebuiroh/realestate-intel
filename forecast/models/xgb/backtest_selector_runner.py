@@ -5,6 +5,7 @@ import json
 import hashlib
 from pathlib import Path
 from typing import Optional, List, Dict
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -96,6 +97,14 @@ def run_xgb_selector(
         print("[xgb_selector] No candidate features; skipping.")
         return
 
+    c = Counter([s.metric_id for s in candidate_specs if (s.source_id or "").lower() == "redfin"])
+    print("[xgb_selector] redfin_metric_counts_top=", c.most_common(25))
+    print("[xgb_selector] has_pending_sales=", "pending_sales" in c)
+    print("[xgb_selector] has_new_listings=", "new_listings" in c)
+    print("[xgb_selector] has_price_drops=", "price_drops" in c)
+    print("[xgb_selector] has_sold_above_list=", "sold_above_list" in c)
+
+
     if TEMP_DEBUG_LIMIT is not None:
         candidate_specs = candidate_specs[: int(TEMP_DEBUG_LIMIT)]
         print(f"[xgb_selector] TEMP: truncating candidates to {len(candidate_specs)}")
@@ -132,7 +141,7 @@ def run_xgb_selector(
     anchor_date = anchors[0].to_period("M").to_timestamp(how="end")
     anchor_ts = month_end_index(pd.DatetimeIndex([pd.Timestamp(anchor_date)]))[0]
 
-
+    print("[xgb_selector] score_mode=", "combo")
     scored = score_candidates(
         target=target,
         candidates=candidate_specs,
@@ -141,6 +150,22 @@ def run_xgb_selector(
         lead_months=(0, 1, 2, 3),
         score_mode="combo",
     )
+
+    redfin_scored = [it for it in scored if (it.spec.source_id or "").lower() == "redfin"]
+    print("[xgb_selector] n_scored_total=", len(scored), "n_scored_redfin=", len(redfin_scored))
+    
+    # tier distribution among the TOP 200 scored redfin (this is the real question)
+    topN = redfin_scored[:200]
+    tier_counts = {t: 0 for t in (0,1,2,3)}
+    metric_counts = {}
+    for it in topN:
+        t = redfin_metric_tier(it.spec.metric_id)
+        tier_counts[t] += 1
+        metric_counts[it.spec.metric_id] = metric_counts.get(it.spec.metric_id, 0) + 1
+    
+    print("[xgb_selector] top200_redfin_tier_counts=", tier_counts)
+    print("[xgb_selector] top200_redfin_metrics_top=", sorted(metric_counts.items(), key=lambda x: -x[1])[:20])
+
 
     # caps/minimums — keep what you had
     category_minimums = {"rates": 5, "yields": 5, "gdp": 3}
