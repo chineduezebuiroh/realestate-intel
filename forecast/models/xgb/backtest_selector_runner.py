@@ -97,6 +97,22 @@ def run_xgb_selector(
         print("[xgb_selector] No candidate features; skipping.")
         return
 
+    # --- debug: what redfin metric_ids even exist in candidates? ---
+    redfin_mids = sorted({s.metric_id for s in candidate_specs if (s.source_id or "").lower() == "redfin"})
+    print("[xgb_selector] unique_redfin_metric_ids (count) =", len(redfin_mids))
+    print("[xgb_selector] unique_redfin_metric_ids (sample) =", redfin_mids[:50])
+    
+    wanted = ["median_sale_price", "median_ppsf", "pending_sales", "new_listings", "price_drops", "sold_above_list", "months_of_supply"]
+    print("[xgb_selector] wanted_present =", {w: (w in set(redfin_mids)) for w in wanted})
+    
+    # optional: show “close matches” so we catch naming mismatches
+    import difflib
+    for w in wanted:
+        close = difflib.get_close_matches(w, redfin_mids, n=5, cutoff=0.6)
+        if close:
+            print(f"[xgb_selector] close_matches[{w}] =", close)
+
+
     c = Counter([s.metric_id for s in candidate_specs if (s.source_id or "").lower() == "redfin"])
     print("[xgb_selector] redfin_metric_counts_top=", c.most_common(25))
     print("[xgb_selector] has_pending_sales=", "pending_sales" in c)
