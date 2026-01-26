@@ -13,6 +13,8 @@ from .backtest_utils import month_end_index
 from .feature_policy import default_policy
 
 from forecast.asof import normalize_month_end  # add import near top
+from forecast.metric_tiers import canon_geo_id
+
 
 # ====================================================================
 # Shared types
@@ -612,6 +614,7 @@ def discover_all_series_for_target(
         JOIN fact_timeseries b
           ON t.date = b.date
          AND (? IS NULL OR b.date <= ?)
+         AND b.property_type_id IS NOT NULL
         LEFT JOIN dim_metric d
           ON b.metric_id = d.metric_id
     ),
@@ -637,10 +640,15 @@ def discover_all_series_for_target(
     rows = con.execute(sql, [target.metric_id, target.geo_id, pt_id, effective_asof, effective_asof, effective_asof, effective_asof, int(min_overlap)]).fetchall()
     con.close()
 
+    t_geo_canon = canon_geo_id(target.geo_id)
+    t_metric = target.metric_id
+    t_pt = str(target.property_type_id)
+
+
     out = []
     for metric_id, geo_id, pt_id, source_id, category, frequency, n_overlap, n_buckets in rows:
-        # skip exact target triple only
-        if metric_id == target.metric_id and geo_id == target.geo_id and str(pt_id) == str(target.property_type_id):
+        # skip target-equivalent series: same metric + canon-geo-equivalent + same PT
+        if (metric_id == t_metric) and (canon_geo_id(geo_id) == t_geo_canon) and (str(pt_id) == t_pt):
             continue
 
         # explicit metric exclusions
@@ -657,6 +665,11 @@ def discover_all_series_for_target(
         # --- Source/PT gating (per policy) ---
         ex_ptids = policy.exclude_property_type_ids_by_source.get(source_id, set()) if policy.exclude_property_type_ids_by_source else set()
         if ex_ptids and str(pt_id) in ex_ptids:
+            continue
+
+        # --- Hard PT gating (global) ---
+        # If you want this to apply only to redfin, keep it inside the source_id == "redfin" condition.
+        if source_id == "redfin" and str(pt_id) in {"-1", "-2"}:
             continue
 
         # --- Coverage gating ---
