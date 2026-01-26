@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -283,13 +284,14 @@ def default_bucket(spec: FeatureSpec, target: TargetSpec) -> str:
 
 def select_scored_candidates(
     scored: List[ScoredCandidate],
-    *,
     max_base_series: int,
     category_caps: Dict[str, int],
-    category_minimums: Optional[Dict[str, int]] = None,
-    bucket_caps: Optional[Dict[str, int]] = None,
-    bucket_fn=None,
-    redfin_tier_caps: Optional[RedfinTierShareCaps] = None,
+    category_minimums: Dict[str, int],
+    bucket_caps: Dict[str, int],
+    bucket_fn,
+    redfin_tier_caps=None,
+    *,
+    metric_pt_cap: Optional[int] = None,  # NEW: max per (metric_id, property_type_id)
 ) -> List[ScoredCandidate]:
     """
     Greedy deterministic selection on scored base series, BEFORE lag expansion.
@@ -298,11 +300,12 @@ def select_scored_candidates(
     """
     category_minimums = category_minimums or {}
     bucket_caps = bucket_caps or {}
-    bucket_fn = bucket_fn or (lambda spec, target=None: "all")  # overwritten by wrapper below
+    bucket_fn = bucket_fn or (lambda spec: "all")
 
     used_cat: Dict[str, int] = {}
     used_bucket: Dict[str, int] = {}
     picked: List[ScoredCandidate] = []
+    metric_pt_used = Counter()  # key=(metric_id, pt_id_str)
 
 
     def cat_of(item: ScoredCandidate) -> str:
@@ -396,6 +399,12 @@ def select_scored_candidates(
             if used_redfin_total() >= int(R):
                 return False
 
+        # --- NEW: metric_id concentration cap (PT-aware) ---
+        if metric_pt_cap is not None:
+            k = (item.spec.metric_id, str(item.spec.property_type_id))
+            if metric_pt_used.get(k, 0) >= int(metric_pt_cap):
+                return False
+
         # Redfin tier gate (only if enabled)
         if redfin_tier_quota is not None and is_redfin(item):
             t = tier_of(item)
@@ -425,6 +434,11 @@ def select_scored_candidates(
         if redfin_tier_quota is not None and is_redfin(item):
             t = tier_of(item)
             used_redfin_tier[t] = used_redfin_tier.get(t, 0) + 1
+
+        # --- NEW: metric_id concentration cap (PT-aware) ---
+        if metric_pt_cap is not None:
+            k = (item.spec.metric_id, str(item.spec.property_type_id))
+            metric_pt_used[k] += 1
 
 
     # 0) satisfy Redfin tier minimums first (if enabled)
@@ -509,6 +523,10 @@ def select_scored_candidates(
 
     if redfin_tier_quota is not None:
         print(f"[selector] redfin_tier_quota={redfin_tier_quota} used={used_redfin_tier}")
+
+    if metric_pt_cap is not None:
+        top = sorted(metric_pt_used.items(), key=lambda kv: -kv[1])[:10]
+        print(f"[selector] metric_pt_cap={metric_pt_cap} top_metric_pt_used={top}")
 
     return picked
 
