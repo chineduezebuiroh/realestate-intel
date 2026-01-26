@@ -150,8 +150,25 @@ def score_candidates(
     if score_mode == "yoy_corr0":
         lead_months = (0,)
 
-    # ---- load target once ----
-    y = load_series_from_fact(target.metric_id, target.geo_id, target.property_type_id)
+    # -------------------------
+    # Local cache (single source of truth)
+    # -------------------------
+    _cache: Dict[Tuple[str, str, Optional[str]], pd.Series] = {}
+
+    def _load(metric_id: str, geo_id: str, pt_id: Optional[str]) -> pd.Series:
+        key = (metric_id, geo_id, pt_id)
+        if key not in _cache:
+            _cache[key] = load_series_from_fact(metric_id, geo_id, pt_id)
+        return _cache[key]
+
+    # -------------------------
+    # Load + precompute target transforms once
+    # -------------------------
+    try:
+        y = _load(target.metric_id, target.geo_id, target.property_type_id)
+    except Exception:
+        return []
+
     y_level = _canon_monthly(y)
     y_yoy = _to_yoy(y)
     y_dlog = _to_dlog(y)
@@ -161,18 +178,14 @@ def score_candidates(
         y_yoy = y_yoy.loc[:train_end]
         y_dlog = y_dlog.loc[:train_end]
 
-    # ---- cache candidate series loads (big speed win) ----
-    series_cache: Dict[Tuple[str, str, str], pd.Series] = {}
-
     scored: List[ScoredCandidate] = []
 
+    # -------------------------
+    # Score each candidate
+    # -------------------------
     for spec in candidates:
-        key = (spec.metric_id, spec.geo_id, str(spec.property_type_id))
-
         try:
-            if key not in series_cache:
-                series_cache[key] = load_series_from_fact(spec.metric_id, spec.geo_id, spec.property_type_id)
-            x = series_cache[key]
+            x = _load(spec.metric_id, spec.geo_id, spec.property_type_id)
         except Exception:
             continue
 
@@ -185,7 +198,7 @@ def score_candidates(
             x_yoy = x_yoy.loc[:train_end]
             x_dlog = x_dlog.loc[:train_end]
 
-        if score_mode == "yoy_xcorr" or score_mode == "yoy_corr0":
+        if score_mode in ("yoy_xcorr", "yoy_corr0"):
             best_score, best_lead, best_n = _best_xcorr(
                 y_yoy, x_yoy, lead_months=lead_months, min_eff=min_eff
             )
@@ -208,25 +221,29 @@ def score_candidates(
                 y_dlog, x_dlog, lead_months=lead_months, min_eff=min_eff
             )
 
-            # must have enough support in at least one view
             if max(n_yoy, n_dlog) < min_eff:
                 continue
 
-            w_yoy, w_dlog = 0.5, 0.5
-            best_score = (w_yoy * s_yoy) + (w_dlog * s_dlog)
+            # Simple equal-weight blend (v1). You can tune later.
+            best_score = 0.5 * float(s_yoy) + 0.5 * float(s_dlog)
 
-            # record lead/n from the stronger component (for audit/debug)
+            # For audit/debug, carry lead/n from the stronger component
             if s_dlog > s_yoy:
-                best_lead, best_n = lead_dlog, n_dlog
+                best_lead, best_n = int(lead_dlog), int(n_dlog)
             else:
-                best_lead, best_n = lead_yoy, n_yoy
+                best_lead, best_n = int(lead_yoy), int(n_yoy)
 
         else:
             raise ValueError(f"Unknown score_mode: {score_mode}")
 
         if best_n >= min_eff and best_score > 0:
             scored.append(
-                ScoredCandidate(spec=spec, score=float(best_score), best_lead=int(best_lead), n_eff=int(best_n))
+                ScoredCandidate(
+                    spec=spec,
+                    score=float(best_score),
+                    best_lead=int(best_lead),
+                    n_eff=int(best_n),
+                )
             )
 
     scored.sort(key=lambda r: (-r.score, r.spec.name))
