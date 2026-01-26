@@ -195,6 +195,7 @@ def run_xgb_selector(
         "geo:other": 40,
     }
 
+    METRIC_PT_CAP = 4  # NEW: max base series per (metric_id, property_type_id)
     picked = select_scored_candidates(
         scored=scored,
         max_base_series=250,
@@ -203,6 +204,7 @@ def run_xgb_selector(
         bucket_caps=bucket_caps,
         bucket_fn=lambda spec: default_bucket(spec, target),
         redfin_tier_caps=redfin_caps,
+        metric_pt_cap=METRIC_PT_CAP,  # NEW
     )
 
     print("[xgb_selector] anchor=", anchor_date.date().isoformat())
