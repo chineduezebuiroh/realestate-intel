@@ -38,6 +38,7 @@ from forecast.metric_tiers import RedfinTierShareCaps, redfin_metric_tier
 
 
 TEMP_DEBUG_LIMIT = None  # set to an int for debugging; None for normal operation
+METRIC_PT_CAP = 10  # NEW: max base series per (metric_id, property_type_id)
 
 
 def _parse_data_asof(s: Optional[str]):
@@ -66,6 +67,7 @@ def run_xgb_selector(
     artifact_root: str = "runs",
     xgb_top_k: int = 100,
     anchors_csv: Optional[str] = None,
+    metric_pt_cap: int = 10,  # NEW
 ):
     """
     XGB SELECTOR (artifact-only).
@@ -195,7 +197,6 @@ def run_xgb_selector(
         "geo:other": 40,
     }
 
-    METRIC_PT_CAP = 4  # NEW: max base series per (metric_id, property_type_id)
     picked = select_scored_candidates(
         scored=scored,
         max_base_series=250,
@@ -204,7 +205,7 @@ def run_xgb_selector(
         bucket_caps=bucket_caps,
         bucket_fn=lambda spec: default_bucket(spec, target),
         redfin_tier_caps=redfin_caps,
-        metric_pt_cap=METRIC_PT_CAP,  # NEW
+        metric_pt_cap=int(metric_pt_cap),
     )
 
     print("[xgb_selector] anchor=", anchor_date.date().isoformat())
@@ -416,6 +417,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=None,
         help="Comma-separated anchor dates YYYY-MM-DD. MUST contain exactly one anchor.",
     )
+    p.add_argument("--metric_pt_cap", type=int, default=10)
 
     args = p.parse_args(argv)
 
@@ -434,6 +436,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         artifact_root=args.artifact_root,
         xgb_top_k=args.xgb_top_k,
         anchors_csv=args.anchors,
+        metric_pt_cap=args.metric_pt_cap,
     )
     return 0
 
