@@ -138,8 +138,8 @@ def run_xgb_selector(
         candidates=candidate_specs,
         train_end=anchor_ts,
         min_eff=60,
-        lead_months=(0, 1, 2, 3, 4, 5, 6),
-        score_mode="yoy_xcorr",
+        lead_months=(0, 1, 2, 3),
+        score_mode="combo",
     )
 
     # caps/minimums — keep what you had
