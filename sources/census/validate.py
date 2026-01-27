@@ -2,7 +2,10 @@
 import os
 import duckdb
 
-DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+DB_PATH = os.getenv("DUCKDB_PATH")
+if not DB_PATH:
+    raise SystemExit("[census:validate] DUCKDB_PATH not set (refusing to run against default db)")
+
 SOURCE_ID = "census_acs5"
 
 
