@@ -126,3 +126,22 @@ runs/<batch_id>/{xgb,sarimax_exog}/...
 
 ## Repair / maintenance (evaluate necessity)
 - forecast/catalog_repair.py
+
+---
+
+## Feature ID contract (do not break casually)
+
+Many diagnostics and diversity rules infer `source_id` (and sometimes lag) from the `feature_id` string format.
+
+Current canonical format (examples):
+- `<metric_id>__<geo_id>__<property_type_id>__<source_id>_lag<k>`
+  - e.g. `median_sale_price__us_nation__6__redfin_lag1`
+  - e.g. `laus_labor_force_nsa__dc_county__all__laus_lag3`
+
+Downstream code may parse feature_id by splitting on `"__"` and then reading the last token (e.g. `"redfin_lag1"`, `"ces_lag6"`) to infer source/lag. If we ever change this naming scheme, we MUST update:
+- feature-id parsing helpers (e.g., `_source_from_feature_id()` or equivalents)
+- any selection constraints keyed by inferred `source` (e.g., `min_non_redfin`)
+
+Preferred future direction (if we harden this):
+- persist structured columns alongside `feature_id`: `metric_id`, `geo_id`, `property_type_id`, `source_id`, `lag`
+- use those columns instead of reverse-parsing strings
