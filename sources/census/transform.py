@@ -95,6 +95,25 @@ def main():
     df = (df.sort_values(["geo_id","metric_id","date","property_type_id"])
             .drop_duplicates(subset=["geo_id","metric_id","date","property_type_id"], keep="last"))
 
+    dup_mask = df.duplicated(subset=["geo_id", "metric_id", "date", "property_type_id"], keep=False)
+    if dup_mask.any():
+        print("[census:transform] WARNING: duplicate PK rows detected; sample:")
+        print(
+            df.loc[dup_mask, ["geo_id","metric_id","date","property_type_id","value","variable_code","census_code","geo_level"]]
+              .head(25)
+              .to_string(index=False)
+        )
+
+    # Deduplicate exactly on the fact_timeseries primary key
+    before = len(df)
+    df = (
+        df.sort_values(["geo_id", "metric_id", "date", "property_type_id"])
+          .drop_duplicates(subset=["geo_id", "metric_id", "date", "property_type_id"], keep="last")
+    )
+    dropped = before - len(df)
+    if dropped:
+        print(f"[census:transform] dropped {dropped} duplicate raw rows on PK")
+
     con.register("c_stage", df[[
         "geo_id","metric_id","date","property_type_id","value","source_id","property_type"
     ]])
