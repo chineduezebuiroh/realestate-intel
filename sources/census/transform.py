@@ -7,7 +7,7 @@ import pandas as pd
 
 DB_PATH = os.getenv("DUCKDB_PATH")
 if not DB_PATH:
-    raise SystemExit("[census:validate] DUCKDB_PATH not set (refusing to run against default db)")
+    raise SystemExit("[census:transform] DUCKDB_PATH not set (refusing to run against default db)")
 
 RAW_PATH = Path("data/census/census_acs5_raw.csv")
 
@@ -87,9 +87,6 @@ def main():
         WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id=?)
         """, [mid, name, freq, unit, cat, mid])
 
-    # wipe existing slice for this source (consistent with CES)
-    con.execute("DELETE FROM fact_timeseries WHERE source_id = ?", [SOURCE_ID])
-    print("[census:transform] cleared existing census_acs5 rows")
 
     # dedupe and insert
     df = (df.sort_values(["geo_id","metric_id","date","property_type_id"])
@@ -159,6 +156,22 @@ def main():
     con.register("c_stage", df[[
         "geo_id","metric_id","date","property_type_id","value","source_id","property_type"
     ]])
+
+    # Key-based wipe of any existing rows that would collide with these staged facts
+    # (PK does not include source_id)
+    con.execute("""
+    DELETE FROM fact_timeseries AS f
+    WHERE EXISTS (
+      SELECT 1
+      FROM c_stage s
+      WHERE s.geo_id = f.geo_id
+        AND s.metric_id = f.metric_id
+        AND s.date = f.date
+        AND s.property_type_id = f.property_type_id
+    )
+    """)
+    print("[census:transform] cleared existing rows for staged keys (any source_id)")
+
 
     con.execute("""
     INSERT INTO fact_timeseries(geo_id,metric_id,date,property_type_id,value,source_id,property_type)
