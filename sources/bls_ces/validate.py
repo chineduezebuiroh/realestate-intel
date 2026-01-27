@@ -3,7 +3,8 @@ import os, sys, csv, duckdb
 from collections import defaultdict
 from datetime import date
 
-DB_PATH    = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+from core.db import connect
+
 GEN_PATH   = "config/ces_series.generated.csv"
 STRICT     = os.getenv("CES_STRICT", "0") not in ("0","","false","False","no","No")
 
@@ -37,7 +38,7 @@ def load_expected_from_generated(gen_path: str):
     return expected
 
 def main():
-    con = duckdb.connect(DB_PATH)
+    con = connect()
 
     # quick existence check
     total = con.execute("""
