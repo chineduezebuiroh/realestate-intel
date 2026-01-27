@@ -5,7 +5,10 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+DB_PATH = os.getenv("DUCKDB_PATH")
+if not DB_PATH:
+    raise SystemExit("[census:validate] DUCKDB_PATH not set (refusing to run against default db)")
+
 RAW_PATH = Path("data/census/census_acs5_raw.csv")
 
 SOURCE_ID = "census_acs5"
