@@ -44,11 +44,7 @@ def build_census_geo_params(level: str, code: str) -> Optional[dict]:
         return None
 
     return None
-
-if level in ("city", "place") and geo_params:
-    # helpful debug
-    if geo_params.get("for","").startswith("place:"):
-        print(f"[census][debug] geo_id={geo_id} level={level} census_code={code} for={geo_params['for']} in={geo_params.get('in')}")
+    
 
 def census_request(year: int, dataset: str, var_codes: List[str], for_param: str, in_param: Optional[str] = None):
     base = f"https://api.census.gov/data/{year}/{dataset}"
@@ -99,6 +95,10 @@ def main():
         var_codes = [v for v in (rec["variables_csv"] or "").split(",") if v.strip()]
 
         geo_params = build_census_geo_params(level, code)
+
+        if geo_params is not None and geo_params.get("for", "").startswith("place:"):
+            print(f"[census][debug] geo_id={geo_id} level={level} census_code={code} for={geo_params['for']} in={geo_params.get('in')}")
+
         if geo_params is None:
             skipped += 1
             continue
