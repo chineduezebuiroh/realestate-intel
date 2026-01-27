@@ -7,11 +7,15 @@ Rule: if it's not listed as canonical, assume it's legacy / shim / internal.
 
 ## Canonical CLIs (use these; everything else is implementation detail)
 
-### Core orchestration
+### Core orchestration (stable entrypoints; some wrap model runners)
 - forecast/cli/backtest.py
 - forecast/cli/live.py
 - forecast/cli/select_xgb.py
 - forecast/cli/model_select.py
+
+Note: model-level runners under forecast/models/** are the authoritative execution logic.
+CLIs should remain thin and must not introduce behavior not present in runners.
+
 
 ### Model-specific CLIs
 - forecast/cli/backtest_xgb_forecast.py   → XGB forecast backtest (writes DB predictions)
@@ -63,14 +67,23 @@ This family has two evaluation modes:
   - forecast/models/xgb/forecaster.py              (was forecast/xgb_regressor.py)
 - legacy module (evaluate for retirement once stable):
   - forecast/xgb_regressor.py
-
-### XGB Selector (for SARIMAX-exog feature identity)
+ 
+### XGB Selector (authoritative feature-identity generator for SARIMAX-exog)
 - canonical runner:
   - forecast/models/xgb/backtest_selector_runner.py
-- helpers / governance:
-  - forecast/xgb_shortlist.py
+
+- enforced governance (NON-EXPERIMENTAL DEFAULTS):
+  - metric_pt_cap = 10        # max per (metric_id, property_type_id)
+  - min_non_redfin = 25       # minimum non-Redfin features in top-K
+  - redfin_tier_caps = ON     # tiered Redfin share caps enforced
+
+- helpers / policy modules:
   - forecast/feature_selection.py
   - forecast/feature_policy.py
+  - forecast/xgb_shortlist.py
+
+Rule: changes to selector governance MUST be versioned and documented.
+
 
 ---
 
@@ -81,6 +94,7 @@ This family has two evaluation modes:
 - forecast/feature_policy.py
 - forecast/feature_selection.py
 - forecast/exog_forecast.py
+- forecast/consume_selected_features.py   # selector → design_matrix identity bridge (ORDERED, HASHED)
 
 ---
 
@@ -138,10 +152,28 @@ Current canonical format (examples):
   - e.g. `median_sale_price__us_nation__6__redfin_lag1`
   - e.g. `laus_labor_force_nsa__dc_county__all__laus_lag3`
 
-Downstream code may parse feature_id by splitting on `"__"` and then reading the last token (e.g. `"redfin_lag1"`, `"ces_lag6"`) to infer source/lag. If we ever change this naming scheme, we MUST update:
-- feature-id parsing helpers (e.g., `_source_from_feature_id()` or equivalents)
-- any selection constraints keyed by inferred `source` (e.g., `min_non_redfin`)
+Downstream code DOES parse feature_id by splitting on "__" to infer source and lag.
+This is a hard dependency today.
 
-Preferred future direction (if we harden this):
-- persist structured columns alongside `feature_id`: `metric_id`, `geo_id`, `property_type_id`, `source_id`, `lag`
-- use those columns instead of reverse-parsing strings
+Phase C hardening TODO (NOT YET IMPLEMENTED):
+- persist structured columns: metric_id, geo_id, property_type_id, source_id, lag
+- eliminate reverse-parsing of feature_id strings
+
+---
+
+## Data Source Refresh Status (as of latest selector work)
+
+Refreshed / current:
+- Redfin
+- CES
+- LAUS
+- FRED macro
+- FRED unemployment
+
+NOT YET refreshed (planned next):
+- Census
+- Census permits
+- BEA
+- Construction completions (NEW source; not yet integrated)
+
+Selector behavior and feature diversity are expected to change materially after these land.
