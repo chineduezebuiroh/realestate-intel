@@ -208,6 +208,8 @@ refresh-laus: venv
 	@echo "✅ Refreshed LAUS → $(FULL_DB)"
 
 
+print-full-db:
+	@echo "FULL_DB='$(FULL_DB)'"
 # 🔁 Census ACS (adjust script names if different in your repo)
 refresh-census-acs: venv
 	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census.expand_spec
