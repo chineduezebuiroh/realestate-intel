@@ -38,6 +38,7 @@ from forecast.metric_tiers import RedfinTierShareCaps, redfin_metric_tier
 
 
 TEMP_DEBUG_LIMIT = None  # set to an int for debugging; None for normal operation
+MIN_NON_REDFIN_DEFAULT = 25  # NEW: hard minimum count of non-Redfin features in final top-K
 
 
 def _parse_data_asof(s: Optional[str]):
@@ -67,6 +68,7 @@ def run_xgb_selector(
     xgb_top_k: int = 100,
     anchors_csv: Optional[str] = None,
     metric_pt_cap: int = 10,  # NEW
+    min_non_redfin: int = MIN_NON_REDFIN_DEFAULT,  # NEW
 ):
     """
     XGB SELECTOR (artifact-only).
@@ -336,9 +338,110 @@ def run_xgb_selector(
     if fi.empty:
         raise RuntimeError("[xgb_selector] XGB produced empty importance list (all zero).")
 
-    fi["rank"] = np.arange(1, len(fi) + 1)
-    fi_sel = fi.head(int(xgb_top_k)).copy()
 
+    fi["rank"] = np.arange(1, len(fi) + 1)
+
+    # ----------------------------
+    # NEW: enforce minimum non-Redfin presence in final top-K
+    # ----------------------------
+    K = int(xgb_top_k)
+    
+    def _source_from_feature_id(fid: str) -> str:
+        # feature_id looks like: "<metric>__<geo>__<pt>__<source>_lag<k>"
+        # We treat anything starting with "redfin" as Redfin (covers redfin_lag1/3/6)
+        try:
+            return str(fid).split("__")[-1]
+        except Exception:
+            return ""
+    
+    def _is_redfin_source(src: str) -> bool:
+        return str(src).lower().startswith("redfin")
+    
+    fi["_source"] = fi["feature_id"].astype(str).apply(_source_from_feature_id)
+    fi["_is_redfin"] = fi["_source"].apply(_is_redfin_source)
+    
+    fi_non = fi[~fi["_is_redfin"]].copy()
+    fi_red = fi[fi["_is_redfin"]].copy()
+    
+    avail_non = len(fi_non)
+    need_non = int(min_non_redfin)
+    
+    # ---- FAILURE CONDITION (hard) ----
+    if need_non > 0 and avail_non < need_non:
+        top_sources = fi["_source"].value_counts().head(10).to_dict()
+        raise SystemExit(
+            "[xgb_selector] FAIL: min_non_redfin cannot be satisfied.\n"
+            f"  requested min_non_redfin={need_non}\n"
+            f"  available non-redfin (importance>0)={avail_non}\n"
+            f"  K={K}\n"
+            f"  top_sources={top_sources}\n"
+            "Fix by: lowering --min_non_redfin, adding/refreshing non-Redfin sources, "
+            "or investigating why non-Redfin importances are zero."
+        )
+    
+    # Choose portfolio:
+    # 1) take top 'need_non' non-Redfin
+    # 2) fill remaining slots from the rest of fi in original importance order
+    #    (this preserves ranking while enforcing composition)
+    if need_non > 0:
+        take_non = fi_non.head(need_non).copy()
+        remaining = K - len(take_non)
+    
+        # exclude those non-redfin already taken, then fill by importance order
+        taken_ids = set(take_non["feature_id"].astype(str).tolist())
+        rest = fi[~fi["feature_id"].astype(str).isin(taken_ids)].copy()
+        take_rest = rest.head(max(0, remaining)).copy()
+    
+        fi_sel = pd.concat([take_non, take_rest], ignore_index=True)
+    else:
+        fi_sel = fi.head(K).copy()
+    
+    # Re-rank 1..K deterministically in output
+    fi_sel = fi_sel.sort_values(["importance", "feature_id"], ascending=[False, True]).reset_index(drop=True)
+    fi_sel["rank"] = np.arange(1, len(fi_sel) + 1)
+    
+    # Drop internal columns
+    fi_sel = fi_sel.drop(columns=[c for c in ["_source", "_is_redfin"] if c in fi_sel.columns])
+
+
+    # ----------------------------
+    # NEW: debug prints for source diversity enforcement
+    # ----------------------------
+    sel_sources = fi_sel["feature_id"].astype(str).apply(_source_from_feature_id)
+    sel_is_redfin = sel_sources.apply(_is_redfin_source)
+    
+    n_sel = len(fi_sel)
+    n_sel_red = int(sel_is_redfin.sum())
+    n_sel_non = int(n_sel - n_sel_red)
+    
+    # What got displaced? (only meaningful if need_non > 0)
+    if need_non > 0:
+        baseline = fi.head(K).copy()
+        baseline_ids = set(baseline["feature_id"].astype(str).tolist())
+        final_ids = set(fi_sel["feature_id"].astype(str).tolist())
+    
+        removed = sorted(list(baseline_ids - final_ids))
+        added = sorted(list(final_ids - baseline_ids))
+    
+        removed_sources = [ _source_from_feature_id(x) for x in removed ]
+        added_sources = [ _source_from_feature_id(x) for x in added ]
+    
+        print(
+            f"[xgb_selector] min_non_redfin={need_non} K={K} "
+            f"final_non_redfin={n_sel_non} final_redfin={n_sel_red} "
+            f"displaced_n={len(removed)} added_n={len(added)}"
+        )
+        print(f"[xgb_selector] displaced_sources_top={Counter([s for s in removed_sources]).most_common(10)}")
+        print(f"[xgb_selector] added_sources_top={Counter([s for s in added_sources]).most_common(10)}")
+    else:
+        print(
+            f"[xgb_selector] min_non_redfin=0 K={K} "
+            f"final_non_redfin={n_sel_non} final_redfin={n_sel_red}"
+        )
+    
+    print(f"[xgb_selector] final_top_sources={Counter(sel_sources).most_common(12)}")
+
+    
     # 7) annotate invariant columns
     fid_list = fi_sel["feature_id"].astype(str).tolist()
     feature_set_sha256 = hashlib.sha256("\n".join(fid_list).encode("utf-8")).hexdigest()
@@ -417,6 +520,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Comma-separated anchor dates YYYY-MM-DD. MUST contain exactly one anchor.",
     )
     p.add_argument("--metric_pt_cap", type=int, default=10)
+    p.add_argument("--min_non_redfin", type=int, default=MIN_NON_REDFIN_DEFAULT)
 
     args = p.parse_args(argv)
 
@@ -436,6 +540,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         xgb_top_k=args.xgb_top_k,
         anchors_csv=args.anchors,
         metric_pt_cap=args.metric_pt_cap,
+        min_non_redfin=args.min_non_redfin,
     )
     return 0
 
