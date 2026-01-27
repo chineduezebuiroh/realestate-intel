@@ -45,6 +45,10 @@ def build_census_geo_params(level: str, code: str) -> Optional[dict]:
 
     return None
 
+if level in ("city", "place") and geo_params:
+    # helpful debug
+    if geo_params.get("for","").startswith("place:"):
+        print(f"[census][debug] geo_id={geo_id} level={level} census_code={code} for={geo_params['for']} in={geo_params.get('in')}")
 
 def census_request(year: int, dataset: str, var_codes: List[str], for_param: str, in_param: Optional[str] = None):
     base = f"https://api.census.gov/data/{year}/{dataset}"
@@ -57,8 +61,13 @@ def census_request(year: int, dataset: str, var_codes: List[str], for_param: str
     r = requests.get(base, params=params, timeout=30)
     if r.status_code in (429, 500, 502, 503, 504):
         return None
+
+    if r.status_code == 404:
+        # Treat as "geo not available for this year/dataset" or bad geo mapping; skip.
+        return None
     r.raise_for_status()
     data = r.json()
+
     if not data or len(data) < 2:
         return None
     headers, row = data[0], data[1]
