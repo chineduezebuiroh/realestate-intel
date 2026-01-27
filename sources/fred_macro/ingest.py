@@ -9,6 +9,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from core.dates import to_month_end_index
+from core.db import connect
 
 try:
     from fredapi import Fred
@@ -51,7 +52,6 @@ All series are written as:
 
 load_dotenv()
 
-DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 GEO_MANIFEST_PATH = Path("config/geo_manifest.csv")
 
 FRED_API_KEY = os.getenv("FRED_API_KEY", "").strip()
@@ -452,7 +452,7 @@ def main():
     else:
         print("[fred] No spreads created (missing base yield / fed funds series).")
 
-    con = duckdb.connect(DB_PATH)
+    con = connect()
 
     # Ensure dim_market has basic entries for these geo_ids
     con.execute("""
