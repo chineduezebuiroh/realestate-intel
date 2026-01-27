@@ -1,112 +1,116 @@
-from __future__ import annotations
 # sources/census/transform.py
-
 import os
 from pathlib import Path
+
 import duckdb
 import pandas as pd
 
 DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+RAW_PATH = Path("data/census/census_acs5_raw.csv")
 
-# Raw ingest output (new contract). We'll write to this path from the new ingest runner.
-CENSUS_RAW = Path("data/staging/census_acs5_raw.csv")
-
-# Choose a stable source_id. Keep it specific so permits can be its own source_id later.
 SOURCE_ID = "census_acs5"
 
-# Deterministic mapping: Census variable_code -> metric_id
-# (Keep small for now; expand later via config file if you want.)
-METRIC_BY_VAR = {
+VAR_TO_METRIC = {
     "B01003_001E": "census_pop_total",
     "B19013_001E": "census_median_household_income",
 }
 
 
-REQUIRED_FACT_COLS = {"geo_id", "metric_id", "date", "value", "source_id", "property_type_id"}
+def main():
+    if not RAW_PATH.exists():
+        raise SystemExit(f"[census:transform] missing {RAW_PATH}; run census ingest first")
 
+    df = pd.read_csv(RAW_PATH)
+    if df.empty:
+        print("[census:transform] raw file empty; nothing to load")
+        return
 
-def _assert_table_has_columns(con: duckdb.DuckDBPyConnection, table: str, cols: set[str]) -> None:
-    info = con.execute(f"PRAGMA table_info('{table}')").fetchdf()
-    if info.empty:
-        raise SystemExit(f"[census:transform] required table missing: {table}")
-    existing = set(info["name"].astype(str))
-    missing = cols - existing
-    if missing:
-        raise SystemExit(f"[census:transform] table {table} missing columns: {sorted(missing)}")
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df["metric_id"] = df["variable_code"].map(VAR_TO_METRIC)
 
+    unknown = sorted(set(df.loc[df["metric_id"].isna(), "variable_code"].dropna().astype(str)))
+    if unknown:
+        raise SystemExit(f"[census:transform] unknown variable_code(s): {unknown}")
 
-def main() -> None:
-    if not CENSUS_RAW.exists():
-        raise SystemExit(f"[census:transform] missing raw ingest file: {CENSUS_RAW}")
+    df["source_id"] = SOURCE_ID
+    df["property_type_id"] = "all"
+    df["property_type"] = None
+
+    # coerce value
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    df = df.dropna(subset=["value"])
 
     con = duckdb.connect(DB_PATH)
 
-    # Hard requirement: schema should be created by your migrations, not by ad-hoc transforms.
-    _assert_table_has_columns(con, "fact_timeseries", REQUIRED_FACT_COLS)
+    # mirror Redfin schema (property_type column included)
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS fact_timeseries(
+      geo_id TEXT NOT NULL,
+      metric_id TEXT NOT NULL,
+      date DATE NOT NULL,
+      property_type_id TEXT NOT NULL DEFAULT 'all',
+      value DOUBLE,
+      source_id TEXT,
+      property_type TEXT,
+      PRIMARY KEY (geo_id, metric_id, date, property_type_id)
+    );
+    """)
 
-    # Read raw ingest output
-    raw = pd.read_csv(CENSUS_RAW, dtype={"geo_id": "string", "variable_code": "string", "date": "string"})
-    needed = {"geo_id", "date", "variable_code", "value", "dataset", "vintage"}
-    missing = needed - set(raw.columns)
-    if missing:
-        raise SystemExit(f"[census:transform] raw file missing columns: {sorted(missing)}")
+    # ensure dim_source + dim_metric exist (same style as CES)
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS dim_source(
+      source_id TEXT PRIMARY KEY, name TEXT, url TEXT, cadence TEXT, license TEXT
+    );
+    INSERT INTO dim_source(source_id, name, url, cadence, license)
+    SELECT ?, 'Census ACS 5-year', 'https://www.census.gov/programs-surveys/acs', 'annual', 'public'
+    WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id=?);
+    """, [SOURCE_ID, SOURCE_ID])
 
-    raw["variable_code"] = raw["variable_code"].astype(str).str.strip()
-    raw["metric_id"] = raw["variable_code"].map(METRIC_BY_VAR)
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS dim_metric(
+      metric_id TEXT PRIMARY KEY, name TEXT, frequency TEXT, unit TEXT, category TEXT
+    );
+    """)
 
-    # Drop unknown variables loudly (don’t silently ingest garbage)
-    unknown = raw[raw["metric_id"].isna()]["variable_code"].dropna().unique().tolist()
-    if unknown:
-        raise SystemExit(f"[census:transform] unknown variable_code(s) encountered: {unknown}")
+    meta = {
+        "census_pop_total": ("Total population (ACS)", "annual", "persons", "census"),
+        "census_median_household_income": ("Median household income (ACS)", "annual", "usd", "census"),
+    }
+    for mid in sorted(df["metric_id"].unique()):
+        name, freq, unit, cat = meta.get(mid, (mid, "annual", "value", "census"))
+        con.execute("""
+        INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
+        SELECT ?,?,?,?,?
+        WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id=?)
+        """, [mid, name, freq, unit, cat, mid])
 
-    # Prepare fact rows
-    df = raw.copy()
-    df["source_id"] = SOURCE_ID
-    df["property_type_id"] = "-1"
-    df["property_type"] = None
-
-    # Ensure date parses and is year-end (ACS 5y is annual)
-    df["date"] = pd.to_datetime(df["date"]).dt.date
-
-    # Idempotent replace for this source_id
+    # wipe existing slice for this source (consistent with CES)
     con.execute("DELETE FROM fact_timeseries WHERE source_id = ?", [SOURCE_ID])
+    print("[census:transform] cleared existing census_acs5 rows")
 
-    # Insert
-    con.register("census_stage", df)
-    con.execute(
-        """
-        INSERT INTO fact_timeseries (geo_id, metric_id, date, value, source_id, property_type_id, property_type)
-        SELECT
-            geo_id,
-            metric_id,
-            date,
-            CAST(value AS DOUBLE) AS value,
-            source_id,
-            property_type_id,
-            property_type
-        FROM census_stage
-        WHERE value IS NOT NULL
-        """
-    )
+    # dedupe and insert
+    df = (df.sort_values(["geo_id","metric_id","date","property_type_id"])
+            .drop_duplicates(subset=["geo_id","metric_id","date","property_type_id"], keep="last"))
 
-    # Summary
-    summary = con.execute(
-        """
-        SELECT
-            geo_id, metric_id, source_id,
-            MIN(date) AS first,
-            MAX(date) AS last,
-            COUNT(*)  AS rows
-        FROM fact_timeseries
-        WHERE source_id = ?
-        GROUP BY 1, 2, 3
-        ORDER BY 1, 2
-        """,
-        [SOURCE_ID],
-    ).fetchdf()
+    con.register("c_stage", df[[
+        "geo_id","metric_id","date","property_type_id","value","source_id","property_type"
+    ]])
 
-    print("[census:transform] OK — Census facts loaded. Summary:")
-    print(summary.to_string(index=False))
+    con.execute("""
+    INSERT INTO fact_timeseries(geo_id,metric_id,date,property_type_id,value,source_id,property_type)
+    SELECT geo_id,metric_id,date,property_type_id,CAST(value AS DOUBLE),source_id,property_type
+    FROM c_stage
+    """)
+
+    print(con.execute("""
+      SELECT geo_id, metric_id, MIN(date) AS first, MAX(date) AS last, COUNT(*) AS n
+      FROM fact_timeseries
+      WHERE source_id = 'census_acs5'
+      GROUP BY 1,2
+      ORDER BY 1,2
+    """).fetchdf())
+
+    con.close()
 
 
 if __name__ == "__main__":
