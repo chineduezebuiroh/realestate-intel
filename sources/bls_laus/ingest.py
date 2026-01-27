@@ -15,6 +15,11 @@ import time
 import requests
 from glob import glob
 
+from core.db import connect
+
+BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
+BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
+
 # Where ensure_bls_files() writes the flat files
 BLS_DIR = Path("config/bls")
 
@@ -243,11 +248,6 @@ def sfx_from_csv(seasonal: str) -> str:
     if v in ("SA","S"): return "sa"
     if v in ("NSA","U"): return "nsa"
     return "nsa"
-
-
-BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
-BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
-DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 
 
 def seasonal_suffix(series_id: str, seasonal_field: str | None) -> str:
@@ -607,7 +607,7 @@ def main():
                 type=lambda d: d["geo_id"].str.split("_").str[-1],
                 fips=None)
     )
-    con = duckdb.connect(DB_PATH)
+    con = connect()
 
     # ensure tables exist (idempotent)
     con.execute("""
