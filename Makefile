@@ -3,6 +3,11 @@ VENV := .venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
+# -------------------------------
+# Database configuration
+# -------------------------------
+FULL_DB := data/market.duckdb
+
 
 .PHONY: venv bootstrap deps clean-venv
 
