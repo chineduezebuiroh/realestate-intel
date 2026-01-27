@@ -7,12 +7,6 @@ import os
 # -------------------------------------------------------------------
 # Config
 # -------------------------------------------------------------------
-"""
-RAW_REDFIN_PATH = "data/redfin/raw/redfin_metro_market_tracker.tsv000"
-GEO_MANIFEST_PATH = "config/geo_manifest.csv"
-OUTPUT_PATH = "data/redfin/redfin_metro_timeseries.csv"
-"""
-
 RAW_REDFIN_DIR = Path("data/redfin/raw")
 RAW_REDFIN_PATHS = sorted(RAW_REDFIN_DIR.glob("*.tsv*"))
 
