@@ -1,8 +1,18 @@
 # Forecast Architecture Rules (Phase C)
 
-## Entrypoints
-Only modules under forecast/cli/ are allowed as execution entrypoints.
-Legacy runners remain temporarily for compatibility but must not be used directly.
+## Entrypoints (Phase C rule)
+
+Authoritative execution logic lives in model runners under:
+- forecast/models/**
+
+CLI modules under forecast/cli/** are thin wrappers only.
+They may parse arguments and dispatch, but MUST NOT:
+- change behavior
+- introduce logic not present in runners
+- alter defaults or governance
+
+Legacy runners remain temporarily for compatibility but must not be extended.
+
 
 ## Determinism
 No Phase C change may alter:
@@ -10,6 +20,13 @@ No Phase C change may alter:
 - feature_id ordering
 - as-of resolution behavior
 - hashes in audit sidecars
+
+Determinism is enforced at:
+- selector output (ordered feature_ids)
+- consume_selected_features (order + hash)
+- design_matrix artifacts (sha256 + audit)
+- exog_future artifacts (policy-hashed)
+
 
 ---
 
@@ -23,8 +40,10 @@ If this section is violated, results are not comparable.
 ### 1. Terms (used precisely)
 
 **Feature**
-- A semantic signal (metric × geo × property_type × source), e.g. `avg_sale_to_list__dc_city__6__redfin`.
+- A semantic signal (metric × geo × property_type × source)
+- Lags are NOT features; they are model-level expansions applied after identity is frozen.
 - Features are *identified*, not rebuilt, in Phase C.
+
 
 **Artifact**
 - A serialized, immutable output with a checksum and audit sidecar.
@@ -155,8 +174,9 @@ Therefore:
                             ▼
            ┌────────────────────────────────────┐
            │ DESIGN MATRIX ARTIFACT             │
-           │ (y + X up to as_of, maybe a bit    │
-           │  of future X depending on build)   │
+           │ (y + X up to as_of; MAY include    |
+           │ limited future X strictly for      |
+           │  BRIDGE evaluation only)           │
            └───────────┬──────────────┬─────────┘
                        │              │
                        │              │
@@ -176,6 +196,27 @@ Therefore:
         └─────────────────────┘   └─────────────────────┘
 
 ---
+
+
+## Selector Governance (Baseline, Non-Experimental)
+
+The XGB selector enforces baseline feature-diversity rules.
+These are considered Phase C defaults, not tunables:
+
+- metric_pt_cap = 10
+  (max base series per metric_id × property_type_id)
+
+- min_non_redfin = 25
+  (minimum non-Redfin features in final top-K)
+
+- redfin_tier_caps = ON
+  (tiered Redfin share enforcement)
+
+Changes to these rules require:
+- explicit versioning
+- selector audit reruns
+- documentation updates
+
 
 ### 8. Non-Negotiable Invariants
 
