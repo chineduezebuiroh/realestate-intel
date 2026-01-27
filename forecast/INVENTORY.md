@@ -84,6 +84,14 @@ This family has two evaluation modes:
 
 Rule: changes to selector governance MUST be versioned and documented.
 
+Governance rules enforced by the selector (e.g. metric concentration caps,
+source diversity minimums, Redfin tier caps, selector horizon semantics) are
+documented in:
+
+- forecast/README_selector.md
+
+If behavior appears surprising, consult README_selector.md first before
+changing code.
 
 ---
 
