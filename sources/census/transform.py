@@ -114,6 +114,48 @@ def main():
     if dropped:
         print(f"[census:transform] dropped {dropped} duplicate raw rows on PK")
 
+    # ---- Normalize key fields (avoid whitespace variants) ----
+    df["geo_id"] = df["geo_id"].astype(str).str.strip()
+    df["metric_id"] = df["metric_id"].astype(str).str.strip()
+    df["property_type_id"] = df["property_type_id"].astype(str).str.strip()
+    
+    # ---- HARD duplicate diagnosis on the exact PK ----
+    pk_cols = ["geo_id", "metric_id", "date", "property_type_id"]
+    
+    dup_counts = (
+        df.groupby(pk_cols, dropna=False)
+          .size()
+          .reset_index(name="n")
+    )
+    
+    dups = dup_counts[dup_counts["n"] > 1].sort_values("n", ascending=False)
+    
+    if not dups.empty:
+        print("[census:transform] FAIL: duplicate PK rows detected in staging (showing up to 50):")
+        print(dups.head(50).to_string(index=False))
+    
+        # show the raw rows for the first duplicate key
+        k = dups.iloc[0][pk_cols].to_dict()
+        sample = df
+        for c in pk_cols:
+            sample = sample[sample[c] == k[c]]
+        print("[census:transform] sample duplicate raw rows:")
+        cols_show = pk_cols + ["value", "variable_code", "census_code", "geo_level", "year", "census_name"]
+        cols_show = [c for c in cols_show if c in df.columns]
+        print(sample[cols_show].head(25).to_string(index=False))
+    
+        raise SystemExit("[census:transform] aborting due to duplicate PK rows; fix upstream or dedupe explicitly")
+    
+    # ---- If we ever allow duplicates upstream, dedupe deterministically here ----
+    before = len(df)
+    df = (
+        df.sort_values(pk_cols)
+          .drop_duplicates(subset=pk_cols, keep="last")
+    )
+    dropped = before - len(df)
+    if dropped:
+        print(f"[census:transform] dropped {dropped} duplicate raw rows on PK")
+
     con.register("c_stage", df[[
         "geo_id","metric_id","date","property_type_id","value","source_id","property_type"
     ]])
