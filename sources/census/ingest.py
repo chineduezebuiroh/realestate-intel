@@ -140,7 +140,7 @@ def main():
             time.sleep(0.05)
 
     if skipped_geo_ids:
-        print(f"[census] skipped geo_ids ({len(skipped_geo_ids)}): {sorted(set(skipped_geo_ids))}")
+        print(f"[census] skipped unsupported geo_ids ({len(skipped_geo_ids)}): {sorted(set(skipped_geo_ids))}")
 
     df = pd.DataFrame(rows)
     OUT_RAW.parent.mkdir(parents=True, exist_ok=True)
