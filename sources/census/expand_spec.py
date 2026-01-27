@@ -1,13 +1,21 @@
-from __future__ import annotations
 # sources/census/expand_spec.py
-
-from dataclasses import dataclass
+import os
+import csv
 from pathlib import Path
-from typing import Iterable, Optional
-
+import datetime as _dt
 import pandas as pd
 
 GEO_MANIFEST = Path("config/geo_manifest.csv")
+
+OUT_PLAN = Path("data/census/census_acs5_query_plan.generated.csv")
+
+CENSUS_DATASET = "acs/acs5"
+
+# Keep minimal for now; expand later.
+VARS = [
+    ("census_pop_total", "B01003_001E"),
+    ("census_median_household_income", "B19013_001E"),
+]
 
 
 def _normalize_include_flag(val: str) -> bool:
@@ -15,31 +23,16 @@ def _normalize_include_flag(val: str) -> bool:
     return v in {"1", "Y", "YES", "TRUE", "T"}
 
 
-def load_census_geo_map(manifest_path: Path = GEO_MANIFEST) -> dict[str, dict[str, str]]:
-    """
-    Build mapping:
-      geo_id -> {
-        "level":        <manifest level>,
-        "census_code":  <string>,
-        "include":      <bool>,
-      }
+def main():
+    if not GEO_MANIFEST.exists():
+        raise SystemExit("[census:gen] missing config/geo_manifest.csv")
 
-    Uses:
-      - 'geo_id'
-      - 'census_code'
-      - 'include_census'
-      - 'level' (or 'geo_kind' fallback)
-    from config/geo_manifest.csv
-    """
-    if not manifest_path.exists():
-        raise SystemExit("[census:geo] missing config/geo_manifest.csv")
-
-    gm = pd.read_csv(manifest_path, dtype=str)
+    gm = pd.read_csv(GEO_MANIFEST, dtype=str)
 
     needed = {"geo_id", "census_code", "include_census"}
     missing = needed - set(gm.columns)
     if missing:
-        raise SystemExit(f"[census:geo] geo_manifest.csv missing columns: {sorted(missing)}")
+        raise SystemExit(f"[census:gen] geo_manifest.csv missing columns: {sorted(missing)}")
 
     # support either 'level' or 'geo_kind'
     if "level" in gm.columns:
@@ -47,96 +40,53 @@ def load_census_geo_map(manifest_path: Path = GEO_MANIFEST) -> dict[str, dict[st
     elif "geo_kind" in gm.columns:
         level_col = "geo_kind"
     else:
-        raise SystemExit("[census:geo] geo_manifest.csv must have 'level' or 'geo_kind' column")
+        raise SystemExit("[census:gen] geo_manifest.csv must have 'level' or 'geo_kind'")
 
     for col in ["geo_id", "census_code", "include_census", level_col]:
         gm[col] = gm[col].fillna("").astype(str).str.strip()
 
-    mapping: dict[str, dict[str, str]] = {}
+    # default vintage = last full year (stable enough for now)
+    vintage = _dt.date.today().year - 1
 
-    for _, row in gm.iterrows():
-        geo_id = row["geo_id"]
-        level = row[level_col].lower()
-        code = row["census_code"]
-        include = _normalize_include_flag(row["include_census"])
-
-        if not include or not code:
-            continue
-
-        mapping[geo_id] = {
-            "level": level,
-            "census_code": code,
-            "include": include,
-        }
-
-    print(f"[census:geo] loaded {len(mapping)} Census geos from geo_manifest.csv")
-    return mapping
-
-
-def build_census_query_plan(
-    *,
-    dataset: str,
-    vintage: int,
-    variables: list[str],
-    geo_map: Optional[dict[str, dict[str, str]]] = None,
-) -> pd.DataFrame:
-    """
-    Expand step: produce a deterministic query plan that ingest.py can execute without guessing.
-
-    Returns a DataFrame with one row per (geo_id, variable-set) query:
-      - source_id
-      - dataset
-      - vintage
-      - geo_id
-      - geo_level
-      - census_code
-      - variables_csv   (kept stable/deterministic)
-      - query_kind      ("for_in" for now; can add "ucgid" later)
-      - for_clause
-      - in_clause
-
-    NOTE:
-    - We are not implementing UC-GID here yet. This keeps Phase C entry simple.
-    - geo_level/census_code must be interpreted consistently by ingest.py for URL construction.
-    """
-    if geo_map is None:
-        geo_map = load_census_geo_map()
-
-    if not variables:
-        raise ValueError("[census:expand] variables must be non-empty")
-    variables = [v.strip() for v in variables if (v or "").strip()]
-    if not variables:
-        raise ValueError("[census:expand] variables must be non-empty after stripping")
+    variables_csv = ",".join([v for _, v in VARS])
+    metric_ids_csv = ",".join([m for m, _ in VARS])
 
     rows = []
-    for geo_id, meta in sorted(geo_map.items(), key=lambda kv: kv[0]):
-        level = meta["level"]
-        code = meta["census_code"]
+    for r in gm.itertuples(index=False):
+        geo_id = getattr(r, "geo_id")
+        census_code = getattr(r, "census_code")
+        include = _normalize_include_flag(getattr(r, "include_census"))
+        level = getattr(r, level_col).strip().lower()
 
-        # Minimal contract: ingest.py decides how to convert (level, code) -> for/in params.
-        # We keep the plan explicit so it's debuggable.
-        rows.append(
-            {
-                "source_id": "census",
-                "dataset": dataset,
-                "vintage": int(vintage),
-                "geo_id": geo_id,
-                "geo_level": level,
-                "census_code": code,
-                "variables_csv": ",".join(sorted(set(variables))),
-                "query_kind": "for_in",
-                "for_clause": "",  # populated by ingest.py based on geo_level + census_code
-                "in_clause": "",   # populated by ingest.py based on geo_level + census_code
-            }
+        if not include or not census_code:
+            continue
+
+        rows.append({
+            "geo_id": geo_id,
+            "geo_level": level,
+            "census_code": census_code,
+            "dataset": CENSUS_DATASET,
+            "vintage": vintage,
+            "variables_csv": variables_csv,
+            "metric_ids_csv": metric_ids_csv,
+        })
+
+    if not rows:
+        print("[census:gen] no Census geos enabled (include_census=1).")
+        return
+
+    OUT_PLAN.parent.mkdir(parents=True, exist_ok=True)
+    with OUT_PLAN.open("w", newline="", encoding="utf-8") as f:
+        wr = csv.DictWriter(
+            f,
+            fieldnames=["geo_id","geo_level","census_code","dataset","vintage","variables_csv","metric_ids_csv"]
         )
+        wr.writeheader()
+        wr.writerows(sorted(rows, key=lambda d: d["geo_id"]))
 
-    df = pd.DataFrame(rows)
-    print(f"[census:expand] built query plan: {len(df)} geo queries, {len(variables)} variables")
-    return df
+    print(f"[census:gen] wrote {len(rows)} plan rows → {OUT_PLAN}")
+    print(f"[census:gen] vintage={vintage} variables={variables_csv}")
 
 
 if __name__ == "__main__":
-    # Smoke test
-    gm = load_census_geo_map()
-    plan = build_census_query_plan(dataset="acs/acs5", vintage=2023, variables=["B01001_001E"], geo_map=gm)
-    print(plan.head(10).to_string(index=False))
+    main()
