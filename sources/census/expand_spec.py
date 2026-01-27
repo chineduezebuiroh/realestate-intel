@@ -46,7 +46,7 @@ def main():
         gm[col] = gm[col].fillna("").astype(str).str.strip()
 
     # default vintage = last full year (stable enough for now)
-    vintage = _dt.date.today().year - 1
+    vintage = _dt.date.today().year - 2
 
     variables_csv = ",".join([v for _, v in VARS])
     metric_ids_csv = ",".join([m for m, _ in VARS])
