@@ -86,6 +86,7 @@ def main():
     rows = []
     skipped = 0
     calls = 0
+    skipped_geo_ids = []
 
     for rec in plan.to_dict(orient="records"):
         geo_id = rec["geo_id"]
@@ -101,6 +102,7 @@ def main():
 
         if geo_params is None:
             skipped += 1
+            skipped_geo_ids.append(geo_id)
             continue
 
         for y in years:
@@ -136,6 +138,9 @@ def main():
                 })
 
             time.sleep(0.05)
+
+    if skipped_geo_ids:
+        print(f"[census] skipped geo_ids ({len(skipped_geo_ids)}): {sorted(set(skipped_geo_ids))}")
 
     df = pd.DataFrame(rows)
     OUT_RAW.parent.mkdir(parents=True, exist_ok=True)
