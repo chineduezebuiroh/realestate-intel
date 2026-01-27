@@ -85,3 +85,31 @@ Any change to these rules requires:
 ## Selector Artifacts (Selector-of-Record)
 
 Selector runs write artifacts to:
+- runs/<batch_id>/xgb/
+
+Key artifact:
+- `selected_features__anchor=YYYY-MM-DD.parquet`
+
+This artifact is:
+- ordered
+- hashed
+- immutable
+- the **sole source of feature identity** for SARIMAX-exog
+
+Downstream models MUST NOT:
+- rebuild features
+- reorder columns
+- substitute alternative shortlists
+
+---
+
+## Freshness Policy
+
+SARIMAX-exog validates that the selector artifact is **fresh relative to `data_asof`**.
+
+If the shortlist anchor is too stale:
+- the run fails fast
+- the selector must be re-run closer to `data_asof`
+
+This is intentional.
+Using stale feature identity invalidates backtests and live comparisons.
