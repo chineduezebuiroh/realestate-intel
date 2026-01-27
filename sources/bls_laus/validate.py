@@ -2,7 +2,7 @@
 import os, sys, csv, duckdb
 from collections import defaultdict
 
-DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+from core.db import connect
 
 CFG_PATHS = ("config/laus_series.generated.csv", "config/laus_series.csv")
 def _pick_cfg_path():
@@ -53,7 +53,7 @@ def _geos_from_cfg(cfg_path: str) -> list[str]:
 
 
 def main():
-    con = duckdb.connect(DB_PATH)
+    con = connect()
 
     # Quick existence check
     total = con.execute("""
