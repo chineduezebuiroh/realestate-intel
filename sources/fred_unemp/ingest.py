@@ -9,6 +9,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from core.dates import to_month_end_date
+from core.db import connect
 
 try:
     from fredapi import Fred
@@ -34,7 +35,6 @@ Rows are written into fact_timeseries:
 
 load_dotenv()
 
-DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 GEO_MANIFEST_PATH = Path("config/geo_manifest.csv")
 FRED_API_KEY = os.getenv("FRED_API_KEY", "").strip()
 
@@ -242,7 +242,7 @@ def main():
 
     all_df = pd.concat(frames, ignore_index=True)
 
-    con = duckdb.connect(DB_PATH)
+    con = connect()
 
     # Minimal dim_market entries for geos
     con.execute("""
