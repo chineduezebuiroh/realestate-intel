@@ -5,7 +5,8 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+from core.db import connect
+
 REDFIN_TS_PATH = Path("data/redfin/redfin_timeseries.csv")
 
 def main():
@@ -52,7 +53,7 @@ def main():
 
     df["source_id"] = "redfin"
 
-    con = duckdb.connect(DB_PATH)
+    con = connect()
 
     # fact_timeseries schema (matches your existing)
     con.execute("""
