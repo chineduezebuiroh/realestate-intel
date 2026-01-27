@@ -210,9 +210,12 @@ refresh-laus: venv
 
 # 🔁 Census ACS (adjust script names if different in your repo)
 refresh-census-acs: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_api_bulk.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) transform/census_to_fact.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census.expand_spec
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census.ingest
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census.transform
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census.validate
 	@echo "✅ Refreshed Census ACS → $(FULL_DB)"
+
 
 # 🔁 Census Building Permits (BPS) – adjust names if needed
 refresh-census-permits: venv
