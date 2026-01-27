@@ -7,8 +7,9 @@ import requests
 import pandas as pd
 import duckdb
 
+from core.db import connect
+
 GEN_PATH = Path("config/ces_series.generated.csv")
-DB_PATH  = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 
 BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
@@ -281,7 +282,7 @@ def main():
         return
 
     # create basic dims/tables + upsert
-    con = duckdb.connect(DB_PATH)
+    con = connect()
     ensure_dims(con, all_df["metric_id"].unique().tolist())
 
     # 🔁 Always start with a clean CES slice in fact_timeseries
