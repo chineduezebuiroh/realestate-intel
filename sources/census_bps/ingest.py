@@ -222,10 +222,33 @@ def normalize_bps_schema(df: pd.DataFrame) -> pd.DataFrame:
 
         # needed for mapping
         "location_type": ["location_type"],
+
+        # needed for deterministic dedupe / revisions
+        "survey_date": ["survey_date"],
+        "number_of_months_rep": ["number_of_months_rep"],
+        "unique_place_id": ["unique_place_id"],
     }
 
     rename_map: dict[str, str] = {}
-    missing: list[str] = []
+
+    HARD_REQUIRED = {
+        "year", "month",
+        "period", "location_type",
+        "state_fips", "county_fips", "place_fips", "cbsa_code",
+        "units_1", "units_2", "units_3_4", "units_5plus",
+        "bldgs_1", "bldgs_2", "bldgs_3_4", "bldgs_5plus",
+        "value_1", "value_2", "value_3_4", "value_5plus",
+        # if you want deterministic compiled collapse:
+        "survey_date",
+    }
+
+    SOFT_REQUIRED = {
+        "number_of_months_rep",
+        "unique_place_id",
+    }
+
+    missing_hard: list[str] = []
+    missing_soft: list[str] = []
 
     for canon, aliases in ALIASES.items():
         found = None
@@ -233,20 +256,30 @@ def normalize_bps_schema(df: pd.DataFrame) -> pd.DataFrame:
             if a in cols:
                 found = a
                 break
+
         if found is None:
-            missing.append(canon)
+            if canon in HARD_REQUIRED:
+                missing_hard.append(canon)
+            elif canon in SOFT_REQUIRED:
+                missing_soft.append(canon)
+            # else: truly optional
             continue
+
         if found != canon:
             rename_map[found] = canon
 
-    if missing:
-        # print a small diagnostic to help you extend aliases once, correctly
+
+    if missing_hard:
         sample_cols = sorted(list(cols))[:80]
         raise SystemExit(
             "[bps] missing required canonical fields after alias resolution: "
-            f"{missing}\n"
+            f"{missing_hard}\n"
             f"[bps] NOTE: first 80 columns in file (lowercased): {sample_cols}"
         )
+
+    if missing_soft:
+        print(f"[bps][warn] missing optional fields: {missing_soft} (will proceed)")
+        
 
     if rename_map:
         df = df.rename(columns=rename_map)
@@ -364,16 +397,8 @@ def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
         "number_of_months_rep",
         "unique_place_id",
     ]
+    id_cols = [c for c in id_cols if c in df.columns]
 
-    """
-    # Keep these so we can deterministically choose “the” row when the source repeats records
-    for extra in ["location_type", "survey_date", "number_of_months_rep", "unique_place_id"]:
-        if extra in df.columns:
-            id_cols.append(extra)
-        else:
-            if extra == "location_type":
-                print("[bps] WARNING: location_type column missing before melt; mapping may fail")
-    """
 
     # Value families
     units_cols = {
@@ -397,19 +422,6 @@ def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
         "value_5plus": "5plus",
         "total_value": "total",
     }
-
-    # survey_date comes as YYYYMM (int/string), not a timestamp
-    if "survey_date" in df.columns:
-        df["survey_date"] = (
-            df["survey_date"]
-            .astype(str)
-            .str.extract(r"(\d{6})")[0]
-        )
-        df["survey_date"] = pd.to_datetime(
-            df["survey_date"],
-            format="%Y%m",
-            errors="coerce"
-        )
 
     frames = []
 
@@ -568,10 +580,13 @@ def main(argv: Optional[List[str]] = None) -> None:
     # Normalize + reshape
     df = normalize_bps_schema(df_raw)
 
-    df = add_date(df)
-
+    # Parse survey_date encoded as YYYYMM
     if "survey_date" in df.columns:
-        df["survey_date"] = pd.to_datetime(df["survey_date"], errors="coerce")
+        s = df["survey_date"].astype(str).str.extract(r"(\d{6})")[0]
+        df["survey_date"] = pd.to_datetime(s, format="%Y%m", errors="coerce")
+
+
+    df = add_date(df)
     
     if "number_of_months_rep" in df.columns:
         df["number_of_months_rep"] = pd.to_numeric(df["number_of_months_rep"], errors="coerce")
@@ -593,6 +608,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     # Deterministic collapse: if the compiled file repeats the same logical observation,
     # pick the “best” row (prefer latest survey_date; then highest number_of_months_rep).
     PK = ["geo_id", "date", "measure", "size_band"]
+
+    before = len(df_geo)
 
     # Hard check: if revision dimensions are missing, abort
     if df_geo["survey_date"].isna().all():
@@ -621,9 +638,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     
     df_geo = df_geo.drop_duplicates(subset=PK, keep="last")
     
-    dropped = before - len(df_geo)
+    after = len(df_geo)
+    dropped = before - after
+
     if dropped:
-        print(f"[bps] dropped {dropped} duplicate rows on logical PK {pk} (kept best by survey_date/number_of_months_rep)")
+        print(f"[bps] dropped {dropped} duplicate rows on logical PK {PK} (kept best by survey_date/number_of_months_rep)")
 
 
     out_path = Path(args.out)
