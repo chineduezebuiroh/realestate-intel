@@ -1,4 +1,20 @@
-#!/usr/bin/env python
+from __future__ import annotations
+# sources/census_bps/transform.py
+
+import argparse
+import os
+from pathlib import Path
+from typing import Optional, List
+from core.db import connect
+
+import duckdb
+import pandas as pd
+
+BPS_CSV = Path("data/census/census_bps_timeseries.csv")
+
+SOURCE_ID = "census_bps"
+
+
 """
 Transform BPS building permits into fact_timeseries.
 
@@ -23,20 +39,6 @@ Output: Inserts rows into fact_timeseries with metric_ids like:
     etc.
 """
 
-from __future__ import annotations
-
-import argparse
-import os
-from pathlib import Path
-from typing import Optional, List
-
-import duckdb
-import pandas as pd
-
-BPS_CSV = Path("data/census/census_bps_timeseries.csv")
-DUCKDB_PATH = os.getenv("DUCKDB_PATH", "data/market.duckdb")
-
-SOURCE_ID = "census_bps"
 
 
 DIM_METRICS = [
@@ -84,6 +86,12 @@ METRIC_MAP = {
 
 
 def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS dim_source(
+          source_id TEXT PRIMARY KEY, name TEXT, url TEXT, cadence TEXT, license TEXT
+        );
+    """)
+    
     con.execute("""
         INSERT INTO dim_source(source_id, name, url, cadence, license)
         SELECT 'census_bps', 'Census Building Permits Survey', 'https://www.census.gov/construction/bps/', 'monthly', 'public'
@@ -138,15 +146,26 @@ def load_bps_timeseries(csv_path: Path) -> pd.DataFrame:
     )
     df = df[df["metric_id"].notna()]
 
+    missing = (
+        df.loc[df["metric_id"].isna(), ["measure", "size_band"]]
+          .drop_duplicates()
+          .sort_values(["measure","size_band"])
+    )
+    if not missing.empty:
+        raise SystemExit(
+            "[bps → fact] unmapped (measure,size_band) values:\n"
+            + missing.to_string(index=False)
+        )
+
     out = pd.DataFrame(
         {
             "geo_id": df["geo_id"],
             "metric_id": df["metric_id"],
-            "date": df["date"].dt.date.astype(str),
+            "date": df["date"].dt.date,
             "value": df["value"],
             "source_id": SOURCE_ID,
             "property_type_id": "all",
-            "property_type": "all",
+            "property_type": None,
         }
     )
 
@@ -173,36 +192,24 @@ def ensure_fact_table(con: duckdb.DuckDBPyConnection) -> None:
 
 def insert_into_fact(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
     # Clear existing BPS rows (all metrics)
-    con.execute(
-        "DELETE FROM fact_timeseries WHERE source_id = ?",
-        [SOURCE_ID],
+    con.register("bps_stage", df[["geo_id","metric_id","date","property_type_id","value","source_id","property_type"]])
+    
+    con.execute("""
+    DELETE FROM fact_timeseries f
+    WHERE EXISTS (
+      SELECT 1 FROM bps_stage s
+      WHERE s.geo_id=f.geo_id AND s.metric_id=f.metric_id
+        AND CAST(s.date AS DATE)=f.date AND s.property_type_id=f.property_type_id
     )
+    """)
+    
+    con.execute("""
+    INSERT INTO fact_timeseries(geo_id,metric_id,date,property_type_id,value,source_id,property_type)
+    SELECT geo_id,metric_id,CAST(date AS DATE),property_type_id,CAST(value AS DOUBLE),source_id,property_type
+    FROM bps_stage
+    """)
 
-    con.register("bps_df", df)
-    con.execute(
-        """
-        INSERT INTO fact_timeseries (
-            geo_id,
-            metric_id,
-            date,
-            value,
-            source_id,
-            property_type_id,
-            property_type
-        )
-        SELECT
-            geo_id,
-            metric_id,
-            CAST(date AS DATE),
-            value,
-            source_id,
-            property_type_id,
-            property_type
-        FROM bps_df
-        """
-    )
-    con.unregister("bps_df")
-
+    print("[bps:transform] cleared existing rows for staged keys (any source_id)")
     print(f"[bps → fact] inserted {len(df):,} rows into fact_timeseries")
 
 
@@ -215,16 +222,11 @@ def main(argv: Optional[List[str]] = None) -> None:
         default=str(BPS_CSV),
         help=f"Input BPS timeseries CSV (default: {BPS_CSV})",
     )
-    parser.add_argument(
-        "--duckdb-path",
-        default=DUCKDB_PATH,
-        help=f"DuckDB path (default env DUCKDB_PATH or {DUCKDB_PATH})",
-    )
     args = parser.parse_args(argv)
 
     df = load_bps_timeseries(Path(args.csv))
 
-    con = duckdb.connect(args.duckdb_path)
+    con = connect()
     ensure_fact_table(con)
     ensure_dims(con)
     insert_into_fact(con, df)
