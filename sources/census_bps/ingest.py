@@ -170,33 +170,78 @@ def filter_monthly(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def normalize_bps_schema(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Canonicalize BPS compiled schema to the column names the rest of this pipeline expects.
+
+    Strict behavior:
+      - We ONLY accept known aliases per required field.
+      - If any required field can't be found via aliases -> hard fail.
+    """
     df = df.copy()
 
-    required = {
-        "year",
-        "month",
-        "state_fips",
-        "county_fips",
-        "place_fips",
-        "cbsa_code",
-        "units_1",
-        "units_2",
-        "units_3_4",
-        "units_5plus",
-        "bldgs_1",
-        "bldgs_2",
-        "bldgs_3_4",
-        "bldgs_5plus",
-        "value_1",
-        "value_2",
-        "value_3_4",
-        "value_5plus",
-        "location_type",
+    # All columns already lowercased in load_first_csv_from_zip()
+    cols = set(df.columns)
+
+    # Canonical -> allowed raw aliases (include the old COLUMN_MAP raw names)
+    ALIASES: dict[str, list[str]] = {
+        # time
+        "year": ["year"],
+        "month": ["month"],
+
+        # geo keys
+        "state_fips": ["state_fips", "state_code"],
+        "county_fips": ["county_fips", "fips_county_5_digits"],
+        "place_fips": ["place_fips", "fips_place_code"],
+        "cbsa_code": ["cbsa_code"],
+
+        # measures (units)
+        "units_1": ["units_1", "units_1_unit"],
+        "units_2": ["units_2", "units_2_units"],
+        "units_3_4": ["units_3_4", "units_3_4_units"],
+        "units_5plus": ["units_5plus", "units_5_units"],
+
+        # measures (buildings)
+        "bldgs_1": ["bldgs_1", "bldgs_1_unit"],
+        "bldgs_2": ["bldgs_2", "bldgs_2_units"],
+        "bldgs_3_4": ["bldgs_3_4", "bldgs_3_4_units"],
+        "bldgs_5plus": ["bldgs_5plus", "bldgs_5_units"],
+
+        # measures (value)
+        "value_1": ["value_1", "value_1_unit"],
+        "value_2": ["value_2", "value_2_units"],
+        "value_3_4": ["value_3_4", "value_3_4_units"],
+        "value_5plus": ["value_5plus", "value_5_units"],
+
+        # needed for mapping
+        "location_type": ["location_type"],
     }
 
-    missing = required - set(df.columns)
+    rename_map: dict[str, str] = {}
+    missing: list[str] = []
+
+    for canon, aliases in ALIASES.items():
+        found = None
+        for a in aliases:
+            if a in cols:
+                found = a
+                break
+        if found is None:
+            missing.append(canon)
+            continue
+        if found != canon:
+            rename_map[found] = canon
+
     if missing:
-        raise SystemExit(f"[bps] missing required columns: {sorted(missing)}")
+        # print a small diagnostic to help you extend aliases once, correctly
+        sample_cols = sorted(list(cols))[:80]
+        raise SystemExit(
+            "[bps] missing required canonical fields after alias resolution: "
+            f"{missing}\n"
+            f"[bps] NOTE: first 80 columns in file (lowercased): {sample_cols}"
+        )
+
+    if rename_map:
+        df = df.rename(columns=rename_map)
 
     return df
 
