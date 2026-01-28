@@ -341,10 +341,15 @@ def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
         "place_fips",
         "cbsa_code",
     ]
-    if "location_type" in df.columns:
-        id_cols.append("location_type")
-    else:
-        print("[bps] WARNING: location_type column missing before melt; mapping may fail")
+    
+    # Keep these so we can deterministically choose “the” row when the source repeats records
+    for extra in ["location_type", "survey_date", "number_of_months_rep", "unique_place_id"]:
+        if extra in df.columns:
+            id_cols.append(extra)
+        else:
+            if extra == "location_type":
+                print("[bps] WARNING: location_type column missing before melt; mapping may fail")
+
 
     # Value families
     units_cols = {
@@ -527,6 +532,13 @@ def main(argv: Optional[List[str]] = None) -> None:
     df = normalize_bps_schema(df_raw)
 
     df = add_date(df)
+
+    if "survey_date" in df.columns:
+        df["survey_date"] = pd.to_datetime(df["survey_date"], errors="coerce")
+    
+    if "number_of_months_rep" in df.columns:
+        df["number_of_months_rep"] = pd.to_numeric(df["number_of_months_rep"], errors="coerce")
+
     #df = compute_total_units(df)
     df = compute_aggregates(df)
     df = normalize_geo_keys(df)
@@ -535,6 +547,27 @@ def main(argv: Optional[List[str]] = None) -> None:
     # Map to geo_manifest
     gm = load_geo_manifest()
     df_geo = map_bps_to_geo(df_long, gm)
+
+    # Deterministic collapse: if the compiled file repeats the same logical observation,
+    # pick the “best” row (prefer latest survey_date; then highest number_of_months_rep).
+    pk = ["geo_id", "date", "measure", "size_band"]
+    
+    sort_cols = pk.copy()
+    if "survey_date" in df_geo.columns:
+        sort_cols.append("survey_date")
+    if "number_of_months_rep" in df_geo.columns:
+        sort_cols.append("number_of_months_rep")
+    
+    before = len(df_geo)
+    
+    # sort so “best” row is last for drop_duplicates keep="last"
+    df_geo = df_geo.sort_values(sort_cols)
+    df_geo = df_geo.drop_duplicates(subset=pk, keep="last").reset_index(drop=True)
+    
+    dropped = before - len(df_geo)
+    if dropped:
+        print(f"[bps] dropped {dropped} duplicate rows on logical PK {pk} (kept best by survey_date/number_of_months_rep)")
+
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
