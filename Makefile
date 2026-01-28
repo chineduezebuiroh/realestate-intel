@@ -226,8 +226,8 @@ refresh-census-acs: venv
 
 # 🔁 Census Building Permits (BPS) – adjust names if needed
 refresh-census-permits: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/census_building_permits.py
-	DUCKDB_PATH=$(FULL_DB) $(PY) transform/census_bp_to_fact.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_bps.ingest
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_bps.transform
 	@echo "✅ Refreshed Census BPS → $(FULL_DB)"
 
 # 🔁 BEA GDP (Quarterly) – adjust to your actual script names
