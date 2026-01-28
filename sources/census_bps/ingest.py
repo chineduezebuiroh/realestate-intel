@@ -169,13 +169,35 @@ def filter_monthly(df: pd.DataFrame) -> pd.DataFrame:
     return df_monthly
 
 
-def apply_column_map(df: pd.DataFrame) -> pd.DataFrame:
+def normalize_bps_schema(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    for logical, raw in COLUMN_MAP.items():
-        if raw not in df.columns:
-            print(f"[bps] WARNING missing column {raw!r} for {logical}; filling NA")
-            df[raw] = pd.NA
-    df = df.rename(columns={raw: logical for logical, raw in COLUMN_MAP.items()})
+
+    required = {
+        "year",
+        "month",
+        "state_fips",
+        "county_fips",
+        "place_fips",
+        "cbsa_code",
+        "units_1",
+        "units_2",
+        "units_3_4",
+        "units_5plus",
+        "bldgs_1",
+        "bldgs_2",
+        "bldgs_3_4",
+        "bldgs_5plus",
+        "value_1",
+        "value_2",
+        "value_3_4",
+        "value_5plus",
+        "location_type",
+    }
+
+    missing = required - set(df.columns)
+    if missing:
+        raise SystemExit(f"[bps] missing required columns: {sorted(missing)}")
+
     return df
 
 
@@ -460,7 +482,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     df_raw = canonicalize_columns(df_raw)
 
     # Normalize + reshape
-    df = apply_column_map(df_raw)
+    df = normalize_bps_schema(df_raw)
+
     df = add_date(df)
     #df = compute_total_units(df)
     df = compute_aggregates(df)
