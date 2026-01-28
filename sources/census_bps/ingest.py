@@ -12,6 +12,25 @@ from pathlib import Path
 from typing import Optional, List
 from urllib.parse import urljoin
 
+"""
+BPS revision handling invariant
+
+The Census Building Permits Survey republishes the same logical
+(geo_id, month) observation multiple times as additional reports arrive.
+The compiled master file therefore contains multiple rows per logical key.
+
+Deduplication rule:
+  - Primary key: (geo_id, date, measure, size_band)
+  - Prefer the observation with the latest survey_date (publication month)
+  - If tied, prefer the largest number_of_months_rep
+  - If values disagree across revisions, abort (no silent guessing)
+
+This ensures:
+  - Deterministic ingestion
+  - Preference for revised / finalized data
+  - Explicit failure on conflicting revisions
+"""
+
 # ===================================================================
 # CONFIG and CONSTANTS
 # ===================================================================
@@ -340,8 +359,13 @@ def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
         "county_fips",
         "place_fips",
         "cbsa_code",
+        "location_type",
+        "survey_date",
+        "number_of_months_rep",
+        "unique_place_id",
     ]
-    
+
+    """
     # Keep these so we can deterministically choose “the” row when the source repeats records
     for extra in ["location_type", "survey_date", "number_of_months_rep", "unique_place_id"]:
         if extra in df.columns:
@@ -349,7 +373,7 @@ def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
         else:
             if extra == "location_type":
                 print("[bps] WARNING: location_type column missing before melt; mapping may fail")
-
+    """
 
     # Value families
     units_cols = {
@@ -373,6 +397,19 @@ def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
         "value_5plus": "5plus",
         "total_value": "total",
     }
+
+    # survey_date comes as YYYYMM (int/string), not a timestamp
+    if "survey_date" in df.columns:
+        df["survey_date"] = (
+            df["survey_date"]
+            .astype(str)
+            .str.extract(r"(\d{6})")[0]
+        )
+        df["survey_date"] = pd.to_datetime(
+            df["survey_date"],
+            format="%Y%m",
+            errors="coerce"
+        )
 
     frames = []
 
@@ -555,19 +592,34 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     # Deterministic collapse: if the compiled file repeats the same logical observation,
     # pick the “best” row (prefer latest survey_date; then highest number_of_months_rep).
-    pk = ["geo_id", "date", "measure", "size_band"]
+    PK = ["geo_id", "date", "measure", "size_band"]
+
+    # Hard check: if revision dimensions are missing, abort
+    if df_geo["survey_date"].isna().all():
+        raise SystemExit("[bps] survey_date missing — cannot deterministically dedupe")
+    if df_geo["number_of_months_rep"].isna().all():
+        print("[bps][warn] number_of_months_rep missing; using survey_date only")
     
-    sort_cols = pk.copy()
-    if "survey_date" in df_geo.columns:
-        sort_cols.append("survey_date")
-    if "number_of_months_rep" in df_geo.columns:
-        sort_cols.append("number_of_months_rep")
+    # Sort by authoritative revision order
+    df_geo = df_geo.sort_values(
+        PK + ["survey_date", "number_of_months_rep"],
+        na_position="first"
+    )
     
-    before = len(df_geo)
+    # Invariant: values must agree within revision group
+    conflicts = (
+        df_geo.groupby(PK)["value"]
+        .nunique()
+        .reset_index(name="n")
+        .query("n > 1")
+    )
+    if not conflicts.empty:
+        raise SystemExit(
+            "[bps] conflicting values across revisions — refusing to guess\n"
+            f"{conflicts.head(10)}"
+        )
     
-    # sort so “best” row is last for drop_duplicates keep="last"
-    df_geo = df_geo.sort_values(sort_cols)
-    df_geo = df_geo.drop_duplicates(subset=pk, keep="last").reset_index(drop=True)
+    df_geo = df_geo.drop_duplicates(subset=PK, keep="last")
     
     dropped = before - len(df_geo)
     if dropped:
