@@ -5,18 +5,18 @@ import argparse
 import io
 import zipfile
 import re
-
-from pathlib import Path
-from typing import Optional, List
-
 import pandas as pd
 import requests
 
-# -------------------------------------------------------------------
-# CONFIG
-# -------------------------------------------------------------------
-BPS_DIR_URL = "https://www2.census.gov/econ/bps/Master%20Data%20Set/"
-BPS_ZIP_RE = r'BPS Compiled_(\d{6})\.zip'
+from pathlib import Path
+from typing import Optional, List
+from urllib.parse import urljoin
+
+# ===================================================================
+# CONFIG and CONSTANTS
+# ===================================================================
+BPS_MASTER_DIR_URL = "https://www2.census.gov/econ/bps/Master%20Data%20Set/"
+BPS_COMPILED_RE = re.compile(r"BPS(?:%20|[ _])Compiled_(\d{6})\.zip", re.IGNORECASE)
 
 GEO_MANIFEST = Path("config/geo_manifest.csv")
 
@@ -24,38 +24,6 @@ DEFAULT_ZIP_PATH = Path("data/census/bps_master_latest.zip")
 RAW_CSV_PATH = Path("data/census/bps_compiled_raw.csv")
 OUT_TIMESERIES_PATH = Path("data/census/census_bps_timeseries.csv")
 
-# Column mapping for BPS -> logical names
-"""
-COLUMN_MAP = {
-    # time
-    "year": "year",
-    "month": "month",
-
-    # geo codes
-    "state_fips": "state_code",
-    "county_fips": "fips_county_5_digits",
-    "place_fips": "fips_place_code",
-    "cbsa_code": "cbsa_code",
-
-    # units by structure size
-    "units_1": "units_1_unit",
-    "units_2": "units_2_units",
-    "units_3_4": "units_3_4_units",
-    "units_5plus": "units_5_units",
-
-    # buildings by structure size
-    "bldgs_1": "bldgs_1_unit",
-    "bldgs_2": "bldgs_2_units",
-    "bldgs_3_4": "bldgs_3_4_units",
-    "bldgs_5plus": "bldgs_5_units",
-
-    # value ($) by structure size
-    "value_1": "value_1_unit",
-    "value_2": "value_2_units",
-    "value_3_4": "value_3_4_units",
-    "value_5plus": "value_5_units",
-}
-"""
 
 REQUIRED_COLS = [
     "year", "month", "period", "location_type",
@@ -86,11 +54,41 @@ RAW_TO_CANON = {
     # etc...
 }
 
-
-
-# -------------------------------------------------------------------
+# ===================================================================
 # HELPERS
-# -------------------------------------------------------------------
+# ===================================================================
+def discover_latest_compiled_zip_url() -> str:
+    """
+    Scrape the Census 'Master Data Set' directory listing and return the newest
+    BPS Compiled_YYYYMM.zip URL.
+    """
+    print(f"[bps] discovering latest compiled ZIP from {BPS_MASTER_DIR_URL}")
+    r = requests.get(BPS_MASTER_DIR_URL, timeout=60)
+    r.raise_for_status()
+
+    html = r.text
+    matches = BPS_COMPILED_RE.findall(html)
+    if not matches:
+        raise SystemExit(
+            "[bps] could not find any BPS Compiled_YYYYMM.zip links in Master Data Set directory"
+        )
+
+    yyyymm = max(matches)  # lexicographic works for YYYYMM
+    # Prefer URL-encoded form to be safe
+    fname = f"BPS%20Compiled_{yyyymm}.zip"
+    url = urljoin(BPS_MASTER_DIR_URL, fname)
+
+    print(f"[bps] latest compiled ZIP detected: {yyyymm} → {url}")
+    return url
+
+
+def yyyymm_from_compiled_url(url: str) -> str:
+    m = re.search(r"Compiled_(\d{6})\.zip", url)
+    if not m:
+        return "latest"
+    return m.group(1)
+
+
 def canonicalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [c.strip().lower() for c in df.columns]
@@ -433,11 +431,9 @@ def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
     return df_long
 
 
-# -------------------------------------------------------------------
+# ===================================================================
 # GEO MANIFEST JOIN LOGIC
-# -------------------------------------------------------------------
-
-
+# ===================================================================
 def load_geo_manifest() -> pd.DataFrame:
     gm = pd.read_csv(GEO_MANIFEST, dtype=str)
     gm["include_census_bps"] = gm["include_census_bps"].astype(str).str.strip().isin(
@@ -495,16 +491,19 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
             print(f"[bps] matched {count} authoritative rows for {geo} ({level})")
         df.loc[mask, "geo_id"] = geo
 
+    # after the for-loop, before df = df[df["geo_id"].notna()]
+    if df["geo_id"].notna().any():
+        # if any row got assigned twice, you'd only see the last assignment; detect overlaps by counting candidates
+        pass
+
     df = df[df["geo_id"].notna()].copy()
     df = df.reset_index(drop=True)
     return df
 
 
-# -------------------------------------------------------------------
+# ===================================================================
 # MAIN
-# -------------------------------------------------------------------
-
-
+# ===================================================================
 def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="BPS ingest with Monthly-only filter and geo mapping")
     parser.add_argument("--url", default=None)
@@ -513,8 +512,17 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--out", default=str(OUT_TIMESERIES_PATH))
     args = parser.parse_args(argv)
 
-    url = args.url or resolve_latest_bps_zip_url()
-    zip_path = download_file(url, DEFAULT_ZIP_PATH, overwrite=args.force_download)
+    #url = args.url or resolve_latest_bps_zip_url()
+    #zip_path = download_file(url, DEFAULT_ZIP_PATH, overwrite=args.force_download)
+    url = args.url or discover_latest_compiled_zip_url()
+    yyyymm = yyyymm_from_compiled_url(url)
+    
+    # Cache per-month so “Using cached ZIP” can’t pin you to an old month forever.
+    zip_dest = Path(f"data/census/bps_compiled_{yyyymm}.zip")
+    
+    zip_path = download_file(url, zip_dest, overwrite=args.force_download)
+
+
     df_raw = load_first_csv_from_zip(zip_path)
 
     # Save full compiled CSV (unfiltered) for inspection
