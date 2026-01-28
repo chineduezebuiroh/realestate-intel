@@ -1,9 +1,11 @@
-# ingest/census_building_permits.py
 from __future__ import annotations
+# sources/census_bps/ingest.py
 
 import argparse
 import io
 import zipfile
+import re
+
 from pathlib import Path
 from typing import Optional, List
 
@@ -13,18 +15,17 @@ import requests
 # -------------------------------------------------------------------
 # CONFIG
 # -------------------------------------------------------------------
+BPS_DIR_URL = "https://www2.census.gov/econ/bps/Master%20Data%20Set/"
+BPS_ZIP_RE = r'BPS Compiled_(\d{6})\.zip'
 
 GEO_MANIFEST = Path("config/geo_manifest.csv")
-
-BPS_MASTER_URL_DEFAULT = (
-    "https://www2.census.gov/econ/bps/Master%20Data%20Set/BPS%20Compiled_202508.zip"
-)
 
 DEFAULT_ZIP_PATH = Path("data/census/bps_master_latest.zip")
 RAW_CSV_PATH = Path("data/census/bps_compiled_raw.csv")
 OUT_TIMESERIES_PATH = Path("data/census/census_bps_timeseries.csv")
 
 # Column mapping for BPS -> logical names
+"""
 COLUMN_MAP = {
     # time
     "year": "year",
@@ -54,11 +55,63 @@ COLUMN_MAP = {
     "value_3_4": "value_3_4_units",
     "value_5plus": "value_5_units",
 }
+"""
+
+REQUIRED_COLS = [
+    "year", "month", "period", "location_type",
+    # geo codes:
+    "state_fips", "county_fips", "place_fips", "cbsa_code",
+    # measures (examples — adjust once you confirm real headers):
+    "units_1", "units_2", "units_3_4", "units_5plus",
+    "bldgs_1", "bldgs_2", "bldgs_3_4", "bldgs_5plus",
+    "value_1", "value_2", "value_3_4", "value_5plus",
+]
+
+RAW_TO_CANON = {
+    "year": "year",
+    "yr": "year",
+    "month": "month",
+    "mo": "month",
+    "period": "period",
+    "location_type": "location_type",
+    # geo
+    "state": "state_fips",
+    "state_fips": "state_fips",
+    "county": "county_fips",
+    "county_fips": "county_fips",
+    "place": "place_fips",
+    "place_fips": "place_fips",
+    "cbsa": "cbsa_code",
+    "cbsa_code": "cbsa_code",
+    # etc...
+}
+
 
 
 # -------------------------------------------------------------------
 # HELPERS
 # -------------------------------------------------------------------
+def canonicalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [c.strip().lower() for c in df.columns]
+    rename = {c: RAW_TO_CANON[c] for c in df.columns if c in RAW_TO_CANON}
+    df = df.rename(columns=rename)
+
+    missing = [c for c in ["year","month","period","location_type"] if c not in df.columns]
+    if missing:
+        raise SystemExit(f"[bps] Missing required columns after mapping: {missing}. "
+                         f"Available columns: {sorted(df.columns)[:60]}...")
+
+    return df
+
+
+def resolve_latest_bps_zip_url() -> str:
+    html = requests.get(BPS_DIR_URL, timeout=60).text
+    matches = re.findall(BPS_ZIP_RE, html)
+    if not matches:
+        raise SystemExit("[bps] Could not find any 'BPS Compiled_YYYYMM.zip' in directory listing")
+    yyyymm = sorted(matches)[-1]
+    return BPS_DIR_URL + f"BPS%20Compiled_{yyyymm}.zip"
 
 
 def download_file(url: str, dest: Path, overwrite: bool = False) -> Path:
@@ -105,7 +158,9 @@ def filter_monthly(df: pd.DataFrame) -> pd.DataFrame:
     print("[bps] period value counts BEFORE filter:")
     print(vc.head(10))
 
-    monthly_mask = df["period"].str.lower() == "monthly"
+    p = df["period"].astype(str).str.strip().str.lower()
+    monthly_mask = (p == "monthly")
+
     df_monthly = df[monthly_mask].copy()
 
     print(f"[bps] Kept {len(df_monthly):,} Monthly rows; "
@@ -318,10 +373,10 @@ def reshape_long(df: pd.DataFrame) -> pd.DataFrame:
 
 def load_geo_manifest() -> pd.DataFrame:
     gm = pd.read_csv(GEO_MANIFEST, dtype=str)
-    gm["include_census"] = gm["include_census"].astype(str).str.strip().isin(
+    gm["include_census_bps"] = gm["include_census_bps"].astype(str).str.strip().isin(
         ["1", "true", "True", "Y", "y"]
     )
-    gm = gm[gm["include_census"]]
+    gm = gm[gm["include_census_bps"]]
     gm["level"] = gm["level"].str.lower().str.strip()
     gm["census_code"] = gm["census_code"].str.strip()
     return gm
@@ -385,12 +440,14 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
 
 def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="BPS ingest with Monthly-only filter and geo mapping")
-    parser.add_argument("--url", default=BPS_MASTER_URL_DEFAULT)
+    parser.add_argument("--url", default=None)
+
     parser.add_argument("--force-download", action="store_true")
     parser.add_argument("--out", default=str(OUT_TIMESERIES_PATH))
     args = parser.parse_args(argv)
 
-    zip_path = download_file(args.url, DEFAULT_ZIP_PATH, overwrite=args.force_download)
+    url = args.url or resolve_latest_bps_zip_url()
+    zip_path = download_file(url, DEFAULT_ZIP_PATH, overwrite=args.force_download)
     df_raw = load_first_csv_from_zip(zip_path)
 
     # Save full compiled CSV (unfiltered) for inspection
@@ -400,6 +457,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     # 🔑 Filter to Monthly only
     df_raw = filter_monthly(df_raw)
+    df_raw = canonicalize_columns(df_raw)
 
     # Normalize + reshape
     df = apply_column_map(df_raw)
