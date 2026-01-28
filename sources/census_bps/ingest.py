@@ -548,6 +548,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     gm = load_geo_manifest()
     df_geo = map_bps_to_geo(df_long, gm)
 
+    # --- DEBUG: write pre-collapse snapshot ---
+    DEBUG_PRE = Path("data/census/census_bps_timeseries_pre_collapse.csv")
+    df_geo.to_csv(DEBUG_PRE, index=False)
+    print(f"[bps][debug] wrote PRE-collapse snapshot → {DEBUG_PRE} ({len(df_geo):,} rows)")
+
     # Deterministic collapse: if the compiled file repeats the same logical observation,
     # pick the “best” row (prefer latest survey_date; then highest number_of_months_rep).
     pk = ["geo_id", "date", "measure", "size_band"]
