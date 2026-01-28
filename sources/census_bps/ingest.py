@@ -103,15 +103,6 @@ def canonicalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def resolve_latest_bps_zip_url() -> str:
-    html = requests.get(BPS_DIR_URL, timeout=60).text
-    matches = re.findall(BPS_ZIP_RE, html)
-    if not matches:
-        raise SystemExit("[bps] Could not find any 'BPS Compiled_YYYYMM.zip' in directory listing")
-    yyyymm = sorted(matches)[-1]
-    return BPS_DIR_URL + f"BPS%20Compiled_{yyyymm}.zip"
-
-
 def download_file(url: str, dest: Path, overwrite: bool = False) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and not overwrite:
@@ -512,8 +503,6 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--out", default=str(OUT_TIMESERIES_PATH))
     args = parser.parse_args(argv)
 
-    #url = args.url or resolve_latest_bps_zip_url()
-    #zip_path = download_file(url, DEFAULT_ZIP_PATH, overwrite=args.force_download)
     url = args.url or discover_latest_compiled_zip_url()
     yyyymm = yyyymm_from_compiled_url(url)
     
