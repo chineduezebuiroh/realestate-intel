@@ -191,26 +191,63 @@ def ensure_fact_table(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def insert_into_fact(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
-    # Clear existing BPS rows (all metrics)
-    con.register("bps_stage", df[["geo_id","metric_id","date","property_type_id","value","source_id","property_type"]])
-    
-    con.execute("""
-    DELETE FROM fact_timeseries f
-    WHERE EXISTS (
-      SELECT 1 FROM bps_stage s
-      WHERE s.geo_id=f.geo_id AND s.metric_id=f.metric_id
-        AND CAST(s.date AS DATE)=f.date AND s.property_type_id=f.property_type_id
+    if df.empty:
+        print("[bps:transform] no rows to insert")
+        return
+
+    # Normalize key fields to avoid whitespace variants creating “fake” uniqueness
+    for c in ["geo_id", "metric_id", "property_type_id", "source_id"]:
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+
+    # Ensure date is a real date (not string)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df = df[df["date"].notna()].copy()
+
+    # Deterministic dedupe on the fact PK
+    pk = ["geo_id", "metric_id", "date", "property_type_id"]
+    before = len(df)
+    df = (
+        df.sort_values(pk)
+          .drop_duplicates(subset=pk, keep="last")
     )
-    """)
-    
+    dropped = before - len(df)
+    if dropped:
+        print(f"[bps:transform] dropped {dropped} duplicate staging rows on PK")
+
+    con.register("bps_stage", df)
+
+    # KEY CHANGE: delete existing rows for the same PK keys (regardless of source_id)
     con.execute("""
-    INSERT INTO fact_timeseries(geo_id,metric_id,date,property_type_id,value,source_id,property_type)
-    SELECT geo_id,metric_id,CAST(date AS DATE),property_type_id,CAST(value AS DOUBLE),source_id,property_type
-    FROM bps_stage
+        DELETE FROM fact_timeseries f
+        WHERE EXISTS (
+            SELECT 1
+            FROM bps_stage s
+            WHERE s.geo_id = f.geo_id
+              AND s.metric_id = f.metric_id
+              AND CAST(s.date AS DATE) = f.date
+              AND s.property_type_id = f.property_type_id
+        )
+    """)
+    print("[bps:transform] cleared existing rows for staged keys (any source_id)")
+
+    con.execute("""
+        INSERT INTO fact_timeseries (
+            geo_id, metric_id, date, value, source_id, property_type_id, property_type
+        )
+        SELECT
+            geo_id,
+            metric_id,
+            CAST(date AS DATE),
+            value,
+            source_id,
+            property_type_id,
+            property_type
+        FROM bps_stage
     """)
 
-    print("[bps:transform] cleared existing rows for staged keys (any source_id)")
-    print(f"[bps → fact] inserted {len(df):,} rows into fact_timeseries")
+    con.unregister("bps_stage")
+    print(f"[bps:transform] inserted {len(df):,} rows into fact_timeseries")
 
 
 def main(argv: Optional[List[str]] = None) -> None:
