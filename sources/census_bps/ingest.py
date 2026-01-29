@@ -575,6 +575,14 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     # 🔑 Filter to Monthly only
     df_raw = filter_monthly(df_raw)
+    for c in ["survey_date", "number_of_months_rep"]:
+        if c in df_raw.columns:
+            s = df_raw[c]
+            print(f"[bps][diag] {c}: non-null={s.notna().mean():.4f} unique_non_null={s.dropna().nunique()}")
+            print(s.dropna().astype(str).head(5).to_list())
+        else:
+            print(f"[bps][diag] {c}: MISSING from df_raw")
+
     df_raw = canonicalize_columns(df_raw)
 
     # Normalize + reshape
@@ -606,43 +614,33 @@ def main(argv: Optional[List[str]] = None) -> None:
     print(f"[bps][debug] wrote PRE-collapse snapshot → {DEBUG_PRE} ({len(df_geo):,} rows)")
 
     # Deterministic collapse: if the compiled file repeats the same logical observation,
-    # pick the “best” row (prefer latest survey_date; then highest number_of_months_rep).
     PK = ["geo_id", "date", "measure", "size_band"]
 
-    before = len(df_geo)
-
-    # Hard check: if revision dimensions are missing, abort
-    if df_geo["survey_date"].isna().all():
-        raise SystemExit("[bps] survey_date missing — cannot deterministically dedupe")
-    if df_geo["number_of_months_rep"].isna().all():
-        print("[bps][warn] number_of_months_rep missing; using survey_date only")
-    
-    # Sort by authoritative revision order
-    df_geo = df_geo.sort_values(
-        PK + ["survey_date", "number_of_months_rep"],
-        na_position="first"
-    )
-    
-    # Invariant: values must agree within revision group
+    # Invariant: within a logical observation, the numeric value must not conflict.
     conflicts = (
-        df_geo.groupby(PK)["value"]
-        .nunique()
-        .reset_index(name="n")
-        .query("n > 1")
+        df_geo.groupby(PK, dropna=False)["value"]
+              .nunique()
+              .reset_index(name="n")
+              .query("n > 1")
     )
     if not conflicts.empty:
         raise SystemExit(
-            "[bps] conflicting values across revisions — refusing to guess\n"
-            f"{conflicts.head(10)}"
+            "[bps] conflicting values for same logical PK — refusing to guess.\n"
+            f"{conflicts.head(25).to_string(index=False)}"
         )
-    
-    df_geo = df_geo.drop_duplicates(subset=PK, keep="last")
-    
-    after = len(df_geo)
-    dropped = before - after
 
+    # Deterministic dedupe for compiled: if duplicates exist, they must be exact duplicates.
+    before = len(df_geo)
+
+    # stable ordering
+    df_geo = df_geo.sort_values(PK, kind="mergesort")
+
+    # drop exact duplicate logical observations (even if provenance cols are missing/NaN)
+    df_geo = df_geo.drop_duplicates(subset=PK, keep="first")
+
+    dropped = before - len(df_geo)
     if dropped:
-        print(f"[bps] dropped {dropped} duplicate rows on logical PK {PK} (kept best by survey_date/number_of_months_rep)")
+        print(f"[bps] dropped {dropped} duplicate rows on logical PK {PK} (exact duplicates)")
 
 
     out_path = Path(args.out)
