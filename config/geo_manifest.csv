@@ -1,5 +1,9 @@
 geo_id,level,geo_name,bls_ces_area_code,include_ces,bls_laus_area_code,include_laus,redfin_code,include_redfin,census_code,include_census,include_census_bps,bea_geo_fips,include_bea_qgdp,fred_unemp_series_id,include_fred_unemp,fred_geo_code,include_fred
 us_nation,nation,United States of America (USA),0000000,1,,0,1400,1,00,1,1,00000,1,UNRATE,1,US,1
+us_region_northeast,region,"U.S. Census Region: Northeast",,0,,0,,0,,0,0,,0,,0,,0
+us_region_midwest,region,"U.S. Census Region: Midwest",,0,,0,,0,,0,0,0,,0,,0,,0
+us_region_south,region,"U.S. Census Region: South",,0,,0,,0,,0,0,0,,0,,0,,0
+us_region_west,region,"U.S. Census Region: West",,0,,0,,0,,0,0,0,,0,,0,,0
 dc_state,state,District of Columbia,1100000,1,1100000000000,1,17,1,11,1,1,11000,1,DCUR,1,,
 md_state,state,Maryland,2400000,1,2400000000000,1,43,1,24,1,1,24000,1,MDUR,1,,
 va_state,state,Virginia,5100000,1,5100000000000,1,42,1,51,1,1,51000,1,VAUR,1,,
@@ -29,6 +33,7 @@ cleveland_park_dc,neighborhood,"Washington, DC - Cleveland Park",,0,,,18558,1,,,
 20019_dc,zip_code,Zip Code: 20019,,0,,,7764,1,,,,,,,,,
 20020_dc,zip_code,Zip Code: 20020,,0,,,7765,1,,,,,,,,,
 20016_dc,zip_code,Zip Code: 20016,,0,,,7761,1,,,,,,,,,
+
 
 
 
