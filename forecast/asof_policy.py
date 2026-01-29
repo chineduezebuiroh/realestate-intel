@@ -29,7 +29,13 @@ def load_source_max_dates(
 ) -> Dict[str, date]:
     """
     Return {source_id: max(date)} for sources relevant to this run.
-    If feature_specs is None or has no source_id, returns max dates for ALL sources.
+
+    Resolution rules:
+      - If feature_specs contains source_id, we use those.
+      - If target has source_id, we include it.
+      - If we cannot determine any source_ids, we REFUSE (raise) rather than
+        accidentally computing from ALL sources, which would incorrectly
+        truncate global_asof due to unrelated stale sources.
     """
     sources = set()
     if feature_specs:
@@ -156,18 +162,22 @@ def resolve_asof(
     return AsOfResolution(global_asof=global_asof, asof_by_source=asof_by_source)
 
 
-
 def resolve_targetspec_asof(
     con: duckdb.DuckDBPyConnection,
     *,
     exog_source_ids: list[str],
     policy: AsOfPolicy,
     explicit_data_asof: Optional[date] = None,
+    target_source_id: Optional[str] = None,
 ) -> AsOfResolution:
-    source_max_dates = get_source_max_dates(con, source_ids=exog_source_ids)
+    source_ids = list(exog_source_ids or [])
+    if target_source_id:
+        source_ids.append(target_source_id)
+    source_ids = sorted({s for s in source_ids if s})
+
+    source_max_dates = get_source_max_dates(con, source_ids=source_ids)
     asof_res = resolve_asof(policy, source_max_dates)
 
-    # explicit CLI/user value wins
     if explicit_data_asof is not None:
         return AsOfResolution(global_asof=explicit_data_asof, asof_by_source=asof_res.asof_by_source)
 
