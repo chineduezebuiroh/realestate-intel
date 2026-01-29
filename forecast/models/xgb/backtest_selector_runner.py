@@ -100,6 +100,9 @@ def run_xgb_selector(
         print("[xgb_selector] No candidate features; skipping.")
         return
 
+    nrc_count = sum(1 for s in candidate_specs if (s.source_id or "").lower() == "census_nrc_fred")
+    print("[xgb_selector] nrc_candidate_count =", nrc_count)
+
     # --- debug: what redfin metric_ids even exist in candidates? ---
     redfin_mids = sorted({s.metric_id for s in candidate_specs if (s.source_id or "").lower() == "redfin"})
     print("[xgb_selector] unique_redfin_metric_ids (count) =", len(redfin_mids))
