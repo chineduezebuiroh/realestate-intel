@@ -185,3 +185,24 @@ NOT YET refreshed (planned next):
 - Construction completions (NEW source; not yet integrated)
 
 Selector behavior and feature diversity are expected to change materially after these land.
+
+
+### Census – New Residential Construction (via FRED)
+
+Source: census_nrc_fred
+Metrics:
+- census_housing_starts_total_saar
+- census_housing_completions_total_saar
+
+Geographies:
+- us_nation
+- us_region_northeast
+- us_region_midwest
+- us_region_south
+- us_region_west
+
+Notes:
+- Region-level only (Census publishes starts/completions at national + region granularity)
+- Intended as macro supply-cycle features
+- Paired with local BPS permits for sub-state signal
+- Freshness governed by global as_of policy; lag acceptable for exogenous use
