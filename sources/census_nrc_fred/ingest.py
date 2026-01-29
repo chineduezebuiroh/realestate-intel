@@ -33,10 +33,10 @@ SERIES = [
     # We start with national completions now, then we can add region completions once you confirm the IDs.
     ("us_nation", "census_housing_completions_total_saar", "COMPUTSA"),
     # --- completions (SAAR) ---
-    {"series_id": "COMPUNETSA", "geo_id": "us_region_northeast", "metric_id": "census_housing_completions_total_saar"},
-    {"series_id": "COMPUMWTSA", "geo_id": "us_region_midwest",   "metric_id": "census_housing_completions_total_saar"},
-    {"series_id": "COMPUSTSA",  "geo_id": "us_region_south",     "metric_id": "census_housing_completions_total_saar"},
-    {"series_id": "COMPUWTSA",  "geo_id": "us_region_west",      "metric_id": "census_housing_completions_total_saar"},
+    ("us_region_northeast", "census_housing_completions_total_saar", "COMPUNETSA"),
+    ("us_region_midwest",   "census_housing_completions_total_saar", "COMPUMWTSA"),
+    ("us_region_south",     "census_housing_completions_total_saar", "COMPUSTSA"),
+    ("us_region_west",      "census_housing_completions_total_saar", "COMPUWTSA"),
 ]
 
 
@@ -94,6 +94,12 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     rows = []
     for geo_id, metric_id, series_id in SERIES:
+    for item in SERIES:
+        if not (isinstance(item, tuple) and len(item) == 3):
+            raise SystemExit(f"[nrc_fred] SERIES entries must be (geo_id, metric_id, series_id) tuples. Bad item: {item!r}")
+        
+        geo_id, metric_id, series_id = item
+        
         print(f"[nrc_fred] fetching {series_id} → geo_id={geo_id} metric_id={metric_id}")
         df = fetch_fred_series(series_id)
         df["geo_id"] = geo_id
