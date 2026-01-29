@@ -93,7 +93,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = parser.parse_args(argv)
 
     rows = []
-    for geo_id, metric_id, series_id in SERIES:
+    #for geo_id, metric_id, series_id in SERIES:
     for item in SERIES:
         if not (isinstance(item, tuple) and len(item) == 3):
             raise SystemExit(f"[nrc_fred] SERIES entries must be (geo_id, metric_id, series_id) tuples. Bad item: {item!r}")
