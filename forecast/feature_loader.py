@@ -16,6 +16,22 @@ from forecast.asof import normalize_month_end  # add import near top
 from forecast.metric_tiers import canon_geo_id
 
 
+NRC_SOURCE_ID = "census_nrc_fred"
+NRC_PT = "all"
+
+NRC_GEOS = [
+    "us_nation",
+    "us_region_northeast",
+    "us_region_midwest",
+    "us_region_south",
+    "us_region_west",
+]
+
+NRC_METRICS = [
+    "census_housing_starts_total_saar",
+    "census_housing_completions_total_saar",
+]
+
 # ====================================================================
 # Shared types
 # ====================================================================
@@ -771,5 +787,34 @@ def build_universal_feature_specs(
                 lags=tuple(lag_scheme),
             )
         )
+
+    # ------------------------------------------------------------
+    # Always include NRC (Census new residential construction via FRED)
+    # These are macro series (not property-type specific) -> PT = "all"
+    # ------------------------------------------------------------
+    for geo in NRC_GEOS:
+        for mid in NRC_METRICS:
+            specs.append(
+                FeatureSpec(
+                    name=f"{mid}__{geo}__{NRC_PT}__{NRC_SOURCE_ID}",
+                    metric_id=mid,
+                    geo_id=geo,
+                    property_type_id=NRC_PT,
+                    source_id=NRC_SOURCE_ID,
+                    category="census",
+                    frequency="monthly",
+                )
+            )
+
+    # deterministic dedupe on base-series identity
+    seen = set()
+    out = []
+    for s in specs:
+        k = (s.metric_id, s.geo_id, str(s.property_type_id), str(s.source_id))
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(s)
+    specs = out
 
     return specs
