@@ -240,6 +240,12 @@ refresh-census-permits: venv refresh-census-permits-compiled refresh-census-perm
 	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_bps.merge_view
 	@echo "✅ Refreshed Census BPS (compiled+provisional, merge view) → $(FULL_DB)"
 
+# 🔁 Census NRC Construction Starts and Completions (NRC)
+refresh-census-nrc: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_nrc_fred.ingest
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_nrc_fred.transform
+	@echo "✅ Refreshed NRC (Starts/Completions via FRED) → $(FULL_DB)"
+
 
 # 🔁 BEA GDP (Quarterly) – adjust to your actual script names
 refresh-bea: venv
