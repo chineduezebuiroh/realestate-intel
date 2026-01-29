@@ -42,6 +42,31 @@ def fetch_fred_series(series_id: str) -> pd.DataFrame:
 
     # fredgraph.csv has columns: DATE, <SERIES_ID>
     df = pd.read_csv(pd.io.common.StringIO(r.text))
+
+    # ---- normalize FRED schema to {date, value} ----
+    df = df.copy()
+    
+    # date col
+    if "observation_date" in df.columns and "date" not in df.columns:
+        df = df.rename(columns={"observation_date": "date"})
+    
+    # value col (FRED often returns the series_id as the column name, e.g. "HOUST")
+    if "value" not in df.columns:
+        if series_id in df.columns:
+            df = df.rename(columns={series_id: "value"})
+        elif len([c for c in df.columns if c not in {"date"}]) == 1:
+            # fallback: only one non-date column, treat it as value
+            val_col = [c for c in df.columns if c != "date"][0]
+            df = df.rename(columns={val_col: "value"})
+        else:
+            raise SystemExit(f"[nrc_fred] cannot identify value column for {series_id}: {df.columns.tolist()}")
+    
+    # parse types (FRED can use "." for missing)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["value"] = pd.to_numeric(df["value"].replace(".", pd.NA), errors="coerce")
+    
+    df = df[df["date"].notna()].copy()
+
     df.columns = [c.strip() for c in df.columns]
     if "DATE" not in df.columns or series_id not in df.columns:
         raise SystemExit(f"[nrc_fred] unexpected schema for {series_id}: {df.columns.tolist()}")
