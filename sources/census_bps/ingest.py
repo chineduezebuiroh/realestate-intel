@@ -613,7 +613,47 @@ def main(argv: Optional[List[str]] = None) -> None:
     df_geo.to_csv(DEBUG_PRE, index=False)
     print(f"[bps][debug] wrote PRE-collapse snapshot → {DEBUG_PRE} ({len(df_geo):,} rows)")
 
-    # Deterministic collapse: if the compiled file repeats the same logical observation,
+    
+    # --- Invariants: duplicates + conflicts before collapse ---
+    PK = ["geo_id", "date", "measure", "size_band"]
+
+    # count duplicate keys (extra rows beyond the first per key)
+    dup_key_rows = int(df_geo.duplicated(subset=PK, keep="first").sum())
+
+    # count keys where duplicate rows disagree on value (this should be 0; if not, abort below)
+    conflict_keys = (
+        df_geo.groupby(PK, dropna=False)["value"]
+        .nunique()
+        .reset_index(name="n_unique_values")
+        .query("n_unique_values > 1")
+    )
+    n_conflict_keys = int(len(conflict_keys))
+
+    print(
+        "[bps][inv] pre-collapse: "
+        f"rows={len(df_geo):,} "
+        f"dup_key_extra_rows={dup_key_rows:,} "
+        f"conflict_keys={n_conflict_keys:,}"
+    )
+
+    # If you ever hit this, it means the export duplicates disagree on value.
+    # That is not something we guess about.
+    if n_conflict_keys:
+        print("[bps][inv] sample conflict keys (up to 25):")
+        print(conflict_keys.head(25).to_string(index=False))
+        raise SystemExit("[bps] conflicting values across duplicate keys — aborting")
+
+    """
+    Compiled BPS export duplication rule (non-negotiable):
+
+    The Census "BPS Compiled" master exports may contain *exact duplicate rows* for the same
+    logical observation key (geo_id, date, measure, size_band). This appears to be an export
+    duplication artifact, not a revision dimension we can reliably select between.
+
+    Policy:
+      1) If duplicates exist and their values disagree -> ABORT (we do not guess).
+      2) If duplicates exist and values are identical -> KEEP ONE ROW deterministically.
+    """
     PK = ["geo_id", "date", "measure", "size_band"]
 
     # Invariant: within a logical observation, the numeric value must not conflict.
