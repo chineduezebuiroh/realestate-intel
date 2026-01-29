@@ -224,11 +224,22 @@ refresh-census-acs: venv
 	@echo "✅ Refreshed Census ACS → $(FULL_DB)"
 
 
-# 🔁 Census Building Permits (BPS) – adjust names if needed
-refresh-census-permits: venv
+# 🔁 Census Building Permits (BPS)
+refresh-census-permits-compiled: venv
 	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_bps.ingest
 	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_bps.transform
-	@echo "✅ Refreshed Census BPS → $(FULL_DB)"
+	@echo "✅ Refreshed Census BPS (compiled) → $(FULL_DB)"
+
+refresh-census-permits-provisional: venv
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_bps_provisional.ingest
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_bps_provisional.transform
+	@echo "✅ Refreshed Census BPS (provisional) → $(FULL_DB)"
+
+# Composite: refresh both + rebuild merge view
+refresh-census-permits: venv refresh-census-permits-compiled refresh-census-permits-provisional
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_bps.merge_view
+	@echo "✅ Refreshed Census BPS (compiled+provisional, merge view) → $(FULL_DB)"
+
 
 # 🔁 BEA GDP (Quarterly) – adjust to your actual script names
 refresh-bea: venv
