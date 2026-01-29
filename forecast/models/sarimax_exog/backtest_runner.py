@@ -170,20 +170,22 @@ def run_backtest_sarimax_exog_single(
         
         def _lag_from_feature_id(fid: str) -> int:
             return int(fid.rsplit("_lag", 1)[1])
-        
+
         def _choose_single_lag_per_base(feature_ids_in: list[str]) -> list[str]:
             """
             Keep only one lag-level feature per base series.
-            Deterministic rule: keep the smallest lag (can change later if you prefer rank-based).
+            Deterministic rule: keep the highest-ranked lag (first occurrence in the ordered list).
             """
-            best: dict[str, tuple[str, int]] = {}
-            for fid in feature_ids_in:
+            seen = set()
+            out = []
+            for fid in feature_ids_in:   # assumes incoming list is ranked best->worst
                 base = _base_id_from_feature_id(fid)
-                lag = _lag_from_feature_id(fid)
-                if base not in best or lag < best[base][1]:
-                    best[base] = (fid, lag)
-            return [v[0] for v in best.values()]
-        
+                if base in seen:
+                    continue
+                seen.add(base)
+                out.append(fid)
+            return out
+
         # IMPORTANT: dedupe base-series before any SARIMAX exog work
         feature_ids = _choose_single_lag_per_base(list(feature_ids))
         
