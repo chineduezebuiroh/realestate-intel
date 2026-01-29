@@ -149,6 +149,15 @@ def resolve_asof(
     else:
         global_asof = None
 
+    if source_max_dates and global_asof is not None:
+        # Deterministic constraint explanation: which source forced the min?
+        limiting = sorted(
+            [(sid, d) for sid, d in source_max_dates.items() if d == global_asof],
+            key=lambda x: x[0],
+        )
+        print(f"[asof_policy] global_asof={global_asof} constrained_by={limiting}")
+
+
     if policy == "global_min":
         return AsOfResolution(global_asof=global_asof, asof_by_source={})
 
