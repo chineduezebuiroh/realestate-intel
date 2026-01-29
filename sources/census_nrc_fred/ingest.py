@@ -32,6 +32,11 @@ SERIES = [
     # NOTE: FRED has region completions too, but IDs are not as universally remembered as starts.
     # We start with national completions now, then we can add region completions once you confirm the IDs.
     ("us_nation", "census_housing_completions_total_saar", "COMPUTSA"),
+    # --- completions (SAAR) ---
+    {"series_id": "COMPUNETSA", "geo_id": "us_region_northeast", "metric_id": "census_housing_completions_total_saar"},
+    {"series_id": "COMPUMWTSA", "geo_id": "us_region_midwest",   "metric_id": "census_housing_completions_total_saar"},
+    {"series_id": "COMPUSTSA",  "geo_id": "us_region_south",     "metric_id": "census_housing_completions_total_saar"},
+    {"series_id": "COMPUWTSA",  "geo_id": "us_region_west",      "metric_id": "census_housing_completions_total_saar"},
 ]
 
 
