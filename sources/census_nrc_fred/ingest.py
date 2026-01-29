@@ -45,37 +45,40 @@ def fetch_fred_series(series_id: str) -> pd.DataFrame:
 
     # ---- normalize FRED schema to {date, value} ----
     df = df.copy()
-    
-    # date col
+    df.columns = [c.strip() for c in df.columns]  # normalize whitespace early
+
+    # date col (fredgraph typically uses DATE)
+    if "DATE" in df.columns and "date" not in df.columns:
+        df = df.rename(columns={"DATE": "date"})
     if "observation_date" in df.columns and "date" not in df.columns:
         df = df.rename(columns={"observation_date": "date"})
-    
-    # value col (FRED often returns the series_id as the column name, e.g. "HOUST")
+
+    # value col (fredgraph typically uses the series_id)
     if "value" not in df.columns:
         if series_id in df.columns:
             df = df.rename(columns={series_id: "value"})
-        elif len([c for c in df.columns if c not in {"date"}]) == 1:
-            # fallback: only one non-date column, treat it as value
-            val_col = [c for c in df.columns if c != "date"][0]
-            df = df.rename(columns={val_col: "value"})
         else:
-            raise SystemExit(f"[nrc_fred] cannot identify value column for {series_id}: {df.columns.tolist()}")
-    
+            non_date = [c for c in df.columns if c != "date"]
+            if len(non_date) == 1:
+                df = df.rename(columns={non_date[0]: "value"})
+            else:
+                raise SystemExit(
+                    f"[nrc_fred] cannot identify value column for {series_id}: {df.columns.tolist()}"
+                )
+
     # parse types (FRED can use "." for missing)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["value"] = pd.to_numeric(df["value"].replace(".", pd.NA), errors="coerce")
-    
-    df = df[df["date"].notna()].copy()
 
-    df.columns = [c.strip() for c in df.columns]
-    if "DATE" not in df.columns or series_id not in df.columns:
-        raise SystemExit(f"[nrc_fred] unexpected schema for {series_id}: {df.columns.tolist()}")
-
-    df = df.rename(columns={"DATE": "date", series_id: "value"})
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
     df = df[df["date"].notna()].copy()
     df = df[df["value"].notna()].copy()
+
+    # hard invariant: output must be exactly {date, value} (+ maybe extras if you add them later)
+    expected = ["date", "value"]
+    got = list(df.columns)
+    if got[:2] != expected:
+        raise SystemExit(f"[nrc_fred] unexpected schema for {series_id}: {got}")
+
     return df
 
 
