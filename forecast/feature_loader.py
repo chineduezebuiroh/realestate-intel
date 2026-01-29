@@ -775,6 +775,8 @@ def build_universal_feature_specs(
     # governed rows: (metric_id, geo_id, pt_id, source_id, category, frequency, coverage_ratio, n_overlap)
     specs: List[FeatureSpec] = []
     for metric_id, geo_id, pt_id, source_id, cat, freq, cov, n_overlap in governed:
+        if (source_id or "").lower() == NRC_SOURCE_ID:
+            pt_id = NRC_PT
         specs.append(
             FeatureSpec(
                 name=f"{metric_id}__{geo_id}__{pt_id}__{source_id}",
@@ -803,6 +805,7 @@ def build_universal_feature_specs(
                     source_id=NRC_SOURCE_ID,
                     category="census",
                     frequency="monthly",
+                    lags=tuple(lag_scheme),   # ✅ critical
                 )
             )
 
@@ -816,5 +819,8 @@ def build_universal_feature_specs(
         seen.add(k)
         out.append(s)
     specs = out
+
+    nrc = [s for s in specs if (s.source_id or "").lower() == NRC_SOURCE_ID]
+    print(f"[governance] nrc_candidates={len(nrc)} example={[(s.metric_id, s.geo_id, s.property_type_id) for s in nrc[:3]]}")
 
     return specs
