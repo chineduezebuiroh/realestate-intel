@@ -343,7 +343,16 @@ def run_sarimax_exog(
     
             # 4) Convert lag-level ids -> FeatureSpecs (base series + lags)
             selected_specs = specs_from_selected_feature_ids(feature_ids)
-    
+
+            # HARD INVARIANT: feature specs must carry source_id so as-of is computed from the right set.
+            missing_sid = [s for s in selected_specs if not getattr(s, "source_id", None)]
+            if missing_sid:
+                sample = missing_sid[:5]
+                raise SystemExit(
+                    f"[sarimax_exog][asof] selected_specs missing source_id for {len(missing_sid)} specs; "
+                    f"cannot resolve asof safely. Sample metric_ids={[getattr(x,'metric_id',None) for x in sample]}"
+                )
+
             # 5) Dedupe base series so we don't load/forecast the same base series repeatedly
             seen = set()
             deduped_specs = []
@@ -359,8 +368,15 @@ def run_sarimax_exog(
             # Resolve data_asof AFTER we know the sources
             # --------------------------------------------            
             source_max_dates = load_source_max_dates(con, target=target, feature_specs=selected_specs)
-            res = resolve_asof("global_min", source_max_dates)
-            
+            #res = resolve_asof("global_min", source_max_dates)
+            asof_policy: AsOfPolicy = "global_min"   # TODO: wire from config/policy object
+            res = resolve_asof(asof_policy, source_max_dates)
+
+            # Diagnostic: prove which sources are constraining global_min
+            print(f"[sarimax_exog][asof] policy=global_min sources_used={sorted(source_max_dates.keys())}")
+            print(f"[sarimax_exog][asof] source_max_dates={ {k: str(v) for k, v in sorted(source_max_dates.items())} }")
+            print(f"[sarimax_exog][asof] resolved_global_asof={res.global_asof}")
+
             # clamp requested_asof (target.data_asof) to availability (res.global_asof)
             requested = target.data_asof
             global_max = res.global_asof
