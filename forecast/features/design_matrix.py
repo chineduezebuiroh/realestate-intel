@@ -8,11 +8,11 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from .backtest_utils import month_end_index, month_ends_after
+from forecast.core.backtest_utils import month_end_index, month_ends_after
 from .feature_loader import FeatureSpec, TargetSpec, load_series_from_fact, load_series_from_fact_with_source
 
 from .exog_forecast import forecast_exog_seasonal_naive
-from .asof_policy import get_source_max_dates, resolve_asof
+from forecast.core.asof_policy import get_source_max_dates, resolve_asof
 
 # ================================================================
 # Helpers
