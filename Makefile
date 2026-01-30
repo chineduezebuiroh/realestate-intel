@@ -115,8 +115,8 @@ forecast_dc: venv
 
 
 
-forecast_sarimax_batch:
-	python -m forecast.run_sarimax_batch
+#forecast_sarimax_batch:
+	#python -m forecast.run_sarimax_batch
 
 
 
