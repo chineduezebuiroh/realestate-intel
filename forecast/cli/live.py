@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
 
-    from forecast.run_sarimax_batch import main as legacy_main
+    from forecast.legacy.run_sarimax_batch import main as legacy_main
     return int(legacy_main())
 
 if __name__ == "__main__":
