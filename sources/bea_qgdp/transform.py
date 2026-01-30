@@ -16,7 +16,7 @@ import pandas as pd
 from core.db import connect  # you said this DEFINITELY exists
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 RAW_PATH = REPO_ROOT / "data" / "bea" / "bea_qgdp_raw_long.csv"
 
 
