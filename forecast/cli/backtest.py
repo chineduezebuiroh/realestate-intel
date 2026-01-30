@@ -33,7 +33,8 @@ def main(argv: list[str] | None = None) -> int:
             "If you really intend to run legacy orchestration, pass --legacy_ok."
         )
 
-    from forecast.run_backtest_batch import main as legacy_main
+    from forecast.legacy.run_backtest_batch import main as legacy_main
+    
     return int(legacy_main())
 
 
