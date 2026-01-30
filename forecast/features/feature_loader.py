@@ -613,3 +613,21 @@ def build_universal_feature_specs(
     print(f"[governance] nrc_candidates={len(nrc)} example={[(s.metric_id, s.geo_id, s.property_type_id) for s in nrc[:3]]}")
 
     return specs
+
+
+__all__ = [
+    "TargetSpec",
+    "FeatureSpec",
+    "get_connection",
+    "load_series_from_fact",
+    "load_series_from_fact_with_source",
+    "parse_feature_id_to_spec",
+    "parse_feature_id",
+    "parse_base_name",
+    "specs_from_selected_feature_ids",
+    "build_design_matrix",
+    "build_design_matrix_incremental",
+    "discover_all_series_for_target",
+    "build_universal_feature_specs",
+]
+
