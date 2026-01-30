@@ -182,70 +182,6 @@ def load_bea_geo_targets() -> Dict[str, Tuple[str, str]]:
             out[code] = (geo_id, name)
     return out
 
-"""
-def ensure_dims(con: duckdb.DuckDBPyConnection, metrics_meta: Dict[str, Dict[str, str]]):
-"""
-"""
-    Ensure dim_source and dim_metric have entries for BEA GDP metrics.
-    metrics_meta: dict[metric_id] -> {name, frequency, unit, category}
-"""
-"""
-    # Source (idempotent)
-    con.execute(
-"""
-"""
-    CREATE TABLE IF NOT EXISTS dim_source(
-      source_id TEXT PRIMARY KEY,
-      name TEXT,
-      url TEXT,
-      cadence TEXT,
-      license TEXT
-    );
-"""#)
-"""
-    con.execute(
-"""
-"""
-    INSERT INTO dim_source(source_id, name, url, cadence, license)
-    SELECT 'bea_gdp_qtr',
-           'BEA GDP (Quarterly)',
-           'https://www.bea.gov/data',
-           'quarterly',
-           'public'
-    WHERE NOT EXISTS (
-      SELECT 1 FROM dim_source WHERE source_id = 'bea_gdp_qtr'
-    );
-"""#)
-"""
-    # Metric dim
-    con.execute(
-"""
-"""
-    CREATE TABLE IF NOT EXISTS dim_metric(
-      metric_id TEXT PRIMARY KEY,
-      name TEXT,
-      frequency TEXT,
-      unit TEXT,
-      category TEXT
-    );
-"""#)
-"""
-    for mid, meta in metrics_meta.items():
-        name = meta.get("name") or "BEA GDP"
-        freq = meta.get("frequency") or "quarterly"
-        unit = meta.get("unit") or "millions"
-        cat  = meta.get("category") or "gdp"
-
-        con.execute(
-"""
-"""
-        INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
-        SELECT ?, ?, ?, ?, ?
-        WHERE NOT EXISTS (
-          SELECT 1 FROM dim_metric WHERE metric_id = ?
-        );
-"""#, [mid, name, freq, unit, cat, mid])
-
 
 def upsert_fact(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
     """
@@ -508,29 +444,14 @@ def main():
     con = duckdb.connect(DB_PATH)
 
     # Ensure dim_market has our geos (minimal entries)
-"""    con.execute(
-"""
-"""    CREATE TABLE IF NOT EXISTS dim_market(
-      geo_id TEXT PRIMARY KEY,
-      name TEXT,
-      type TEXT,
-      fips TEXT
-    );
-"""#)
-
     mkts = (
         all_df[["geo_id"]]
         .drop_duplicates()
         .assign(name=lambda d: d["geo_id"], type=None, fips=None)
     )
     con.register("bea_mkts", mkts)
-"""    con.execute("""
-"""    INSERT INTO dim_market(geo_id, name, type, fips)
-    SELECT geo_id, name, type, fips FROM bea_mkts
-    WHERE geo_id NOT IN (SELECT geo_id FROM dim_market);
-"""#)
 
-    ensure_dims(con, metrics_meta)
+    #ensure_dims(con, metrics_meta)
     #upsert_fact(con, all_df)
     out_dir = Path("data/bea")
     out_dir.mkdir(parents=True, exist_ok=True)
