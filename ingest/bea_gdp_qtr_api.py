@@ -201,7 +201,7 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metrics_meta: Dict[str, Dict[str
       cadence TEXT,
       license TEXT
     );
-""")
+"""#)
 """
     con.execute(
 """
@@ -215,7 +215,7 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metrics_meta: Dict[str, Dict[str
     WHERE NOT EXISTS (
       SELECT 1 FROM dim_source WHERE source_id = 'bea_gdp_qtr'
     );
-""")
+"""#)
 """
     # Metric dim
     con.execute(
@@ -228,7 +228,7 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metrics_meta: Dict[str, Dict[str
       unit TEXT,
       category TEXT
     );
-""")
+"""#)
 """
     for mid, meta in metrics_meta.items():
         name = meta.get("name") or "BEA GDP"
