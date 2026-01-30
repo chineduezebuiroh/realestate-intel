@@ -148,7 +148,7 @@ def main():
     upsert_fact_timeseries(con, df)
 
     summary = con.execute("""
-      SELECT geo_id, COUNT(*) n, MIN(date) first, MAX(date) last
+      SELECT geo_id, COUNT(*) as n_rows, MIN(date) as first_date, MAX(date) as last_date
       FROM fact_timeseries
       WHERE source_id='bea_gdp_qtr'
       GROUP BY 1
