@@ -12,6 +12,8 @@ from __future__ import annotations
 # This file intentionally does NOT attempt to construct Phase C identity keys.
 
 import argparse
+import sys
+
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,20 +25,48 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+def main():
+    ap = argparse.ArgumentParser(
+        description="Batch backtest orchestration (legacy wrapper).",
+    )
+    ap.add_argument(
+        "--legacy_ok",
+        action="store_true",
+        help="Allow running legacy batch backtest orchestration (deprecated).",
+    )
+    ap.add_argument("--batch_id", default=None)
+    ap.add_argument("--data_asof", default=None)
+
+    args = ap.parse_args()
 
     if not args.legacy_ok:
-        raise SystemExit(
-            "[forecast.cli.backtest] REFUSING: this is a legacy shim.\n"
-            "Use a specific Phase C CLI (e.g. forecast.cli.backtest_sarimax_univariate) instead.\n"
-            "If you really intend to run legacy orchestration, pass --legacy_ok."
-        )
+        msg = """
+[backtest] This entrypoint is deprecated and DISABLED by default.
 
+Use the canonical per-model backtest CLIs instead:
+  - python -m forecast.cli.backtest_sarimax_univariate  --help
+  - python -m forecast.cli.backtest_sarimax_exog        --help
+  - python -m forecast.cli.backtest_xgb_selector        --help
+  - python -m forecast.cli.backtest_xgb_forecast        --help
+
+If you *really* need the legacy batch orchestrator temporarily, re-run with:
+  python -m forecast.cli.backtest --legacy_ok [--batch_id ...] [--data_asof YYYY-MM-DD]
+""".strip()
+        print(msg)
+        raise SystemExit(2)
+
+    # Escape hatch: call legacy orchestrator
     from forecast.legacy.run_backtest_batch import main as legacy_main
-    
-    return int(legacy_main())
+
+    # legacy_main likely parses args itself; pass through by re-invoking as module style
+    # Simplest: call it directly after setting sys.argv for it.
+    sys.argv = ["forecast.legacy.run_backtest_batch"] + (
+        (["--batch_id", args.batch_id] if args.batch_id else [])
+        + (["--data_asof", args.data_asof] if args.data_asof else [])
+    )
+    legacy_main()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
+
