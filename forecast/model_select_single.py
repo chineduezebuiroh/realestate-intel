@@ -311,39 +311,9 @@ def main():
         raise SystemExit("[select] Weights must sum to a positive number.")
     weights = [w / s for w in weights]
 
-    """
-    allowed = {1, 3, 6, 12}
-    bad = [h for h in horizons if h not in allowed]
-    if bad:
-        raise SystemExit(
-            f"[select] Horizons not supported yet: {bad}. "
-            f"Available horizons in v_forecast_eval: {sorted(allowed)}"
-        )
-    """
         
     con = connect()
 
-    """
-    df = latest_batch_eval(con, target, batch_hours=args.batch_hours)
-    if df.empty:
-        raise SystemExit("[select] No backtest runs found for this target in the DB.")
-
-    scored = compute_weighted_score(df, metric=args.metric, horizons=horizons, weights=weights)
-
-    print("\n[select] Latest-batch scoreboard (per model family):")
-    show_cols = [
-        "model_name", "n_runs",
-        "rmse_3m_avg", "rmse_6m_avg", "rmse_12m_avg",
-        "mae_3m_avg", "mae_6m_avg", "mae_12m_avg",
-        "batch_start", "batch_end",
-        "score_metric", "score_horizons", "score_weights", "score",
-    ]
-    keep = [c for c in show_cols if c in scored.columns]
-    print(scored[keep].to_string(index=False))
-
-    winner = scored.iloc[0]["model_name"]
-    print(f"\n[select] WINNER = {winner} (score={scored.iloc[0]['score']:.4f} using {args.metric} @ horizons={horizons})")
-    """
 
     df_long = latest_batch_eval_long(con, target)
     if df_long.empty:
