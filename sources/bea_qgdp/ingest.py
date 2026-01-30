@@ -26,9 +26,9 @@ import pandas as pd
 
 
 # ----------------- Paths / Config -----------------
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 GEO_MANIFEST = REPO_ROOT / "config" / "geo_manifest.csv"
+
 OUT_DIR = REPO_ROOT / "data" / "bea"
 RAW_PATH = OUT_DIR / "bea_qgdp_raw_long.csv"
 
