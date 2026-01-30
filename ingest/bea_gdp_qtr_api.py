@@ -26,18 +26,19 @@ load_dotenv()
 
 import os
 import csv
+import requests
+import re
+import duckdb
+import pandas as pd
+
 from pathlib import Path
 from datetime import date
-import re
 from typing import Dict, List, Tuple
-
-import requests
-import pandas as pd
-import duckdb
+from core.db import connect
 
 # ----------------- Config -----------------
 
-DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+#DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 GEO_MANIFEST = Path("config/geo_manifest.csv")
 
 BEA_API_URL = "https://apps.bea.gov/api/data"
@@ -83,6 +84,7 @@ DEFAULT_US_GEO_ID = "us_total"
 QSTART_YEAR = 1990  # safe lower bound; BEA will just return what’s there.
 QEND_YEAR = date.today().year
 
+BEA_QGDP_METRIC_ID = "bea_qgdp_real_total_chained2017_saar"
 # -------------- Helpers / plumbing --------------
 
 def parse_quarter_to_date(qstr: str) -> pd.Timestamp:
@@ -264,7 +266,6 @@ def fetch_regional_state_gdp(geo_map: Dict[str, Tuple[str, str]]) -> Tuple[pd.Da
     desc = (sample.get("LineDescription") or "Real GDP (total, chained 2017 dollars)").strip()
 
     rows = []
-    BEA_QGDP_METRIC_ID = "bea_qgdp_real_total_chained2017_saar"
     for row in data:
         geo_fips = (row.get("GeoFips") or "").strip()
         time_period = (row.get("TimePeriod") or "").strip()
@@ -442,7 +443,7 @@ def main():
     print("[bea] NOTE: GDPbyIndustry disabled in this pass (scope control).")
 
     # Connect DB and load
-    con = duckdb.connect(DB_PATH)
+    con = connect()
 
     # Ensure dim_market has our geos (minimal entries)
     mkts = (
