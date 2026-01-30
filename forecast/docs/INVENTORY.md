@@ -201,7 +201,6 @@ runs/<batch_id>/{xgb,sarimax_exog}/...
 ---
 
 ## Batch orchestration (legacy; will be replaced)
-- forecast/run_backtest_batch.py
 
 ---
 
