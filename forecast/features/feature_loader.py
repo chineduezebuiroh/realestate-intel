@@ -9,7 +9,7 @@ from datetime import date
 import duckdb
 import pandas as pd
 
-from .backtest_utils import month_end_index
+from forecast.core.backtest_utils import month_end_index
 from .feature_policy import default_policy
 
 from forecast.asof import normalize_month_end  # add import near top
