@@ -152,10 +152,6 @@ def bea_get(params: Dict[str, str], label: str = "") -> List[Dict[str, str]]:
     return data
 
 
-
-
-
-
 def load_bea_geo_targets() -> Dict[str, Tuple[str, str]]:
     """
     Read geo_manifest and return:
@@ -174,20 +170,30 @@ def load_bea_geo_targets() -> Dict[str, Tuple[str, str]]:
                 continue
             geo_id = (r.get("geo_id") or "").strip()
             name = (r.get("geo_name") or "").strip()
+
             code = (r.get("bea_geo_fips") or "").strip()
+
+            # normalize to 5-digit GeoFips (BEA Regional uses zero-padded keys like 01000, 00000)
+            if code.isdigit():
+                code = code.zfill(5)
+
             if not geo_id or not code:
                 continue
             out[code] = (geo_id, name)
     return out
 
-
+"""
 def ensure_dims(con: duckdb.DuckDBPyConnection, metrics_meta: Dict[str, Dict[str, str]]):
-    """
+"""
+"""
     Ensure dim_source and dim_metric have entries for BEA GDP metrics.
     metrics_meta: dict[metric_id] -> {name, frequency, unit, category}
-    """
+"""
+"""
     # Source (idempotent)
-    con.execute("""
+    con.execute(
+"""
+"""
     CREATE TABLE IF NOT EXISTS dim_source(
       source_id TEXT PRIMARY KEY,
       name TEXT,
@@ -195,9 +201,11 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metrics_meta: Dict[str, Dict[str
       cadence TEXT,
       license TEXT
     );
-    """)
-
-    con.execute("""
+""")
+"""
+    con.execute(
+"""
+"""
     INSERT INTO dim_source(source_id, name, url, cadence, license)
     SELECT 'bea_gdp_qtr',
            'BEA GDP (Quarterly)',
@@ -207,10 +215,12 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metrics_meta: Dict[str, Dict[str
     WHERE NOT EXISTS (
       SELECT 1 FROM dim_source WHERE source_id = 'bea_gdp_qtr'
     );
-    """)
-
+""")
+"""
     # Metric dim
-    con.execute("""
+    con.execute(
+"""
+"""
     CREATE TABLE IF NOT EXISTS dim_metric(
       metric_id TEXT PRIMARY KEY,
       name TEXT,
@@ -218,21 +228,23 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metrics_meta: Dict[str, Dict[str
       unit TEXT,
       category TEXT
     );
-    """)
-
+""")
+"""
     for mid, meta in metrics_meta.items():
         name = meta.get("name") or "BEA GDP"
         freq = meta.get("frequency") or "quarterly"
         unit = meta.get("unit") or "millions"
         cat  = meta.get("category") or "gdp"
 
-        con.execute("""
+        con.execute(
+"""
+"""
         INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
         SELECT ?, ?, ?, ?, ?
         WHERE NOT EXISTS (
           SELECT 1 FROM dim_metric WHERE metric_id = ?
         );
-        """, [mid, name, freq, unit, cat, mid])
+"""#, [mid, name, freq, unit, cat, mid])
 
 
 def upsert_fact(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
@@ -342,7 +354,7 @@ def fetch_regional_state_gdp(geo_map: Dict[str, Tuple[str, str]]) -> Tuple[pd.Da
         geo_id, _name = geo_map[geo_fips]
         rows.append({
             "geo_id": geo_id,
-            "metric_id": "gdp_real_total",   # one metric for all geos
+            "metric_id": "bea_qgdp_real_total_chained2017_saar",
             "date": dt.date(),
             "value": value,
             "property_type_id": "all",
@@ -480,32 +492,31 @@ def main():
 
     # 1) Regional state-level total real GDP
     reg_df, reg_meta = fetch_regional_state_gdp(geo_map)
+    
 
-    # 2) US-total sector-level real GDP
-    sector_df, sector_meta = fetch_us_sector_gdp(us_geo_id)
-
-    # Combine
-    all_df = pd.concat([reg_df, sector_df], ignore_index=True) if not reg_df.empty or not sector_df.empty else pd.DataFrame()
-
-    if all_df.empty:
-        print("[bea] No rows to upsert.")
-        return
-
-    # Metric metadata
-    metrics_meta = {**reg_meta, **sector_meta}
+    # 2) GDPbyIndustry (DEFERRED)
+    sector_df, sector_meta = pd.DataFrame(), {}
+    
+    # Combine (regional only for now)
+    all_df = reg_df.copy()
+    
+    # Metric metadata (regional only)
+    metrics_meta = reg_meta.copy()
+    print("[bea] NOTE: GDPbyIndustry disabled in this pass (scope control).")
 
     # Connect DB and load
     con = duckdb.connect(DB_PATH)
 
     # Ensure dim_market has our geos (minimal entries)
-    con.execute("""
-    CREATE TABLE IF NOT EXISTS dim_market(
+"""    con.execute(
+"""
+"""    CREATE TABLE IF NOT EXISTS dim_market(
       geo_id TEXT PRIMARY KEY,
       name TEXT,
       type TEXT,
       fips TEXT
     );
-    """)
+"""#)
 
     mkts = (
         all_df[["geo_id"]]
@@ -513,14 +524,20 @@ def main():
         .assign(name=lambda d: d["geo_id"], type=None, fips=None)
     )
     con.register("bea_mkts", mkts)
-    con.execute("""
-    INSERT INTO dim_market(geo_id, name, type, fips)
+"""    con.execute("""
+"""    INSERT INTO dim_market(geo_id, name, type, fips)
     SELECT geo_id, name, type, fips FROM bea_mkts
     WHERE geo_id NOT IN (SELECT geo_id FROM dim_market);
-    """)
+"""#)
 
     ensure_dims(con, metrics_meta)
-    upsert_fact(con, all_df)
+    #upsert_fact(con, all_df)
+    out_dir = Path("data/bea")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    raw_path = out_dir / "bea_qgdp_raw_long.csv"
+    all_df.to_csv(raw_path, index=False)
+    print(f"[bea] wrote {len(all_df):,} rows -> {raw_path}")
+
 
     # Summary
     summary = con.execute("""
