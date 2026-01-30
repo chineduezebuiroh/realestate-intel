@@ -264,6 +264,7 @@ def fetch_regional_state_gdp(geo_map: Dict[str, Tuple[str, str]]) -> Tuple[pd.Da
     desc = (sample.get("LineDescription") or "Real GDP (total, chained 2017 dollars)").strip()
 
     rows = []
+    BEA_QGDP_METRIC_ID = "bea_qgdp_real_total_chained2017_saar"
     for row in data:
         geo_fips = (row.get("GeoFips") or "").strip()
         time_period = (row.get("TimePeriod") or "").strip()
@@ -290,7 +291,7 @@ def fetch_regional_state_gdp(geo_map: Dict[str, Tuple[str, str]]) -> Tuple[pd.Da
         geo_id, _name = geo_map[geo_fips]
         rows.append({
             "geo_id": geo_id,
-            "metric_id": "bea_qgdp_real_total_chained2017_saar",
+            "metric_id": BEA_QGDP_METRIC_ID,
             "date": dt.date(),
             "value": value,
             "property_type_id": "all",
@@ -300,10 +301,10 @@ def fetch_regional_state_gdp(geo_map: Dict[str, Tuple[str, str]]) -> Tuple[pd.Da
     df = pd.DataFrame(rows)
 
     metrics_meta = {
-        "gdp_real_total": {
-            "name": f"Real GDP, total (regional: {REGIONAL_TABLE}, LineCode {REGIONAL_LINECODE_TOTAL})",
+        BEA_QGDP_METRIC_ID: {
+            "name": f"Real GDP, total (Regional/{REGIONAL_TABLE} LineCode {REGIONAL_LINECODE_TOTAL})",
             "frequency": "quarterly",
-            "unit": unit or "millions of chained 2017 dollars",
+            "unit": unit or "millions of chained 2017 dollars (SAAR)",
             "category": "gdp",
         }
     }
