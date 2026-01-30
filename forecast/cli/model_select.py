@@ -11,24 +11,22 @@ import duckdb
 from core.db import connect
 
 
-BACKTEST_MODELS = ("sarimax_backtest", "sarimax_exog_backtest", "xgb_backtest")
+# Compare “families” (stable intent) while tolerating historical model_name drift.
+FAMILIES = ("sarimax_univariate", "sarimax_exog", "xgb")
+
+# Map family -> the model_name values that currently exist in forecast_runs for backtests
+MODEL_NAME_BY_FAMILY = {
+    "sarimax_univariate": "sarimax_univariate",
+    "sarimax_exog": "sarimax_exog_backtest",
+    "xgb": "xgb_forecast",
+}
+
+BACKTEST_MODELS = tuple(MODEL_NAME_BY_FAMILY.values())
+
 
 # Promotion should run LIVE runners/CLIs, not backtests.
 # Choose the thinnest stable entrypoints you have today.
-PROMOTION_CMD = {
-    # Prefer canonical CLI wrappers if you have them
-    "sarimax_backtest": [
-        "python", "-m", "forecast.cli.live",
-        "--model_family", "sarimax_univariate",
-    ],
-    "sarimax_exog_backtest": [
-        "python", "-m", "forecast.cli.live_sarimax_exog",
-    ],
-    "xgb_backtest": [
-        "python", "-m", "forecast.cli.live",
-        "--model_family", "xgb_forecast",
-    ],
-}
+PROMOTION_CMD = {}
 
 
 @dataclass
@@ -53,18 +51,14 @@ def latest_batch_eval_long(con: duckdb.DuckDBPyConnection, target: Target) -> pd
         AND data_asof IS NOT NULL
         AND model_name IN {models_sql}
     ),
-    latest_common_data_asof AS (
-      SELECT data_asof
+    latest_data_asof AS (
+      SELECT MAX(data_asof) AS data_asof
       FROM candidate_runs
-      GROUP BY data_asof
-      HAVING COUNT(DISTINCT model_name) = {len(BACKTEST_MODELS)}
-      ORDER BY data_asof DESC
-      LIMIT 1
     ),
     runs_same_asof AS (
       SELECT *
       FROM candidate_runs
-      WHERE data_asof = (SELECT data_asof FROM latest_common_data_asof)
+      WHERE data_asof = (SELECT data_asof FROM latest_data_asof)
     ),
     latest_batch_per_model AS (
       SELECT
@@ -194,7 +188,7 @@ def deactivate_live_runs_by_kind(con: duckdb.DuckDBPyConnection, target: Target,
     """
     con.execute(q, [target.metric_id, target.geo_id, target.property_type_id, run_kind])
 
-
+"""
 def promote_winner(
     winner_model_name: str,
     target: Target,
@@ -226,6 +220,13 @@ def promote_winner(
 
     print(f"[select] Promoting winner by running:\n  {' '.join(cmd)}")
     subprocess.check_call(cmd)
+"""
+
+def promote_winner(*args, **kwargs) -> None:
+    raise SystemExit(
+        "[select] Promotion is disabled in Phase C re-org. "
+        "Implement canonical live entrypoints first, then wire PROMOTION_CMD."
+    )
 
 
 def main():
