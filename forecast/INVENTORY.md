@@ -195,8 +195,7 @@ runs/<batch_id>/{xgb,sarimax_exog}/...
 ---
 
 ## Target-specific wrappers (should be eliminated)
-- forecast/sarimax_redfin.py
-
+- deleted
 ---
 
 ## Repair / maintenance (evaluate necessity)
@@ -214,7 +213,6 @@ runs/<batch_id>/{xgb,sarimax_exog}/...
 ### Retirement candidates (delete only after parity is proven)
 - `forecast/sarimax_univariate.py` (once `forecast/models/sarimax_univariate/*` is authoritative everywhere)
 - `forecast/sarimax_exog.py` (once `forecast/models/sarimax_exog/*` fully replaces it)
-- `forecast/sarimax_redfin.py` (eliminate target-specific wrapper)
 - any `forecast/backtest_*_single.py` shims (keep only if actively used by CLI)
 
 ### Refactor guardrail
