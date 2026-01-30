@@ -13,7 +13,7 @@ from typing import List, Optional, Tuple, Dict, Set
 import pandas as pd
 
 from .feature_loader import TargetSpec, FeatureSpec, build_design_matrix
-from .backtest_utils import month_end_index
+from forecast.core.backtest_utils import month_end_index
 
 
 def _month_end(ts: pd.Timestamp) -> pd.Timestamp:
