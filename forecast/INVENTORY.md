@@ -247,12 +247,15 @@ Refreshed / current:
 - LAUS
 - FRED macro
 - FRED unemployment
+- Census
+- Census BPS (permits - compiled)
+- Census NRC Construction completions
+- BEA QGDP (SQGDP9, LineCode 1) → source_id=bea_gdp_qtr
 
 NOT YET refreshed (planned next):
-- Census
-- Census permits
-- BEA
-- Construction completions (NEW source; not yet integrated)
+- Census BPS (permits - provisional once data is available)
+
+
 
 Selector behavior and feature diversity are expected to change materially after these land.
 
