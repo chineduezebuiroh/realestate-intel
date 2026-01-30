@@ -8,9 +8,9 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 
-from forecast.backtest_utils import month_end_index
-from forecast.feature_loader import FeatureSpec, TargetSpec, load_series_from_fact
-from forecast.metric_tiers import canon_geo_id, redfin_metric_tier, RedfinTierShareCaps
+from forecast.core.backtest_utils import month_end_index
+from forecast.features.feature_loader import FeatureSpec, TargetSpec, load_series_from_fact
+from forecast.features.metric_tiers import canon_geo_id, redfin_metric_tier, RedfinTierShareCaps
 
 
 DC_EQUIV = {"dc_city", "dc_county", "dc_state"}
