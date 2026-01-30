@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Set, Tuple, Optional
 
-from .db_forecast import get_connection
+from forecast.core.db_forecast import get_connection
 
 @dataclass(frozen=True)
 class Catalog:
