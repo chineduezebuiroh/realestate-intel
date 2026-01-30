@@ -224,6 +224,7 @@ refresh-census-acs: venv
 	@echo "✅ Refreshed Census ACS → $(FULL_DB)"
 
 
+
 # 🔁 Census Building Permits (BPS)
 refresh-census-permits-compiled: venv
 	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_bps.ingest
@@ -240,6 +241,8 @@ refresh-census-permits: venv refresh-census-permits-compiled refresh-census-perm
 	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_bps.merge_view
 	@echo "✅ Refreshed Census BPS (compiled+provisional, merge view) → $(FULL_DB)"
 
+
+
 # 🔁 Census NRC Construction Starts and Completions (NRC)
 refresh-census-nrc: venv
 	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.census_nrc_fred.ingest
@@ -249,8 +252,11 @@ refresh-census-nrc: venv
 
 # 🔁 BEA GDP (Quarterly) – adjust to your actual script names
 refresh-bea: venv
-	DUCKDB_PATH=$(FULL_DB) $(PY) ingest/bea_gdp_qtr_api.py
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.bea_qgdp.ingest
+	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.bea_qgdp.transform
 	@echo "✅ Refreshed BEA GDP → $(FULL_DB)"
+
+
 
 # 🔁 FRED Macro: ingest (includes derived spreads inside)
 refresh-fred-macro: venv
