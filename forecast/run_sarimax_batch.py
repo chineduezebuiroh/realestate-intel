@@ -1,2 +1,8 @@
-from forecast.legacy.run_sarimax_batch import *  # noqa: F401,F403
-print("[legacy] forecast/run_sarimax_batch.py moved to forecast/legacy/run_sarimax_batch.py; do not extend")
+def main():
+    raise SystemExit(
+        "[legacy] forecast.run_sarimax_batch is deprecated and currently disabled. "
+        "Use forecast.cli.backtest_* for backtests. Live wiring comes later."
+    )
+
+if __name__ == "__main__":
+    main()
