@@ -34,11 +34,20 @@ import pandas as pd
 from pathlib import Path
 from datetime import date
 from typing import Dict, List, Tuple
-from core.db import connect
+#from core.db import connect
 
 # ----------------- Config -----------------
 
-#DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
+"""
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DB_PATH = str(REPO_ROOT / "data" / "market.duckdb")
+OUT_DIR = REPO_ROOT / "data" / "bea"
+RAW_PATH = OUT_DIR / "bea_qgdp_raw_long.csv"
+"""
+
+
+
+DB_PATH = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
 GEO_MANIFEST = Path("config/geo_manifest.csv")
 
 BEA_API_URL = "https://apps.bea.gov/api/data"
@@ -443,7 +452,18 @@ def main():
     print("[bea] NOTE: GDPbyIndustry disabled in this pass (scope control).")
 
     # Connect DB and load
-    con = connect()
+    #con = connect()
+    con = duckdb.connect(DB_PATH)
+
+    # Ensure dim_market has our geos (minimal entries)
+    con.execute("""
+    CREATE TABLE IF NOT EXISTS dim_market(
+      geo_id TEXT PRIMARY KEY,
+      name TEXT,
+      type TEXT,
+      fips TEXT
+    );
+    """)
 
     # Ensure dim_market has our geos (minimal entries)
     mkts = (
@@ -452,9 +472,14 @@ def main():
         .assign(name=lambda d: d["geo_id"], type=None, fips=None)
     )
     con.register("bea_mkts", mkts)
+    con.execute("""
+    INSERT INTO dim_market(geo_id, name, type, fips)
+    SELECT geo_id, name, type, fips FROM bea_mkts
+    WHERE geo_id NOT IN (SELECT geo_id FROM dim_market);
+    """)
 
-    #ensure_dims(con, metrics_meta)
-    #upsert_fact(con, all_df)
+    ensure_dims(con, metrics_meta)
+    upsert_fact(con, all_df)
     out_dir = Path("data/bea")
     out_dir.mkdir(parents=True, exist_ok=True)
     raw_path = out_dir / "bea_qgdp_raw_long.csv"
