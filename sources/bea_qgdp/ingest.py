@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-ingest/bea_qgdp_ingest.py
+sources/bea_qgdp/ingest.py
 
 Fetch BEA Regional quarterly Real GDP by state (SQGDP9, LineCode=1)
 for geos flagged in config/geo_manifest.csv (include_bea_qgdp=1).
