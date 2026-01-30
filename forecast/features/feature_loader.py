@@ -1,21 +1,29 @@
 # forecast/feature_loader.py
 
-import os
-from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Tuple
 from collections import Counter
 from datetime import date
+from typing import Optional, List, Dict, Tuple
 
-import duckdb
 import pandas as pd
 
 from forecast.core.backtest_utils import month_end_index
-from .feature_policy import default_policy
-
 from forecast.core.asof import normalize_month_end
+
+from .feature_policy import default_policy
 from forecast.features.metric_tiers import canon_geo_id
 
+from .specs import TargetSpec, FeatureSpec
+from .fact_loader import get_connection, load_series_from_fact, load_series_from_fact_with_source
+from .ids import (
+    parse_feature_id_to_spec,
+    parse_feature_id,
+    parse_base_name,
+    specs_from_selected_feature_ids,
+)
 
+# ====================================================================
+# Constants
+# ====================================================================
 NRC_SOURCE_ID = "census_nrc_fred"
 NRC_PT = "all"
 
@@ -33,137 +41,8 @@ NRC_METRICS = [
 ]
 
 # ====================================================================
-# Shared types
+# Orchestrators
 # ====================================================================
-@dataclass
-class TargetSpec:
-    metric_id: str
-    geo_id: str
-    # For Redfin, this is '-1', '6', '13', etc. For non-Redfin, use None -> 'all'.
-    property_type_id: Optional[str] = None
-    # NEW: optional as-of date (string like '2025-12-31' or None)
-    data_asof: Optional[date] = None
-    asof_by_source: Optional[Dict[str, date]] = None
-
-
-@dataclass(frozen=True)
-class FeatureSpec:
-    name: str
-    metric_id: str
-    geo_id: str
-    property_type_id: Optional[str]
-    source_id: Optional[str] = None
-    category: Optional[str] = None       # ADD
-    frequency: Optional[str] = None      # ADD (monthly/quarterly/annual)
-    lags: Tuple[int, ...] = field(default_factory=tuple)
-
-# ====================================================================
-# Helpers
-# ====================================================================
-def get_connection():
-    db_path = os.getenv("DUCKDB_PATH", "./data/market.duckdb")
-    return duckdb.connect(db_path)
-
-
-def load_target_series_for_spec(t: TargetSpec) -> pd.Series:
-    return load_series_from_fact(
-        metric_id=t.metric_id,
-        geo_id=t.geo_id,
-        property_type_id=t.property_type_id,
-        data_asof=t.data_asof,
-        asof_by_source=t.asof_by_source,
-        source_id=None,
-    )
-
-
-def parse_feature_id_to_spec(feature_id: str) -> FeatureSpec:
-    """
-    Supports BOTH:
-      - v1 (legacy): {metric}__{geo}__{pt}_lag{lag}
-      - v2 (canonical): {metric}__{geo}__{pt}__{source}_lag{lag}
-    """
-    base, lag_part = str(feature_id).rsplit("_lag", 1)
-    lag = int(lag_part)
-
-    parts = base.split("__")
-
-    if len(parts) == 3:
-        metric_id, geo_id, pt_id = parts
-        source_id = None
-    elif len(parts) == 4:
-        metric_id, geo_id, pt_id, source_id = parts
-    else:
-        raise ValueError(f"Invalid feature base name (expected 3 or 4 parts): {base}")
-
-    return FeatureSpec(
-        name=f"{metric_id}__{geo_id}__{pt_id}" + (f"__{source_id}" if source_id else ""),
-        metric_id=metric_id,
-        geo_id=geo_id,
-        property_type_id=pt_id,
-        source_id=source_id,
-        lags=(lag,),
-    )
-
-def parse_feature_id(fid: str) -> tuple[str, int]:
-    """
-    fid example:
-      avg_sale_to_list__20016_dc__13__redfin_lag12
-    returns:
-      (base_name="avg_sale_to_list__20016_dc__13__redfin", lag=12)
-    """
-    m = _LAG_RE.match(fid)
-    if not m:
-        raise ValueError(f"Invalid feature_id (expected *_lagN): {fid}")
-    return m.group("base"), int(m.group("lag"))
-
-def parse_base_name(base: str) -> tuple[str, str, Optional[str], Optional[str]]:
-    """
-    base example:
-      metric_id__geo_id__property_type_id__source_id
-    """
-    parts = base.split("__")
-    if len(parts) != 4:
-        raise ValueError(f"Invalid base feature name (expected 4 parts): {base}")
-    metric_id, geo_id, pt_id, source_id = parts
-    pt_id = pt_id if pt_id not in ("", "None", "null") else None
-    source_id = source_id if source_id not in ("", "None", "null") else None
-    return metric_id, geo_id, pt_id, source_id
-
-
-def specs_from_selected_feature_ids(feature_ids: list[str]) -> list[FeatureSpec]:
-    by_base: dict[tuple[str, str, str, str], set[int]] = {}
-
-    for fid in feature_ids:
-        spec = parse_feature_id_to_spec(fid)
-
-        # Enforce your own invariant: base must be 4-part (metric__geo__pt__source)
-        if not spec.source_id:
-            raise ValueError(f"feature_id missing source_id (would break 4-part base): {fid}")
-
-        m = str(spec.metric_id)
-        g = str(spec.geo_id)
-        pt = str(spec.property_type_id)  # keep whatever encoding your IDs use (e.g. -1, all, etc.)
-        src = str(spec.source_id)
-
-        key = (m, g, pt, src)
-        by_base.setdefault(key, set()).update(spec.lags)
-
-    out: list[FeatureSpec] = []
-    for (m, g, pt, src), lags in sorted(by_base.items()):
-        name = f"{m}__{g}__{pt}__{src}"  # ALWAYS 4-part
-        out.append(
-            FeatureSpec(
-                name=name,
-                metric_id=m,
-                geo_id=g,
-                property_type_id=pt,
-                source_id=src,
-                lags=tuple(sorted(lags)),
-            )
-        )
-    return out
-
-
 def _target_expected_buckets(con, target: TargetSpec, data_asof: Optional[date] = None) -> Dict[str, int]:
     """
     Compute how many distinct bucket periods exist in the target timeline:
@@ -204,106 +83,16 @@ def _target_expected_buckets(con, target: TargetSpec, data_asof: Optional[date] 
         "annual": max(int(n_years or 0), 1),
     }
 
-def load_series_from_fact_with_source(
-    metric_id: str,
-    geo_id: str,
-    property_type_id: Optional[str],
-    source_id: Optional[str],
-    data_asof: Optional[date] = None,   # NEW
-    asof_by_source: Optional[Dict[str, date]] = None,
-) -> pd.Series:
-    effective_asof = data_asof
-    if asof_by_source and source_id:
-        # per-source takes precedence when available
-        effective_asof = asof_by_source.get(source_id, effective_asof)
 
-    effective_asof = normalize_month_end(effective_asof)
-
-    con = get_connection()
-    pt_id = property_type_id if property_type_id is not None else "all"
-
-    if source_id:
-        sql = """
-            SELECT date, value
-            FROM fact_timeseries
-            WHERE metric_id = ?
-              AND geo_id = ?
-              AND property_type_id = ?
-              AND source_id = ?
-              AND (? IS NULL OR date <= ?)
-            ORDER BY date
-        """
-        df = con.execute(sql, [metric_id, geo_id, pt_id, source_id, effective_asof, effective_asof]).fetchdf()
-    else:
-        # legacy / fallback
-        sql = """
-            SELECT date, value
-            FROM fact_timeseries
-            WHERE metric_id = ?
-              AND geo_id = ?
-              AND property_type_id = ?
-              AND (? IS NULL OR date <= ?)
-            ORDER BY date
-        """
-        df = con.execute(sql, [metric_id, geo_id, pt_id, effective_asof, effective_asof]).fetchdf()
-
-    con.close()
-
-    if df.empty:
-        raise ValueError(f"No data for metric={metric_id}, geo={geo_id}, pt={pt_id}, source={source_id}")
-
-    s = df.set_index("date")["value"].astype(float)
-    return s
-
-# ====================================================================
-# Load single series from fact_timeseries
-# ====================================================================
-def load_series_from_fact(
-    metric_id: str,
-    geo_id: str,
-    property_type_id: Optional[str],
-    data_asof: Optional[date] = None,   # NEW
-    asof_by_source: Optional[Dict[str, date]] = None,
-    source_id: Optional[str] = None,
-) -> pd.Series:
-    """
-    Load a single series from fact_timeseries for a given (metric, geo, pt_id).
-
-    property_type_id=None -> matches 'all' in fact_timeseries.
-    """
-    effective_asof = data_asof
-    if asof_by_source and source_id:
-        # per-source takes precedence when available
-        effective_asof = asof_by_source.get(source_id, effective_asof)
-
-    effective_asof = normalize_month_end(effective_asof)
-
-    con = get_connection()
-    pt_id = property_type_id if property_type_id is not None else "all"
-
-    sql = """
-        SELECT date, value
-        FROM fact_timeseries
-        WHERE metric_id = ?
-          AND geo_id = ?
-          AND property_type_id = ?
-          AND (? IS NULL OR date <= ?)
-        ORDER BY date
-    """
-
-    try:
-        df = con.execute(sql, [metric_id, geo_id, pt_id, effective_asof, effective_asof]).fetchdf()
-    finally:
-        con.close()
-
-    if df.empty:
-        raise ValueError(
-            f"No data for metric={metric_id}, geo={geo_id}, pt={pt_id}"
-        )
-
-    s = df.set_index("date")["value"].astype(float)
-    return s
-
+def load_target_series_for_spec(t: TargetSpec) -> pd.Series:
+    return load_series_from_fact(
+        metric_id=t.metric_id,
+        geo_id=t.geo_id,
+        property_type_id=t.property_type_id,
+        data_asof=t.data_asof,
+        asof_by_source=t.asof_by_source,
+        source_id=None,
+    )
 
 # ====================================================================
 # Design matrix builder
