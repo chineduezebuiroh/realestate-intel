@@ -159,6 +159,18 @@ changing code.
 
 ---
 
+## Package layout (Phase C consolidation)
+
+- forecast/models/**      → authoritative model runners + core model code
+- forecast/cli/**         → thin argument parsing + dispatch
+- forecast/features/**    → feature discovery, governance, selection, design-matrix builders
+- forecast/core/**        → time/as-of/anchors + artifacts + persistence helpers (temporary consolidation bucket)
+
+NOTE: Root-level modules like forecast/feature_loader.py are compatibility forwarders.
+Prefer importing from forecast/features/* or forecast/core/* for new code.
+
+---
+
 ## Artifacts (read/write contracts)
 - forecast/artifacts.py
 - forecast/consume_selected_features.py
