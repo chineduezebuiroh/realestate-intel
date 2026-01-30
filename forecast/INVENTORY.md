@@ -4,6 +4,58 @@ Purpose: a living map of canonical entrypoints + responsibilities.
 Rule: if it's not listed as canonical, assume it's legacy / shim / internal.
 
 ---
+## Phase C re-org objectives (non-negotiable)
+
+- **Single source of truth for runners:** authoritative execution logic lives only under `forecast/models/**`.
+- **Legacy files are shims only:** legacy modules may import-and-call canonical runners, but must not contain unique logic.
+- **No god files:** any file that mixes orchestration + model fitting + artifact IO + DB writes must be split.
+- **Functional grouping:** shared logic must live in one of:
+  - `forecast/features/` (governance, scoring, feature IDs)
+  - `forecast/design_matrix/` (X build + audit)
+  - `forecast/time/` (anchors/asof)
+  - `forecast/artifacts/` (read/write contracts)
+  - `forecast/persistence/` (DB)
+  - `forecast/contracts/` (invariants)
+- **Hard contracts tested:** contracts at artifact boundaries must have a smoke test.
+
+## Canonical runner call graphs (must stay true during refactors)
+
+Keep these lists updated whenever code moves. If behavior changes, update here first.
+
+### XGB Selector
+- `forecast/models/xgb/backtest_selector_runner.py`
+  - loads target series (anchors)
+  - builds universal candidate specs (governance)
+  - scores candidates + selects base series (diversity caps)
+  - builds design matrix incrementally (DQ gates)
+  - trains XGB selector
+  - writes shortlist artifact: `runs/<batch_id>/xgb/selected_features__anchor=YYYY-MM-DD.parquet`
+
+### SARIMAX Exog Backtest
+- `forecast/models/sarimax_exog/backtest_runner.py`
+  - loads anchors
+  - loads XGB shortlist artifact for anchor
+  - parses feature_ids -> FeatureSpecs
+  - builds train + future exog (forecasted exogs)
+  - fits SARIMAX(exog) and scores
+  - writes run artifacts + DB rows (as applicable)
+
+### SARIMAX Exog Live
+- `forecast/models/sarimax_exog/live_runner.py`
+  - loads latest target series to data_asof
+  - loads latest selector artifact (or scheduled selector batch)
+  - builds train + future exog (forecasted exogs)
+  - fits SARIMAX(exog) and emits forecast + exog_future artifact
+  - writes DB predictions (as applicable)
+
+### SARIMAX Univariate
+- `forecast/models/sarimax_univariate/backtest_runner.py`
+- `forecast/models/sarimax_univariate/live_runner.py`
+
+### XGB Forecast
+- `forecast/models/xgb/backtest_forecast_runner.py`
+
+
 
 ## Canonical CLIs (use these; everything else is implementation detail)
 
@@ -148,6 +200,24 @@ runs/<batch_id>/{xgb,sarimax_exog}/...
 
 ## Repair / maintenance (evaluate necessity)
 - forecast/catalog_repair.py
+
+## Refactor plan: migrations + retirement list (tracked)
+
+### Folder migrations (target end-state)
+- `forecast/features/` → feature discovery/governance/scoring/IDs
+- `forecast/design_matrix/` → design matrix build + audit/hashing
+- `forecast/time/` → anchors/asof/date utils
+- `forecast/artifacts/` → artifact paths + schema contracts
+- `forecast/persistence/` → DuckDB writes/reads for forecasts + runs
+
+### Retirement candidates (delete only after parity is proven)
+- `forecast/sarimax_univariate.py` (once `forecast/models/sarimax_univariate/*` is authoritative everywhere)
+- `forecast/sarimax_exog.py` (once `forecast/models/sarimax_exog/*` fully replaces it)
+- `forecast/sarimax_redfin.py` (eliminate target-specific wrapper)
+- any `forecast/backtest_*_single.py` shims (keep only if actively used by CLI)
+
+### Refactor guardrail
+If a function exists in >1 place, pick one owner module and make the others import it. Do not allow forks.
 
 ---
 
