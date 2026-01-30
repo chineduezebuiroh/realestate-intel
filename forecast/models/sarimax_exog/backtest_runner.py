@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-from forecast.db_forecast import (
+from forecast.core.db_forecast import (
     get_connection, 
     new_batch_id,
     insert_run,
@@ -15,7 +15,7 @@ from forecast.db_forecast import (
     store_selected_features_in_params,
 )
 
-from forecast.backtest_utils import (
+from forecast.core.backtest_utils import (
     choose_anchor_dates,
     month_end_index,
     month_ends_after,
@@ -25,10 +25,11 @@ from forecast.backtest_utils import (
     DEFAULT_ANCHOR_BUFFER_MONTHS,
 )
 
-from forecast.design_matrix import build_train_and_future_exog_forecasted
-from forecast.feature_loader import TargetSpec, specs_from_selected_feature_ids
-from forecast.feature_policy import default_policy
-from forecast.xgb_shortlist import load_xgb_selected_feature_ids
+from forecast.matrix.builder import build_train_and_future_exog_forecasted
+
+from forecast.features.feature_loader import TargetSpec, specs_from_selected_feature_ids
+from forecast.features.feature_policy import default_policy
+from forecast.features.xgb_shortlist import load_xgb_selected_feature_ids
 
 
 TEMP_DEBUG_LIMIT = None # set to a number to debug; set to 'None' when finished debugging
