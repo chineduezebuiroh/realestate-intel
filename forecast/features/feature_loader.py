@@ -12,8 +12,8 @@ import pandas as pd
 from forecast.core.backtest_utils import month_end_index
 from .feature_policy import default_policy
 
-from forecast.asof import normalize_month_end  # add import near top
-from forecast.metric_tiers import canon_geo_id
+from forecast.core.asof import normalize_month_end
+from forecast.features.metric_tiers import canon_geo_id
 
 
 NRC_SOURCE_ID = "census_nrc_fred"
