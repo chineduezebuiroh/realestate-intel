@@ -14,9 +14,9 @@ BACKTEST_MODELS = ("sarimax_backtest", "sarimax_exog_backtest", "xgb_backtest")
 
 # Map backtest family -> live module runner
 PROMOTION_CMD = {
-    "sarimax_backtest":     ["python", "-m", "forecast.sarimax_univariate"],
-    "sarimax_exog_backtest":["python", "-m", "forecast.sarimax_exog"],
-    "xgb_backtest":         ["python", "-m", "forecast.xgb_regressor"],
+    "sarimax_backtest":      ["python", "-m", "forecast.models.sarimax_univariate.backtest_runner"],
+    "sarimax_exog_backtest": ["python", "-m", "forecast.models.sarimax_exog.backtest_runner"],
+    "xgb_backtest":          ["python", "-m", "forecast.models.xgb.backtest_forecast_runner"],
 }
 
 
