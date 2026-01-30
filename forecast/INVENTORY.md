@@ -2,6 +2,7 @@
 
 Purpose: a living map of canonical entrypoints + responsibilities.
 Rule: if it's not listed as canonical, assume it's legacy / shim / internal.
+- Rule: root-level forecast/*.py is either shared utilities or shims; model logic lives under forecast/models/**.
 
 ---
 ## Phase C re-org objectives (non-negotiable)
