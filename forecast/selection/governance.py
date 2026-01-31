@@ -10,22 +10,18 @@ from forecast.features.metric_tiers import canon_geo_id, redfin_metric_tier, Red
 from forecast.selection.scoring import ScoredCandidate
 
 
-DC_EQUIV = {"dc_city", "dc_county", "dc_state"}
-
-
 def default_bucket(spec: FeatureSpec, target: TargetSpec) -> str:
     """
-    Simple geo diversity buckets + DC equivalence.
+    Simple geo diversity buckets + DC equivalence via canon_geo_id().
     """
     spec_geo = canon_geo_id(spec.geo_id)
     target_geo = canon_geo_id(target.geo_id)
 
-    g = spec_geo
-    if g in DC_EQUIV:
-        g = "dc_equiv"
-
-    if g == target_geo or (target_geo in DC_EQUIV and g == "dc_equiv"):
+    # Canonical equivalence: dc_city/dc_county/dc_state all become "dc_core"
+    if spec_geo == target_geo:
         return "geo:target_equiv"
+
+    g = spec_geo
 
     # coarse geography types by naming convention
     if g.endswith("_dc") and len(g.split("_")) == 2 and g.split("_")[0].isdigit():
@@ -40,6 +36,10 @@ def default_bucket(spec: FeatureSpec, target: TargetSpec) -> str:
         return "geo:state"
     if g in ("us_nation", "us"):
         return "geo:national"
+
+    # Treat dc_core as a special “geo class” only if you want; optional:
+    if g == "dc_core":
+        return "geo:dc_core"
 
     return "geo:other"
 
