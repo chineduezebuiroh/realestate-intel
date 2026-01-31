@@ -629,5 +629,6 @@ __all__ = [
     "build_design_matrix_incremental",
     "discover_all_series_for_target",
     "build_universal_feature_specs",
+    "load_target_series_for_spec",
 ]
 
