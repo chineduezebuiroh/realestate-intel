@@ -73,6 +73,16 @@ def select_scored_candidates(
     picked: List[ScoredCandidate] = []
     metric_pt_used = Counter()  # key=(metric_id, pt_id_str)
 
+    used_base_id = set()
+
+    def base_id(item: ScoredCandidate) -> Tuple[str, str, str, str]:
+        mid = str(getattr(item.spec, "metric_id", ""))
+        geo = canon_geo_id(str(getattr(item.spec, "geo_id", "")))
+        pt  = str(getattr(item.spec, "property_type_id", ""))
+        src = str(getattr(item.spec, "source_id", ""))
+        return (mid, geo, pt, src)
+
+
     def cat_of(item: ScoredCandidate) -> str:
         return (item.spec.category or "uncategorized").lower()
 
@@ -152,6 +162,9 @@ def select_scored_candidates(
         return sum(used_redfin_tier.values())
 
     def can_take(item: ScoredCandidate) -> bool:
+        if base_id(item) in used_base_id:
+            return False
+
         if redfin_tier_quota is not None and is_redfin(item):
             if used_redfin_total() >= int(R):
                 return False
@@ -185,6 +198,7 @@ def select_scored_candidates(
         picked.append(item)
         used_cat[cat] = used_cat.get(cat, 0) + 1
         used_bucket[b] = used_bucket.get(b, 0) + 1
+        used_base_id.add(base_id(item))
 
         if redfin_tier_quota is not None and is_redfin(item):
             t = tier_of(item)
