@@ -26,13 +26,19 @@ clean-venv:
 
 
 # =============================================================================
+# DB Setup
+# =============================================================================
+refresh-dims:
+	DUCKDB_PATH=$(DUCKDB_PATH) .venv/bin/python -m scripts.build_dims
+
+# =============================================================================
 # Ingests & Transforms
 # =============================================================================
 .PHONY: refresh-redfin refresh-ces refresh-laus refresh-census-acs refresh-census-permits \
         refresh-bea refresh-fred refresh-all make-public-db publish-public-db-only
 
 # 🔁 Redfin: ingest + transform into fact_timeseries
-refresh-redfin: venv
+refresh-redfin: refresh-dims venv
 	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.redfin.ingest
 	DUCKDB_PATH=$(FULL_DB) $(PY) -m sources.redfin.transform
 	@echo "✅ Refreshed Redfin → $(FULL_DB)"
@@ -119,9 +125,6 @@ refresh-all: refresh-redfin refresh-ces refresh-laus refresh-census-acs refresh-
 make-public-db: venv
 	FULL_DUCKDB_PATH=$(FULL_DB) $(PY) scripts/make_public_db.py
 	@echo "✅ Built data/market_public.duckdb from $(FULL_DB)"
-
-refresh-dims:
-	DUCKDB_PATH=$(DUCKDB_PATH) .venv/bin/python -m scripts.build_dims
 
 # -----------------------------------------------------------------------------
 # Backtesting, Forecasting, Promotion
