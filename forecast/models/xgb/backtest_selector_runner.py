@@ -37,7 +37,7 @@ from forecast.feature_selection import (
 
 from forecast.features.metric_tiers import RedfinTierShareCaps, redfin_metric_tier, canon_geo_id
 from forecast.features.feature_loader import specs_from_selected_feature_ids
-from forecast.models.xgb.selector_utils import parse_data_asof
+from forecast.models.xgb.selector_utils import parse_data_asof, _source_from_feature_id, _is_redfin_source
 from forecast.models.xgb.selector_reporting import (
     SelectorRunSummary,
     build_stage1_summary,
