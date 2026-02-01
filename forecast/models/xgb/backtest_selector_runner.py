@@ -37,20 +37,17 @@ from forecast.feature_selection import (
 
 from forecast.features.metric_tiers import RedfinTierShareCaps, redfin_metric_tier, canon_geo_id
 from forecast.features.feature_loader import specs_from_selected_feature_ids
+from forecast.models.xgb.selector_utils import parse_data_asof
+from forecast.models.xgb.selector_reporting import (
+    SelectorRunSummary,
+    build_stage1_summary,
+    build_final_k_summary,
+    write_selector_summary,
+)
 
 
 TEMP_DEBUG_LIMIT = None  # set to an int for debugging; None for normal operation
 MIN_NON_REDFIN_DEFAULT = 25  # NEW: hard minimum count of non-Redfin features in final top-K
-
-
-def _parse_data_asof(s: Optional[str]):
-    if not s:
-        return None
-    return pd.to_datetime(s).date()
-
-
-def _base_id_from_feature_id(feature_id: str) -> str:
-    return feature_id.rsplit("_lag", 1)[0]
 
 
 def run_xgb_selector(
@@ -71,6 +68,7 @@ def run_xgb_selector(
     anchors_csv: Optional[str] = None,
     metric_pt_cap: int = 10,  # NEW
     min_non_redfin: int = MIN_NON_REDFIN_DEFAULT,  # NEW
+    debug: Optional[bool] = false,
 ):
     """
     XGB SELECTOR (artifact-only).
@@ -111,22 +109,23 @@ def run_xgb_selector(
     print("[xgb_selector] unique_redfin_metric_ids (sample) =", redfin_mids[:50])
     
     wanted = ["median_sale_price", "median_ppsf", "pending_sales", "new_listings", "price_drops", "sold_above_list", "months_of_supply"]
-    print("[xgb_selector] wanted_present =", {w: (w in set(redfin_mids)) for w in wanted})
-    
-    # optional: show “close matches” so we catch naming mismatches
-    import difflib
-    for w in wanted:
-        close = difflib.get_close_matches(w, redfin_mids, n=5, cutoff=0.6)
-        if close:
-            print(f"[xgb_selector] close_matches[{w}] =", close)
-
-
     c = Counter([s.metric_id for s in candidate_specs if (s.source_id or "").lower() == "redfin"])
-    print("[xgb_selector] redfin_metric_counts_top=", c.most_common(25))
-    print("[xgb_selector] has_pending_sales=", "pending_sales" in c)
-    print("[xgb_selector] has_new_listings=", "new_listings" in c)
-    print("[xgb_selector] has_price_drops=", "price_drops" in c)
-    print("[xgb_selector] has_sold_above_list=", "sold_above_list" in c)
+    
+    if debug:
+        print("[xgb_selector] wanted_present =", {w: (w in set(redfin_mids)) for w in wanted})
+    
+        # optional: show “close matches” so we catch naming mismatches
+        import difflib
+        for w in wanted:
+            close = difflib.get_close_matches(w, redfin_mids, n=5, cutoff=0.6)
+            if close:
+                print(f"[xgb_selector] close_matches[{w}] =", close)
+        
+        print("[xgb_selector] redfin_metric_counts_top=", c.most_common(25))
+        print("[xgb_selector] has_pending_sales=", "pending_sales" in c)
+        print("[xgb_selector] has_new_listings=", "new_listings" in c)
+        print("[xgb_selector] has_price_drops=", "price_drops" in c)
+        print("[xgb_selector] has_sold_above_list=", "sold_above_list" in c)
 
 
     if TEMP_DEBUG_LIMIT is not None:
@@ -214,6 +213,20 @@ def run_xgb_selector(
         metric_pt_cap=int(metric_pt_cap),
     )
 
+    def _is_redfin_spec(spec) -> bool:
+        return (getattr(spec, "source_id", "") or "").lower() == "redfin"
+    
+    redfin_tier_used = {t: 0 for t in (0,1,2,3)}
+    for it in picked:
+        if _is_redfin_spec(it.spec):
+            redfin_tier_used[redfin_metric_tier(it.spec.metric_id)] += 1
+    
+    # You already have redfin_caps and the selector prints quota, but quota isn’t returned.
+    # Minimal approach: recompute expected quota locally the same way governance does OR store None.
+    # For now: store None, and we can patch governance to return it later without breaking API.
+    redfin_tier_quota = None
+
+
     print("[xgb_selector] anchor=", anchor_date.date().isoformat())
     print("[xgb_selector] picked_base_series=", len(picked))
     print("[xgb_selector] picked_redfin_tiers=",
@@ -256,7 +269,7 @@ def run_xgb_selector(
         requested_end = y_full.index.max()
         data_asof_requested = requested_end.date()
     else:
-        data_asof_requested = _parse_data_asof(data_asof)
+        data_asof_requested = parse_data_asof(data_asof)
         requested_end = pd.Timestamp(data_asof_requested).to_period("M").to_timestamp(how="end")
 
     full_idx = pd.date_range(y_full.index.min(), requested_end, freq="ME")
@@ -350,17 +363,7 @@ def run_xgb_selector(
     # NEW: enforce minimum non-Redfin presence in final top-K
     # ----------------------------
     K = int(xgb_top_k)
-    
-    def _source_from_feature_id(fid: str) -> str:
-        # feature_id looks like: "<metric>__<geo>__<pt>__<source>_lag<k>"
-        # We treat anything starting with "redfin" as Redfin (covers redfin_lag1/3/6)
-        try:
-            return str(fid).split("__")[-1]
-        except Exception:
-            return ""
-    
-    def _is_redfin_source(src: str) -> bool:
-        return str(src).lower().startswith("redfin")
+
     
     fi["_source"] = fi["feature_id"].astype(str).apply(_source_from_feature_id)
     fi["_is_redfin"] = fi["_source"].apply(_is_redfin_source)
@@ -492,6 +495,53 @@ def run_xgb_selector(
             "Use a fresh --batch_id or delete this specific file."
         )
     fi_sel.to_parquet(out_path, index=False)
+    
+
+    # 9b) write selector summary JSON (stage1 + finalK)
+    out_json = out_dir / f"selector_summary__anchor={anchor_date.date().isoformat()}.json"
+    if out_json.exists():
+        raise SystemExit(
+            f"[xgb_selector] REFUSING to overwrite existing summary: {out_json}\n"
+            "Use a fresh --batch_id or delete this specific file."
+        )
+    
+    # stage1 summary (base-series picked BEFORE lag expansion)
+    bucket_of = lambda spec: default_bucket(spec, target)
+    stage1 = build_stage1_summary(
+        anchor=anchor_date.date().isoformat(),
+        picked=picked,
+        max_base_series=250,
+        bucket_of=bucket_of,
+        redfin_tier_quota=redfin_tier_quota,
+        redfin_tier_used=redfin_tier_used,
+    )
+    
+    # final-K summary (lag features after XGB + min_non_redfin enforcement)
+    final_k = build_final_k_summary(
+        fi_all=fi,           # the ranked importances DF (importance>0)
+        fi_sel=fi_sel,       # your final selection DF
+        K_requested=int(xgb_top_k),
+        min_non_redfin=int(min_non_redfin),
+    )
+    
+    summary = SelectorRunSummary(
+        batch_id=batch_id,
+        artifact_root=str(artifact_root or "runs"),
+        out_parquet=str(out_path),
+        out_json=str(out_json),
+        target={"metric_id": metric_id, "geo_id": geo_id, "property_type_id": str(property_type_id)},
+        seed=int(seed),
+        data_asof_requested=data_asof_requested.isoformat() if data_asof_requested else None,
+        data_asof_effective=data_asof_effective.isoformat(),
+        asof_clamp_reason=asof_clamp_reason,
+        feature_set_sha256=feature_set_sha256,
+        stage1=stage1,
+        final_k=final_k,
+    )
+    
+    write_selector_summary(out_json, summary)
+    print(f"[xgb_selector] wrote selector summary -> {out_json}")
+
 
     print(
         f"[xgb_selector] wrote {len(fi_sel)} selected features -> {out_path} "
@@ -526,6 +576,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     p.add_argument("--metric_pt_cap", type=int, default=10)
     p.add_argument("--min_non_redfin", type=int, default=MIN_NON_REDFIN_DEFAULT)
+    p.add_argument("--debug", action="store_true")
 
     args = p.parse_args(argv)
 
@@ -546,6 +597,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         anchors_csv=args.anchors,
         metric_pt_cap=args.metric_pt_cap,
         min_non_redfin=args.min_non_redfin,
+        debug=args.debug,
     )
     return 0
 
