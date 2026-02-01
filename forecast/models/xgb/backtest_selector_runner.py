@@ -34,7 +34,9 @@ from forecast.feature_selection import (
     scored_to_feature_specs,
     default_bucket,
 )
-from forecast.metric_tiers import RedfinTierShareCaps, redfin_metric_tier
+
+from forecast.features.metric_tiers import RedfinTierShareCaps, redfin_metric_tier, canon_geo_id
+from forecast.features.feature_loader import specs_from_selected_feature_ids
 
 
 TEMP_DEBUG_LIMIT = None  # set to an int for debugging; None for normal operation
