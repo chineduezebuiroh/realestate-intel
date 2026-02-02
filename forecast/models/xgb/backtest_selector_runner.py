@@ -19,13 +19,12 @@ from forecast.feature_loader import (
     load_target_series_for_spec,
 )
 from forecast.backtest_utils import (
-    choose_anchor_dates,
-    month_end_index,
     DEFAULT_MIN_TRAIN_LEN,
     DEFAULT_ANCHOR_STEP_MONTHS,
     DEFAULT_MAX_ANCHORS,
     DEFAULT_ANCHOR_BUFFER_MONTHS,
 )
+from forecast.core.anchors import AnchorPolicy, choose_anchors, month_end_index
 
 from forecast.feature_policy import default_policy
 from forecast.feature_selection import (
@@ -48,6 +47,7 @@ from forecast.models.xgb.selector_reporting import (
 
 TEMP_DEBUG_LIMIT = None  # set to an int for debugging; None for normal operation
 MIN_NON_REDFIN_DEFAULT = 25  # NEW: hard minimum count of non-Redfin features in final top-K
+DEFAULT_SELECTOR_MAX_ANCHORS = 1
 
 
 def run_xgb_selector(
@@ -58,7 +58,7 @@ def run_xgb_selector(
     *,
     min_train_len: int = DEFAULT_MIN_TRAIN_LEN,
     anchor_step_months: int = DEFAULT_ANCHOR_STEP_MONTHS,
-    max_anchors: int = DEFAULT_MAX_ANCHORS,
+    max_anchors: int = DEFAULT_SELECTOR_MAX_ANCHORS,
     latest_anchor_offset_months: Optional[int] = None,
     batch_id: Optional[str] = None,
     data_asof: Optional[str] = None,  # YYYY-MM-DD requested
@@ -139,6 +139,7 @@ def run_xgb_selector(
     y_for_anchors.index = month_end_index(y_for_anchors.index)
     y_for_anchors = y_for_anchors[~y_for_anchors.index.duplicated(keep="last")].sort_index()
 
+
     if anchors_csv:
         anchors = [
             pd.Timestamp(s.strip()).to_period("M").to_timestamp(how="end")
@@ -146,14 +147,19 @@ def run_xgb_selector(
             if s.strip()
         ]
     else:
-        anchors = choose_anchor_dates(
-            y_for_anchors,
-            horizon=horizon,
-            min_train_len=min_train_len,
-            step_months=anchor_step_months,
-            max_anchors=max_anchors,
-            latest_anchor_offset_months=latest_anchor_offset_months,
+        ap = AnchorPolicy(
+            horizon=int(horizon),
+            min_train_len=int(min_train_len),
+            step_months=int(anchor_step_months),
+            max_anchors=int(max_anchors),
+            latest_anchor_offset_months=int(latest_anchor_offset_months) if latest_anchor_offset_months is not None else None,
         )
+        # Selector: we want anchors that are scorable (full horizon exists) unless you explicitly decide otherwise.
+        if not anchors_csv and int(max_anchors) != 1:
+            raise SystemExit("[xgb_selector] max_anchors must be 1 unless --anchors is provided (selector contract).")
+
+        anchors = choose_anchors(y_for_anchors, ap, require_full_horizon=True)
+
 
     if not anchors:
         raise ValueError("[xgb_selector] No anchors available.")
@@ -560,7 +566,13 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     p.add_argument("--min_train_len", type=int, default=DEFAULT_MIN_TRAIN_LEN)
     p.add_argument("--anchor_step_months", type=int, default=DEFAULT_ANCHOR_STEP_MONTHS)
-    p.add_argument("--max_anchors", type=int, default=DEFAULT_MAX_ANCHORS)
+    p.add_argument(
+        "--max_anchors",
+        type=int,
+        default=DEFAULT_SELECTOR_MAX_ANCHORS,
+        help="Selector default is 1. Increase only if you explicitly want multi-anchor selection (will violate selector contract).",
+    )
+
     p.add_argument("--latest_anchor_offset_months", type=int, default=None)
 
     p.add_argument("--batch_id", type=str, default=None)
