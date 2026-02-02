@@ -1,5 +1,5 @@
 from __future__ import annotations
-# forecast/cli/eval.py
+# forecast/cli/eval_forecast_runs.py
 
 """
 LEGACY eval CLI for scoring rows in forecast_runs (DB-backed).
