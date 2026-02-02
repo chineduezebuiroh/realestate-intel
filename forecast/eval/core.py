@@ -1,6 +1,13 @@
 from __future__ import annotations
 # forecast/eval/core.py
 
+"""
+LEGACY DB-backed eval framework (forecast_runs).
+
+Not used by selector eval batching (see forecast/cli/eval_xgb_selector.py).
+Keep until Phase C cleanup; do not extend.
+"""
+
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional, List, Dict, Any, Tuple, Set
