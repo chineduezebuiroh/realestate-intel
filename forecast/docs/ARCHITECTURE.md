@@ -176,8 +176,6 @@ design_matrix (artifact: y + X, ordered, hashed)
 - Bridge > univariate AND Live ≤ univariate → signal exists but exog forecasting destroys value
 - Live > univariate → exogs are production-worthy
 
-***Bridge is a gate.***
-***Live is a truth test.***
 Bridge is a *gate*.  
 Live is a *truth test*.
 ---
