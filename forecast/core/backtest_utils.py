@@ -1,11 +1,11 @@
 from __future__ import annotations
 # forecast/backtest_utils.py
 
-#from dataclasses import dataclass
 from typing import List, Optional
 import pandas as pd
 from pandas.tseries.offsets import MonthEnd
 
+from forecast.core.anchors import AnchorPolicy, choose_anchors, month_end_index
 
 # ========================================================
 # Constants
@@ -16,23 +16,18 @@ DEFAULT_MAX_ANCHORS = 4
 DEFAULT_ANCHOR_BUFFER_MONTHS = 12   # extra slack beyond horizon
 
 
-def _month_end(ts: pd.Timestamp) -> pd.Timestamp:
+def _month_end(ts: pd.Timestamp) -> pd.Timestamp: #<-- Delete??
     """Force timestamp to month-end (consistent with your series)."""
     p = pd.Timestamp(ts).to_period("M")
     return p.to_timestamp(how="end")
 
 
-def month_end_index(idx) -> pd.DatetimeIndex:
-    """Convert any datetime-like index to month-end DatetimeIndex."""
-    return pd.DatetimeIndex([_month_end(x) for x in idx])
-
-
 def month_ends_after(anchor: pd.Timestamp, steps: int) -> pd.DatetimeIndex:
-    # next month-end after anchor, steps times
-    start = (pd.Timestamp(anchor) + MonthEnd(1))
+    anchor = pd.Timestamp(anchor).to_period("M").to_timestamp(how="end")
+    start = anchor + MonthEnd(1)
     return pd.date_range(start=start, periods=steps, freq="ME")
 
-
+"""
 def choose_anchor_dates(
     y: pd.Series,
     horizon: int,
@@ -41,7 +36,8 @@ def choose_anchor_dates(
     max_anchors: int = 3,
     latest_anchor_offset_months: Optional[int] = None,
 ) -> List[pd.Timestamp]:
-    """
+"""
+"""
     Date-based anchor selection.
 
     Default behavior:
@@ -50,7 +46,8 @@ def choose_anchor_dates(
 
     If latest_anchor_offset_months is set:
       latest anchor = last_date - latest_anchor_offset_months
-    """
+"""
+"""
     if y is None or len(y) == 0:
         return []
 
@@ -92,3 +89,28 @@ def choose_anchor_dates(
     # de-dupe + sorted
     anchors = sorted(set(anchors))
     return anchors[-max_anchors:]  # ascending, keep newest max_anchors
+"""
+
+def choose_anchor_dates(
+    y: pd.Series,
+    horizon: int,
+    min_train_len: int = 60,
+    step_months: int = 12,
+    max_anchors: int = 3,
+    latest_anchor_offset_months: Optional[int] = None,
+) -> List[pd.Timestamp]:
+    """
+    Back-compat shim. Prefer forecast.core.anchors.choose_anchors().
+    """
+    if y is None or len(y) == 0:
+        return []
+
+    policy = AnchorPolicy(
+        horizon=int(horizon),
+        min_train_len=int(min_train_len),
+        step_months=int(step_months),
+        max_anchors=int(max_anchors),
+        latest_anchor_offset_months=int(latest_anchor_offset_months) if latest_anchor_offset_months is not None else None,
+    )
+    # This is “historical behavior”: anchors must have full horizon available.
+    return choose_anchors(y, policy, require_full_horizon=True)
