@@ -139,6 +139,11 @@ def run_xgb_selector(
     y_for_anchors.index = month_end_index(y_for_anchors.index)
     y_for_anchors = y_for_anchors[~y_for_anchors.index.duplicated(keep="last")].sort_index()
 
+    # Respect data_asof for anchor selection (no implicit peeking past requested window)
+    if data_asof is not None:
+        req = parse_data_asof(data_asof)
+        req_end = pd.Timestamp(req).to_period("M").to_timestamp(how="end")
+        y_for_anchors = y_for_anchors.loc[:req_end]
 
     if anchors_csv:
         anchors = [
