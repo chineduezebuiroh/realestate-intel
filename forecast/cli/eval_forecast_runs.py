@@ -15,6 +15,7 @@ from pathlib import Path
 import pandas as pd
 
 from forecast.eval.core import EvalSpec, build_eval_frame, score_runs
+from forecast.core.db_forecast.py import new_batch_id
 
 
 def _sha256_file(p: Path) -> str:
@@ -33,7 +34,7 @@ def main() -> int:
     ap.add_argument("--model_name", action="append", default=None)
     ap.add_argument("--anchor", action="append", default=None)
 
-    ap.add_argument("--eval_batch_id", required=True)
+    ap.add_argument("--eval_batch_id", default=None)
     ap.add_argument("--artifact_root", default="runs")
     ap.add_argument("--allow_partial", action="store_true", help="Allow runs with incomplete horizons")
     
@@ -49,6 +50,9 @@ def main() -> int:
 
 
     args = ap.parse_args()
+    
+    eval_batch_id = args.eval_batch_id or f"evalruns_{new_batch_id()}"
+
 
     run_kinds = tuple(args.run_kind) if args.run_kind else ("backtest",)
 
@@ -150,7 +154,7 @@ def main() -> int:
         return "\n".join(lines)
 
 
-    out_dir = Path(args.artifact_root) / args.eval_batch_id / "eval"
+    out_dir = Path(args.artifact_root) / eval_batch_id / "eval"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     score_path = out_dir / "score_table.parquet"
