@@ -1,6 +1,13 @@
 from __future__ import annotations
 # forecast/cli/eval.py
 
+"""
+LEGACY eval CLI for scoring rows in forecast_runs (DB-backed).
+
+Not used by selector eval batching (see forecast/cli/eval_xgb_selector.py).
+Keep until Phase C cleanup; do not extend.
+"""
+
 import argparse
 import json
 import hashlib
