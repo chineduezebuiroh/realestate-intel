@@ -96,6 +96,7 @@ def _load_or_build_universal_specs(*, artifact_root: str, batch_id: str, rebuild
     d = _shared_dir(artifact_root, batch_id)
     d.mkdir(parents=True, exist_ok=True)
 
+    """
     jsonl_path = d / "universal_feature_specs.jsonl"
     pkl_path = d / "universal_feature_specs.pkl"
 
@@ -119,7 +120,22 @@ def _load_or_build_universal_specs(*, artifact_root: str, batch_id: str, rebuild
         with pkl_path.open("wb") as f:
             pickle.dump(specs, f, protocol=pickle.HIGHEST_PROTOCOL)
         print(f"[cache] WROTE universal_feature_specs (pkl) -> {pkl_path}")
+    """
 
+    pkl_path = d / "universal_feature_specs.pkl"
+    
+    if pkl_path.exists() and not rebuild:
+        print(f"[cache] HIT universal_feature_specs (pkl) -> {pkl_path}")
+        with pkl_path.open("rb") as f:
+            return pickle.load(f)
+    
+    print(f"[cache] MISS universal_feature_specs -> building")
+    specs = build_universal_feature_specs(**kwargs)
+    
+    with pkl_path.open("wb") as f:
+        pickle.dump(specs, f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    print(f"[cache] WROTE universal_feature_specs (pkl) -> {pkl_path}")
     return specs
 
 
@@ -290,14 +306,30 @@ def run_xgb_selector(
     print("[xgb_selector] score_mode=", "combo")
     
     t = time.time()
-    #scored = score_candidates(
-    scored = _load_or_score_candidates(
+    """
+    scored = score_candidates(
         target=target,
         candidates=candidate_specs,
         train_end=anchor_ts,
         min_eff=60,
         lead_months=(0, 1, 2, 3),
         score_mode="combo",
+    )
+    """
+    scored = _load_or_score_candidates(
+        artifact_root=artifact_root,
+        batch_id=batch_id,
+        metric_id=metric_id,
+        anchor=anchor_ts,
+        rebuild=debug,
+        score_kwargs=dict(
+            target=target,
+            candidates=candidate_specs,
+            train_end=anchor_ts,
+            min_eff=60,
+            lead_months=(0, 1, 2, 3),
+            score_mode="combo",
+        ),
     )
 
     print(f"[timing] score_candidates_sec={time.time()-t:.2f}")    
