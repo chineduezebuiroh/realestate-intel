@@ -193,6 +193,7 @@ def run_xgb_selector(
     metric_pt_cap: int = 10,  # NEW
     min_non_redfin: int = MIN_NON_REDFIN_DEFAULT,  # NEW
     debug: Optional[bool] = False,
+    rebuild_cache: bool = False,
 ):
     """
     XGB SELECTOR (artifact-only).
