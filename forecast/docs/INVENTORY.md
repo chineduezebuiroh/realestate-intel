@@ -22,7 +22,6 @@ model logic lives under forecast/models/**.
 - **Hard contracts tested:** contracts at artifact boundaries must have a smoke test.
 
 ---
----
 ## Phase C Execution Invariants (ENFORCED)
 
 The following rules are hard stops. Violations must raise errors, not warnings.
