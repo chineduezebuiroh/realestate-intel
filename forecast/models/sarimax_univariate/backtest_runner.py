@@ -144,6 +144,43 @@ def run_backtest_sarimax_single(
         return
     
     print(f"[backtest] Found {len(anchors)} anchors.")
+
+    # \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/
+    # Eventually centralize this next block in forecast/artifacts/, but don’t block Phase C on refactor. Get the contract.
+    from pathlib import Path
+    import json
+    
+    out_dir = Path(os.environ.get("ARTIFACT_ROOT", "runs")) / "runs" / batch_id / "sarimax_univariate"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    anchors_payload = {
+        "model_name": "sarimax_univariate",
+        "run_kind": "backtest",
+        "metric_id": metric_id,
+        "geo_id": geo_id,
+        "property_type_id": property_type_id,
+        "horizon": int(horizon),
+        "min_train_len": int(min_train_len),
+        "anchor_step_months": int(anchor_step_months),
+        "max_anchors": int(max_anchors),
+        "latest_anchor_offset_months": int(latest_anchor_offset_months) if latest_anchor_offset_months is not None else None,
+        "data_asof": str(data_asof),
+        "anchors": [str(pd.Timestamp(a).date()) for a in anchors],
+        "anchors_source": "cli" if anchors_csv else "policy",
+    }
+    (out_dir / "anchors.json").write_text(json.dumps(anchors_payload, indent=2))
+    
+    asof_payload = {
+        "mode": "strict",  # later: strict vs relaxed_poisoned
+        "data_asof": str(data_asof),
+        "data_asof_ts": str(data_asof_ts.date()),
+        "notes": "user-passed data_asof" if data_asof is not None else "defaulted to series max",
+    }
+    (out_dir / "asof_report.json").write_text(json.dumps(asof_payload, indent=2))
+    # End of block to centralize in forecast/artifacts/
+    # /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\
+
+
     
     last_date = s.index[-1]
     results_summary = []
@@ -158,9 +195,9 @@ def run_backtest_sarimax_single(
         anchor_period = anchor_date.to_period("M")
         last_period = last_date.to_period("M")
         # number of months between anchor and last_date
-        months_available = (last_period.year - anchor_period.year) * 12 + (last_period.month - anchor_period.month)
+        future_months_available = (last_period.year - anchor_period.year) * 12 + (last_period.month - anchor_period.month)
 
-        horizon_bt = min(horizon, months_available)
+        horizon_bt = min(horizon, future_months_available)
         if horizon_bt <= 0:
             print("[backtest] No future months available for this anchor; skipping.")
             continue
