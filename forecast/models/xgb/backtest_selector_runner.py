@@ -226,7 +226,7 @@ def run_xgb_selector(
     candidate_specs = _load_or_build_universal_specs(
         artifact_root=artifact_root,
         batch_id=batch_id,
-        rebuild=debug,   # or a new CLI flag later
+        rebuild=rebuild_cache,   # or a new CLI flag later
         target=target,
     )
     #if not candidate_specs:
@@ -329,7 +329,7 @@ def run_xgb_selector(
         batch_id=batch_id,
         metric_id=metric_id,
         anchor=anchor_ts,
-        rebuild=debug,
+        rebuild=rebuild_cache,
         score_kwargs=dict(
             target=target,
             candidates=candidate_specs,
@@ -765,6 +765,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--metric_pt_cap", type=int, default=10)
     p.add_argument("--min_non_redfin", type=int, default=MIN_NON_REDFIN_DEFAULT)
     p.add_argument("--debug", action="store_true")
+    p.add_argument(
+        "--rebuild_cache",
+        action="store_true",
+        help="Force rebuild of shared selector caches (universal specs + scoring).",
+    )
+
 
     args = p.parse_args(argv)
 
@@ -786,6 +792,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         metric_pt_cap=args.metric_pt_cap,
         min_non_redfin=args.min_non_redfin,
         debug=args.debug,
+        rebuild_cache=args.rebuild_cache,
     )
     return 0
 
