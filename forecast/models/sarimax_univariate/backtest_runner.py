@@ -150,9 +150,11 @@ def run_backtest_sarimax_single(
     from pathlib import Path
     import json
     
-    out_dir = Path(os.environ.get("ARTIFACT_ROOT", "runs")) / "runs" / batch_id / "sarimax_univariate"
+    #out_dir = Path(os.environ.get("ARTIFACT_ROOT", "runs")) / "runs" / batch_id / "sarimax_univariate"
+    artifact_root = Path(os.environ.get("ARTIFACT_ROOT", "runs"))
+    out_dir = artifact_root / "runs" / batch_id / "sarimax_univariate"
     out_dir.mkdir(parents=True, exist_ok=True)
-    
+
     anchors_payload = {
         "model_name": "sarimax_univariate",
         "run_kind": "backtest",
@@ -168,18 +170,21 @@ def run_backtest_sarimax_single(
         "anchors": [str(pd.Timestamp(a).date()) for a in anchors],
         "anchors_source": "cli" if anchors_csv else "policy",
     }
-    (out_dir / "anchors.json").write_text(json.dumps(anchors_payload, indent=2))
-    
+    anchors_path = out_dir / "anchors.json"
+    anchors_path.write_text(json.dumps(anchors_payload, indent=2))
+    print(f"[backtest] wrote anchors -> {anchors_path}")
+
     asof_payload = {
         "mode": "strict",  # later: strict vs relaxed_poisoned
         "data_asof": str(data_asof),
         "data_asof_ts": str(data_asof_ts.date()),
         "notes": "user-passed data_asof" if data_asof is not None else "defaulted to series max",
     }
-    (out_dir / "asof_report.json").write_text(json.dumps(asof_payload, indent=2))
+    asof_path = out_dir / "asof_report.json"
+    asof_path.write_text(json.dumps(asof_payload, indent=2))
+    print(f"[backtest] wrote asof_report -> {asof_path}")
     # End of block to centralize in forecast/artifacts/
     # /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\ /\
-
 
     
     last_date = s.index[-1]
