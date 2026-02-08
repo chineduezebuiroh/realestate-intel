@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import hashlib
+import time
+
 from pathlib import Path
 from typing import Optional, List, Dict
 from collections import Counter
@@ -45,10 +47,56 @@ from forecast.models.xgb.selector_reporting import (
 )
 
 TEMP_DEBUG_LIMIT = None  # set to an int for debugging; None for normal operation
+max_features = 300 if debug else None
 MIN_NON_REDFIN_DEFAULT = 25  # NEW: hard minimum count of non-Redfin features in final top-K
 DEFAULT_SELECTOR_MAX_ANCHORS = 1
 
 
+def _shared_dir(artifact_root: str, batch_id: str) -> Path:
+    return Path(artifact_root) / "runs" / batch_id / "xgb" / "_shared"
+
+def _load_or_build_universal_specs(*, artifact_root: str, batch_id: str, rebuild: bool, **kwargs):
+    d = _shared_dir(artifact_root, batch_id)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / "universal_feature_specs.parquet"
+
+    if path.exists() and not rebuild:
+        print(f"[cache] HIT universal_feature_specs -> {path}")
+        return pd.read_parquet(path)
+
+    print(f"[cache] MISS universal_feature_specs -> building")
+    df = build_universal_feature_specs(**kwargs)
+    df.to_parquet(path, index=False)
+    print(f"[cache] WROTE universal_feature_specs -> {path}")
+    return df
+
+def _load_or_score_candidates(
+    *,
+    artifact_root: str,
+    batch_id: str,
+    metric_id: str,
+    anchor: pd.Timestamp,
+    rebuild: bool,
+    score_kwargs: dict,
+):
+    d = _shared_dir(artifact_root, batch_id)
+    d.mkdir(parents=True, exist_ok=True)
+    a = anchor.date().isoformat()
+    path = d / f"scored_candidates__metric={metric_id}__anchor={a}.parquet"
+
+    if path.exists() and not rebuild:
+        print(f"[cache] HIT scored_candidates -> {path}")
+        return pd.read_parquet(path)
+
+    print(f"[cache] MISS scored_candidates -> scoring metric={metric_id} anchor={a}")
+    scored_df = score_candidates(**score_kwargs)
+    scored_df.to_parquet(path, index=False)
+    print(f"[cache] WROTE scored_candidates -> {path}")
+    return scored_df
+
+# ==============================
+# Main / Primary Code Block
+# ==============================
 def run_xgb_selector(
     metric_id: str = "median_sale_price",
     geo_id: str = "dc_city",
@@ -80,6 +128,7 @@ def run_xgb_selector(
       - no DB writes
       - invariant columns present
     """
+    t0 = time.time()
     policy = default_policy()
     
     redfin_caps = RedfinTierShareCaps(
@@ -95,10 +144,19 @@ def run_xgb_selector(
     target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
 
     # 1) build universal candidate specs
-    candidate_specs = build_universal_feature_specs(target)
+    t = time.time()
+    #candidate_specs = build_universal_feature_specs(target)
+    candidate_specs = _load_or_build_universal_specs(
+        artifact_root=artifact_root,
+        batch_id=batch_id,
+        rebuild=debug,   # or a new CLI flag later
+        target,
+    )
     if not candidate_specs:
         print("[xgb_selector] No candidate features; skipping.")
         return
+
+    print(f"[timing] build_universal_feature_specs_sec={time.time()-t:.2f}")    
 
     nrc_count = sum(1 for s in candidate_specs if (s.source_id or "").lower() == "census_nrc_fred")
     print("[xgb_selector] nrc_candidate_count =", nrc_count)
@@ -176,7 +234,10 @@ def run_xgb_selector(
     anchor_ts = month_end_index(pd.DatetimeIndex([pd.Timestamp(anchor_date)]))[0]
 
     print("[xgb_selector] score_mode=", "combo")
-    scored = score_candidates(
+    
+    t = time.time()
+    #scored = score_candidates(
+    scored = _load_or_score_candidates(
         target=target,
         candidates=candidate_specs,
         train_end=anchor_ts,
@@ -184,6 +245,8 @@ def run_xgb_selector(
         lead_months=(0, 1, 2, 3),
         score_mode="combo",
     )
+
+    print(f"[timing] score_candidates_sec={time.time()-t:.2f}")    
 
     redfin_scored = [it for it in scored if (it.spec.source_id or "").lower() == "redfin"]
     print("[xgb_selector] n_scored_total=", len(scored), "n_scored_redfin=", len(redfin_scored))
@@ -213,6 +276,7 @@ def run_xgb_selector(
         "geo:other": 40,
     }
 
+    t = time.time()
     picked = select_scored_candidates(
         scored=scored,
         max_base_series=250,
@@ -223,6 +287,8 @@ def run_xgb_selector(
         redfin_tier_caps=redfin_caps,
         metric_pt_cap=int(metric_pt_cap),
     )
+
+    print(f"[timing] select_scored_candidates_sec={time.time()-t:.2f}")
 
     def _is_redfin_spec(spec) -> bool:
         return (getattr(spec, "source_id", "") or "").lower() == "redfin"
@@ -256,15 +322,18 @@ def run_xgb_selector(
 
     # 3) build design matrix incrementally (respecting your DQ choices)
     required_obs = min_train_len + horizon + DEFAULT_ANCHOR_BUFFER_MONTHS
+    t = time.time()
     y_full, X_full, _base_series_full, _selected_specs = build_design_matrix_incremental(
         target=target,
         candidate_specs=candidate_specs,
         min_obs=required_obs,
-        max_features=None,
+        max_features=max_features,
         load_target_fn=load_target_series_for_spec,
         drop_feature_na=False,  # keep as you had
     )
-
+    
+    print(f"[timing] build_design_matrix_incremental_sec={time.time()-t:.2f}")
+    
     # normalize timeline
     y_full = y_full.copy()
     y_full.index = month_end_index(y_full.index)
@@ -352,7 +421,10 @@ def run_xgb_selector(
         objective="reg:squarederror",
         random_state=seed,
     )
+    t = time.time()
     model.fit(X_train, y_train)
+
+    print(f"[timing] xgb_fit_sec={time.time()-t:.2f}")
 
     importances = getattr(model, "feature_importances_", None)
     if importances is None:
@@ -499,6 +571,7 @@ def run_xgb_selector(
         raise ValueError("[xgb_selector] feature_set_sha256 must be constant across rows")
 
     # 9) write artifact (refuse overwrite)
+    t = time.time()
     out_path = out_dir / f"selected_features__anchor={anchor_date.date().isoformat()}.parquet"
     if out_path.exists():
         raise SystemExit(
@@ -553,6 +626,9 @@ def run_xgb_selector(
     write_selector_summary(out_json, summary)
     print(f"[xgb_selector] wrote selector summary -> {out_json}")
 
+    print(f"[timing] write_artifacts_sec={time.time()-t:.2f}")
+    
+    print(f"[timing] total_sec={time.time()-t0:.2f}")
 
     print(
         f"[xgb_selector] wrote {len(fi_sel)} selected features -> {out_path} "
