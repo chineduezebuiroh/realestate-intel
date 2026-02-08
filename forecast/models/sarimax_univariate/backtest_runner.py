@@ -1,15 +1,6 @@
 from __future__ import annotations
 # forecast/models/sarimax_univariate/backtest_runner.py
 
-
-# NOTE: Phase C Step 2:
-# This file should contain the full logic previously in forecast/backtest_sarimax_single.py
-# with only import paths adjusted if needed.
-#
-# Do NOT change algorithm behavior.
-
-# forecast/backtest_sarimax_single.py
-
 import os
 from typing import List, Dict, Optional
 
@@ -55,12 +46,24 @@ def load_target_series(
     """
     con = get_connection()
     sql = """
-        SELECT date, value
-        FROM fact_timeseries
-        WHERE metric_id = ?
-          AND geo_id = ?
-          AND property_type_id = ?
-        ORDER BY date
+        WITH t AS (
+          SELECT
+            (date_trunc('month', date) + INTERVAL '1 month' - INTERVAL '1 day')::DATE AS month_end,
+            date,
+            value,
+            row_number() OVER (
+              PARTITION BY (date_trunc('month', date) + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+              ORDER BY date DESC
+            ) AS rn
+          FROM fact_timeseries
+          WHERE metric_id = ?
+            AND geo_id = ?
+            AND property_type_id = ?
+        )
+        SELECT month_end AS date, value
+        FROM t
+        WHERE rn = 1
+        ORDER BY month_end
     """
     df = con.execute(sql, [metric_id, geo_id, property_type_id]).fetchdf()
 
@@ -70,6 +73,15 @@ def load_target_series(
         )
 
     s = df.set_index("date")["value"].astype(float)
+
+    s.index = pd.DatetimeIndex(s.index)
+    s = s.asfreq("ME")
+
+    if s.index.freq is None:
+        raise ValueError("Target series must have monthly-end frequency (ME).")
+    if s.isna().any():
+        raise ValueError("Target series has missing months after enforcing ME frequency.")
+    
     return s
 
 
