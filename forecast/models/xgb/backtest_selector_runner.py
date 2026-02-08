@@ -150,9 +150,10 @@ def run_xgb_selector(
         artifact_root=artifact_root,
         batch_id=batch_id,
         rebuild=debug,   # or a new CLI flag later
-        target,
+        target=target,
     )
-    if not candidate_specs:
+    #if not candidate_specs:
+    if candidate_specs is None or len(candidate_specs) == 0:
         print("[xgb_selector] No candidate features; skipping.")
         return
 
