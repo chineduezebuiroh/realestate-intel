@@ -4,10 +4,12 @@ from __future__ import annotations
 import json
 import hashlib
 import time
+import pickle
 
 from pathlib import Path
 from typing import Optional, List, Dict
 from collections import Counter
+from dataclasses import asdict, is_dataclass
 
 import numpy as np
 import pandas as pd
@@ -54,20 +56,72 @@ DEFAULT_SELECTOR_MAX_ANCHORS = 1
 def _shared_dir(artifact_root: str, batch_id: str) -> Path:
     return Path(artifact_root) / "runs" / batch_id / "xgb" / "_shared"
 
+
+def _serialize_list_jsonl(items, path: Path) -> bool:
+    """
+    Try to write list items as JSONL. Returns True if succeeded, else False.
+    """
+    try:
+        with path.open("w", encoding="utf-8") as f:
+            for it in items:
+                if is_dataclass(it):
+                    obj = asdict(it)
+                elif isinstance(it, dict):
+                    obj = it
+                else:
+                    # If it's a simple type or has __dict__, attempt to serialize that
+                    if hasattr(it, "__dict__"):
+                        obj = dict(it.__dict__)
+                    else:
+                        # not JSON-serializable in a reasonable way
+                        return False
+                f.write(json.dumps(obj, default=str) + "\n")
+        return True
+    except Exception:
+        return False
+
+
+def _load_list_jsonl(path: Path):
+    out = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            out.append(json.loads(line))
+    return out
+
+
 def _load_or_build_universal_specs(*, artifact_root: str, batch_id: str, rebuild: bool, **kwargs):
     d = _shared_dir(artifact_root, batch_id)
     d.mkdir(parents=True, exist_ok=True)
-    path = d / "universal_feature_specs.parquet"
 
-    if path.exists() and not rebuild:
-        print(f"[cache] HIT universal_feature_specs -> {path}")
-        return pd.read_parquet(path)
+    jsonl_path = d / "universal_feature_specs.jsonl"
+    pkl_path = d / "universal_feature_specs.pkl"
+
+    if not rebuild:
+        if jsonl_path.exists():
+            print(f"[cache] HIT universal_feature_specs (jsonl) -> {jsonl_path}")
+            return _load_list_jsonl(jsonl_path)
+        if pkl_path.exists():
+            print(f"[cache] HIT universal_feature_specs (pkl) -> {pkl_path}")
+            with pkl_path.open("rb") as f:
+                return pickle.load(f)
 
     print(f"[cache] MISS universal_feature_specs -> building")
-    df = build_universal_feature_specs(**kwargs)
-    df.to_parquet(path, index=False)
-    print(f"[cache] WROTE universal_feature_specs -> {path}")
-    return df
+    specs = build_universal_feature_specs(**kwargs)
+    print(f"[cache] universal_feature_specs_type={type(specs)} item_type={type(specs[0]) if specs else None}")
+
+    # Try JSONL first (auditable). If that fails, use pickle.
+    if _serialize_list_jsonl(specs, jsonl_path):
+        print(f"[cache] WROTE universal_feature_specs (jsonl) -> {jsonl_path}")
+    else:
+        with pkl_path.open("wb") as f:
+            pickle.dump(specs, f, protocol=pickle.HIGHEST_PROTOCOL)
+        print(f"[cache] WROTE universal_feature_specs (pkl) -> {pkl_path}")
+
+    return specs
+
 
 def _load_or_score_candidates(
     *,
