@@ -110,7 +110,7 @@ def run_backtest_sarimax_single(
     s = load_target_series(metric_id, geo_id, property_type_id)
 
     s = s.copy()
-    s.index = month_end_index(s.index)
+    #s.index = month_end_index(s.index)
     s = s[~s.index.duplicated(keep="last")].sort_index()
 
     batch_id = batch_id or new_batch_id()
