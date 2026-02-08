@@ -150,19 +150,27 @@ def _load_or_score_candidates(
 ):
     d = _shared_dir(artifact_root, batch_id)
     d.mkdir(parents=True, exist_ok=True)
-    a = anchor.date().isoformat()
-    path = d / f"scored_candidates__metric={metric_id}__anchor={a}.parquet"
 
-    if path.exists() and not rebuild:
-        print(f"[cache] HIT scored_candidates -> {path}")
-        return pd.read_parquet(path)
+    a = anchor.date().isoformat()
+    pkl_path = d / f"scored_candidates__metric={metric_id}__anchor={a}.pkl"
+
+    if pkl_path.exists() and not rebuild:
+        print(f"[cache] HIT scored_candidates (pkl) -> {pkl_path}")
+        with pkl_path.open("rb") as f:
+            return pickle.load(f)
 
     print(f"[cache] MISS scored_candidates -> scoring metric={metric_id} anchor={a}")
-    scored_df = score_candidates(**score_kwargs)
-    scored_df.to_parquet(path, index=False)
-    print(f"[cache] WROTE scored_candidates -> {path}")
-    return scored_df
+    scored = score_candidates(**score_kwargs)
 
+    # sanity: we expect a list-like scored structure
+    print(f"[cache] scored_candidates_type={type(scored)} len={len(scored) if hasattr(scored,'__len__') else 'NA'}")
+
+    with pkl_path.open("wb") as f:
+        pickle.dump(scored, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    print(f"[cache] WROTE scored_candidates (pkl) -> {pkl_path}")
+    return scored
+    
 # ==============================
 # Main / Primary Code Block
 # ==============================
