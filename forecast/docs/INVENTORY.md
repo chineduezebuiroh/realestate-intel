@@ -22,6 +22,28 @@ model logic lives under forecast/models/**.
 - **Hard contracts tested:** contracts at artifact boundaries must have a smoke test.
 
 ---
+---
+## Phase C Execution Invariants (ENFORCED)
+
+The following rules are hard stops. Violations must raise errors, not warnings.
+
+- All backtests and live runs require:
+  - explicit `BATCH_ID`
+  - explicit `data_asof`
+- `data_asof` must be ≤ anchor date (or train_end for live)
+- All anchors and train_end timestamps must be month-end
+- Artifact paths must be unique per:
+  - model_name
+  - run_kind
+  - anchor or train_end
+  - batch_id
+- Runners must emit BOTH:
+  - on-disk artifacts
+  - DuckDB rows (`forecast_runs`)
+- Anchor sets must be identical across model families for comparative evals
+- Any violation must raise immediately and abort the run
+
+---
 ## Canonical runner call graphs (MUST STAY TRUE)
 
 If behavior changes, update this section first.
