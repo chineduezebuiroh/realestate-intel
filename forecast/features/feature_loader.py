@@ -1,4 +1,4 @@
-# forecast/feature_loader.py
+# forecast/features/feature_loader.py
 
 from collections import Counter
 from datetime import date
@@ -20,6 +20,35 @@ from .ids import (
     parse_base_name,
     specs_from_selected_feature_ids,
 )
+
+
+def _load_target_series(target: TargetSpec) -> pd.Series:
+    y = load_series_from_fact(
+        metric_id=target.metric_id,
+        geo_id=target.geo_id,
+        property_type_id=target.property_type_id,
+        data_asof=target.data_asof,
+        asof_by_source=target.asof_by_source,
+        source_id=None,
+    ).copy()
+    y.name = "y"
+    y.index = month_end_index(y.index)
+    y = y[~y.index.duplicated(keep="last")].sort_index()
+    return y
+
+
+def _load_feature_series(spec: FeatureSpec, target: TargetSpec) -> pd.Series:
+    s = load_series_from_fact(
+        metric_id=spec.metric_id,
+        geo_id=spec.geo_id,
+        property_type_id=spec.property_type_id,
+        data_asof=target.data_asof,
+        asof_by_source=target.asof_by_source,
+        source_id=spec.source_id,
+    ).copy()
+    s.index = month_end_index(s.index)
+    s = s[~s.index.duplicated(keep="last")].sort_index()
+    return s
 
 # ====================================================================
 # Constants
@@ -199,65 +228,37 @@ def build_design_matrix_incremental(
     max_features: Optional[int] = None,
     load_target_fn=None,
     *,
-    drop_feature_na: bool = False,   # NEW: False for XGB
+    drop_feature_na: bool = False,   # False for XGB
+    max_feature_cols: Optional[int] = 300,  # NEW: hard cap on expanded lag columns
 ) -> Tuple[pd.Series, pd.DataFrame, Dict[str, pd.Series], List[FeatureSpec]]:
     """
-    Incrementally build a design matrix by trying candidate features one-by-one.
+    Incrementally build a design matrix WITHOUT repeatedly rebuilding/loading everything.
 
-    Strategy:
-      - Start with no features.
-      - For each candidate FeatureSpec in order:
-          * Attempt to build a design matrix using currently-selected specs + this one
-            (via the existing build_design_matrix).
-          * If build_design_matrix fails (e.g. 0 < min_obs or other alignment issue) -> skip this feature.
-          * Else, if resulting row count >= min_obs -> accept this feature (update y/X/base/specs).
-          * Else -> skip this feature.
-      - Stop when we've exhausted candidates or reached max_features (if set).
-
-    Returns:
-      y: target series
-      X: design matrix with selected features
-      base_series: dict[str, pd.Series] from the final build_design_matrix call
-      selected_specs: list of FeatureSpec actually used
-
-    Raises:
-      ValueError if we cannot get at least min_obs observations even with 0 features
-      (which would mean the target itself doesn't have enough history).
+    Key idea:
+      - Load y once (canonical month-end index).
+      - Maintain:
+          base_series dict (unlagged series aligned to y.index)
+          X dataframe (lagged columns) growing over time
+      - For each candidate, load only that candidate series, align, compute its lag cols,
+        and decide whether to keep.
     """
     if not candidate_specs:
-        # Rely on your existing univariate pipeline to enforce min_obs on target alone.
         raise ValueError("No candidate specs provided to build_design_matrix_incremental.")
-    
+
     print(f"[inc-build] target={target.metric_id}/{target.geo_id}/{target.property_type_id}")
-    print(f"[inc-build] candidates={len(candidate_specs)} min_obs={min_obs} max_features={max_features}")
+    print(f"[inc-build] candidates={len(candidate_specs)} min_obs={min_obs} max_features={max_features} max_feature_cols={max_feature_cols}")
 
     policy = default_policy()
-    # DQ thresholds (policy-owned; fallback if not yet added)
     min_cov = float(getattr(policy, "min_feature_coverage_ratio", 0.95))
     max_consec_missing = int(getattr(policy, "max_consecutive_missing_months", 2))
 
-
-    selected_specs: List[FeatureSpec] = []
-    current_y: Optional[pd.Series] = None
-    current_X: Optional[pd.DataFrame] = None
-    current_base: Optional[Dict[str, pd.Series]] = None
-
-    
-    if load_target_fn is None:
-        raise ValueError(
-            "build_design_matrix_incremental requires load_target_fn so we can validate "
-            "target history without exog contamination."
-        )
-
     def _max_consecutive_missing(mask: pd.Series) -> int:
-        # mask=True where missing
         cur = 0
         best = 0
         for v in mask.astype(bool).values:
             if v:
                 cur += 1
-                if cur > best:
-                    best = cur
+                best = max(best, cur)
             else:
                 cur = 0
         return int(best)
@@ -267,56 +268,57 @@ def build_design_matrix_incremental(
             return 0.0
         return float(s.notna().sum() / len(s))
 
+    # ---- Load target ONCE ----
+    if load_target_fn is None:
+        # preserve your existing requirement
+        raise ValueError("build_design_matrix_incremental requires load_target_fn")
 
     y_raw = load_target_fn(target).copy()
     y_raw.index = month_end_index(y_raw.index)
     y_raw = y_raw[~y_raw.index.duplicated(keep="last")].sort_index()
+    y_raw.name = "y"
 
     if len(y_raw) < min_obs:
-        raise ValueError(
-            f"Target series does not have enough observations before exogs: "
-            f"{len(y_raw)} < {min_obs}"
-        )
+        raise ValueError(f"Target series does not have enough observations: {len(y_raw)} < {min_obs}")
 
+    idx = y_raw.index
 
-    # Now incrementally add features
+    # base_series holds UNLAGGED aligned series on the canonical index
+    base_series: Dict[str, pd.Series] = {"y": y_raw.reindex(idx)}
+    selected_specs: List[FeatureSpec] = []
+
+    # X holds LAGGED feature columns
+    X = pd.DataFrame(index=idx)
+
+    # Optional: cache feature loads within this call (huge win if specs repeat)
+    _series_cache: Dict[str, pd.Series] = {}
+
+    def _spec_cache_key(spec: FeatureSpec) -> str:
+        # stable id for caching within a run
+        return f"{spec.metric_id}|{spec.geo_id}|{spec.property_type_id}|{spec.source_id}"
+
     for i, spec in enumerate(candidate_specs, start=1):
         if max_features is not None and len(selected_specs) >= max_features:
             break
 
         if i % 50 == 0:
-            print(f"[inc-build] tried={i}/{len(candidate_specs)} accepted={len(selected_specs)}")
+            print(f"[inc-build] tried={i}/{len(candidate_specs)} accepted={len(selected_specs)} X_cols={X.shape[1]}")
 
-        trial_specs = selected_specs + [spec]
+        # Load ONLY this candidate’s base series (cached)
+        k = _spec_cache_key(spec)
+        if k in _series_cache:
+            s = _series_cache[k]
+        else:
+            s = _load_feature_series(spec, target)  # uses DuckDB once per unique spec
+            _series_cache[k] = s
 
-        try:
-            y_trial, X_trial, base_trial = build_design_matrix(
-                target=target,
-                feature_specs=trial_specs,
-                min_obs=1,  # we'll enforce ourselves
-                drop_feature_na=drop_feature_na,
-            )
-        except Exception:
-            # This feature makes alignment impossible; skip it.
-            continue
+        s_aligned = s.reindex(idx)
 
-        # ----------------------------
-        # DQ gate (BEFORE acceptance)
-        # ----------------------------
-        # Use the base (unlagged) series aligned to the *training* timeline.
-        # build_design_matrix already reindexes base_series to the target timeline.
-        s_base = base_trial.get(spec.name)
-        if s_base is None:
-            continue
-
-        # Align to y_trial index (the only months we can train on anyway)
-        s_aligned = s_base.reindex(y_trial.index)
-
+        # DQ gates on BASE series (unlagged)
         cov = _coverage_ratio(s_aligned)
         max_consec = _max_consecutive_missing(s_aligned.isna())
 
         if cov < min_cov:
-            # Reject early: this series will burn quota + create junk lag columns
             if len(selected_specs) <= 10 or i % 50 == 0:
                 print(f"[inc-build] -reject {spec.name} coverage={cov:.3f} < {min_cov:.3f}")
             continue
@@ -326,38 +328,59 @@ def build_design_matrix_incremental(
                 print(f"[inc-build] -reject {spec.name} max_consec_missing={max_consec} > {max_consec_missing}")
             continue
 
-        # Effective rows for THIS candidate’s lagged columns (not all columns)
-        new_cols = [f"{spec.name}_lag{lag}" for lag in spec.lags]
-        df_eff = pd.concat([y_trial, X_trial[new_cols]], axis=1).dropna()
-        n_eff = len(df_eff)
-        
-        if n_eff >= min_obs:
-            selected_specs = trial_specs
-            current_y, current_X, current_base = y_trial, X_trial, base_trial
-        
-            if len(selected_specs) <= 10 or len(selected_specs) % 10 == 0:
-                print(f"[inc-build] +accept {spec.name} -> y_obs={len(y_trial)} n_eff={n_eff} cov={cov:.3f} max_consec={max_consec} feats={X_trial.shape[1]}")
+        # Build ONLY the new lag columns
+        new_cols = {}
+        for lag in spec.lags:
+            col = f"{spec.name}_lag{lag}"
+            new_cols[col] = s_aligned.shift(lag)
 
+        df_new = pd.DataFrame(new_cols, index=idx)
 
+        # Determine effective rows for THIS candidate
+        # Always require y
+        mask = y_raw.notna()
+        if drop_feature_na:
+            # complete-case requirement for these new cols
+            mask = mask & df_new.notna().all(axis=1)
+        else:
+            # XGB can handle NaNs, but we still require at least SOME signal in new cols
+            # Otherwise you can accept junk that never contributes.
+            mask = mask & df_new.notna().any(axis=1)
 
-    if current_y is None or current_X is None or current_base is None:
-        # Fallback: try with just the first candidate as a last resort, enforcing min_obs
-        try:
-            y_last, X_last, base_last = build_design_matrix(
-                target=target,
-                feature_specs=[candidate_specs[0]],
-                min_obs=min_obs,
-            )
-            selected_specs = [candidate_specs[0]]
-            return y_last, X_last, base_last, selected_specs
-        except Exception:
-            raise ValueError(
-                "Could not build a design matrix with any candidate features "
-                f"while preserving at least {min_obs} observations."
-            )
+        n_eff = int(mask.sum())
+        if n_eff < min_obs:
+            continue
 
-    print(f"[inc-build] DONE accepted={len(selected_specs)} obs={len(current_y)} feats={current_X.shape[1]}")
-    return current_y, current_X, current_base, selected_specs
+        # Accept: append new lag cols + register base + spec
+        X = pd.concat([X, df_new], axis=1)
+        base_series[spec.name] = s_aligned
+        selected_specs.append(spec)
+
+        # Hard cap on expanded columns (prevents 900+ column explosions)
+        if max_feature_cols is not None and X.shape[1] > max_feature_cols:
+            # rollback this accept
+            X = X.iloc[:, :-len(df_new.columns)]
+            base_series.pop(spec.name, None)
+            selected_specs.pop()
+            continue
+
+        if len(selected_specs) <= 10 or len(selected_specs) % 10 == 0:
+            print(f"[inc-build] +accept {spec.name} -> y_obs={len(y_raw)} n_eff={n_eff} cov={cov:.3f} max_consec={max_consec} X_cols={X.shape[1]}")
+
+    # Final y / X for training
+    # Require y always; require full feature rows only if asked
+    df_all = pd.concat([y_raw, X], axis=1).dropna(subset=["y"])
+    if drop_feature_na and X.shape[1] > 0:
+        df_all = df_all.dropna(subset=list(X.columns))
+
+    if len(df_all) < min_obs:
+        raise ValueError(f"Could not build a design matrix preserving at least {min_obs} observations.")
+
+    y = df_all["y"].copy()
+    X_final = df_all.drop(columns=["y"]).copy()
+
+    print(f"[inc-build] DONE accepted={len(selected_specs)} obs={len(y)} feats={X_final.shape[1]}")
+    return y, X_final, base_series, selected_specs
 
 # -----------------------------------------
 # Universal "kitchen sink" feature discovery
