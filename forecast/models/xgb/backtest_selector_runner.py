@@ -11,14 +11,8 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBRegressor
 
-from forecast.db_forecast import new_batch_id
-from forecast.feature_loader import (
-    TargetSpec,
-    build_universal_feature_specs,
-    build_design_matrix_incremental,
-    load_target_series_for_spec,
-)
-from forecast.backtest_utils import (
+from forecast.core.db_forecast import new_batch_id
+from forecast.core.backtest_utils import (
     DEFAULT_MIN_TRAIN_LEN,
     DEFAULT_ANCHOR_STEP_MONTHS,
     DEFAULT_MAX_ANCHORS,
@@ -26,16 +20,22 @@ from forecast.backtest_utils import (
 )
 from forecast.core.anchors import AnchorPolicy, choose_anchors, month_end_index
 
-from forecast.feature_policy import default_policy
-from forecast.feature_selection import (
+from forecast.features.feature_loader import (
+    TargetSpec,
+    build_universal_feature_specs,
+    build_design_matrix_incremental,
+    load_target_series_for_spec,
+)
+from forecast.features.feature_policy import default_policy
+from forecast.features.feature_selection import (
     score_candidates,
     select_scored_candidates,
     scored_to_feature_specs,
     default_bucket,
 )
-
 from forecast.features.metric_tiers import RedfinTierShareCaps, redfin_metric_tier, canon_geo_id
 from forecast.features.feature_loader import specs_from_selected_feature_ids
+
 from forecast.models.xgb.selector_utils import parse_data_asof, _source_from_feature_id, _is_redfin_source
 from forecast.models.xgb.selector_reporting import (
     SelectorRunSummary,
@@ -43,7 +43,6 @@ from forecast.models.xgb.selector_reporting import (
     build_final_k_summary,
     write_selector_summary,
 )
-
 
 TEMP_DEBUG_LIMIT = None  # set to an int for debugging; None for normal operation
 MIN_NON_REDFIN_DEFAULT = 25  # NEW: hard minimum count of non-Redfin features in final top-K
@@ -89,7 +88,8 @@ def run_xgb_selector(
     )
 
     batch_id = batch_id or new_batch_id()
-    out_dir = Path(artifact_root or "runs") / batch_id / "xgb"
+    #out_dir = Path(artifact_root or "runs") / batch_id / "xgb"
+    out_dir = Path(artifact_root) / "runs" / batch_id / "xgb" / metric_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     target = TargetSpec(metric_id=metric_id, geo_id=geo_id, property_type_id=property_type_id)
