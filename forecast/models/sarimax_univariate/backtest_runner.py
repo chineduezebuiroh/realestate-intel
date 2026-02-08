@@ -117,6 +117,8 @@ def run_backtest_sarimax_single(
     data_asof = _parse_data_asof(data_asof, s.index.max())
     print(f"[backtest] batch_id={batch_id} data_asof={data_asof}")
 
+    print(f"[backtest] target={metric_id} geo={geo_id} pt={property_type_id} horizon={horizon}")
+
     # IMPORTANT: clamp history to as-of (make as-of REAL, not cosmetic)
     data_asof_ts = pd.Timestamp(data_asof).to_period("M").to_timestamp(how="end")
     s = s.loc[:data_asof_ts].copy()
@@ -152,7 +154,7 @@ def run_backtest_sarimax_single(
     
     #out_dir = Path(os.environ.get("ARTIFACT_ROOT", "runs")) / "runs" / batch_id / "sarimax_univariate"
     artifact_root = Path(os.environ.get("ARTIFACT_ROOT", "runs"))
-    out_dir = artifact_root / "runs" / batch_id / "sarimax_univariate"
+    out_dir = artifact_root / "runs" / batch_id / "sarimax_univariate" / metric_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     anchors_payload = {
