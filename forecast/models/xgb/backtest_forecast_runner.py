@@ -6,8 +6,8 @@ from typing import Optional, List
 import numpy as np
 import pandas as pd
 
-from forecast.db_forecast import get_connection, new_batch_id, insert_run, insert_predictions
-from forecast.backtest_utils import (
+from forecast.core.db_forecast import get_connection, new_batch_id, insert_run, insert_predictions
+from forecast.core.backtest_utils import (
     choose_anchor_dates,
     month_end_index,
     DEFAULT_MIN_TRAIN_LEN,
