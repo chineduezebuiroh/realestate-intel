@@ -47,7 +47,6 @@ from forecast.models.xgb.selector_reporting import (
 )
 
 TEMP_DEBUG_LIMIT = None  # set to an int for debugging; None for normal operation
-max_features = 300 if debug else None
 MIN_NON_REDFIN_DEFAULT = 25  # NEW: hard minimum count of non-Redfin features in final top-K
 DEFAULT_SELECTOR_MAX_ANCHORS = 1
 
@@ -322,6 +321,7 @@ def run_xgb_selector(
 
 
     # 3) build design matrix incrementally (respecting your DQ choices)
+    max_features = 300 if debug else None
     required_obs = min_train_len + horizon + DEFAULT_ANCHOR_BUFFER_MONTHS
     t = time.time()
     y_full, X_full, _base_series_full, _selected_specs = build_design_matrix_incremental(
