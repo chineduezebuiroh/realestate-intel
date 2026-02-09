@@ -95,32 +95,6 @@ def _load_or_build_universal_specs(*, artifact_root: str, batch_id: str, rebuild
     d = _shared_dir(artifact_root, batch_id)
     d.mkdir(parents=True, exist_ok=True)
 
-    """
-    jsonl_path = d / "universal_feature_specs.jsonl"
-    pkl_path = d / "universal_feature_specs.pkl"
-
-    if not rebuild:
-        if jsonl_path.exists():
-            print(f"[cache] HIT universal_feature_specs (jsonl) -> {jsonl_path}")
-            return _load_list_jsonl(jsonl_path)
-        if pkl_path.exists():
-            print(f"[cache] HIT universal_feature_specs (pkl) -> {pkl_path}")
-            with pkl_path.open("rb") as f:
-                return pickle.load(f)
-
-    print(f"[cache] MISS universal_feature_specs -> building")
-    specs = build_universal_feature_specs(**kwargs)
-    print(f"[cache] universal_feature_specs_type={type(specs)} item_type={type(specs[0]) if specs else None}")
-
-    # Try JSONL first (auditable). If that fails, use pickle.
-    if _serialize_list_jsonl(specs, jsonl_path):
-        print(f"[cache] WROTE universal_feature_specs (jsonl) -> {jsonl_path}")
-    else:
-        with pkl_path.open("wb") as f:
-            pickle.dump(specs, f, protocol=pickle.HIGHEST_PROTOCOL)
-        print(f"[cache] WROTE universal_feature_specs (pkl) -> {pkl_path}")
-    """
-
     pkl_path = d / "universal_feature_specs.pkl"
     
     if pkl_path.exists() and not rebuild:
@@ -314,16 +288,6 @@ def run_xgb_selector(
     print("[xgb_selector] score_mode=", "combo")
     
     t = time.time()
-    """
-    scored = score_candidates(
-        target=target,
-        candidates=candidate_specs,
-        train_end=anchor_ts,
-        min_eff=60,
-        lead_months=(0, 1, 2, 3),
-        score_mode="combo",
-    )
-    """
     scored = _load_or_score_candidates(
         artifact_root=artifact_root,
         batch_id=batch_id,
@@ -405,13 +369,11 @@ def run_xgb_selector(
            for t in (0,1,2,3)})
     print("[xgb_selector] top20_picked=", [it.spec.name for it in picked[:20]])
 
-
     candidate_specs = scored_to_feature_specs(picked)
 
     if not candidate_specs:
         print("[xgb_selector] No picked candidate specs after caps; skipping.")
         return
-
 
 
     # 3) build design matrix incrementally (respecting your DQ choices)
