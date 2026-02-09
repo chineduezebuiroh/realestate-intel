@@ -70,6 +70,69 @@ def _score_pair_corr(a: pd.Series, b: pd.Series) -> float:
     return float(abs(r))
 
 
+def _best_xcorr_np(
+    y: np.ndarray,
+    x: np.ndarray,
+    *,
+    lead_months: Tuple[int, ...],
+    min_eff: int,
+) -> Tuple[float, int, int]:
+    """
+    Numpy version: y and x must be same length arrays aligned on the SAME monthly index.
+    lead>0 means x is shifted forward (x leads y): compare y[t] with x[t-lead].
+    Returns (best_abs_corr, best_lead, best_n_eff)
+    """
+    best_score = 0.0
+    best_lead = 0
+    best_n = 0
+
+    n = y.shape[0]
+    if n == 0:
+        return 0.0, 0, 0
+
+    for lead in lead_months:
+        if lead < 0:
+            raise ValueError("lead_months must be non-negative")
+
+        if lead == 0:
+            yy = y
+            xx = x
+        else:
+            # x leads y: align y[lead:] with x[:-lead]
+            yy = y[lead:]
+            xx = x[:-lead]
+
+        if yy.size < min_eff:
+            continue
+
+        mask = np.isfinite(yy) & np.isfinite(xx)
+        n_eff = int(mask.sum())
+        if n_eff < min_eff:
+            continue
+
+        yv = yy[mask]
+        xv = xx[mask]
+
+        # fast degeneracy checks (avoid expensive nunique)
+        if np.nanstd(yv) == 0.0 or np.nanstd(xv) == 0.0:
+            continue
+
+        # Pearson corr
+        y0 = yv - yv.mean()
+        x0 = xv - xv.mean()
+        denom = float(np.sqrt((y0 * y0).sum()) * np.sqrt((x0 * x0).sum()))
+        if denom == 0.0:
+            continue
+
+        corr_abs = float(abs((y0 * x0).sum() / denom))
+        if corr_abs > best_score:
+            best_score = corr_abs
+            best_lead = int(lead)
+            best_n = int(n_eff)
+
+    return best_score, best_lead, best_n
+
+
 def _best_xcorr(
     y_s: pd.Series,
     x_s: pd.Series,
@@ -173,6 +236,11 @@ def score_candidates(
         y_yoy = y_yoy.loc[:train_end]
         y_dlog = y_dlog.loc[:train_end]
 
+    idx = y_level.index
+    y_level_np = y_level.to_numpy(dtype=float)
+    y_yoy_np = y_yoy.reindex(idx).to_numpy(dtype=float)
+    y_dlog_np = y_dlog.reindex(idx).to_numpy(dtype=float)
+
     scored: List[ScoredCandidate] = []
 
     # -------------------------
@@ -193,27 +261,31 @@ def score_candidates(
             x_yoy = x_yoy.loc[:train_end]
             x_dlog = x_dlog.loc[:train_end]
 
+        x_level_np = x_level.reindex(idx).to_numpy(dtype=float)
+        x_yoy_np = x_yoy.reindex(idx).to_numpy(dtype=float)
+        x_dlog_np = x_dlog.reindex(idx).to_numpy(dtype=float)
+
         if score_mode in ("yoy_xcorr", "yoy_corr0"):
-            best_score, best_lead, best_n = _best_xcorr(
-                y_yoy, x_yoy, lead_months=lead_months, min_eff=min_eff
+            best_score, best_lead, best_n = _best_xcorr_np(
+                y_yoy_np, x_yoy_np, lead_months=lead_months, min_eff=min_eff
             )
 
         elif score_mode == "level_xcorr":
-            best_score, best_lead, best_n = _best_xcorr(
-                y_level, x_level, lead_months=lead_months, min_eff=min_eff
+            best_score, best_lead, best_n = _best_xcorr_np(
+                y_level_np, x_level_np, lead_months=lead_months, min_eff=min_eff
             )
 
         elif score_mode == "dlog_xcorr":
-            best_score, best_lead, best_n = _best_xcorr(
-                y_dlog, x_dlog, lead_months=lead_months, min_eff=min_eff
+            best_score, best_lead, best_n = _best_xcorr_np(
+                y_dlog_np, x_dlog_np, lead_months=lead_months, min_eff=min_eff
             )
 
         elif score_mode == "combo":
-            s_yoy, lead_yoy, n_yoy = _best_xcorr(
-                y_yoy, x_yoy, lead_months=lead_months, min_eff=min_eff
+            s_yoy, lead_yoy, n_yoy = _best_xcorr_np(
+                y_yoy_np, x_yoy_np, lead_months=lead_months, min_eff=min_eff
             )
-            s_dlog, lead_dlog, n_dlog = _best_xcorr(
-                y_dlog, x_dlog, lead_months=lead_months, min_eff=min_eff
+            s_dlog, lead_dlog, n_dlog = _best_xcorr_np(
+                y_dlog_np, x_dlog_np, lead_months=lead_months, min_eff=min_eff
             )
 
             if max(n_yoy, n_dlog) < min_eff:
