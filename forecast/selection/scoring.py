@@ -7,7 +7,9 @@ import numpy as np
 import pandas as pd
 
 from forecast.core.backtest_utils import month_end_index
-from forecast.features.feature_loader import FeatureSpec, TargetSpec, load_series_from_fact
+from forecast.features.specs import FeatureSpec, TargetSpec
+from forecast.features.feature_loader import load_series_from_fact  # if you still want fallback
+from forecast.selection.bulk_fact_loader import load_series_many_from_fact
 
 
 @dataclass(frozen=True)
@@ -16,7 +18,6 @@ class ScoredCandidate:
     score: float
     best_lead: int   # months x is shifted forward to align with y (x leads y)
     n_eff: int
-
 
 # ===================================================
 # Helpers
@@ -128,22 +129,32 @@ def score_candidates(
         lead_months = (0,)
 
     # -------------------------
-    # Local cache (ASOF-AWARE!)
+    # Bulk load series (ASOF-aware)
     # -------------------------
-    _cache: Dict[Tuple[str, str, Optional[str], Optional[str]], pd.Series] = {}
+    # NOTE: current fact loader semantics do NOT filter by source_id, so the only
+    # correct bulk key is (metric, geo, pt, effective_asof).
+    def _effective_asof_for(source_id: Optional[str]) -> Optional[pd.Timestamp]:
+        if source_id and target.asof_by_source:
+            return target.asof_by_source.get(source_id, target.data_asof)
+        return target.data_asof
+
+    # Build request list: target + all candidates
+    reqs: List[Tuple[str, str, Optional[str], Optional[pd.Timestamp]]] = []
+    reqs.append((target.metric_id, target.geo_id, target.property_type_id, _effective_asof_for(None)))
+
+    for spec in candidates:
+        eff = _effective_asof_for(getattr(spec, "source_id", None))
+        reqs.append((spec.metric_id, spec.geo_id, spec.property_type_id, eff))
+
+    bulk = load_series_many_from_fact(requests=reqs)
 
     def _load(metric_id: str, geo_id: str, pt_id: Optional[str], source_id: Optional[str]) -> pd.Series:
-        key = (str(metric_id), str(geo_id), None if pt_id is None else str(pt_id), None if source_id is None else str(source_id))
-        if key not in _cache:
-            _cache[key] = load_series_from_fact(
-                metric_id=metric_id,
-                geo_id=geo_id,
-                property_type_id=pt_id,
-                data_asof=target.data_asof,
-                asof_by_source=target.asof_by_source,
-                source_id=source_id,
-            )
-        return _cache[key]
+        eff = _effective_asof_for(source_id)
+        key = (str(metric_id), str(geo_id), (pt_id if pt_id is not None else "all"), eff)
+        s = bulk.get(key)
+        if s is None or len(s) == 0:
+            raise ValueError(f"No data for metric={metric_id}, geo={geo_id}, pt={pt_id}, asof={eff}")
+        return s    
 
     # -------------------------
     # Load + precompute target transforms once
