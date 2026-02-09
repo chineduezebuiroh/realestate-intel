@@ -277,7 +277,8 @@ def score_candidates(
             continue
             
         # then your existing transform logic
-        x_level = _canon_monthly(x)
+        #x_level = _canon_monthly(x)
+        x_level = x
         if train_end is not None:
             x_level = x_level.loc[:train_end]
         
