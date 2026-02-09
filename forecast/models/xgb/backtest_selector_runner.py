@@ -30,14 +30,11 @@ from forecast.features.feature_loader import (
     load_target_series_for_spec,
 )
 from forecast.features.feature_policy import default_policy
-from forecast.features.feature_selection import (
-    score_candidates,
-    select_scored_candidates,
-    scored_to_feature_specs,
-    default_bucket,
-)
 from forecast.features.metric_tiers import RedfinTierShareCaps, redfin_metric_tier, canon_geo_id
 from forecast.features.feature_loader import specs_from_selected_feature_ids
+
+from forecast.selection.scoring import score_candidates
+from forecast.selection.governance import default_bucket, select_scored_candidates, scored_to_feature_specs
 
 from forecast.models.xgb.selector_utils import parse_data_asof, _source_from_feature_id, _is_redfin_source
 from forecast.models.xgb.selector_reporting import (
