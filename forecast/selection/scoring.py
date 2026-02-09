@@ -1,14 +1,20 @@
 from __future__ import annotations
+# forecast/selection/scoring.py
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
+
+import duckdb
 
 import numpy as np
 import pandas as pd
 
 from forecast.core.backtest_utils import month_end_index
+
 from forecast.features.specs import FeatureSpec, TargetSpec
 from forecast.features.feature_loader import load_series_from_fact  # if you still want fallback
+from forecast.features.fact_loader import get_connection  # or wherever it is
+
 from forecast.selection.bulk_fact_loader import load_series_many_from_fact
 
 
@@ -211,106 +217,135 @@ def score_candidates(
 
     bulk = load_series_many_from_fact(requests=reqs)
 
-    def _load(metric_id: str, geo_id: str, pt_id: Optional[str], source_id: Optional[str]) -> pd.Series:
-        eff = _effective_asof_for(source_id)
-        key = (str(metric_id), str(geo_id), (pt_id if pt_id is not None else "all"), eff)
-        s = bulk.get(key)
-        if s is None or len(s) == 0:
-            raise ValueError(f"No data for metric={metric_id}, geo={geo_id}, pt={pt_id}, asof={eff}")
-        return s    
-
-    # -------------------------
-    # Load + precompute target transforms once
-    # -------------------------
+    con = get_connection()
     try:
-        y = _load(target.metric_id, target.geo_id, target.property_type_id, None)
-    except Exception:
-        return []
-
-    y_level = _canon_monthly(y)
-    y_yoy = _to_yoy(y)
-    y_dlog = _to_dlog(y)
-
-    if train_end is not None:
-        y_level = y_level.loc[:train_end]
-        y_yoy = y_yoy.loc[:train_end]
-        y_dlog = y_dlog.loc[:train_end]
-
-    idx = y_level.index
-    y_level_np = y_level.to_numpy(dtype=float)
-    y_yoy_np = y_yoy.reindex(idx).to_numpy(dtype=float)
-    y_dlog_np = y_dlog.reindex(idx).to_numpy(dtype=float)
-
-    scored: List[ScoredCandidate] = []
-
-    # -------------------------
-    # Score each candidate
-    # -------------------------
-    for spec in candidates:
-        try:
-            x = _load(spec.metric_id, spec.geo_id, spec.property_type_id, getattr(spec, "source_id", None))
-        except Exception:
-            continue
-
-        x_level = _canon_monthly(x)
-        x_yoy = _to_yoy(x)
-        x_dlog = _to_dlog(x)
-
-        if train_end is not None:
-            x_level = x_level.loc[:train_end]
-            x_yoy = x_yoy.loc[:train_end]
-            x_dlog = x_dlog.loc[:train_end]
-
-        x_level_np = x_level.reindex(idx).to_numpy(dtype=float)
-        x_yoy_np = x_yoy.reindex(idx).to_numpy(dtype=float)
-        x_dlog_np = x_dlog.reindex(idx).to_numpy(dtype=float)
-
-        if score_mode in ("yoy_xcorr", "yoy_corr0"):
-            best_score, best_lead, best_n = _best_xcorr_np(
-                y_yoy_np, x_yoy_np, lead_months=lead_months, min_eff=min_eff
+        # -------------------------
+        # Local cache (ASOF-AWARE!)
+        # -------------------------
+        _cache: Dict[Tuple[str, str, Optional[str], Optional[str]], pd.Series] = {}
+    
+        def _load(metric_id: str, geo_id: str, pt_id: Optional[str], source_id: Optional[str]) -> pd.Series:
+            key = (
+                str(metric_id),
+                str(geo_id),
+                None if pt_id is None else str(pt_id),
+                None if source_id is None else str(source_id),
             )
-
-        elif score_mode == "level_xcorr":
-            best_score, best_lead, best_n = _best_xcorr_np(
-                y_level_np, x_level_np, lead_months=lead_months, min_eff=min_eff
-            )
-
-        elif score_mode == "dlog_xcorr":
-            best_score, best_lead, best_n = _best_xcorr_np(
-                y_dlog_np, x_dlog_np, lead_months=lead_months, min_eff=min_eff
-            )
-
-        elif score_mode == "combo":
-            s_yoy, lead_yoy, n_yoy = _best_xcorr_np(
-                y_yoy_np, x_yoy_np, lead_months=lead_months, min_eff=min_eff
-            )
-            s_dlog, lead_dlog, n_dlog = _best_xcorr_np(
-                y_dlog_np, x_dlog_np, lead_months=lead_months, min_eff=min_eff
-            )
-
-            if max(n_yoy, n_dlog) < min_eff:
-                continue
-
-            best_score = 0.5 * float(s_yoy) + 0.5 * float(s_dlog)
-
-            # audit/debug: carry lead/n from the stronger component
-            if s_dlog > s_yoy:
-                best_lead, best_n = int(lead_dlog), int(n_dlog)
-            else:
-                best_lead, best_n = int(lead_yoy), int(n_yoy)
-
-        else:
-            raise ValueError(f"Unknown score_mode: {score_mode}")
-
-        if best_n >= min_eff and abs(best_score) > 0:
-            scored.append(
-                ScoredCandidate(
-                    spec=spec,
-                    score=float(best_score),
-                    best_lead=int(best_lead),
-                    n_eff=int(best_n),
+            if key not in _cache:
+                _cache[key] = load_series_from_fact(
+                    metric_id=metric_id,
+                    geo_id=geo_id,
+                    property_type_id=pt_id,
+                    data_asof=target.data_asof,
+                    asof_by_source=target.asof_by_source,
+                    source_id=source_id,
+                    con=con,   # 🔴 THIS IS THE POINT
                 )
-            )
 
-    scored.sort(key=lambda r: (-r.score, r.spec.name))
-    return scored
+            print(f"[score] using con={id(con)}")
+            return _cache[key]   
+    
+        # -------------------------
+        # Load target once
+        # -------------------------
+        y = _load(target.metric_id, target.geo_id, target.property_type_id, None)
+
+        # transforms...
+        y_level = _canon_monthly(y)
+        y_yoy = _to_yoy(y)
+        y_dlog = _to_dlog(y)
+    
+        if train_end is not None:
+            y_level = y_level.loc[:train_end]
+            y_yoy = y_yoy.loc[:train_end]
+            y_dlog = y_dlog.loc[:train_end]
+    
+        idx = y_level.index
+        y_level_np = y_level.to_numpy(dtype=float)
+        y_yoy_np = y_yoy.reindex(idx).to_numpy(dtype=float)
+        y_dlog_np = y_dlog.reindex(idx).to_numpy(dtype=float)
+    
+        scored: List[ScoredCandidate] = []
+    
+        # -------------------------
+        # Score each candidate
+        # -------------------------
+        for spec in candidates:
+            try:
+                x = _load(spec.metric_id, spec.geo_id, spec.property_type_id, getattr(spec, "source_id", None))
+            except Exception:
+                continue
+    
+            x_level = _canon_monthly(x)
+            if train_end is not None:
+                x_level = x_level.loc[:train_end]
+    
+            if score_mode == "level_xcorr":
+                x_level_np = x_level.reindex(idx).to_numpy(dtype=float)
+                best_score, best_lead, best_n = _best_xcorr_np(
+                    y_level_np, x_level_np, lead_months=lead_months, min_eff=min_eff
+                )
+    
+            elif score_mode in ("yoy_xcorr", "yoy_corr0"):
+                x_yoy = _to_yoy(x)
+                if train_end is not None:
+                    x_yoy = x_yoy.loc[:train_end]
+                x_yoy_np = x_yoy.reindex(idx).to_numpy(dtype=float)
+                best_score, best_lead, best_n = _best_xcorr_np(
+                    y_yoy_np, x_yoy_np, lead_months=lead_months, min_eff=min_eff
+                )
+    
+            elif score_mode == "dlog_xcorr":
+                x_dlog = _to_dlog(x)
+                if train_end is not None:
+                    x_dlog = x_dlog.loc[:train_end]
+                x_dlog_np = x_dlog.reindex(idx).to_numpy(dtype=float)
+                best_score, best_lead, best_n = _best_xcorr_np(
+                    y_dlog_np, x_dlog_np, lead_months=lead_months, min_eff=min_eff
+                )
+    
+            elif score_mode == "combo":
+                x_yoy = _to_yoy(x)
+                x_dlog = _to_dlog(x)
+                if train_end is not None:
+                    x_yoy = x_yoy.loc[:train_end]
+                    x_dlog = x_dlog.loc[:train_end]
+                x_yoy_np = x_yoy.reindex(idx).to_numpy(dtype=float)
+                x_dlog_np = x_dlog.reindex(idx).to_numpy(dtype=float)
+                
+                s_yoy, lead_yoy, n_yoy = _best_xcorr_np(
+                    y_yoy_np, x_yoy_np, lead_months=lead_months, min_eff=min_eff
+                )
+                s_dlog, lead_dlog, n_dlog = _best_xcorr_np(
+                    y_dlog_np, x_dlog_np, lead_months=lead_months, min_eff=min_eff
+                )
+    
+                if max(n_yoy, n_dlog) < min_eff:
+                    continue
+    
+                best_score = 0.5 * float(s_yoy) + 0.5 * float(s_dlog)
+    
+                # audit/debug: carry lead/n from the stronger component
+                if s_dlog > s_yoy:
+                    best_lead, best_n = int(lead_dlog), int(n_dlog)
+                else:
+                    best_lead, best_n = int(lead_yoy), int(n_yoy)        
+            
+            else:
+                raise ValueError(f"Unknown score_mode: {score_mode}")
+    
+            if best_n >= min_eff and abs(best_score) > 0:
+                scored.append(
+                    ScoredCandidate(
+                        spec=spec,
+                        score=float(best_score),
+                        best_lead=int(best_lead),
+                        n_eff=int(best_n),
+                    )
+                )
+
+        scored.sort(key=lambda r: (-r.score, r.spec.name))
+        return scored
+
+    finally:
+        con.close()
