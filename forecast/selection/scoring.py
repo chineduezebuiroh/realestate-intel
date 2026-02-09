@@ -230,7 +230,7 @@ def score_candidates(
         else:
             raise ValueError(f"Unknown score_mode: {score_mode}")
 
-        if best_n >= min_eff and best_score > 0:
+        if best_n >= min_eff and abs(best_score) > 0:
             scored.append(
                 ScoredCandidate(
                     spec=spec,
