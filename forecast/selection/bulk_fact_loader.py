@@ -8,7 +8,7 @@ import duckdb
 import pandas as pd
 
 from forecast.core.asof import normalize_month_end
-from forecast.core.backtest_utils import month_end_index
+#from forecast.core.backtest_utils import month_end_index
 
 from forecast.features.fact_loader import get_connection
 
@@ -88,8 +88,8 @@ def load_series_many_from_fact(
         ["metric_id", "geo_id", "property_type_id", "effective_asof"], dropna=False
     ):
         s = g.set_index("date")["value"].astype(float)
-        s.index = month_end_index(s.index)
-        s = s[~s.index.duplicated(keep="last")].sort_index()
+        #s.index = month_end_index(s.index)
+        #s = s[~s.index.duplicated(keep="last")].sort_index()
         # DuckDB returns NaT for NULL effective_asof; normalize key to None
         eff_key = None if pd.isna(eff_asof) else eff_asof
         out[(metric_id, geo_id, pt_id, eff_key)] = s
