@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import duckdb
+import time
 
 import numpy as np
 import pandas as pd
