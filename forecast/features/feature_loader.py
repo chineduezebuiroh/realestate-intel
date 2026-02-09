@@ -1,20 +1,19 @@
 # forecast/features/feature_loader.py
 
+import pandas as pd
+
 from collections import Counter
 from datetime import date
 from typing import Optional, List, Dict, Tuple
 
-import pandas as pd
-
 from forecast.core.backtest_utils import month_end_index
 from forecast.core.asof import normalize_month_end
 
-from .feature_policy import default_policy
+from forecast.features.feature_policy import default_policy
 from forecast.features.metric_tiers import canon_geo_id
-
-from .specs import TargetSpec, FeatureSpec
-from .fact_loader import get_connection, load_series_from_fact, load_series_from_fact_with_source
-from .ids import (
+from forecast.features.specs import TargetSpec, FeatureSpec
+from forecast.features.fact_loader import get_connection, load_series_from_fact, load_series_from_fact_with_source
+from forecast.features.ids import (
     parse_feature_id_to_spec,
     parse_feature_id,
     parse_base_name,
@@ -229,7 +228,7 @@ def build_design_matrix_incremental(
     load_target_fn=None,
     *,
     drop_feature_na: bool = False,   # False for XGB
-    max_feature_cols: Optional[int] = 300,  # NEW: hard cap on expanded lag columns
+    max_feature_cols: Optional[int] = None,  # default: no hard cap unless caller sets it
 ) -> Tuple[pd.Series, pd.DataFrame, Dict[str, pd.Series], List[FeatureSpec]]:
     """
     Incrementally build a design matrix WITHOUT repeatedly rebuilding/loading everything.
@@ -351,18 +350,13 @@ def build_design_matrix_incremental(
         if n_eff < min_obs:
             continue
 
+        if max_feature_cols is not None and (X.shape[1] + df_new.shape[1]) > max_feature_cols:
+            continue
+        
         # Accept: append new lag cols + register base + spec
         X = pd.concat([X, df_new], axis=1)
         base_series[spec.name] = s_aligned
         selected_specs.append(spec)
-
-        # Hard cap on expanded columns (prevents 900+ column explosions)
-        if max_feature_cols is not None and X.shape[1] > max_feature_cols:
-            # rollback this accept
-            X = X.iloc[:, :-len(df_new.columns)]
-            base_series.pop(spec.name, None)
-            selected_specs.pop()
-            continue
 
         if len(selected_specs) <= 10 or len(selected_specs) % 10 == 0:
             print(f"[inc-build] +accept {spec.name} -> y_obs={len(y_raw)} n_eff={n_eff} cov={cov:.3f} max_consec={max_consec} X_cols={X.shape[1]}")
