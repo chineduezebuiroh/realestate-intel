@@ -5,14 +5,13 @@ import json
 import hashlib
 import time
 import pickle
+import numpy as np
+import pandas as pd
 
 from pathlib import Path
 from typing import Optional, List, Dict
 from collections import Counter
 from dataclasses import asdict, is_dataclass
-
-import numpy as np
-import pandas as pd
 from xgboost import XGBRegressor
 
 from forecast.core.db_forecast import new_batch_id
@@ -416,16 +415,25 @@ def run_xgb_selector(
 
 
     # 3) build design matrix incrementally (respecting your DQ choices)
-    max_features = 300 if debug else None
     required_obs = min_train_len + horizon + DEFAULT_ANCHOR_BUFFER_MONTHS
+
+    # Spec cap is optional; keep it off unless you have a real reason.
+    max_features_specs = None
+
+    # Column cap is what actually controls runtime/memory.
+    # Choose something that doesn't immediately starve non-Redfin.
+    # With 4 lags/spec, 1200 cols ~ 300 specs.
+    max_feature_cols = 1200 if debug else 2400  # tune later
+
     t = time.time()
     y_full, X_full, _base_series_full, _selected_specs = build_design_matrix_incremental(
         target=target,
         candidate_specs=candidate_specs,
         min_obs=required_obs,
-        max_features=max_features,
+        max_features=max_features_specs,
+        max_feature_cols=max_feature_cols,
         load_target_fn=load_target_series_for_spec,
-        drop_feature_na=False,  # keep as you had
+        drop_feature_na=False,
     )
     
     print(f"[timing] build_design_matrix_incremental_sec={time.time()-t:.2f}")
