@@ -80,6 +80,8 @@ def load_series_from_fact(
     data_asof: Optional[date] = None,
     asof_by_source: Optional[Dict[str, date]] = None,
     source_id: Optional[str] = None,
+    *,
+    con: Optional["duckdb.DuckDBPyConnection"] = None,   # NEW
 ) -> pd.Series:
     """
     Backward-compatible loader. If you pass source_id, it can use asof_by_source[source_id].
@@ -91,7 +93,11 @@ def load_series_from_fact(
 
     effective_asof = normalize_month_end(effective_asof)
 
-    con = get_connection()
+    close_me = False
+    if con is None:
+        con = get_connection()
+        close_me = True
+
     pt_id = property_type_id if property_type_id is not None else "all"
 
     sql = """
@@ -107,7 +113,8 @@ def load_series_from_fact(
     try:
         df = con.execute(sql, [metric_id, geo_id, pt_id, effective_asof, effective_asof]).fetchdf()
     finally:
-        con.close()
+        if close_me:
+            con.close()
 
     if df.empty:
         raise ValueError(f"No data for metric={metric_id}, geo={geo_id}, pt={pt_id}")
