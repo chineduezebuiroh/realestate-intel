@@ -76,6 +76,26 @@ def _score_pair_corr(a: pd.Series, b: pd.Series) -> float:
     return float(abs(r))
 
 
+def _yoy_from_level_np(level: np.ndarray, season: int = 12) -> np.ndarray:
+    out = np.full_like(level, np.nan, dtype=float)
+    if level.size <= season:
+        return out
+    prev = level[:-season]
+    cur = level[season:]
+    mask = np.isfinite(cur) & np.isfinite(prev) & (prev != 0.0)
+    out[season:][mask] = (cur[mask] / prev[mask]) - 1.0
+    return out
+
+def _dlog_from_level_np(level: np.ndarray) -> np.ndarray:
+    out = np.full_like(level, np.nan, dtype=float)
+    if level.size <= 1:
+        return out
+    mask = np.isfinite(level) & (level > 0)
+    logx = np.full_like(level, np.nan, dtype=float)
+    logx[mask] = np.log(level[mask])
+    out[1:] = logx[1:] - logx[:-1]
+    return out
+
 def _best_xcorr_np(
     y: np.ndarray,
     x: np.ndarray,
@@ -138,7 +158,6 @@ def _best_xcorr_np(
 
     return best_score, best_lead, best_n
 
-
 def _best_xcorr(
     y_s: pd.Series,
     x_s: pd.Series,
@@ -170,7 +189,6 @@ def _best_xcorr(
             best_n = int(len(df))
 
     return best_score, best_lead, best_n
-
 
 # ===================================================
 # Main Logic
@@ -214,11 +232,6 @@ def score_candidates(
     # -------------------------
     # NOTE: current fact loader semantics do NOT filter by source_id, so the only
     # correct bulk key is (metric, geo, pt, effective_asof).
-    def _effective_asof_for(source_id: Optional[str]) -> Optional[pd.Timestamp]:
-        if source_id and target.asof_by_source:
-            return target.asof_by_source.get(source_id, target.data_asof)
-        return target.data_asof
-
     # Build request list: target + all candidates
     reqs: List[Tuple[str, str, Optional[str], Optional[date]]] = []
     reqs.append((target.metric_id, target.geo_id, target.property_type_id, _effective_asof_for(None)))
@@ -228,7 +241,9 @@ def score_candidates(
         reqs.append((spec.metric_id, spec.geo_id, spec.property_type_id, eff))
 
     reqs = list(dict.fromkeys((m, g, pt, a) for (m, g, pt, a) in reqs))
+    t0 = time.time()
     bulk = load_series_many_from_fact(requests=reqs)
+    t1 = time.time()
 
     try:
         y = bulk[_key(target.metric_id, target.geo_id, target.property_type_id, _effective_asof_for(None))]
@@ -237,18 +252,16 @@ def score_candidates(
 
     # transforms...
     y_level = _canon_monthly(y)
-    y_yoy = _to_yoy(y)
-    y_dlog = _to_dlog(y)
 
     if train_end is not None:
         y_level = y_level.loc[:train_end]
-        y_yoy = y_yoy.loc[:train_end]
-        y_dlog = y_dlog.loc[:train_end]
         
     idx = y_level.index
-    y_level_np = y_level.to_numpy(dtype=float)
-    y_yoy_np = y_yoy.reindex(idx).to_numpy(dtype=float)
-    y_dlog_np = y_dlog.reindex(idx).to_numpy(dtype=float)
+    y_level_np = y_level.to_numpy(dtype=float)    
+    # compute transforms from aligned level array (fast)
+    y_yoy_np  = _yoy_from_level_np(y_level_np)
+    y_dlog_np = _dlog_from_level_np(y_level_np)
+    t2 = time.time()
 
     scored: List[ScoredCandidate] = []
     
@@ -266,46 +279,25 @@ def score_candidates(
         x_level = _canon_monthly(x)
         if train_end is not None:
             x_level = x_level.loc[:train_end]
+        
+        x_level_np = x_level.reindex(idx).to_numpy(dtype=float)
 
         if score_mode == "level_xcorr":
-            x_level_np = x_level.reindex(idx).to_numpy(dtype=float)
-            best_score, best_lead, best_n = _best_xcorr_np(
-                y_level_np, x_level_np, lead_months=lead_months, min_eff=min_eff
-            )
+            best_score, best_lead, best_n = _best_xcorr_np(y_level_np, x_level_np, lead_months=lead_months, min_eff=min_eff)
 
         elif score_mode in ("yoy_xcorr", "yoy_corr0"):
-            x_yoy = _to_yoy(x)
-            if train_end is not None:
-                x_yoy = x_yoy.loc[:train_end]
-            x_yoy_np = x_yoy.reindex(idx).to_numpy(dtype=float)
-            best_score, best_lead, best_n = _best_xcorr_np(
-                y_yoy_np, x_yoy_np, lead_months=lead_months, min_eff=min_eff
-            )
+            x_yoy_np = _yoy_from_level_np(x_level_np)
+            best_score, best_lead, best_n = _best_xcorr_np(y_yoy_np, x_yoy_np, lead_months=lead_months, min_eff=min_eff)
 
         elif score_mode == "dlog_xcorr":
-            x_dlog = _to_dlog(x)
-            if train_end is not None:
-                x_dlog = x_dlog.loc[:train_end]
-            x_dlog_np = x_dlog.reindex(idx).to_numpy(dtype=float)
-            best_score, best_lead, best_n = _best_xcorr_np(
-                y_dlog_np, x_dlog_np, lead_months=lead_months, min_eff=min_eff
-            )
+            x_dlog_np = _dlog_from_level_np(x_level_np)
+            best_score, best_lead, best_n = _best_xcorr_np(y_dlog_np, x_dlog_np, lead_months=lead_months, min_eff=min_eff)
 
         elif score_mode == "combo":
-            x_yoy = _to_yoy(x)
-            x_dlog = _to_dlog(x)
-            if train_end is not None:
-                x_yoy = x_yoy.loc[:train_end]
-                x_dlog = x_dlog.loc[:train_end]
-            x_yoy_np = x_yoy.reindex(idx).to_numpy(dtype=float)
-            x_dlog_np = x_dlog.reindex(idx).to_numpy(dtype=float)
-            
-            s_yoy, lead_yoy, n_yoy = _best_xcorr_np(
-                y_yoy_np, x_yoy_np, lead_months=lead_months, min_eff=min_eff
-            )
-            s_dlog, lead_dlog, n_dlog = _best_xcorr_np(
-                y_dlog_np, x_dlog_np, lead_months=lead_months, min_eff=min_eff
-            )
+            x_yoy_np  = _yoy_from_level_np(x_level_np)
+            x_dlog_np = _dlog_from_level_np(x_level_np)
+            s_yoy, lead_yoy, n_yoy = _best_xcorr_np(y_yoy_np,  x_yoy_np,  lead_months=lead_months, min_eff=min_eff)
+            s_dlog, lead_dlog, n_dlog = _best_xcorr_np(y_dlog_np, x_dlog_np, lead_months=lead_months, min_eff=min_eff)            
 
             if max(n_yoy, n_dlog) < min_eff:
                 continue
@@ -330,6 +322,12 @@ def score_candidates(
                     n_eff=int(best_n),
                 )
             )
+
+    t3 = time.time()
+
+    print(f"[timing][score] bulk_load_sec={t1-t0:.2f}")
+    print(f"[timing][score] prep_target_sec={t2-t1:.2f}")
+    print(f"[timing][score] loop_sec={t3-t2:.2f}  n_candidates={len(candidates)}")
 
     scored.sort(key=lambda r: (-r.score, r.spec.name))
     return scored
