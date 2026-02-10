@@ -308,6 +308,9 @@ def run_bridge_from_design_matrix_artifact(
     res = fit_sarimax_exog(y_train=y_train_sm, X_train=X_train_sm, spec=spec)
     mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future_sm, steps=horizon)
 
+    mle_retvals = getattr(res, "mle_retvals", None) or {}
+    fit_converged = bool(mle_retvals.get("converged")) if isinstance(mle_retvals, dict) else None
+
     
     #target_dates = [d.date() for d in X_future.index]
     target_dates = [pd.to_datetime(d).date() for d in X_future.index]
@@ -323,6 +326,8 @@ def run_bridge_from_design_matrix_artifact(
         "fit_diag": {
             "aic": getattr(res, "aic", None),
             "bic": getattr(res, "bic", None),
+            "fit_converged": fit_converged,
+            "mle_retvals": mle_retvals,   # optional but useful for debugging
         },
         "contracts": {
             "run_kind": run_kind,
