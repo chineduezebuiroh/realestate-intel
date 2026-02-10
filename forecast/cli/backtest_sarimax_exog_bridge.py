@@ -27,6 +27,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     ap.add_argument("--run_kind", default="backtest")
     ap.add_argument("--is_active", action="store_true")
+    ap.add_argument("--max_exogs_for_sarimax", type=int, default=30)
+    ap.add_argument("--min_non_redfin_for_sarimax", type=int, default=10)
 
     args = ap.parse_args(argv)
 
@@ -44,6 +46,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         artifact_root=args.artifact_root,
         run_kind=args.run_kind,
         is_active=bool(args.is_active),
+        max_exogs_for_sarimax=args.max_exogs_for_sarimax,
+        min_non_redfin_for_sarimax=args.min_non_redfin_for_sarimax,
     )
     return 0
 
