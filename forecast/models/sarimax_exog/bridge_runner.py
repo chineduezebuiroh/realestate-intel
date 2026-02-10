@@ -177,7 +177,7 @@ def _build_design_matrix_from_selected_features(
 
         # columns responsible for NaNs
         cols_with_nan = df_win.loc[exog_bad_rows, feature_cols].isna().any(axis=0)
-        offenders = cols_with_nan[cols_with_nan].index.tolist()
+        offenders = sorted(cols_with_nan[cols_with_nan].index.tolist())
 
         if not offenders:
             # Shouldn't happen, but don't infinite-loop
@@ -203,11 +203,12 @@ def _build_design_matrix_from_selected_features(
         print(f"[sarimax_exog_bridge] dropped_exogs_due_to_nans n={len(dropped)} example={dropped[:5]}")
 
     effective_feature_ids = [c for c in df_win.columns if c != "y"]
+    # deterministic order: keep the original requested order
+    req_set = set(feature_ids)
+    effective_feature_ids = [fid for fid in feature_ids if fid in req_set and fid in set(effective_feature_ids)]
     return df_win, effective_feature_ids
 
-# ====================================================
-# Primary Function
-# ====================================================
+
 def run_bridge_from_design_matrix_artifact(
     *,
     # identity
@@ -302,7 +303,6 @@ def run_bridge_from_design_matrix_artifact(
     X_train_sm.index = _to_monthly_period_index(X_train_sm.index)
     X_future_sm.index = _to_monthly_period_index(X_future_sm.index)
 
-
     
     spec = SarimaxExogSpec()
     res = fit_sarimax_exog(y_train=y_train_sm, X_train=X_train_sm, spec=spec)
@@ -311,7 +311,6 @@ def run_bridge_from_design_matrix_artifact(
     
     #target_dates = [d.date() for d in X_future.index]
     target_dates = [pd.to_datetime(d).date() for d in X_future.index]
-
 
 
     algo_params = {
@@ -370,7 +369,63 @@ def run_bridge_from_design_matrix_artifact(
     con.close()
     return int(run_id)
 
+def _cap_feature_ids_for_sarimax(
+    df_sel: pd.DataFrame,
+    *,
+    max_exogs: int,
+    min_non_redfin: int,
+) -> list[str]:
+    """
+    Deterministically cap selector-picked feature_ids for SARIMAX.
+    Uses selector rank (ascending) as the stable ordering.
+    Enforces a minimum count of non-Redfin features if possible.
+    """
+    if max_exogs is None or max_exogs <= 0:
+        return df_sel["feature_id"].astype(str).tolist()
 
+    df = df_sel.copy()
+    if "rank" in df.columns:
+        df = df.sort_values(["rank", "feature_id"], ascending=[True, True])
+    else:
+        # fallback: higher importance first
+        df = df.sort_values(["importance", "feature_id"], ascending=[False, True])
+
+    fids = df["feature_id"].astype(str).tolist()
+    if len(fids) <= max_exogs:
+        return fids
+
+    def _is_redfin(fid: str) -> bool:
+        # feature_id format: metric__geo__pt__source_lagK
+        # e.g. "...__redfin_lag1"
+        # This is deliberately blunt and deterministic.
+        return "__redfin_lag" in fid
+
+    non_redfin = [fid for fid in fids if not _is_redfin(fid)]
+    redfin = [fid for fid in fids if _is_redfin(fid)]
+
+    # If we can't satisfy min_non_redfin, take as many as exist (Contract A).
+    take_non = min(len(non_redfin), int(min_non_redfin))
+    take_total = int(max_exogs)
+    take_red = max(0, take_total - take_non)
+
+    out = non_redfin[:take_non] + redfin[:take_red]
+
+    # If non_redfin was scarce, we may be underfilled; top-up deterministically.
+    if len(out) < take_total:
+        used = set(out)
+        for fid in fids:
+            if fid in used:
+                continue
+            out.append(fid)
+            used.add(fid)
+            if len(out) >= take_total:
+                break
+
+    return out[:take_total]
+
+# ====================================================
+# Primary Function
+# ====================================================
 def run_backtest_sarimax_exog_bridge(
     *,
     metric_id: str,
@@ -386,6 +441,8 @@ def run_backtest_sarimax_exog_bridge(
     artifact_root: str,
     run_kind: str = "backtest",
     is_active: bool = False,
+    max_exogs_for_sarimax: int = 30,
+    min_non_redfin_for_sarimax: int = 10,
 ) -> None:
     """
     Phase C bridge backtest runner:
@@ -412,25 +469,40 @@ def run_backtest_sarimax_exog_bridge(
                 raise FileNotFoundError(f"[sarimax_exog_bridge] missing selector output: {sel_path}")
 
             df_sel = pd.read_parquet(sel_path)
-            feature_ids = df_sel["feature_id"].astype(str).tolist()
-            if not feature_ids:
+
+
+            feature_ids_requested = df_sel["feature_id"].astype(str).tolist()
+            if not feature_ids_requested:
                 raise ValueError(f"[sarimax_exog_bridge] empty selector feature list for anchor={anchor}")
-
-            feature_set_sha256 = None
-            if "feature_set_sha256" in df_sel.columns and df_sel["feature_set_sha256"].notna().any():
-                feature_set_sha256 = str(df_sel["feature_set_sha256"].dropna().iloc[0])
-
-            dm, effective_feature_ids = _build_design_matrix_from_selected_features(
+            
+            # 1) Build DM using the FULL requested set
+            dm_full, feature_ids_after_nan_drop = _build_design_matrix_from_selected_features(
                 con=con,
                 metric_id=metric_id,
                 geo_id=geo_id,
                 property_type_id=property_type_id,
                 data_asof=data_asof_date,
-                feature_ids=feature_ids,
+                feature_ids=feature_ids_requested,
                 anchor_date=anchor,
                 horizon=horizon,
                 min_train_len=min_train_len,
             )
+            
+            # 2) Cap after NaN-drop using selector ranking (restrict df_sel to survivors)
+            df_survivors = df_sel[df_sel["feature_id"].astype(str).isin(set(feature_ids_after_nan_drop))].copy()
+            feature_ids_capped = _cap_feature_ids_for_sarimax(
+                df_survivors,
+                max_exogs=int(max_exogs_for_sarimax),
+                min_non_redfin=int(min_non_redfin_for_sarimax),
+            )
+            
+            if not feature_ids_capped:
+                raise ValueError(f"[sarimax_exog_bridge] empty SARIMAX feature list after cap for anchor={anchor}")
+            
+            # 3) Subset DM to y + capped features in EXACT order
+            dm = dm_full[["y"] + feature_ids_capped].copy()
+            effective_feature_ids = feature_ids_capped
+            
 
             anchor_ts = pd.Timestamp(anchor).to_period("M").to_timestamp(how="end")
             if anchor_ts not in dm.index:
@@ -451,8 +523,10 @@ def run_backtest_sarimax_exog_bridge(
 
             audit = {
                 "data_asof_effective": str(data_asof_date),
-                "feature_ids_requested": feature_ids,
-                "feature_ids": effective_feature_ids,   # <- keep this as the canonical list for the artifact runner
+                "feature_ids_requested": feature_ids_requested,
+                "feature_ids_after_nan_drop": feature_ids_after_nan_drop,
+                "feature_ids_capped": feature_ids_capped,
+                "feature_ids": feature_ids_capped,   # canonical list for artifact runner                
                 "feature_set_sha256": feature_set_sha256,
                 "design_matrix_sha256": dm_sha,
                 "max_horizon_available": int(n_future_available),
