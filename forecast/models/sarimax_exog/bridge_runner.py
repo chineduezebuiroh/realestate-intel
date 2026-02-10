@@ -236,10 +236,10 @@ def run_bridge_from_design_matrix_artifact(
     X_future = X_full.loc[anchor_ts:].iloc[1 : horizon + 1].copy()
     
     p = _to_monthly_period_index(X_future.index)
-    # require consecutive monthly periods
-    if len(p) >= 2 and (p[1:] - p[:-1]).astype(int).max() != 1:
-        raise ValueError("[sarimax_exog_bridge] X_future months are not consecutive; cannot forecast deterministically.")
-
+    if len(p) >= 2:
+        expected = pd.period_range(p[0], periods=len(p), freq="M")
+        if not p.equals(expected):
+            raise ValueError("[sarimax_exog_bridge] X_future months are not consecutive; cannot forecast deterministically.")
     
     if len(X_future) != horizon:
         raise ValueError(
