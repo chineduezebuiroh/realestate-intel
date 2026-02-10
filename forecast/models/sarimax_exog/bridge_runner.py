@@ -328,6 +328,9 @@ def run_bridge_from_design_matrix_artifact(
             "bic": getattr(res, "bic", None),
             "fit_converged": fit_converged,
             "mle_retvals": mle_retvals,   # optional but useful for debugging
+            "n_obs_train": len(y_train_sm),
+            "n_exogs_effective": X_train_sm.shape[1],
+            "dropped_exogs_n": len(dropped),
         },
         "contracts": {
             "run_kind": run_kind,
