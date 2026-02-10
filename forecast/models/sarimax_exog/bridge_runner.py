@@ -313,9 +313,8 @@ def run_bridge_from_design_matrix_artifact(
 
     algo_params = {
         "model_version": model_version,
-        "feature_ids": feature_ids,
-        "feature_ids_requested": feature_ids_requested,
-        "feature_ids_effective": feature_ids_effective,
+        "feature_ids_requested": feature_ids,
+        "feature_ids_effective": effective_feature_ids,
         "design_matrix_sha256": audit.get("design_matrix_sha256"),
         "feature_set_sha256": audit.get("feature_set_sha256"),
         "anchor_date": anchor_date,
