@@ -75,7 +75,10 @@ def _build_design_matrix_from_selected_features(
     property_type_id: str,
     data_asof: date,
     feature_ids: list[str],
-) -> pd.DataFrame:
+    anchor_date: str,
+    horizon: int,
+    min_train_len: int,
+) -> pd.DataFrame:    
     """
     Returns DataFrame with columns: y + each feature_id (already lagged).
     Index: month-end DatetimeIndex
@@ -121,17 +124,46 @@ def _build_design_matrix_from_selected_features(
     if max_lag > 0 and len(df) > max_lag:
         df = df.iloc[max_lag:].copy()
 
-    # SARIMAX cannot take NaNs in exog. If this fails, selector output is not bridgeable.
-    bad = df.dropna(subset=["y"]).isna().any(axis=1)
-    if bad.any():
-        bad_dates = df.index[bad].strftime("%Y-%m-%d").tolist()[:10]
+    # --- Window to what we will actually use for this anchor ---
+    anchor_ts = pd.Timestamp(anchor_date).to_period("M").to_timestamp(how="end")
+    if anchor_ts not in df.index:
+        raise ValueError(f"[sarimax_exog_bridge] anchor not in design matrix index: {anchor_date}")
+
+    # We need:
+    #  - at least min_train_len rows for training ending at anchor
+    #  - plus horizon rows after anchor for X_future
+    train_end = anchor_ts
+    future_end = df.index[df.index > anchor_ts][:horizon]
+    if len(future_end) < horizon:
         raise ValueError(
-            "[sarimax_exog_bridge] design matrix has NaNs after lag trimming.\n"
+            f"[sarimax_exog_bridge] insufficient future rows after anchor={anchor_date}: "
+            f"need {horizon}, have {len(future_end)}"
+        )
+    future_end_ts = future_end[-1]
+
+    # Choose a conservative train start: last min_train_len rows before/including anchor
+    train_block = df.loc[:train_end].dropna(subset=["y"])
+    if len(train_block) < min_train_len:
+        raise ValueError(
+            f"[sarimax_exog_bridge] insufficient training rows at anchor={anchor_date}: "
+            f"{len(train_block)} < min_train_len={min_train_len}"
+        )
+    train_start_ts = train_block.index[-min_train_len]
+
+    df_win = df.loc[train_start_ts:future_end_ts].copy()
+
+    # Now enforce no NaNs *in the window we actually use*
+    bad = df_win.isna().any(axis=1)
+    if bad.any():
+        bad_dates = df_win.index[bad].strftime("%Y-%m-%d").tolist()[:10]
+        raise ValueError(
+            "[sarimax_exog_bridge] design matrix has NaNs in the anchor window.\n"
+            f"anchor={anchor_date} train_start={train_start_ts.date()} future_end={future_end_ts.date()}\n"
             f"First bad dates: {bad_dates}\n"
-            "This means at least one selected exog has missing values on the target timeline."
+            "This means at least one selected exog is missing around this anchor window."
         )
 
-    return df
+    return df_win
 
 # ====================================================
 # Primary Function
@@ -351,6 +383,9 @@ def run_backtest_sarimax_exog_bridge(
                 property_type_id=property_type_id,
                 data_asof=data_asof_date,
                 feature_ids=feature_ids,
+                anchor_date=anchor,
+                horizon=horizon,
+                min_train_len=min_train_len,
             )
 
             anchor_ts = pd.Timestamp(anchor).to_period("M").to_timestamp(how="end")
