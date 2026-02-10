@@ -246,12 +246,15 @@ def run_bridge_from_design_matrix_artifact(
         raise ValueError("[sarimax_exog_bridge] data_asof missing and audit has no data_asof_effective")
 
 
-    feature_ids = audit.get("feature_ids")
-    if not feature_ids:
+    feature_ids_effective = audit.get("feature_ids")
+    if not feature_ids_effective:
         raise ValueError("[sarimax_exog_bridge] audit missing feature_ids")
     
+    feature_ids_requested = audit.get("feature_ids_requested") or feature_ids_effective
+
+    
     y_full, X_full = _split_y_and_exog(df)
-    _assert_exog_order(X_full, feature_ids)
+    _assert_exog_order(X_full, feature_ids_effective)
     
     anchor_ts = pd.Timestamp(anchor_date).to_period("M").to_timestamp(how="end")
     if anchor_ts not in y_full.index:
@@ -313,8 +316,8 @@ def run_bridge_from_design_matrix_artifact(
 
     algo_params = {
         "model_version": model_version,
-        "feature_ids_requested": feature_ids,
-        "feature_ids_effective": effective_feature_ids,
+        "feature_ids_requested": feature_ids_requested,
+        "feature_ids_effective": feature_ids_effective,
         "design_matrix_sha256": audit.get("design_matrix_sha256"),
         "feature_set_sha256": audit.get("feature_set_sha256"),
         "anchor_date": anchor_date,
@@ -448,13 +451,15 @@ def run_backtest_sarimax_exog_bridge(
 
             audit = {
                 "data_asof_effective": str(data_asof_date),
-                "feature_ids": feature_ids,
+                "feature_ids_requested": feature_ids,
+                "feature_ids": effective_feature_ids,   # <- keep this as the canonical list for the artifact runner
                 "feature_set_sha256": feature_set_sha256,
                 "design_matrix_sha256": dm_sha,
                 "max_horizon_available": int(n_future_available),
                 "selector_batch_id": selector_batch_id,
                 "selector_selected_features_path": sel_path,
             }
+            
             with open(audit_path, "w") as f:
                 json.dump(audit, f, indent=2, sort_keys=True)
 
