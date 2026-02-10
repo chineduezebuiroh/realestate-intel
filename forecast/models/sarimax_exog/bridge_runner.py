@@ -470,6 +470,9 @@ def run_backtest_sarimax_exog_bridge(
 
             df_sel = pd.read_parquet(sel_path)
 
+            feature_set_sha256: Optional[str] = None
+            if "feature_set_sha256" in df_sel.columns and df_sel["feature_set_sha256"].notna().any():
+                feature_set_sha256 = str(df_sel["feature_set_sha256"].dropna().iloc[0])
 
             feature_ids_requested = df_sel["feature_id"].astype(str).tolist()
             if not feature_ids_requested:
