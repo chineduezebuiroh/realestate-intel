@@ -78,7 +78,7 @@ def _build_design_matrix_from_selected_features(
     anchor_date: str,
     horizon: int,
     min_train_len: int,
-) -> pd.DataFrame:    
+) -> tuple[pd.DataFrame, list[str]]:
     """
     Returns DataFrame with columns: y + each feature_id (already lagged).
     Index: month-end DatetimeIndex
@@ -152,18 +152,58 @@ def _build_design_matrix_from_selected_features(
 
     df_win = df.loc[train_start_ts:future_end_ts].copy()
 
+
     # Now enforce no NaNs *in the window we actually use*
-    bad = df_win.isna().any(axis=1)
-    if bad.any():
-        bad_dates = df_win.index[bad].strftime("%Y-%m-%d").tolist()[:10]
+    # Contract B: drop exog columns that are incomplete in the anchor window.
+    feature_cols = [c for c in df_win.columns if c != "y"]
+
+    # If y has NaNs in-window, that's a real target issue (still fail)
+    if df_win["y"].isna().any():
+        bad_dates = df_win.index[df_win["y"].isna()].strftime("%Y-%m-%d").tolist()[:10]
         raise ValueError(
-            "[sarimax_exog_bridge] design matrix has NaNs in the anchor window.\n"
+            "[sarimax_exog_bridge] target y has NaNs in anchor window.\n"
             f"anchor={anchor_date} train_start={train_start_ts.date()} future_end={future_end_ts.date()}\n"
-            f"First bad dates: {bad_dates}\n"
-            "This means at least one selected exog is missing around this anchor window."
+            f"First bad dates: {bad_dates}"
         )
 
-    return df_win
+    dropped: list[str] = []
+    # Iteratively drop columns that create NaNs anywhere in window
+    while True:
+        # rows that have any NaN among exogs
+        exog_bad_rows = df_win[feature_cols].isna().any(axis=1) if feature_cols else pd.Series(False, index=df_win.index)
+
+        if not exog_bad_rows.any():
+            break  # all good
+
+        # columns responsible for NaNs
+        cols_with_nan = df_win.loc[exog_bad_rows, feature_cols].isna().any(axis=0)
+        offenders = cols_with_nan[cols_with_nan].index.tolist()
+
+        if not offenders:
+            # Shouldn't happen, but don't infinite-loop
+            break
+
+        # Drop them
+        df_win = df_win.drop(columns=offenders)
+        dropped.extend(offenders)
+        feature_cols = [c for c in df_win.columns if c != "y"]
+
+        # Safety: if we drop everything, fail loudly
+        if not feature_cols:
+            bad_dates = df_win.index[exog_bad_rows].strftime("%Y-%m-%d").tolist()[:10]
+            raise ValueError(
+                "[sarimax_exog_bridge] all exogs dropped due to missingness in anchor window.\n"
+                f"anchor={anchor_date} train_start={train_start_ts.date()} future_end={future_end_ts.date()}\n"
+                f"First bad dates: {bad_dates}\n"
+                f"dropped_n={len(dropped)}"
+            )
+
+    if dropped:
+        # Keep this as a print for now; later promote to structured artifact/audit
+        print(f"[sarimax_exog_bridge] dropped_exogs_due_to_nans n={len(dropped)} example={dropped[:5]}")
+
+    effective_feature_ids = [c for c in df_win.columns if c != "y"]
+    return df_win, effective_feature_ids
 
 # ====================================================
 # Primary Function
@@ -274,6 +314,8 @@ def run_bridge_from_design_matrix_artifact(
     algo_params = {
         "model_version": model_version,
         "feature_ids": feature_ids,
+        "feature_ids_requested": feature_ids_requested,
+        "feature_ids_effective": feature_ids_effective,
         "design_matrix_sha256": audit.get("design_matrix_sha256"),
         "feature_set_sha256": audit.get("feature_set_sha256"),
         "anchor_date": anchor_date,
@@ -376,7 +418,7 @@ def run_backtest_sarimax_exog_bridge(
             if "feature_set_sha256" in df_sel.columns and df_sel["feature_set_sha256"].notna().any():
                 feature_set_sha256 = str(df_sel["feature_set_sha256"].dropna().iloc[0])
 
-            dm = _build_design_matrix_from_selected_features(
+            dm, effective_feature_ids = _build_design_matrix_from_selected_features(
                 con=con,
                 metric_id=metric_id,
                 geo_id=geo_id,
