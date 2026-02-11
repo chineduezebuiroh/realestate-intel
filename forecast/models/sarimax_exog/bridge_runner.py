@@ -516,12 +516,22 @@ def run_backtest_sarimax_exog_bridge(
                 # Restrict selector df to nan-safe features (preserve ranking order from selector)
                 df_sel_eff = df_sel[df_sel["feature_id"].astype(str).isin(set(feature_ids_after_nan_drop))].copy()
                 df_sel_eff["feature_id"] = df_sel_eff["feature_id"].astype(str)
+                                
                 
-                effective_feature_ids = _cap_feature_ids_for_sarimax(
+                # only allow features that survived NaN-drop in the DM window
+                nan_ok = set(map(str, feature_ids_after_nan_drop))
+                df_sel_eff = df_sel_eff[df_sel_eff["feature_id"].isin(nan_ok)].copy()
+                
+                keep_ids = _cap_feature_ids_for_sarimax(
                     df_sel_eff,
-                    max_exogs=max_exogs_for_sarimax,
-                    min_non_redfin=min_non_redfin_for_sarimax,
+                    max_exogs=int(max_exogs_for_sarimax),
+                    min_non_redfin=int(min_non_redfin_for_sarimax),
                 )
+                
+                # now actually cap the DM
+                dm = dm_full[["y"] + keep_ids].copy()
+                effective_feature_ids = keep_ids
+
                 
                 keep_cols = ["y"] + effective_feature_ids
                 missing = [c for c in keep_cols if c not in dm_full.columns]
