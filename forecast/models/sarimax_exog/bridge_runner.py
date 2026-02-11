@@ -332,7 +332,10 @@ def run_bridge_from_design_matrix_artifact(
             "mle_retvals": mle_retvals,   # optional but useful for debugging
             "n_obs_train": len(y_train_sm),
             "n_exogs_effective": X_train_sm.shape[1],
-            "dropped_exogs_n": len(dropped),
+            "dropped_exogs_n": int(len(dropped_feature_ids)),
+            "dropped_exogs_sample": dropped_feature_ids[:10],
+            # optional, if you want full provenance in algo_params too (audit already has it)
+            # "dropped_exogs": dropped_feature_ids,
         },
         "contracts": {
             "run_kind": run_kind,
