@@ -513,6 +513,23 @@ def run_backtest_sarimax_exog_bridge(
                     min_train_len=min_train_len,
                 )
 
+                # Restrict selector df to nan-safe features (preserve ranking order from selector)
+                df_sel_eff = df_sel[df_sel["feature_id"].astype(str).isin(set(feature_ids_after_nan_drop))].copy()
+                df_sel_eff["feature_id"] = df_sel_eff["feature_id"].astype(str)
+                
+                effective_feature_ids = _cap_feature_ids_for_sarimax(
+                    df_sel_eff,
+                    max_exogs=max_exogs_for_sarimax,
+                    min_non_redfin=min_non_redfin_for_sarimax,
+                )
+                
+                keep_cols = ["y"] + effective_feature_ids
+                missing = [c for c in keep_cols if c not in dm_full.columns]
+                if missing:
+                    raise ValueError(f"[sarimax_exog_bridge] capped columns missing from dm_full: {missing[:10]}")
+                
+                dm = dm_full.loc[:, keep_cols].copy()
+
                 # cap AFTER NaN-drop (your requested provenance order)
                 effective_feature_ids = _cap_feature_ids_for_sarimax(
                     feature_ids_effective=feature_ids_after_nan_drop,
