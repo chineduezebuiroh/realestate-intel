@@ -514,13 +514,19 @@ def run_backtest_sarimax_exog_bridge(
                 )
 
                 # cap AFTER NaN-drop (your requested provenance order)
-                # keep your existing cap logic here, but ensure it uses feature_ids_after_nan_drop ordering
-                dm, effective_feature_ids = _cap_exogs_for_sarimax(
-                    dm_full=dm_full,
+                effective_feature_ids = _cap_feature_ids_for_sarimax(
                     feature_ids_effective=feature_ids_after_nan_drop,
                     max_exogs_for_sarimax=max_exogs_for_sarimax,
                     min_non_redfin_for_sarimax=min_non_redfin_for_sarimax,
                 )
+                
+                # materialize capped DM (keep 'y' + capped exogs, preserve order)
+                keep_cols = ["y"] + list(map(str, effective_feature_ids))
+                missing = [c for c in keep_cols if c not in dm_full.columns]
+                if missing:
+                    raise ValueError(f"[sarimax_exog_bridge] capped columns missing from dm_full: {missing[:10]}")
+                
+                dm = dm_full.loc[:, keep_cols].copy()
         
                 anchor_ts = pd.Timestamp(anchor).to_period("M").to_timestamp(how="end")
                 n_future_available = int((dm.index > anchor_ts).sum())
