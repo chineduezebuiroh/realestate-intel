@@ -513,13 +513,14 @@ def run_backtest_sarimax_exog_bridge(
                     min_train_len=min_train_len,
                 )
 
-                # Restrict selector df to nan-safe features (preserve ranking order from selector)
-                df_sel_eff = df_sel[df_sel["feature_id"].astype(str).isin(set(feature_ids_after_nan_drop))].copy()
-                df_sel_eff["feature_id"] = df_sel_eff["feature_id"].astype(str)
-                                
-                
-                # only allow features that survived NaN-drop in the DM window
+
+                # --- NaN-drop already applied in dm_full; now cap exogs using selector ranking, restricted to NaN-safe features ---
+
                 nan_ok = set(map(str, feature_ids_after_nan_drop))
+                
+                # keep selector ordering/ranking but only for features that survived NaN-drop
+                df_sel_eff = df_sel.copy()
+                df_sel_eff["feature_id"] = df_sel_eff["feature_id"].astype(str)
                 df_sel_eff = df_sel_eff[df_sel_eff["feature_id"].isin(nan_ok)].copy()
                 
                 keep_ids = _cap_feature_ids_for_sarimax(
@@ -528,32 +529,15 @@ def run_backtest_sarimax_exog_bridge(
                     min_non_redfin=int(min_non_redfin_for_sarimax),
                 )
                 
-                # now actually cap the DM
-                dm = dm_full[["y"] + keep_ids].copy()
+                # safety: ensure keep_ids exist in dm_full and preserve order
+                keep_cols = ["y"] + keep_ids
+                missing = [c for c in keep_cols if c not in dm_full.columns]
+                if missing:
+                    raise ValueError(f"[sarimax_exog_bridge] capped columns missing from dm_full: {missing[:10]}")
+                
+                dm = dm_full.loc[:, keep_cols].copy()
                 effective_feature_ids = keep_ids
 
-                
-                keep_cols = ["y"] + effective_feature_ids
-                missing = [c for c in keep_cols if c not in dm_full.columns]
-                if missing:
-                    raise ValueError(f"[sarimax_exog_bridge] capped columns missing from dm_full: {missing[:10]}")
-                
-                dm = dm_full.loc[:, keep_cols].copy()
-
-                # cap AFTER NaN-drop (your requested provenance order)
-                effective_feature_ids = _cap_feature_ids_for_sarimax(
-                    feature_ids_effective=feature_ids_after_nan_drop,
-                    max_exogs_for_sarimax=max_exogs_for_sarimax,
-                    min_non_redfin_for_sarimax=min_non_redfin_for_sarimax,
-                )
-                
-                # materialize capped DM (keep 'y' + capped exogs, preserve order)
-                keep_cols = ["y"] + list(map(str, effective_feature_ids))
-                missing = [c for c in keep_cols if c not in dm_full.columns]
-                if missing:
-                    raise ValueError(f"[sarimax_exog_bridge] capped columns missing from dm_full: {missing[:10]}")
-                
-                dm = dm_full.loc[:, keep_cols].copy()
         
                 anchor_ts = pd.Timestamp(anchor).to_period("M").to_timestamp(how="end")
                 n_future_available = int((dm.index > anchor_ts).sum())
