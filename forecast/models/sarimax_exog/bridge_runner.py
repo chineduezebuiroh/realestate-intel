@@ -1,14 +1,12 @@
 from __future__ import annotations
 # forecast/models/sarimax_exog/bridge_runner.py
 
-import os
-import json
-import hashlib
+import os, json, traceback, hashlib
 import duckdb
 
 import pandas as pd
 
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, List, Dict, Any
 
 from forecast.core.backtest_utils import month_end_index
@@ -471,97 +469,115 @@ def run_backtest_sarimax_exog_bridge(
 
     con = get_connection()
     try:
+        results = {
+            "model": "sarimax_exog_bridge",
+            "batch_id": batch_id,
+            "selector_batch_id": selector_batch_id,
+            "metric_id": metric_id,
+            "geo_id": geo_id,
+            "property_type_id": property_type_id,
+            "freq": freq,
+            "horizon": int(horizon),
+            "min_train_len": int(min_train_len),
+            "data_asof": str(data_asof_date),
+            "requested_anchors": anchors,
+            "success": [],
+            "failed": [],
+            "started_at_utc": datetime.utcnow().isoformat() + "Z",
+        }
+        
         for anchor in anchors:
-            sel_path = f"{selector_metric_dir}/selected_features__anchor={anchor}.parquet"
-            if not os.path.exists(sel_path):
-                raise FileNotFoundError(f"[sarimax_exog_bridge] missing selector output: {sel_path}")
+            try:
+                sel_path = f"{selector_metric_dir}/selected_features__anchor={anchor}.parquet"
+                if not os.path.exists(sel_path):
+                    raise FileNotFoundError(f"missing selector output: {sel_path}")
+        
+                df_sel = pd.read_parquet(sel_path)
+                feature_ids = df_sel["feature_id"].astype(str).tolist()
+                if not feature_ids:
+                    raise ValueError("empty selector feature list")
 
-            df_sel = pd.read_parquet(sel_path)
-
-            feature_set_sha256: Optional[str] = None
-            if "feature_set_sha256" in df_sel.columns and df_sel["feature_set_sha256"].notna().any():
-                feature_set_sha256 = str(df_sel["feature_set_sha256"].dropna().iloc[0])
-
-            feature_ids_requested = df_sel["feature_id"].astype(str).tolist()
-            if not feature_ids_requested:
-                raise ValueError(f"[sarimax_exog_bridge] empty selector feature list for anchor={anchor}")
-            
-            # 1) Build DM using the FULL requested set
-            dm_full, feature_ids_after_nan_drop = _build_design_matrix_from_selected_features(
-                con=con,
-                metric_id=metric_id,
-                geo_id=geo_id,
-                property_type_id=property_type_id,
-                data_asof=data_asof_date,
-                feature_ids=feature_ids_requested,
-                anchor_date=anchor,
-                horizon=horizon,
-                min_train_len=min_train_len,
-            )
-            
-            # 2) Cap after NaN-drop using selector ranking (restrict df_sel to survivors)
-            df_survivors = df_sel[df_sel["feature_id"].astype(str).isin(set(feature_ids_after_nan_drop))].copy()
-            feature_ids_capped = _cap_feature_ids_for_sarimax(
-                df_survivors,
-                max_exogs=int(max_exogs_for_sarimax),
-                min_non_redfin=int(min_non_redfin_for_sarimax),
-            )
-            
-            if not feature_ids_capped:
-                raise ValueError(f"[sarimax_exog_bridge] empty SARIMAX feature list after cap for anchor={anchor}")
-            
-            # 3) Subset DM to y + capped features in EXACT order
-            dm = dm_full[["y"] + feature_ids_capped].copy()
-            effective_feature_ids = feature_ids_capped
-            
-
-            anchor_ts = pd.Timestamp(anchor).to_period("M").to_timestamp(how="end")
-            if anchor_ts not in dm.index:
-                raise ValueError(f"[sarimax_exog_bridge] anchor not in design matrix index: {anchor}")
-
-            n_future_available = int((dm.index > anchor_ts).sum())
-            if horizon > n_future_available:
-                raise ValueError(
-                    f"[sarimax_exog_bridge] horizon={horizon} exceeds future exog rows available={n_future_available} "
-                    f"for anchor={anchor}. Need exog-future policy or smaller horizon."
+                feature_set_sha256 = None
+                if "feature_set_sha256" in df_sel.columns and df_sel["feature_set_sha256"].notna().any():
+                    feature_set_sha256 = str(df_sel["feature_set_sha256"].dropna().iloc[0])
+        
+                dm_full, feature_ids_after_nan_drop = _build_design_matrix_from_selected_features(
+                    con=con,
+                    metric_id=metric_id,
+                    geo_id=geo_id,
+                    property_type_id=property_type_id,
+                    data_asof=data_asof_date,
+                    feature_ids=feature_ids,
+                    anchor_date=anchor,
+                    horizon=horizon,
+                    min_train_len=min_train_len,
                 )
 
-            dm_path = f"{bridge_dir}/design_matrix__anchor={anchor}.parquet"
-            audit_path = f"{bridge_dir}/design_matrix_audit__anchor={anchor}.json"
+                # cap AFTER NaN-drop (your requested provenance order)
+                # keep your existing cap logic here, but ensure it uses feature_ids_after_nan_drop ordering
+                dm, effective_feature_ids = _cap_exogs_for_sarimax(
+                    dm_full=dm_full,
+                    feature_ids_effective=feature_ids_after_nan_drop,
+                    max_exogs_for_sarimax=max_exogs_for_sarimax,
+                    min_non_redfin_for_sarimax=min_non_redfin_for_sarimax,
+                )
+        
+                anchor_ts = pd.Timestamp(anchor).to_period("M").to_timestamp(how="end")
+                n_future_available = int((dm.index > anchor_ts).sum())
+                if horizon > n_future_available:
+                    raise ValueError(f"horizon exceeds future rows: need {horizon}, have {n_future_available}")
+        
+                dm_path = f"{bridge_dir}/design_matrix__anchor={anchor}.parquet"
+                audit_path = f"{bridge_dir}/design_matrix_audit__anchor={anchor}.json"
+                dm.to_parquet(dm_path, index=True)
+                dm_sha = _sha256_file(dm_path)
 
-            dm.to_parquet(dm_path, index=True)
-            dm_sha = _sha256_file(dm_path)
+                audit = {
+                    "data_asof_effective": str(data_asof_date),
+                    "selector_batch_id": selector_batch_id,
+                    "selector_selected_features_path": sel_path,
+                    "feature_ids_requested": feature_ids,
+                    "feature_ids": effective_feature_ids,  # canonical for artifact runner
+                    "feature_set_sha256": feature_set_sha256,
+                    "design_matrix_sha256": dm_sha,
+                    "max_horizon_available": int(n_future_available),
+                }
+                with open(audit_path, "w") as f:
+                    json.dump(audit, f, indent=2, sort_keys=True)
 
-            audit = {
-                "data_asof_effective": str(data_asof_date),
-                "feature_ids_requested": feature_ids_requested,
-                "feature_ids_after_nan_drop": feature_ids_after_nan_drop,
-                "feature_ids_capped": feature_ids_capped,
-                "feature_ids": feature_ids_capped,   # canonical list for artifact runner                
-                "feature_set_sha256": feature_set_sha256,
-                "design_matrix_sha256": dm_sha,
-                "max_horizon_available": int(n_future_available),
-                "selector_batch_id": selector_batch_id,
-                "selector_selected_features_path": sel_path,
-            }
-            
-            with open(audit_path, "w") as f:
-                json.dump(audit, f, indent=2, sort_keys=True)
+                run_id = run_bridge_from_design_matrix_artifact(
+                    metric_id=metric_id,
+                    geo_id=geo_id,
+                    property_type_id=property_type_id,
+                    freq=freq,
+                    design_matrix_parquet_path=dm_path,
+                    design_matrix_audit_json_path=audit_path,
+                    anchor_date=anchor,
+                    horizon=horizon,
+                    batch_id=batch_id,
+                    data_asof=str(data_asof_date),
+                    run_kind=run_kind,
+                    is_active=is_active,
+                )
+        
+                results["success"].append({"anchor": anchor, "run_id": int(run_id)})
 
-            run_bridge_from_design_matrix_artifact(
-                metric_id=metric_id,
-                geo_id=geo_id,
-                property_type_id=property_type_id,
-                freq=freq,
-                design_matrix_parquet_path=dm_path,
-                design_matrix_audit_json_path=audit_path,
-                anchor_date=anchor,
-                horizon=horizon,
-                batch_id=batch_id,
-                data_asof=str(data_asof_date),
-                run_kind=run_kind,
-                is_active=is_active,
-            )
+            except Exception as e:
+                results["failed"].append({
+                    "anchor": anchor,
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                })
+                # keep going
+
+        results["finished_at_utc"] = datetime.utcnow().isoformat() + "Z"
+
+        summary_path = f"{bridge_dir}/bridge_backtest_summary.json"
+        with open(summary_path, "w") as f:
+            json.dump(results, f, indent=2, sort_keys=True)
+        
+        print(f"[sarimax_exog_bridge] wrote summary -> {summary_path}")
+        print(f"[sarimax_exog_bridge] success={len(results['success'])} failed={len(results['failed'])}")
 
     finally:
         try:
