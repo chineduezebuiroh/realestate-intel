@@ -569,12 +569,19 @@ def run_backtest_sarimax_exog_bridge(
                 results["success"].append({"anchor": anchor, "run_id": int(run_id)})
 
             except Exception as e:
-                results["failed"].append({
-                    "anchor": anchor,
-                    "error_type": type(e).__name__,
-                    "error": str(e),
-                })
-                # keep going
+                msg = str(e)
+                if "insufficient training rows" in msg or "insufficient future rows" in msg:
+                    results.setdefault("ineligible", []).append({"anchor": anchor,
+                                                                "error_type": type(e).__name__,
+                                                                "error": str(e),
+                                                            })
+                else:
+                    results["failed"].append({
+                        "anchor": anchor,
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                    })
+                    # keep going
 
         results["finished_at_utc"] = datetime.utcnow().isoformat() + "Z"
 
