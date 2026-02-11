@@ -76,11 +76,14 @@ def _build_design_matrix_from_selected_features(
     anchor_date: str,
     horizon: int,
     min_train_len: int,
-) -> tuple[pd.DataFrame, list[str]]:
+) -> tuple[pd.DataFrame, list[str], list[str]]:
     """
-    Returns DataFrame with columns: y + each feature_id (already lagged).
+    Returns:
+      - df_win: DataFrame with columns: y + each feature_id (already lagged), windowed to [train_start..future_end]
+      - effective_feature_ids: list of feature IDs that remain after NaN-drop (in the same order as columns in df_win)
+      - dropped_feature_ids: list of feature IDs dropped due to missingness inside the anchor window
     Index: month-end DatetimeIndex
-    """
+    """    
     y = load_series_from_fact(
         metric_id=metric_id,
         geo_id=geo_id,
@@ -204,7 +207,8 @@ def _build_design_matrix_from_selected_features(
     # deterministic order: keep the original requested order
     req_set = set(feature_ids)
     effective_feature_ids = [fid for fid in feature_ids if fid in req_set and fid in set(effective_feature_ids)]
-    return df_win, effective_feature_ids
+    dropped_feature_ids = list(map(str, dropped))  # normalize
+    return df_win, effective_feature_ids, dropped_feature_ids
 
 
 def run_bridge_from_design_matrix_artifact(
@@ -501,7 +505,7 @@ def run_backtest_sarimax_exog_bridge(
                 if "feature_set_sha256" in df_sel.columns and df_sel["feature_set_sha256"].notna().any():
                     feature_set_sha256 = str(df_sel["feature_set_sha256"].dropna().iloc[0])
         
-                dm_full, feature_ids_after_nan_drop = _build_design_matrix_from_selected_features(
+                dm_full, feature_ids_after_nan_drop, dropped_feature_ids = _build_design_matrix_from_selected_features(
                     con=con,
                     metric_id=metric_id,
                     geo_id=geo_id,
@@ -558,6 +562,8 @@ def run_backtest_sarimax_exog_bridge(
                     "feature_set_sha256": feature_set_sha256,
                     "design_matrix_sha256": dm_sha,
                     "max_horizon_available": int(n_future_available),
+                    "dropped_feature_ids_due_to_nans": dropped_feature_ids,
+                    "dropped_feature_count_due_to_nans": int(len(dropped_feature_ids)),
                 }
                 with open(audit_path, "w") as f:
                     json.dump(audit, f, indent=2, sort_keys=True)
@@ -577,7 +583,12 @@ def run_backtest_sarimax_exog_bridge(
                     is_active=is_active,
                 )
         
-                results["success"].append({"anchor": anchor, "run_id": int(run_id)})
+                results["success"].append({
+                    "anchor": anchor,
+                    "run_id": int(run_id),
+                    "dropped_feature_count_due_to_nans": int(len(dropped_feature_ids)),
+                    "dropped_feature_ids_due_to_nans_sample": dropped_feature_ids[:10],
+                })
 
             except Exception as e:
                 msg = str(e)
