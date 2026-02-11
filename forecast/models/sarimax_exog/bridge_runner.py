@@ -317,6 +317,7 @@ def run_bridge_from_design_matrix_artifact(
     #target_dates = [d.date() for d in X_future.index]
     target_dates = [pd.to_datetime(d).date() for d in X_future.index]
 
+    dropped_feature_ids = list(map(str, audit.get("dropped_feature_ids_due_to_nans") or []))
 
     algo_params = {
         "model_version": model_version,
