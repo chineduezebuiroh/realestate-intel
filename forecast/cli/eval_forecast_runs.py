@@ -15,7 +15,7 @@ from pathlib import Path
 import pandas as pd
 
 from forecast.eval.core import EvalSpec, build_eval_frame, score_runs
-from forecast.core.db_forecast.py import new_batch_id
+from forecast.core.db_forecast import new_batch_id
 
 
 def _sha256_file(p: Path) -> str:
