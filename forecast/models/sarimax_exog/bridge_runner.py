@@ -400,6 +400,12 @@ def run_bridge_from_design_matrix_artifact(
             "warnflag": (mle_retvals.get("warnflag") if isinstance(mle_retvals, dict) else None),
             "fopt": (mle_retvals.get("fopt") if isinstance(mle_retvals, dict) else None),
         },
+        "spec": {
+            "order": list(spec.order),
+            "seasonal_order": list(spec.seasonal_order),
+            "enforce_stationarity": bool(spec.enforce_stationarity),
+            "enforce_invertibility": bool(spec.enforce_invertibility),
+        },
         "contracts": {
             "run_kind": run_kind,
             "anchor_date": anchor_date,
