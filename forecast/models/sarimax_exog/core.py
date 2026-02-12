@@ -11,7 +11,7 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 @dataclass(frozen=True)
 class SarimaxExogSpec:
     order: tuple[int, int, int] = (1, 1, 1)
-    seasonal_order: tuple[int, int, int, int] = (1, 1, 1, 12)
+    seasonal_order: tuple[int, int, int, int] = (0, 1, 0, 12)
     enforce_stationarity: bool = False
     enforce_invertibility: bool = False
 
