@@ -343,6 +343,27 @@ def run_bridge_from_design_matrix_artifact(
 
     
     spec = SarimaxExogSpec()
+
+    
+
+    # --- DEBUG: exog diagnostics right before fit ---
+    import numpy as np
+    
+    def _exog_diag(X: "pd.DataFrame") -> dict:
+        Xv = X.to_numpy(dtype=float)
+        return {
+            "mean_abs_mean": float(np.abs(np.nanmean(Xv, axis=0)).mean()),
+            "mean_std": float(np.nanstd(Xv, axis=0).mean()),
+            "max_abs": float(np.nanmax(np.abs(Xv))),
+            "any_nan": bool(np.isnan(Xv).any()),
+            "any_inf": bool(np.isinf(Xv).any()),
+            "shape": [int(Xv.shape[0]), int(Xv.shape[1])],
+        }
+    
+    fit_diag["exog_diag_pre_fit"] = _exog_diag(X_train_sm)
+
+
+    
     res = fit_sarimax_exog(y_train=y_train_sm, X_train=X_train_sm, spec=spec)
     mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future_sm, steps=horizon)
 
@@ -374,6 +395,10 @@ def run_bridge_from_design_matrix_artifact(
             "dropped_exogs_sample": dropped_feature_ids[:10],
             # optional, if you want full provenance in algo_params too (audit already has it)
             # "dropped_exogs": dropped_feature_ids,
+            "exog_diag_pre_fit": fit_diag.get("exog_diag_pre_fit"),
+            "iterations": (mle_retvals.get("iterations") if isinstance(mle_retvals, dict) else None),
+            "warnflag": (mle_retvals.get("warnflag") if isinstance(mle_retvals, dict) else None),
+            "fopt": (mle_retvals.get("fopt") if isinstance(mle_retvals, dict) else None),
         },
         "contracts": {
             "run_kind": run_kind,
