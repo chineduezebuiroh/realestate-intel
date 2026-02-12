@@ -362,6 +362,12 @@ def run_bridge_from_design_matrix_artifact(
     
     exog_diag_pre_fit = _exog_diag(X_train_sm)
 
+    Xv = X_train_sm.to_numpy(dtype=float)
+    # numerical rank + condition number
+    u,s,vt = np.linalg.svd(Xv, full_matrices=False)
+    rank = int((s > 1e-10).sum())
+    cond = float(s[0]/s[-1]) if s[-1] > 0 else float("inf")
+
 
     
     res = fit_sarimax_exog(y_train=y_train_sm, X_train=X_train_sm, spec=spec)
@@ -399,6 +405,9 @@ def run_bridge_from_design_matrix_artifact(
             "iterations": (mle_retvals.get("iterations") if isinstance(mle_retvals, dict) else None),
             "warnflag": (mle_retvals.get("warnflag") if isinstance(mle_retvals, dict) else None),
             "fopt": (mle_retvals.get("fopt") if isinstance(mle_retvals, dict) else None),
+            "exog_rank": rank,
+            "exog_cond": cond,
+            "exog_smin": float(s[-1]),
         },
         "spec": {
             "order": list(spec.order),
