@@ -33,7 +33,8 @@ def fit_sarimax_exog(
         enforce_stationarity=spec.enforce_stationarity,
         enforce_invertibility=spec.enforce_invertibility,
     )
-    res = model.fit(disp=False)
+    #res = model.fit(disp=False)
+    res = model.fit(disp=False, maxiter=250)
     return res
 
 
