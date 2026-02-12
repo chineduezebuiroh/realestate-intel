@@ -360,7 +360,7 @@ def run_bridge_from_design_matrix_artifact(
             "shape": [int(Xv.shape[0]), int(Xv.shape[1])],
         }
     
-    fit_diag["exog_diag_pre_fit"] = _exog_diag(X_train_sm)
+    exog_diag_pre_fit = _exog_diag(X_train_sm)
 
 
     
@@ -395,7 +395,7 @@ def run_bridge_from_design_matrix_artifact(
             "dropped_exogs_sample": dropped_feature_ids[:10],
             # optional, if you want full provenance in algo_params too (audit already has it)
             # "dropped_exogs": dropped_feature_ids,
-            "exog_diag_pre_fit": fit_diag.get("exog_diag_pre_fit"),
+            "exog_diag_pre_fit": exog_diag_pre_fit,
             "iterations": (mle_retvals.get("iterations") if isinstance(mle_retvals, dict) else None),
             "warnflag": (mle_retvals.get("warnflag") if isinstance(mle_retvals, dict) else None),
             "fopt": (mle_retvals.get("fopt") if isinstance(mle_retvals, dict) else None),
