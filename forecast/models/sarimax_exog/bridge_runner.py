@@ -211,6 +211,35 @@ def _build_design_matrix_from_selected_features(
     return df_win, effective_feature_ids, dropped_feature_ids
 
 
+def _zscore_exogs_train_only(
+    X_train: pd.DataFrame,
+    X_future: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """
+    Z-score exogenous features using TRAIN-window mean/std only.
+    - Applies same transform to X_future.
+    - Any zero/NaN std is treated as 1.0 (no scaling) to avoid blowups.
+    Returns transformed (X_train_z, X_future_z, diag_dict).
+    """
+    mu = X_train.mean(axis=0)
+    sigma = X_train.std(axis=0, ddof=0)
+
+    # guard rails
+    sigma_safe = sigma.copy()
+    sigma_safe = sigma_safe.fillna(1.0)
+    sigma_safe[sigma_safe == 0] = 1.0
+
+    X_train_z = (X_train - mu) / sigma_safe
+    X_future_z = (X_future - mu) / sigma_safe
+
+    diag = {
+        "zscore": True,
+        "n_features": int(X_train.shape[1]),
+        "n_zero_std": int((sigma.fillna(0) == 0).sum()),
+    }
+    return X_train_z, X_future_z, diag
+
+
 def run_bridge_from_design_matrix_artifact(
     *,
     # identity
@@ -280,6 +309,13 @@ def run_bridge_from_design_matrix_artifact(
     
     # legacy behavior: try to use rows inside the design matrix artifact
     X_future = X_full.loc[anchor_ts:].iloc[1 : horizon + 1].copy()
+
+    
+    # --- exog scaling (train-only z-score) ---
+    X_train_scaled, X_future_scaled, zdiag = _zscore_exogs_train_only(X_train, X_future)
+    X_train = X_train_scaled
+    X_future = X_future_scaled
+
     
     p = _to_monthly_period_index(X_future.index)
     if len(p) >= 2:
@@ -329,6 +365,7 @@ def run_bridge_from_design_matrix_artifact(
         "fit_diag": {
             "aic": getattr(res, "aic", None),
             "bic": getattr(res, "bic", None),
+            "exog_zscore_train_only": zdiag,
             "fit_converged": fit_converged,
             "mle_retvals": mle_retvals,   # optional but useful for debugging
             "n_obs_train": len(y_train_sm),
