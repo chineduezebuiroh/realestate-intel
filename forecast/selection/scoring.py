@@ -159,6 +159,110 @@ def _best_xcorr_np(
 
     return best_score, best_lead, best_n
 
+def _ols1_np(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
+    """
+    Fit y = a + b x using closed-form OLS.
+    Returns (a, b). Caller must ensure finite + non-constant x.
+    """
+    x0 = x - x.mean()
+    y0 = y - y.mean()
+    denom = float((x0 * x0).sum())
+    if denom <= 0.0:
+        return float(y.mean()), 0.0
+    b = float((x0 * y0).sum() / denom)
+    a = float(y.mean() - b * x.mean())
+    return a, b
+
+
+def _cheap_lift_np(
+    y_level: np.ndarray,
+    x_level: np.ndarray,
+    *,
+    lead_months: Tuple[int, ...],
+    horizon: int,
+    min_eff: int,
+    val_months: int,
+) -> Tuple[float, int, int]:
+    """
+    Cheap predictive lift:
+      - Build supervised pairs: target = y[t+h], feature = x[t-lead]
+        (lead>0 means x leads y, so x is shifted earlier)
+      - One fixed split: last `val_months` samples used as validation.
+      - Score = max(0, 1 - MAE_model/MAE_baseline)
+
+    Baseline is constant predictor = train mean of target.
+    Returns (best_lift, best_lead, n_eff_total)
+    """
+    if horizon <= 0:
+        raise ValueError("horizon must be >= 1")
+
+    n = int(y_level.shape[0])
+    if n == 0:
+        return 0.0, 0, 0
+
+    best = 0.0
+    best_lead = 0
+    best_n = 0
+
+    # We will create aligned arrays per lead:
+    # target = y[horizon + lead:]
+    # feature = x[:- (horizon + lead)]
+    for lead in lead_months:
+        if lead < 0:
+            raise ValueError("lead_months must be non-negative")
+
+        k = int(horizon + lead)
+        if n - k < min_eff:
+            continue
+
+        yt = y_level[k:]          # y at t+h
+        xt = x_level[:-k]         # x at t-lead (with lead folded into k)
+
+        mask = np.isfinite(yt) & np.isfinite(xt)
+        yt = yt[mask]
+        xt = xt[mask]
+        n_eff = int(yt.size)
+        if n_eff < min_eff:
+            continue
+
+        # Need enough points for train+val
+        v = int(min(val_months, max(1, n_eff // 3)))
+        if n_eff - v < max(12, min_eff // 2):
+            continue
+
+        # Split
+        x_tr, x_va = xt[:-v], xt[-v:]
+        y_tr, y_va = yt[:-v], yt[-v:]
+
+        # Degeneracy checks
+        if np.nanstd(x_tr) == 0.0 or np.nanstd(y_tr) == 0.0:
+            continue
+
+        a, b = _ols1_np(x_tr, y_tr)
+        yhat_va = a + b * x_va
+
+        mae_model = float(np.mean(np.abs(y_va - yhat_va)))
+        ybar = float(np.mean(y_tr))
+        mae_base = float(np.mean(np.abs(y_va - ybar)))
+
+        if not np.isfinite(mae_model) or not np.isfinite(mae_base) or mae_base <= 0:
+            continue
+
+        lift = 1.0 - (mae_model / mae_base)
+        if not np.isfinite(lift):
+            continue
+
+        if lift > best:
+            best = float(lift)
+            best_lead = int(lead)
+            best_n = int(n_eff)
+
+    # Clamp negatives to 0: we only want “predictive lift”, not “predictive harm”
+    if best < 0.0:
+        best = 0.0
+    return best, best_lead, best_n
+
+
 def _best_xcorr(
     y_s: pd.Series,
     x_s: pd.Series,
@@ -201,7 +305,9 @@ def score_candidates(
     train_end: Optional[pd.Timestamp] = None,
     min_eff: int = 60,
     lead_months: Tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6),
-    score_mode: str = "yoy_xcorr",  # "yoy_xcorr" | "yoy_corr0" | "level_xcorr" | "dlog_xcorr" | "combo"
+    score_mode: str = "yoy_xcorr",  # "yoy_xcorr" | "yoy_corr0" | "level_xcorr" | "dlog_xcorr" | "combo" | "cheap_lift"
+    lift_horizon: int = 3,
+    lift_val_months: int = 24,
 ) -> List[ScoredCandidate]:
     """
     Deterministic scoring.
@@ -310,7 +416,19 @@ def score_candidates(
             if s_dlog > s_yoy:
                 best_lead, best_n = int(lead_dlog), int(n_dlog)
             else:
-                best_lead, best_n = int(lead_yoy), int(n_yoy)        
+                best_lead, best_n = int(lead_yoy), int(n_yoy)
+
+        elif score_mode == "cheap_lift":
+            # Predict y(t + lift_horizon) from x(t - lead), using a cheap OLS split.
+            # Use LEVELS (not yoy/dlog) to keep it simple and avoid extra NaN loss.
+            best_score, best_lead, best_n = _cheap_lift_np(
+                y_level_np,
+                x_level_np,
+                lead_months=lead_months,
+                horizon=int(lift_horizon),
+                min_eff=int(min_eff),
+                val_months=int(lift_val_months),
+            )
         
         else:
             raise ValueError(f"Unknown score_mode: {score_mode}")
