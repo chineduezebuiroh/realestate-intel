@@ -167,6 +167,7 @@ def run_xgb_selector(
     debug: Optional[bool] = False,
     rebuild_cache: bool = False,
     stage1_score_mode: str = "combo",
+    lift_val_months: int = 24,
 ):
     """
     XGB SELECTOR (artifact-only).
@@ -749,6 +750,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         default="combo",
         help="Stage1 scoring mode: combo | yoy_xcorr | dlog_xcorr | level_xcorr | cheap_lift (Route A)",
     )
+    p.add_argument(
+        "--lift_val_months",
+        type=int,
+        default=24,
+        help="Cheap-lift Stage1 only: size of validation window (months) used to score predictive lift.",
+    )
 
     args = p.parse_args(argv)
 
@@ -772,6 +779,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         debug=args.debug,
         rebuild_cache=args.rebuild_cache,
         stage1_score_mode=args.stage1_score_mode,
+        lift_val_months=args.lift_val_months,
     )
     return 0
 
