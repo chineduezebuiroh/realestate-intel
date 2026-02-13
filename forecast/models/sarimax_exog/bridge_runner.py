@@ -8,6 +8,7 @@ import pandas as pd
 
 from datetime import date, datetime
 from typing import Optional, List, Dict, Any
+from pathlib import Path
 
 from forecast.core.backtest_utils import month_end_index
 from forecast.core.db_forecast import get_connection, insert_run, insert_predictions
@@ -547,10 +548,29 @@ def run_backtest_sarimax_exog_bridge(
 
     data_asof_date = pd.to_datetime(data_asof).date()
     artifact_root = artifact_root.rstrip("/")
+    
 
-    selector_metric_dir = f"{artifact_root}/runs/{selector_batch_id}/xgb/{metric_id}"
-    bridge_dir = f"{artifact_root}/runs/{batch_id}/sarimax_exog_bridge/{metric_id}"
-    os.makedirs(bridge_dir, exist_ok=True)
+    def _refuse_long_component(label: str, s: str, *, max_len: int = 160) -> None:
+        # macOS per-path-component limit is commonly 255 bytes.
+        # Keep this well below that to leave room for future suffixes.
+        if s is None:
+            return
+        if len(s.encode("utf-8")) > max_len:
+            raise SystemExit(
+                f"[sarimax_exog_bridge] REFUSING: {label} is too long for a safe path component "
+                f"({len(s.encode('utf-8'))} bytes > {max_len}).\n"
+                f"Shorten it. Do NOT embed other batch ids inside it.\n"
+                f"{label}={s}"
+            )
+    
+    _refuse_long_component("batch_id", batch_id)
+    _refuse_long_component("selector_batch_id", selector_batch_id)
+    _refuse_long_component("metric_id", metric_id, max_len=120)
+    
+    selector_metric_dir = Path(artifact_root) / "runs" / selector_batch_id / "xgb" / metric_id
+    bridge_dir = Path(artifact_root) / "runs" / batch_id / "sarimax_exog_bridge" / metric_id
+    bridge_dir.mkdir(parents=True, exist_ok=True)
+
 
     con = get_connection()
     try:
