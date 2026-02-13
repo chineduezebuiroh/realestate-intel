@@ -23,15 +23,17 @@ from forecast.core.backtest_utils import (
 )
 from forecast.core.anchors import AnchorPolicy, choose_anchors, month_end_index
 
+from forecast.features.specs import TargetSpec
+
 from forecast.features.feature_loader import (
-    TargetSpec,
-    build_universal_feature_specs,
-    build_design_matrix_incremental,
+    build_universal_feature_specs, 
+    build_design_matrix_incremental, 
     load_target_series_for_spec,
+    specs_from_selected_feature_ids,
 )
+
 from forecast.features.feature_policy import default_policy
 from forecast.features.metric_tiers import RedfinTierShareCaps, redfin_metric_tier, canon_geo_id
-from forecast.features.feature_loader import specs_from_selected_feature_ids
 
 from forecast.selection.scoring import score_candidates
 from forecast.selection.governance import default_bucket, select_scored_candidates, scored_to_feature_specs
