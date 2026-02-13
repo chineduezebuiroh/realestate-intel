@@ -164,6 +164,7 @@ def run_xgb_selector(
     min_non_redfin: int = MIN_NON_REDFIN_DEFAULT,  # NEW
     debug: Optional[bool] = False,
     rebuild_cache: bool = False,
+    stage1_score_mode: str = "combo",
 ):
     """
     XGB SELECTOR (artifact-only).
@@ -282,7 +283,7 @@ def run_xgb_selector(
     anchor_date = anchors[0].to_period("M").to_timestamp(how="end")
     anchor_ts = month_end_index(pd.DatetimeIndex([pd.Timestamp(anchor_date)]))[0]
 
-    print("[xgb_selector] score_mode=", "combo")
+    print("[xgb_selector] score_mode=", stage1_score_mode)
     
     t = time.time()
     scored = _load_or_score_candidates(
@@ -297,7 +298,7 @@ def run_xgb_selector(
             train_end=anchor_ts,
             min_eff=60,
             lead_months=(0, 1, 2, 3),
-            score_mode="combo",
+            score_mode=str(stage1_score_mode),
         ),
     )
 
@@ -738,7 +739,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         action="store_true",
         help="Force rebuild of shared selector caches (universal specs + scoring).",
     )
-
+    p.add_argument(
+        "--stage1_score_mode",
+        type=str,
+        default="combo",
+        help="Stage1 scoring mode: combo | yoy_xcorr | dlog_xcorr | level_xcorr | cheap_lift (Route A)",
+    )
 
     args = p.parse_args(argv)
 
@@ -761,6 +767,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         min_non_redfin=args.min_non_redfin,
         debug=args.debug,
         rebuild_cache=args.rebuild_cache,
+        stage1_score_mode=args.stage1_score_mode,
     )
     return 0
 
