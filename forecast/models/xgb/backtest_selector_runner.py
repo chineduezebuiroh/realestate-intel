@@ -301,6 +301,8 @@ def run_xgb_selector(
             min_eff=60,
             lead_months=(0, 1, 2, 3),
             score_mode=str(stage1_score_mode),
+            lift_horizon=int(horizon),
+            lift_val_months=24,
         ),
     )
 
