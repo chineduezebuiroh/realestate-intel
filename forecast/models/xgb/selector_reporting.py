@@ -78,6 +78,7 @@ class SelectorRunSummary:
     feature_set_sha256: str
     stage1: SelectorStage1Summary
     final_k: SelectorFinalKSummary
+    out_candidate_parquet: str | None = None
 
 def build_stage1_summary(
     *,
