@@ -59,6 +59,7 @@ If behavior changes, update this section first.
   - writes:
     - `runs/<batch_id>/xgb/selected_features__anchor=YYYY-MM-DD.parquet`
     - `runs/<batch_id>/xgb/selector_summary__anchor=YYYY-MM-DD.json`
+    - `runs/<batch_id>/xgb/candidate_scores__anchor=YYYY-MM-DD.parquet`
 
 ### XGB Selector Evaluation (batch, multi-anchor)
 - `forecast/cli/eval_xgb_selector.py`
