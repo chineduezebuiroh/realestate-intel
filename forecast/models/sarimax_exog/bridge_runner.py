@@ -691,6 +691,34 @@ def run_backtest_sarimax_exog_bridge(
                     "dropped_feature_ids_due_to_nans_sample": dropped_feature_ids[:10],
                 })
 
+                # --- write per-anchor summary (refuse overwrite) ---
+                anchor_summary_path = bridge_dir / f"bridge_backtest_summary__anchor={anchor}.json"
+                if anchor_summary_path.exists():
+                    raise SystemExit(f"[sarimax_exog_bridge] REFUSING to overwrite existing summary: {anchor_summary_path}")
+                
+                anchor_payload = {
+                    "model": "sarimax_exog_bridge",
+                    "batch_id": batch_id,
+                    "selector_batch_id": selector_batch_id,
+                    "metric_id": metric_id,
+                    "geo_id": geo_id,
+                    "property_type_id": property_type_id,
+                    "freq": freq,
+                    "horizon": int(horizon),
+                    "min_train_len": int(min_train_len),
+                    "data_asof": str(data_asof_date),
+                    "anchor": anchor,
+                    "run_id": int(run_id),
+                    "feature_set_sha256": feature_set_sha256,
+                    "dropped_feature_count_due_to_nans": int(len(dropped_feature_ids)),
+                    "dropped_feature_ids_due_to_nans_sample": dropped_feature_ids[:10],
+                    "design_matrix_path": str(dm_path),
+                    "design_matrix_audit_path": str(audit_path),
+                    "selector_selected_features_path": str(sel_path),
+                }
+                anchor_summary_path.write_text(json.dumps(anchor_payload, indent=2, sort_keys=True))
+
+
             except Exception as e:
                 msg = str(e)
                 if "insufficient training rows" in msg or "insufficient future rows" in msg:
@@ -708,9 +736,13 @@ def run_backtest_sarimax_exog_bridge(
 
         results["finished_at_utc"] = datetime.utcnow().isoformat() + "Z"
 
-        summary_path = f"{bridge_dir}/bridge_backtest_summary.json"
-        with open(summary_path, "w") as f:
-            json.dump(results, f, indent=2, sort_keys=True)
+
+        summary_path = bridge_dir / "bridge_backtest_summary.json"
+        # optional strictness (recommended)
+        if summary_path.exists():
+            raise SystemExit(f"[sarimax_exog_bridge] REFUSING to overwrite existing summary: {summary_path}")
+        summary_path.write_text(json.dumps(results, indent=2, sort_keys=True))
+
         
         print(f"[sarimax_exog_bridge] wrote summary -> {summary_path}")
         print(f"[sarimax_exog_bridge] success={len(results['success'])} failed={len(results['failed'])}")
