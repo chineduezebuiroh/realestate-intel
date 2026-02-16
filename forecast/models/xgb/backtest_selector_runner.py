@@ -667,53 +667,50 @@ def run_xgb_selector(
 
 
         # 9) Prepare artifacts for write (refuse overwrite)
-        # 9a) prepare candidate scores artifact write (for stability-adjusted selector scoring)
-        # IMPORTANT: candidate_scores must be based on STAGE-1 scored candidates (cheap_lift lives there),
-        # not on XGB importances (fi).
+        # 9a) prepare candidate scores artifact from STAGE-1 scored candidates (base-series)
+        # NOTE: FeatureSpec.name is base id (no _lagN). XGB selected_features are lagged.
+        # We mark selected at base-series level by stripping _lagN from fi_sel ids.
+        def _strip_lag(fid: str) -> str:
+            # feature ids look like "..._lag1", "..._lag12"
+            # safe even if no lag suffix present
+            import re
+            return re.sub(r"_lag\d+$", "", str(fid))
+
+        selected_base_ids = {_strip_lag(x) for x in fi_sel["feature_id"].astype(str).tolist()}
 
         rows = []
-        for it in scored:
-            # feature id should be spec.name in this repo (same convention used elsewhere)
-            fid = getattr(it.spec, "name", None) or getattr(it.spec, "feature_id", None)
-            if fid is None:
-                raise ValueError("[xgb_selector] cannot derive feature_id from ScoredCandidate.spec (expected .name or .feature_id)")
+        for r in scored:
+            base_id = str(r.spec.name)  # base-series identity per FeatureSpec contract
+            extras = dict(r.extras or {})
 
-            extras = getattr(it, "extras", None) or {}
             rows.append(
                 {
-                    "feature_id": str(fid),
-                    "stage1_score": float(getattr(it, "score")),
-                    "lift_vs_baseline": (None if "lift_vs_baseline" not in extras else float(extras["lift_vs_baseline"])),
-                    "baseline_err": (None if "baseline_err" not in extras else float(extras["baseline_err"])),
-                    "model_err": (None if "model_err" not in extras else float(extras["model_err"])),
-                    "lift_val_months": (None if "lift_val_months" not in extras else int(extras["lift_val_months"])),
-                    "lift_horizon_months": (None if "lift_horizon_months" not in extras else int(extras["lift_horizon_months"])),
-                    "score_mode": (None if "score_mode" not in extras else str(extras["score_mode"])),
+                    "feature_id": base_id,                 # base-series id (NO lag suffix)
+                    "stage1_score": float(r.score),
+                    "stage1_rank": None,                   # set after sort
+                    "best_lead": int(r.best_lead),
+                    "n_eff": int(r.n_eff),
+                    "selected": base_id in selected_base_ids,
+
+                    # lift diagnostics (only present for cheap_lift)
+                    "lift_vs_baseline": extras.get("lift_vs_baseline"),
+                    "mae_model": extras.get("mae_model"),
+                    "mae_baseline": extras.get("mae_baseline"),
+                    "val_months_used": extras.get("val_months_used"),
+                    "horizon_months": extras.get("horizon_months"),
+                    "score_mode": extras.get("score_mode"),
                 }
             )
 
         cand = pd.DataFrame(rows)
         if cand.empty:
-            raise ValueError("[xgb_selector] candidate_scores would be empty (scored candidates empty)")
+            raise SystemExit("[xgb_selector] FAIL: empty candidate_scores (no scored candidates).")
 
-        # deterministic stage-1 ranking
+        # deterministic ranking
         cand = cand.sort_values(["stage1_score", "feature_id"], ascending=[False, True]).reset_index(drop=True)
         cand["stage1_rank"] = np.arange(1, len(cand) + 1)
 
-        # mark final selection membership
-        selected_ids = set(fi_sel["feature_id"].astype(str).tolist())
-        cand["selected"] = cand["feature_id"].isin(selected_ids)
-
-        # OPTIONAL: merge stage-2 XGB importance/rank for debugging (NOT used for win-rate)
-        if "importance" in fi.columns:
-            fi2 = fi[["feature_id", "importance"]].copy()
-            fi2["feature_id"] = fi2["feature_id"].astype(str)
-            fi2 = fi2.sort_values(["importance", "feature_id"], ascending=[False, True]).reset_index(drop=True)
-            fi2["stage2_rank"] = np.arange(1, len(fi2) + 1)
-            fi2 = fi2.rename(columns={"importance": "stage2_importance"})
-            cand = cand.merge(fi2, on="feature_id", how="left")
-
-        # carry invariants
+        # invariants
         cand["batch_id"] = batch_id
         cand["metric_id"] = metric_id
         cand["geo_id"] = geo_id
@@ -725,9 +722,9 @@ def run_xgb_selector(
         cand["asof_clamp_reason"] = json.dumps(asof_clamp_reason) if asof_clamp_reason else None
         cand["feature_set_sha256"] = feature_set_sha256
 
-        # sanity: avoid duplicate feature_ids
         if cand["feature_id"].duplicated().any():
-            raise ValueError("[xgb_selector] candidate_scores has duplicate feature_id rows; investigate scored candidates")
+            raise ValueError("[xgb_selector] candidate_scores has duplicate base feature_id rows; investigate scored construction")
+        
 
         # hard contract for cheap_lift mode: lift must exist for at least some rows
         if str(stage1_score_mode) == "cheap_lift":
