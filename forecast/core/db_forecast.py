@@ -1,11 +1,18 @@
-# forecast/db_forecast.py
-import os, json, datetime as dt
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from __future__ import annotations
+# forecast/core/db_forecast.py
 
+import os, json
 import duckdb
+
+import datetime as dt
 import numpy as np
 
+from datetime import date
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+# ====================================
+# Main Functions
+# ====================================
 def get_connection():
     return duckdb.connect(os.getenv("DUCKDB_PATH", "./data/market.duckdb"))
 
@@ -151,3 +158,94 @@ def store_selected_features_in_params(
         "selector_meta": selector_meta or {},
     }
     return algo_params
+
+
+def record_xgb_selector_run(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    batch_id: str,
+    metric_id: str,
+    geo_id: str,
+    property_type_id: Optional[int],
+    freq: str,
+    anchor_date: date,              # train_end
+    train_start: date,
+    horizon_months: int,            # selector horizon (3)
+    data_asof: Optional[date],
+    seed: int,
+    stage1_mode: str,               # e.g. "cheap_lift" or "default"
+    algo_params: Dict[str, Any],    # extra selector params (K, min_non_redfin, etc.)
+    notes: Optional[str] = None,
+    model_version: str = "v01",
+) -> int:
+    """
+    Writes one row into forecast_runs for a single selector anchor.
+    Returns run_id.
+    """
+    run_id = con.execute("SELECT COALESCE(MAX(run_id), 0) + 1 FROM forecast_runs").fetchone()[0]
+
+    payload = {
+        "seed": int(seed),
+        "stage1_mode": str(stage1_mode),
+        **(algo_params or {}),
+    }
+
+    con.execute(
+        """
+        INSERT INTO forecast_runs (
+            run_id,
+            created_at,
+            model_name,
+            model_version,
+            target_metric_id,
+            target_geo_id,
+            target_property_type_id,
+            freq,
+            train_start,
+            train_end,
+            horizon_max_months,
+            algo_params_json,
+            notes,
+            is_active,
+            batch_id,
+            run_kind,
+            data_asof
+        ) VALUES (
+            ?,
+            now(),
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            CAST('t' AS BOOLEAN),
+            ?,
+            ?,
+            ?
+        )
+        """,
+        [
+            int(run_id),
+            "xgb_selector",
+            str(model_version),
+            str(metric_id),
+            str(geo_id),
+            None if property_type_id is None else str(property_type_id),
+            str(freq),
+            train_start,
+            anchor_date,
+            int(horizon_months),
+            json.dumps(payload),
+            notes,
+            str(batch_id),
+            "selector",
+            data_asof,
+        ],
+    )
+    return int(run_id)
