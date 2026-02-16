@@ -486,6 +486,11 @@ def run_xgb_selector(
         y_train = y_full.loc[:anchor_date]
         X_train = X_full.loc[:anchor_date]
         feature_names = list(X_train.columns)
+
+        # Define training window bounds for DB record
+        if len(y_train) == 0:
+            raise ValueError("[xgb_selector] y_train is empty before DB write.")
+        train_start = y_train.index.min()
     
         model = XGBRegressor(
             n_estimators=400,
