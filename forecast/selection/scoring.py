@@ -1,21 +1,16 @@
 from __future__ import annotations
 # forecast/selection/scoring.py
 
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
-
 import duckdb
 import time
-
 import numpy as np
 import pandas as pd
 
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple, Any
+
 from forecast.core.backtest_utils import month_end_index
-
 from forecast.features.specs import FeatureSpec, TargetSpec
-#from forecast.features.feature_loader import load_series_from_fact  # if you still want fallback
-#from forecast.features.fact_loader import get_connection  # or wherever it is
-
 from forecast.selection.bulk_fact_loader import load_series_many_from_fact
 
 
@@ -25,6 +20,7 @@ class ScoredCandidate:
     score: float
     best_lead: int   # months x is shifted forward to align with y (x leads y)
     n_eff: int
+    extras: Dict[str, Any] = field(default_factory=dict)
 
 # ===================================================
 # Helpers
@@ -182,7 +178,7 @@ def _cheap_lift_np(
     horizon: int,
     min_eff: int,
     val_months: int,
-) -> Tuple[float, int, int]:
+) -> Tuple[float, int, int, Dict[str, Any]]:
     """
     Cheap predictive lift:
       - Build supervised pairs: target = y[t+h], feature = x[t-lead]
@@ -203,6 +199,10 @@ def _cheap_lift_np(
     best = 0.0
     best_lead = 0
     best_n = 0
+
+    best_mae_model: Optional[float] = None
+    best_mae_base: Optional[float] = None
+    best_val_used: Optional[int] = None
 
     # We will create aligned arrays per lead:
     # target = y[horizon + lead:]
@@ -256,11 +256,22 @@ def _cheap_lift_np(
             best = float(lift)
             best_lead = int(lead)
             best_n = int(n_eff)
+            best_mae_model = float(mae_model)
+            best_mae_base = float(mae_base)
+            best_val_used = int(v)
 
     # Clamp negatives to 0: we only want “predictive lift”, not “predictive harm”
     if best < 0.0:
         best = 0.0
-    return best, best_lead, best_n
+
+    diag: Dict[str, Any] = {
+        "lift_vs_baseline": float(best),
+        "mae_model": None if best_mae_model is None else float(best_mae_model),
+        "mae_baseline": None if best_mae_base is None else float(best_mae_base),
+        "val_months_used": None if best_val_used is None else int(best_val_used),
+        "horizon_months": int(horizon),
+    }
+    return float(best), int(best_lead), int(best_n), diag
 
 
 def _best_xcorr(
@@ -421,7 +432,7 @@ def score_candidates(
         elif score_mode == "cheap_lift":
             # Predict y(t + lift_horizon) from x(t - lead), using a cheap OLS split.
             # Use LEVELS (not yoy/dlog) to keep it simple and avoid extra NaN loss.
-            best_score, best_lead, best_n = _cheap_lift_np(
+            best_score, best_lead, best_n, lift_diag = _cheap_lift_np(
                 y_level_np,
                 x_level_np,
                 lead_months=lead_months,
@@ -432,14 +443,22 @@ def score_candidates(
         
         else:
             raise ValueError(f"Unknown score_mode: {score_mode}")
+            
 
         if best_n >= min_eff and abs(best_score) > 0:
+            extras: Dict[str, Any] = {"score_mode": str(score_mode)}
+
+            # Only attach lift diagnostics in cheap_lift mode
+            if score_mode == "cheap_lift":
+                extras.update(lift_diag)  # contains lift_vs_baseline, mae_model, mae_baseline, etc.
+
             scored.append(
                 ScoredCandidate(
                     spec=spec,
                     score=float(best_score),
                     best_lead=int(best_lead),
                     n_eff=int(best_n),
+                    extras=extras,
                 )
             )
 
@@ -449,5 +468,5 @@ def score_candidates(
     print(f"[timing][score] prep_target_sec={t2-t1:.2f}")
     print(f"[timing][score] loop_sec={t3-t2:.2f}  n_candidates={len(candidates)}")
 
-    scored.sort(key=lambda r: (-r.score, r.spec.name))
+    scored.sort(key=lambda r: (-r.score, getattr(r.spec, "name", "")))
     return scored
