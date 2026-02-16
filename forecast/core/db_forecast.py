@@ -177,6 +177,7 @@ def record_xgb_selector_run(
     algo_params: Dict[str, Any],    # extra selector params (K, min_non_redfin, etc.)
     notes: Optional[str] = None,
     model_version: str = "v01",
+    run_kind: str = "selector_backtest",   # NEW
 ) -> int:
     """
     Writes one row into forecast_runs for a single selector anchor.
@@ -244,7 +245,7 @@ def record_xgb_selector_run(
             json.dumps(payload),
             notes,
             str(batch_id),
-            "selector",
+            run_kind,
             data_asof,
         ],
     )
