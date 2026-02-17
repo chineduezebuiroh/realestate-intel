@@ -261,8 +261,8 @@ def _cheap_lift_np(
             best_val_used = int(v)
 
     # Clamp negatives to 0: we only want “predictive lift”, not “predictive harm”
-    if best < 0.0:
-        best = 0.0
+    #if best < 0.0:
+    #    best = 0.0
 
     diag: Dict[str, Any] = {
         "lift_vs_baseline": float(best),
