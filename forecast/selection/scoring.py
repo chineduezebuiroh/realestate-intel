@@ -196,7 +196,7 @@ def _cheap_lift_np(
     if n == 0:
         return 0.0, 0, 0
 
-    best = 0.0
+    best = float("-inf")
     best_lead = 0
     best_n = 0
 
@@ -252,6 +252,7 @@ def _cheap_lift_np(
         if not np.isfinite(lift):
             continue
 
+        # keep the max lift (can be negative)
         if lift > best:
             best = float(lift)
             best_lead = int(lead)
@@ -271,6 +272,10 @@ def _cheap_lift_np(
         "val_months_used": None if best_val_used is None else int(best_val_used),
         "horizon_months": int(horizon),
     }
+
+    if best == float("-inf"):
+        return 0.0, 0, 0, []   # or (np.nan, 0, 0) depending on your downstream expectations
+
     return float(best), int(best_lead), int(best_n), diag
 
 
