@@ -11,21 +11,22 @@ ANCHORS = ["2022-06-30","2022-09-30","2022-12-31","2023-03-31","2023-06-30","202
 def strip_lag(fid: str) -> str:
     return re.sub(r"_lag\d+$", "", str(fid))
 
+
 def load_metric_runs(metric_dir: Path) -> pd.DataFrame:
     rows = []
     for a in ANCHORS:
         p = metric_dir / f"candidate_scores__anchor={a}.parquet"
         df = pd.read_parquet(p)
 
-        # base feature id
         df["base_feature_id"] = df["feature_id"].astype(str).map(strip_lag)
         df["anchor"] = a
 
         # guardrails
-        if "lift_vs_baseline" not in df.columns:
-            raise ValueError(f"missing lift_vs_baseline in {p}")
-        if "selected" not in df.columns:
-            raise ValueError(f"missing selected in {p}")
+        for col in ["lift_vs_baseline", "selected", "best_lead", "n_eff"]:
+            if col not in df.columns:
+                raise ValueError(f"missing {col} in {p}")
+
+        df["selected"] = df["selected"].astype(int)
 
         rows.append(df[[
             "anchor",
@@ -35,58 +36,86 @@ def load_metric_runs(metric_dir: Path) -> pd.DataFrame:
             "best_lead",
             "n_eff",
         ]].copy())
+
     out = pd.concat(rows, ignore_index=True)
 
-    def _lift_pick(df: pd.DataFrame) -> float:
-        # If any lag was selected at this anchor, use the best selected lag’s lift.
-        # Otherwise use the best available lift (keeps behavior similar to before).
-        sel = df[df["selected"].astype(bool)]
-        if len(sel) > 0:
-            return float(sel["lift_vs_baseline"].max())
-        return float(df["lift_vs_baseline"].max())
-    
+    # If you ever end up with multiple rows per base_feature_id per anchor (e.g. if lags sneak in),
+    # collapse deterministically:
     g = (
         out.groupby(["base_feature_id", "anchor"], as_index=False)
-           .apply(lambda df: pd.Series({
-               "lift": _lift_pick(df),
-               "selected": int(df["selected"].max()),
-               "best_lead": int(df["best_lead"].mode().iloc[0]) if len(df["best_lead"].mode()) else int(df["best_lead"].iloc[0]),
-               "n_eff": int(df["n_eff"].max()),
-           }))
-           .reset_index(drop=True)
+           .agg(
+               # any selected row makes it selected for the anchor
+               selected=("selected", "max"),
+               # "any" lift (diagnostic): best lift available among rows that exist
+               lift_any=("lift_vs_baseline", "max"),
+               # lift when selected: only consider rows that were selected; otherwise NaN
+               lift_selected=("lift_vs_baseline", lambda s: float(s[out.loc[s.index, "selected"].astype(bool)].max())
+                             if bool(out.loc[s.index, "selected"].any()) else float("nan")),
+               best_lead=("best_lead", lambda s: int(s.mode().iloc[0]) if len(s.mode()) else int(s.iloc[0])),
+               n_eff=("n_eff", "max"),
+           )
     )
-    
+
     return g
 
 
-def summarize(g: pd.DataFrame, *, win_eps: float = 0.0) -> pd.DataFrame:
-    # win = lift strictly above baseline (eps lets you ignore numerical noise)
-    g["win"] = g["lift"] > float(win_eps)
+def summarize(g: pd.DataFrame, *, win_eps: float = 0.0, min_selected_anchors: int = 2) -> pd.DataFrame:
+    """
+    Promotion-aligned stability:
+      - Primary lift stats computed on anchors where the feature was actually selected
+      - selected_freq used as a gate / tie-breaker, NOT multiplied into the score
+    """
 
-    s = g.groupby("base_feature_id", as_index=False).agg(
-        anchors=("anchor", "nunique"),
-        mean_lift=("lift", "mean"),
-        median_lift=("lift", "median"),
-        std_lift=("lift", lambda x: float(x.std(ddof=0))),  # ddof=0 = population std, stable for small N
-        p25_lift=("lift", lambda x: float(x.quantile(0.25))),
-        p75_lift=("lift", lambda x: float(x.quantile(0.75))),
-        min_lift=("lift", "min"),
-        max_lift=("lift", "max"),
-        win_rate=("win", "mean"),
-        selected_freq=("selected", "mean"),
+    # win only defined where lift_selected exists (i.e. selected anchors)
+    g["win_selected"] = g["lift_selected"] > float(win_eps)
+
+    # ---- selected-only stats ----
+    sel = g[g["selected"].eq(1)].copy()
+
+    s_sel = sel.groupby("base_feature_id", as_index=False).agg(
+        selected_anchors=("anchor", "nunique"),
+        mean_lift_selected=("lift_selected", "mean"),
+        median_lift_selected=("lift_selected", "median"),
+        std_lift_selected=("lift_selected", lambda x: float(x.std(ddof=0))),
+        p25_lift_selected=("lift_selected", lambda x: float(x.quantile(0.25))),
+        p75_lift_selected=("lift_selected", lambda x: float(x.quantile(0.75))),
+        min_lift_selected=("lift_selected", "min"),
+        max_lift_selected=("lift_selected", "max"),
+        win_rate_selected=("win_selected", "mean"),
         best_lead_mode=("best_lead", lambda x: int(x.mode().iloc[0]) if len(x.mode()) else int(x.iloc[0])),
     )
 
-    # Guard: avoid division by zero; also keeps score scale sensible
-    s["stability_score"] = (
-        s["median_lift"]
-        * s["win_rate"]
-        * s["selected_freq"]
-        / (1.0 + s["std_lift"].fillna(0.0))
+    # ---- all-anchors diagnostics (optional but very useful) ----
+    s_all = g.groupby("base_feature_id", as_index=False).agg(
+        anchors=("anchor", "nunique"),
+        selected_freq=("selected", "mean"),
+        mean_lift_any=("lift_any", "mean"),
+        median_lift_any=("lift_any", "median"),
+        std_lift_any=("lift_any", lambda x: float(x.std(ddof=0))),
+        min_lift_any=("lift_any", "min"),
+        max_lift_any=("lift_any", "max"),
     )
 
+    s = s_all.merge(s_sel, on="base_feature_id", how="left")
+
+    # Gate: if it was selected too few times, its "selected-lift stability" isn't meaningful.
+    # Keep it, but force score to the bottom.
+    s["eligible"] = s["selected_anchors"].fillna(0).astype(int) >= int(min_selected_anchors)
+
+    # stability score (NO selected_freq multiplier)
+    # This is the formula you said you want the script to match.
+    denom = 1.0 + s["std_lift_selected"].fillna(0.0)
+    s["stability_score"] = (
+        s["median_lift_selected"].fillna(float("-inf"))
+        * s["win_rate_selected"].fillna(0.0)
+        / denom
+    )
+
+    # push ineligible to bottom deterministically
+    s.loc[~s["eligible"], "stability_score"] = float("-inf")
+
     s = s.sort_values(
-        ["stability_score", "median_lift", "win_rate", "selected_freq"],
+        ["stability_score", "median_lift_selected", "win_rate_selected", "selected_freq"],
         ascending=False
     ).reset_index(drop=True)
 
@@ -100,7 +129,7 @@ def main() -> int:
     root = Path("artifacts/phasec/runs")
 
     metrics = ["median_sale_price", "median_ppsf", "median_dom"]
-    out_root = Path("artifacts/phasec/selector_stability") / "v08"
+    out_root = Path("artifacts/phasec/selector_stability") / "v08.0"
     out_root.mkdir(parents=True, exist_ok=True)
 
     for m in metrics:
