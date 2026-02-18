@@ -222,3 +222,46 @@ Pending:
 - Census BPS permits (provisional refresh)
 
 Selector behavior is expected to shift once these land.
+
+
+
+## Selector stability + canonical exog freeze (Phase C)
+
+This repo produces **two stability rankings** from `xgb_selector` candidate artifacts:
+
+- **Promotion-aligned stability**: measures how stable a feature’s *predictive lift* is on anchors where the feature was actually **selected** by the XGB selector.
+- **Intrinsic stability**: measures stability using the feature’s lift behavior across **all anchors** (independent of whether XGB selected it), gated by downside-risk diagnostics.
+
+These are merged into a single per-metric table with dual ranks and an `origin` label, then used to freeze a canonical exogenous feature identity set for SARIMAX-exog.
+
+### Inputs
+For each metric and anchor:
+- `artifacts/<phase>/runs/<batch>/xgb/<metric>/candidate_scores__anchor=<YYYY-MM-DD>.parquet`
+
+Each candidate_scores parquet must include (minimum):
+- `feature_id` (base feature id; no lag suffixes)
+- `lift_vs_baseline` (can be negative; no clamping)
+- `selected` (bool/int)
+- `best_lead`, `n_eff` (diagnostic)
+
+### Outputs
+Per metric:
+- `artifacts/<phase>/selector_stability/<version>/stability_merged__metric=<metric>.csv`
+  - includes promotion and intrinsic ranks + `origin` flag
+- (optional freeze artifact)
+  - `artifacts/<phase>/selector_stability/<version>/canonical_exog_set__metric=<metric>.csv`
+  - `artifacts/<phase>/selector_stability/<version>/research_exog_candidates__metric=<metric>.csv`
+
+### Script
+- `forecast/selection/stability_rank.py`
+
+### Canonical selection rule (default)
+Per metric, to build a production canonical set of size `N`:
+1) take `origin == both` sorted by `promotion_rank` (best overlap first)
+2) then fill from `origin == promotion` sorted by `promotion_rank`
+3) optionally keep `origin == intrinsic` as research overflow (do not mix into production set by default)
+
+Rationale:
+- overlap features are strong under both interpretations
+- promotion aligns with governance + actual selector behavior
+- intrinsic is research discovery, not production core unless promoted later
