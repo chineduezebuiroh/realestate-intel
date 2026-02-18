@@ -105,6 +105,11 @@ def summarize(g: pd.DataFrame, *, win_eps: float = 0.0, min_selected_anchors: in
     # Gate: if it was selected too few times, its "selected-lift stability" isn't meaningful.
     # Keep it, but force score to the bottom.
     s["eligible"] = s["selected_anchors"].fillna(0).astype(int) >= int(min_selected_anchors)
+    s["eligible"] = (
+        (s["selected_anchors"].fillna(0).astype(int) >= int(min_selected_anchors)) &
+        (s["p10_lift_any"].fillna(float("-inf")) >= -0.05) &
+        (s["neg_rate_any"].fillna(1.0) <= 0.25)
+    )
 
     # stability score (NO selected_freq multiplier)
     # This is the formula you said you want the script to match.
@@ -133,7 +138,7 @@ def main() -> int:
     root = Path("artifacts/phasec/runs")
 
     metrics = ["median_sale_price", "median_ppsf", "median_dom"]
-    out_root = Path("artifacts/phasec/selector_stability") / "v08.0"
+    out_root = Path("artifacts/phasec/selector_stability") / "v08.1"
     out_root.mkdir(parents=True, exist_ok=True)
 
     for m in metrics:
