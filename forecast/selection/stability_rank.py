@@ -104,7 +104,6 @@ def summarize(g: pd.DataFrame, *, win_eps: float = 0.0, min_selected_anchors: in
 
     # Gate: if it was selected too few times, its "selected-lift stability" isn't meaningful.
     # Keep it, but force score to the bottom.
-    s["eligible"] = s["selected_anchors"].fillna(0).astype(int) >= int(min_selected_anchors)
     s["eligible"] = (
         (s["selected_anchors"].fillna(0).astype(int) >= int(min_selected_anchors)) &
         (s["p10_lift_any"].fillna(float("-inf")) >= -0.05) &
