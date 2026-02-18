@@ -89,9 +89,13 @@ def summarize(g: pd.DataFrame, *, win_eps: float = 0.0, min_selected_anchors: in
     s_all = g.groupby("base_feature_id", as_index=False).agg(
         anchors=("anchor", "nunique"),
         selected_freq=("selected", "mean"),
+    
         mean_lift_any=("lift_any", "mean"),
         median_lift_any=("lift_any", "median"),
         std_lift_any=("lift_any", lambda x: float(x.std(ddof=0))),
+        p10_lift_any=("lift_any", lambda x: float(x.quantile(0.10))),
+        neg_rate_any=("lift_any", lambda x: float((x < 0).mean())),
+    
         min_lift_any=("lift_any", "min"),
         max_lift_any=("lift_any", "max"),
     )
