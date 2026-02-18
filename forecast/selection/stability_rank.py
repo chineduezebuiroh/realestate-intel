@@ -203,7 +203,7 @@ def main() -> int:
     root = Path("artifacts/phasec/runs")
 
     metrics = ["median_sale_price", "median_ppsf", "median_dom"]
-    out_root = Path("artifacts/phasec/selector_stability") / "v08.1"
+    out_root = Path("artifacts/phasec/selector_stability") / "v08.2"
     out_root.mkdir(parents=True, exist_ok=True)
 
     for m in metrics:
