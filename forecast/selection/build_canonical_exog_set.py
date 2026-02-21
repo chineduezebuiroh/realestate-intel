@@ -88,8 +88,8 @@ def build_one(merged_csv: Path, *, n: int = N) -> pd.DataFrame:
     return out
 
 def main() -> int:
-    merged_root = Path("artifacts/phasec/selector_stability/v08.3")
-    out_root = Path("artifacts/phasec/canonical_exogs/v08.3")
+    merged_root = Path("artifacts/phasec/selector_stability/v08.2")
+    out_root = Path("artifacts/phasec/canonical_exogs/v08.2")
     out_root.mkdir(parents=True, exist_ok=True)
 
     for m in METRICS:
