@@ -345,10 +345,10 @@ def score_candidates(
       - combo: blend of yoy_xcorr and dlog_xcorr
     """
     lead_months = [int(x) for x in lead_months]
-        if not lead_months:
-            raise ValueError("lead_months cannot be empty")
-        if any(l <= 0 for l in lead_months):
-            raise ValueError(f"lead_months must be >= 1. got={sorted(set(lead_months))}")
+    if not lead_months:
+        raise ValueError("lead_months cannot be empty")
+    if any(l <= 0 for l in lead_months):
+        raise ValueError(f"lead_months must be >= 1. got={sorted(set(lead_months))}")
 
     def _pt_norm(pt_id: Optional[str]) -> str:
         return pt_id if pt_id is not None else "all"
