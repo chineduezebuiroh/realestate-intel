@@ -22,6 +22,13 @@ class ScoredCandidate:
     n_eff: int
     extras: Dict[str, Any] = field(default_factory=dict)
 
+
+lead_months = [int(x) for x in lead_months]
+if not lead_months:
+    raise ValueError("lead_months cannot be empty")
+if any(l <= 0 for l in lead_months):
+    raise ValueError(f"lead_months must be >= 1. got={sorted(set(lead_months))}")
+
 # ===================================================
 # Helpers
 # ===================================================
@@ -106,7 +113,7 @@ def _best_xcorr_np(
     Returns (best_abs_corr, best_lead, best_n_eff)
     """
     best_score = 0.0
-    best_lead = 0
+    best_lead = int(min(lead_months))
     best_n = 0
 
     n = y.shape[0]
@@ -197,7 +204,7 @@ def _cheap_lift_np(
         return 0.0, 0, 0
 
     best = float("-inf")
-    best_lead = 0
+    best_lead = int(min(lead_months))
     best_n = 0
 
     best_mae_model: Optional[float] = None
@@ -291,7 +298,7 @@ def _best_xcorr(
     lead>0 means x is shifted forward (x leads y).
     """
     best_score = 0.0
-    best_lead = 0
+    best_lead = int(min(lead_months))
     best_n = 0
 
     for lead in lead_months:
