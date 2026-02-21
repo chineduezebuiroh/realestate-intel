@@ -850,13 +850,11 @@ def run_backtest_sarimax_exog_bridge(
                     "dropped_feature_count_due_to_nans": int(len(dropped_feature_ids)),
                     
                     #alternatives that use 'exog_source == "canonical_exogs' instead of 'canon_df'
-                    """
-                    "exog_source": exog_source,
-                    "canonical_stability_version": (canonical_stability_version if exog_source == "canonical_exogs" else None),
-                    "canonical_exog_n": (int(canonical_exog_n) if exog_source == "canonical_exogs" else None),
-                    "canonical_exog_csv_path": (str(canon_csv_path) if exog_source == "canonical_exogs" else None),
-                    "canonical_exog_csv_sha256": (str(canon_csv_sha256) if exog_source == "canonical_exogs" else None),
-                    """
+                    #"exog_source": exog_source,
+                    #"canonical_stability_version": (canonical_stability_version if exog_source == "canonical_exogs" else None),
+                    #"canonical_exog_n": (int(canonical_exog_n) if exog_source == "canonical_exogs" else None),
+                    #"canonical_exog_csv_path": (str(canon_csv_path) if exog_source == "canonical_exogs" else None),
+                    #"canonical_exog_csv_sha256": (str(canon_csv_sha256) if exog_source == "canonical_exogs" else None),
                 }
                 with open(audit_path, "w") as f:
                     json.dump(audit, f, indent=2, sort_keys=True)
