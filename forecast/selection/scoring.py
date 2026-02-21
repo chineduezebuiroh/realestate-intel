@@ -301,8 +301,17 @@ def _best_xcorr(
     best_lead = int(min(lead_months))
     best_n = 0
 
+
+    lead_months = tuple(int(x) for x in lead_months)
+    if not lead_months:
+        raise ValueError("lead_months cannot be empty")
+    if any(l <= 0 for l in lead_months):
+        raise ValueError(f"lead_months must be >= 1. got={sorted(set(lead_months))}")
+    
     for lead in lead_months:
         df = pd.concat({"y": y_s, "x": x_s.shift(lead)}, axis=1).dropna()
+
+
         if len(df) < min_eff:
             continue
 
