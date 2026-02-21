@@ -306,7 +306,7 @@ def run_xgb_selector(
                 candidates=candidate_specs,
                 train_end=anchor_ts,
                 min_eff=60,
-                lead_months=(1, 3),
+                lead_months=(1, 3, 6, 12),
                 score_mode=str(stage1_score_mode),
                 lift_horizon=int(horizon),
                 lift_val_months=24,
