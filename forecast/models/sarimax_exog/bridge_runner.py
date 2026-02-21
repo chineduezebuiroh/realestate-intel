@@ -131,7 +131,13 @@ def _load_canonical_exog_df(
 
     # Build selector-style feature_id with explicit lag (lag can be 0; _parse_feature_id accepts int)
     df = df.copy()
-    df["best_lead_mode"] = df["best_lead_mode"].fillna(0).astype(int)
+
+    if df["best_lead_mode"].isna().any():
+        bad_n = int(df["best_lead_mode"].isna().sum())
+        raise ValueError(f"[sarimax_exog_bridge] canonical exogs best_lead_mode has NaNs (n={bad_n}). Refusing.")
+    df["best_lead_mode"] = df["best_lead_mode"].astype(int)
+
+    
     df["feature_id"] = df["base_feature_id"].astype(str) + df["best_lead_mode"].astype(str).radd("_lag")
     # stable ordering = canonical_rank ascending
     df["rank"] = df["canonical_rank"].astype(int)
