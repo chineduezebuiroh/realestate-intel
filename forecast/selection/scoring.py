@@ -121,8 +121,8 @@ def _best_xcorr_np(
         return 0.0, 0, 0
 
     for lead in lead_months:
-        if lead < 0:
-            raise ValueError("lead_months must be non-negative")
+        if lead <= 0:
+            raise ValueError("lead_months must be >= 1")
 
         if lead == 0:
             yy = y
@@ -215,8 +215,8 @@ def _cheap_lift_np(
     # target = y[horizon + lead:]
     # feature = x[:- (horizon + lead)]
     for lead in lead_months:
-        if lead < 0:
-            raise ValueError("lead_months must be non-negative")
+        if lead <= 0:
+            raise ValueError("lead_months must be >= 1")
 
         k = int(horizon + lead)
         if n - k < min_eff:
@@ -327,7 +327,7 @@ def score_candidates(
     *,
     train_end: Optional[pd.Timestamp] = None,
     min_eff: int = 60,
-    lead_months: Tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6),
+    lead_months: Tuple[int, ...] = (1, 3, 6, 12),
     score_mode: str = "yoy_xcorr",  # "yoy_xcorr" | "yoy_corr0" | "level_xcorr" | "dlog_xcorr" | "combo" | "cheap_lift"
     lift_horizon: int = 3,
     lift_val_months: int = 24,
@@ -355,7 +355,7 @@ def score_candidates(
         return (str(metric_id), str(geo_id), _pt_norm(pt_id), eff_asof)
 
     if score_mode == "yoy_corr0":
-        lead_months = (0,)
+        lead_months = (1,)
 
     # -------------------------
     # Bulk load series (ASOF-aware)
