@@ -198,12 +198,13 @@ def summarize(
 
 
 def main() -> int:
-    batch = "phasec__selector__geo=dc_city__m={metric}__h=3__asof=2025-12-31__s1=cheap_lift__v=08"
+    batch = "phasec__selector__geo=dc_city__m={metric}__h=3__asof=2025-12-31__s1=cheap_lift__v=09"
   
     root = Path("artifacts/phasec/runs")
 
-    metrics = ["median_sale_price", "median_ppsf", "median_dom"]
-    out_root = Path("artifacts/phasec/selector_stability") / "v08.2"
+    #metrics = ["median_sale_price", "median_ppsf", "median_dom"]
+    metrics = ["median_ppsf"]
+    out_root = Path("artifacts/phasec/selector_stability") / "v09.0"
     out_root.mkdir(parents=True, exist_ok=True)
 
     for m in metrics:
