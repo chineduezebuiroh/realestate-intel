@@ -21,6 +21,33 @@ from forecast.models.sarimax_exog.core import SarimaxExogSpec, fit_sarimax_exog,
 # ====================================================
 # Helpers
 # ====================================================
+# Canonical lag policy (bridge must not invent lag0)
+CANON_ALLOWED_LAGS = {1, 3, 6, 12}
+
+def _extract_lag(fid: str) -> int:
+    m = __import__("re").search(r"_lag(\d+)$", str(fid))
+    if not m:
+        raise ValueError(f"[sarimax_exog_bridge] canonical feature_id missing _lag suffix: {fid}")
+    return int(m.group(1))
+
+def _validate_canonical_feature_ids(feature_ids: list[str]) -> None:
+    bad0 = [fid for fid in feature_ids if str(fid).endswith("_lag0")]
+    if bad0:
+        raise SystemExit(
+            "[sarimax_exog_bridge] REFUSING: canonical feature_ids contain _lag0. "
+            f"examples={bad0[:10]}"
+        )
+    bad = []
+    for fid in feature_ids:
+        lag = _extract_lag(fid)
+        if lag not in CANON_ALLOWED_LAGS:
+            bad.append((fid, lag))
+    if bad:
+        raise SystemExit(
+            "[sarimax_exog_bridge] REFUSING: canonical feature_ids contain disallowed lags. "
+            f"allowed={sorted(CANON_ALLOWED_LAGS)} bad_examples={bad[:10]}"
+        )
+        
 def _to_monthly_period_index(idx: pd.DatetimeIndex) -> pd.PeriodIndex:
     idx = pd.to_datetime(idx)
     return idx.to_period("M")
@@ -658,6 +685,25 @@ def run_backtest_sarimax_exog_bridge(
             n=int(canonical_exog_n),
             override_csv=canonical_exog_csv,
         )
+
+        canon_feature_ids = None
+        if canon_df is not None and len(canon_df) > 0:
+            if "feature_id" in canon_df.columns:
+                canon_feature_ids = canon_df["feature_id"].astype(str).tolist()
+            else:
+                # Backward-compat: if old canonical file exists without feature_id,
+                # reconstruct deterministically (but we still refuse lag0 via validator)
+                if "best_lead_mode" not in canon_df.columns:
+                    raise ValueError("[sarimax_exog_bridge] canonical exogs missing feature_id and best_lead_mode")
+                canon_feature_ids = (
+                    canon_df["base_feature_id"].astype(str)
+                    + "_lag"
+                    + canon_df["best_lead_mode"].astype(int).astype(str)
+                ).tolist()
+
+            _validate_canonical_feature_ids(canon_feature_ids)
+
+        
         if canon_df is not None:
             print(
                 "[sarimax_exog_bridge] using canonical exogs "
@@ -704,17 +750,29 @@ def run_backtest_sarimax_exog_bridge(
                 else:
                     # selector-derived feature set (anchor-specific)
                     sel_path = f"{selector_metric_dir}/selected_features__anchor={anchor}.parquet"
-                    if not os.path.exists(sel_path):
-                        raise FileNotFoundError(f"missing selector output: {sel_path}")
 
-                    df_sel = pd.read_parquet(sel_path)
-                    df_sel["feature_id"] = df_sel["feature_id"].astype(str)
-                    feature_ids = df_sel["feature_id"].tolist()
-                    if not feature_ids:
-                        raise ValueError("empty selector feature list")
+                    df_sel = None
+                    feature_set_sha256 = None
+    
+                    if canon_df is not None and canon_feature_ids is not None:
+                        # Canonical path: do NOT depend on per-anchor selector output
+                        feature_ids = list(map(str, canon_feature_ids))
+                        exog_source = "canonical_exogs"
+                    else:
+                        # Fallback: selector path (requires per-anchor parquet)
+                        if not os.path.exists(sel_path):
+                            raise FileNotFoundError(f"missing selector output: {sel_path}")
+    
+                        df_sel = pd.read_parquet(sel_path)
+                        feature_ids = df_sel["feature_id"].astype(str).tolist()
+                        if not feature_ids:
+                            raise ValueError("empty selector feature list")
+                        exog_source = "selector"
 
-                    if "feature_set_sha256" in df_sel.columns and df_sel["feature_set_sha256"].notna().any():
+
+                    if df_sel is not None and "feature_set_sha256" in df_sel.columns and df_sel["feature_set_sha256"].notna().any():
                         feature_set_sha256 = str(df_sel["feature_set_sha256"].dropna().iloc[0])
+
 
                     exog_source = "selector_selected_features"
 
@@ -770,11 +828,12 @@ def run_backtest_sarimax_exog_bridge(
                 audit = {
                     "data_asof_effective": str(data_asof_date),
                     "selector_batch_id": selector_batch_id,
-                    "selector_selected_features_path": sel_path,
+                    "selector_selected_features_path": (sel_path if exog_source == "selector" else None),
                     # canonical
                     "exog_source": exog_source,
                     "canonical_stability_version": (canonical_stability_version if canon_df is not None else None),
                     "canonical_exog_n": (int(canonical_exog_n) if canon_df is not None else None),
+                    "canonical_exog_csv_path": (str(canon_csv_path) if exog_source == "canonical_exogs" else None),
                     "canonical_exog_csv_sha256": (canon_csv_sha256 if canon_df is not None else None),
                     "feature_ids_requested": feature_ids,
                     "feature_ids": effective_feature_ids,  # canonical for artifact runner
@@ -783,6 +842,15 @@ def run_backtest_sarimax_exog_bridge(
                     "max_horizon_available": int(n_future_available),
                     "dropped_feature_ids_due_to_nans": dropped_feature_ids,
                     "dropped_feature_count_due_to_nans": int(len(dropped_feature_ids)),
+                    
+                    #alternatives that use 'exog_source == "canonical_exogs' instead of 'canon_df'
+                    """
+                    "exog_source": exog_source,
+                    "canonical_stability_version": (canonical_stability_version if exog_source == "canonical_exogs" else None),
+                    "canonical_exog_n": (int(canonical_exog_n) if exog_source == "canonical_exogs" else None),
+                    "canonical_exog_csv_path": (str(canon_csv_path) if exog_source == "canonical_exogs" else None),
+                    "canonical_exog_csv_sha256": (str(canon_csv_sha256) if exog_source == "canonical_exogs" else None),
+                    """
                 }
                 with open(audit_path, "w") as f:
                     json.dump(audit, f, indent=2, sort_keys=True)
