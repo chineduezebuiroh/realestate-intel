@@ -6,6 +6,7 @@ import pandas as pd
 # Config
 METRICS = ["median_sale_price", "median_ppsf", "median_dom"]
 N = 100
+ALLOWED_LAGS = [1, 3, 6, 12]
 
 # Priority order for freezing
 ORIGIN_PRIORITY = {"both": 0, "promotion": 1, "intrinsic": 2, "neither": 9}
@@ -50,9 +51,23 @@ def build_one(merged_csv: Path, *, n: int = N) -> pd.DataFrame:
 
     out = df.head(int(n)).copy()
 
+    # ---- enforce allowed lag contract + emit lagged feature_id for bridge ----
+    out["best_lead_mode"] = out["best_lead_mode"].astype(int)
+
+    bad = out.loc[~out["best_lead_mode"].isin(ALLOWED_LAGS), ["base_feature_id", "best_lead_mode"]]
+    if len(bad) > 0:
+        raise SystemExit(
+            "[canonical_exogs] REFUSING: best_lead_mode contains disallowed lags. "
+            f"allowed={ALLOWED_LAGS} bad_examples={bad.head(10).to_dict('records')}"
+        )
+
+    out["feature_id"] = out["base_feature_id"].astype(str) + "_lag" + out["best_lead_mode"].astype(str)
+    
+
     # Minimal, stable schema for downstream consumption
     keep = [
         "base_feature_id",
+        "feature_id",
         "origin",
         "promotion_rank",
         "intrinsic_rank",
@@ -67,6 +82,7 @@ def build_one(merged_csv: Path, *, n: int = N) -> pd.DataFrame:
         "p10_lift_any",
         "neg_rate_any",
     ]
+
     out = out[keep].reset_index(drop=True)
     out["canonical_rank"] = range(1, len(out) + 1)
     return out
