@@ -14,7 +14,7 @@ from typing import Optional, List, Dict, Any, Tuple, Set
 
 import pandas as pd
 
-from forecast.db_forecast import get_connection
+from forecast.core.db_forecast import get_connection
 from forecast.eval.metrics import rmse, mae, mape, smape, wape, interval_coverage, interval_width
 
 
@@ -236,7 +236,6 @@ def _apply_cohort_latest_common(runs: pd.DataFrame, spec: EvalSpec) -> pd.DataFr
 def build_eval_frame(spec: EvalSpec) -> pd.DataFrame:
     runs = _load_runs(spec)
 
-
     # optional anchor filter (existing)
     if spec.anchor_dates:
         anchors = set(pd.to_datetime(list(spec.anchor_dates)).date)
@@ -255,17 +254,37 @@ def build_eval_frame(spec: EvalSpec) -> pd.DataFrame:
     preds = _load_predictions(runs["run_id"].astype(int).tolist())
     actuals = _load_actuals(spec.metric_id, spec.geo_id, spec.property_type_id)
 
+    preds["target_date"] = pd.to_datetime(preds["target_date"])
+    preds["pM"] = preds["target_date"].dt.to_period("M")
+    
+    actuals["target_date"] = pd.to_datetime(actuals["target_date"])
+    actuals["pM"] = actuals["target_date"].dt.to_period("M")
+    
+
     # join predictions -> runs -> actuals
     df = preds.merge(runs, on="run_id", how="left")
+
     df["target_date"] = pd.to_datetime(df["target_date"])
+    df["pM"] = df["target_date"].dt.to_period("M")
+    
     actuals["target_date"] = pd.to_datetime(actuals["target_date"])
-    df = df.merge(actuals, on="target_date", how="left")
+    actuals["pM"] = actuals["target_date"].dt.to_period("M")
+    
+    # Merge using month key to avoid timestamp/ME inconsistencies
+    df = df.merge(actuals.drop(columns=["target_date"]), on="pM", how="left")
 
     # compute horizon step relative to train_end
+    """
     df["train_end"] = pd.to_datetime(df["train_end"])
     anchor_p = df["train_end"].dt.to_period("M")
     target_p = df["target_date"].dt.to_period("M")
     df["h_step"] = (target_p.dt.year - anchor_p.dt.year) * 12 + (target_p.dt.month - anchor_p.dt.month)
+    df["h_step"] = df["h_step"].astype(int)
+    """
+
+    df["train_end"] = pd.to_datetime(df["train_end"])
+    df["anchor_pM"] = df["train_end"].dt.to_period("M")
+    df["h_step"] = (df["pM"].dt.year - df["anchor_pM"].dt.year) * 12 + (df["pM"].dt.month - df["anchor_pM"].dt.month)
     df["h_step"] = df["h_step"].astype(int)
 
 
@@ -274,6 +293,27 @@ def build_eval_frame(spec: EvalSpec) -> pd.DataFrame:
 
     # enforce actual availability
     df = df[df["y_true"].notna()].copy()
+
+
+    # ---- HARD CONTRACT: each run must have exactly the expected horizon steps ----
+    # Refuse silently-misaligned evaluations.
+    expected = df.groupby("run_id")["horizon_max_months"].first().astype(int)
+    have = df.groupby("run_id")["h_step"].apply(lambda s: tuple(sorted(s.unique())))
+    
+    bad_runs = []
+    for rid, h in expected.items():
+        want = tuple(range(1, int(h) + 1))
+        got = have.get(rid, tuple())
+        if got != want:
+            bad_runs.append((int(rid), int(h), got[:10]))
+    
+    if bad_runs:
+        raise ValueError(
+            "[eval] REFUSING: horizon steps misaligned for some runs. "
+            "This usually means target_date month-end mismatch or missing actuals.\n"
+            f"bad_runs_sample={bad_runs[:10]}"
+        )
+        
 
     if df.empty:
         raise ValueError("[eval] after joining actuals + horizon filtering, no rows remain")
