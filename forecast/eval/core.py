@@ -14,8 +14,13 @@ from typing import Optional, List, Dict, Any, Tuple, Set
 
 import pandas as pd
 
+from forecast.core.backtest_utils import month_end_index
 from forecast.core.db_forecast import get_connection
+
 from forecast.eval.metrics import rmse, mae, mape, smape, wape, interval_coverage, interval_width
+
+from forecast.features.fact_loader import load_series_from_fact
+
 
 
 @dataclass(frozen=True)
@@ -163,20 +168,39 @@ def _load_predictions(run_ids: List[int]) -> pd.DataFrame:
     return df
 
 
-def _load_actuals(metric_id: str, geo_id: str, property_type_id: str) -> pd.DataFrame:
-    con = get_connection()
-    sql = """
-        SELECT date as target_date, value as y_true
-        FROM fact_timeseries
-        WHERE metric_id = ?
-          AND geo_id = ?
-          AND property_type_id = ?
-        ORDER BY date
+def _load_actuals(metric_id: str, geo_id: str, property_type_id: str, *, data_asof_exact: Optional[str]) -> pd.DataFrame:
     """
-    df = con.execute(sql, [metric_id, geo_id, property_type_id]).fetchdf()
-    con.close()
-    if df.empty:
-        raise ValueError("[eval] no actuals found in fact_timeseries for target")
+    Load actuals using the same as-of governed path as models.
+    REFUSE if data_asof_exact is not provided (prevents silent leakage).
+    Returns: DataFrame with columns [target_date, pM, y_true]
+    """
+    if not data_asof_exact:
+        raise ValueError(
+            "[eval] REFUSING: data_asof_exact is required to load actuals deterministically. "
+            "Pass --data_asof YYYY-MM-DD."
+        )
+
+    con = get_connection()
+    try:
+        y = load_series_from_fact(
+            metric_id=metric_id,
+            geo_id=geo_id,
+            property_type_id=property_type_id,
+            data_asof=pd.to_datetime(data_asof_exact).date(),
+            source_id=None,
+            con=con,
+        ).astype(float)
+    finally:
+        con.close()
+
+    y.index = month_end_index(pd.to_datetime(y.index))
+    y = y[~y.index.duplicated(keep="last")].sort_index()
+
+    df = pd.DataFrame({
+        "target_date": pd.to_datetime(y.index),
+        "y_true": y.values.astype(float),
+    })
+    df["pM"] = df["target_date"].dt.to_period("M")
     return df
 
 
@@ -252,7 +276,12 @@ def build_eval_frame(spec: EvalSpec) -> pd.DataFrame:
 
 
     preds = _load_predictions(runs["run_id"].astype(int).tolist())
-    actuals = _load_actuals(spec.metric_id, spec.geo_id, spec.property_type_id)
+    actuals = _load_actuals(
+        spec.metric_id,
+        spec.geo_id,
+        spec.property_type_id,
+        data_asof_exact=spec.data_asof_exact,
+    )
 
     preds["target_date"] = pd.to_datetime(preds["target_date"])
     preds["pM"] = preds["target_date"].dt.to_period("M")
