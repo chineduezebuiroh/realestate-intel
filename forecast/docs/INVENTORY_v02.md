@@ -26,7 +26,6 @@ Last Updated: After canonical exog v09.0 freeze + bridge diagnostic sweep.
 
 ---
 ## 🔒 Phase B Freeze State (CRITICAL)
-
 The following are frozen and must remain true unless a version bump explicitly states otherwise:
 
 **1. Canonical Exogenous Identity**
@@ -87,6 +86,7 @@ Runs failing these checks:
 (unchanged, but now with bridge context)
 
 **XGB Selector (artifact-only)**
+
 `forecast/models/xgb/backtest_selector_runner.py`
 
 Responsibilities:
@@ -105,6 +105,7 @@ Responsibilities:
 
 ---
 **SARIMAX Exog — Bridge Diagnostic**
+
 `forecast/models/sarimax_exog/bridge_runner.py`
 
 Purpose:
