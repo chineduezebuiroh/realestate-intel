@@ -9,8 +9,8 @@ model logic lives under forecast/models/**.
 
 Last Updated: After canonical exog v09.0 freeze + bridge diagnostic sweep.
 
-
-### Phase C re-org objectives (NON-NEGOTIABLE)
+---
+#### Phase C re-org objectives (NON-NEGOTIABLE)
 
 - **Single source of truth for runners:** authoritative execution logic lives only under `forecast/models/**`.
 - **Legacy files are shims only:** legacy modules may import-and-call canonical runners, but must not contain unique logic.
