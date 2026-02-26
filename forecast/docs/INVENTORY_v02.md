@@ -10,6 +10,7 @@ model logic lives under forecast/models/**.
 Last Updated: After canonical exog v09.0 freeze + bridge diagnostic sweep.
 
 ---
+
 #### Phase C re-org objectives (NON-NEGOTIABLE)
 
 - **Single source of truth for runners:** authoritative execution logic lives only under `forecast/models/**`.
