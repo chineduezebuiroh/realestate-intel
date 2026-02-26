@@ -249,3 +249,57 @@ Live is a *truth test*.
 - No runner may regenerate features or reorder columns
 
 Violating any invariant invalidates all comparisons.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Forecast Architecture Rules (Phase C — Post Phase-B Freeze)
+
+This document defines hard architectural constraints.
+If code behavior contradicts this document, the code is wrong.
+
+Last Updated: After canonical exog v09.0 freeze + bridge K-sweep diagnostics.
