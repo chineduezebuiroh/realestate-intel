@@ -27,6 +27,7 @@ Last Updated: After canonical exog v09.0 freeze + bridge diagnostic sweep.
 
 
 ## 🔒 Phase B Freeze State (CRITICAL)
+---
 The following are frozen and must remain true unless a version bump explicitly states otherwise:
 
 **1. Canonical Exogenous Identity**
