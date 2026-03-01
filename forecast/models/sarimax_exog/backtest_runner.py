@@ -1,10 +1,14 @@
 # forecast/models/sarimax_exog/backtest_runner.py
 import os
-from typing import List, Dict, Optional, Tuple
+import json
 
-from pathlib import Path
 import numpy as np
 import pandas as pd
+
+from typing import List, Dict, Optional, Tuple
+from datetime import datetime
+from pathlib import Path
+
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from forecast.core.db_forecast import (
@@ -31,6 +35,13 @@ from forecast.features.feature_loader import TargetSpec, specs_from_selected_fea
 from forecast.features.feature_policy import default_policy
 from forecast.features.xgb_shortlist import load_xgb_selected_feature_ids
 
+from forecast.models.sarimax_exog.policy_b import (
+    PolicyBThresholds,
+    PolicyBViolation,
+    compute_exog_diagnostics,
+    enforce_policy_b,
+    estimate_arima_param_count,
+)
 
 TEMP_DEBUG_LIMIT = None # set to a number to debug; set to 'None' when finished debugging
 
@@ -68,6 +79,53 @@ def _load_target_y(target: "TargetSpec", data_asof=None) -> pd.Series:
     y = y[~y.index.duplicated(keep="last")].sort_index()
     return y
 
+
+def _write_policy_b_failure(
+    *,
+    artifact_root: str,
+    batch_id: str,
+    run_kind: str,
+    model_name: str,
+    metric_id: str,
+    geo_id: str,
+    property_type_id: str,
+    anchor_date: pd.Timestamp,
+    data_asof_dt,
+    horizon_bt: int,
+    exog_method: str,
+    selected_feature_ids: list[str],
+    report: dict,
+) -> None:
+    out_dir = Path(artifact_root) / "sarimax_exog" / "policy_b_failures" / str(batch_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    fname = (
+        f"policy_b_failure__kind={run_kind}"
+        f"__model={model_name}"
+        f"__metric={metric_id}__geo={geo_id}__pt={property_type_id}"
+        f"__anchor={anchor_date.date().isoformat()}"
+        f"__asof={pd.Timestamp(data_asof_dt).date().isoformat() if data_asof_dt else 'none'}"
+        f"__h={int(horizon_bt)}"
+        f"__exog_method={exog_method}"
+        f".json"
+    )
+    payload = {
+        "ts_utc": datetime.utcnow().isoformat() + "Z",
+        "run_kind": run_kind,
+        "model_name": model_name,
+        "batch_id": batch_id,
+        "metric_id": metric_id,
+        "geo_id": geo_id,
+        "property_type_id": property_type_id,
+        "anchor_date": anchor_date.date().isoformat(),
+        "data_asof": (pd.Timestamp(data_asof_dt).date().isoformat() if data_asof_dt else None),
+        "horizon_bt": int(horizon_bt),
+        "exog_method": exog_method,
+        "selected_feature_ids": list(selected_feature_ids),
+        "policy_b": report,
+    }
+    (out_dir / fname).write_text(json.dumps(payload, indent=2, sort_keys=True))
+    
 # ==========================================================
 # Main backtest entry
 # ==========================================================
@@ -305,59 +363,7 @@ def run_backtest_sarimax_exog_single(
             continue
 
 
-        # ---- Collinearity kill-switch (TRAINING ONLY) ----
-        # Keep XGB priority order (feature_ids), drop constant cols, then drop cols
-        # whose abs corr with any kept col exceeds threshold.
-        COLL_THR = 0.98
-        
-        # 1) Drop constant columns on training window
-        std = X_train_sel.std(axis=0, ddof=0)
-        nonconst_cols = std[std > 0].index.tolist()
-        dropped_const = [c for c in feature_ids if c not in set(nonconst_cols)]
-        
-        if dropped_const:
-            print(f"[backtest_exog] Dropping {len(dropped_const)} constant exog cols (train std=0). Example: {dropped_const[:5]}")
-        
-        X_train_sel = X_train_sel[nonconst_cols].copy()
-        feature_ids_nc = [c for c in feature_ids if c in set(nonconst_cols)]
-        
-        # 2) Greedy prune by correlation with already-kept columns (training only)
-        keep_cols = []
-        # precompute corr of all columns (on training rows) for speed + determinism
-        corr = X_train_sel.corr().abs()
-        
-        for c in feature_ids_nc:
-            if not keep_cols:
-                keep_cols.append(c)
-                continue
-            # if this col is too correlated with any already-kept col, drop it
-            if (corr.loc[c, keep_cols] > COLL_THR).any():
-                continue
-            keep_cols.append(c)
-        
-        dropped_collinear = [c for c in feature_ids_nc if c not in set(keep_cols)]
-        if dropped_collinear:
-            print(
-                f"[backtest_exog] Pruned {len(dropped_collinear)} collinear exog cols at |corr|>{COLL_THR}. "
-                f"Kept={len(keep_cols)}. Example dropped: {dropped_collinear[:5]}"
-            )
 
-        # Run once. If it’s noisy, delete it afterward.
-        if dropped_collinear:
-            c0 = dropped_collinear[0]
-            # compute max corr with kept (use abs)
-            max_corr = corr.loc[c0, feature_ids].abs().max()
-            print(f"[backtest_exog] Example drop reason: {c0} max|corr| with kept = {max_corr:.3f}")
-
-        # Apply pruning to training matrices and downstream feature id list
-        feature_ids = keep_cols
-        
-        # Guard: don't proceed if pruning leaves too few exogs
-        if len(feature_ids) < 3:
-            print(f"[backtest_exog] Too few exog after prune ({len(feature_ids)}); skipping anchor.")
-            continue
-            
-        X_train_sel = X_train_sel[feature_ids].copy()
 
 
         train_mask2 = y_train.notna() & X_train_sel.notna().all(axis=1)
@@ -391,6 +397,67 @@ def run_backtest_sarimax_exog_single(
         mu = exog_train_df.mean(axis=0)
         sd = exog_train_df.std(axis=0, ddof=0).replace(0.0, 1.0)  # avoid divide-by-zero
         exog_train_z = ((exog_train_df - mu) / sd).to_numpy(dtype=float)
+
+
+        # ----------------------------
+        # POLICY B (MANDATORY) — adequacy gate BEFORE FIT
+        # ----------------------------
+        thresholds = PolicyBThresholds(
+            min_obs_per_param=5.0,
+            max_exog_cond=1e12,
+            require_full_rank=True,
+            svd_rtol=1e-12,
+        )
+
+        diag = compute_exog_diagnostics(exog_train_z, svd_rtol=thresholds.svd_rtol)
+        arima_param_count = estimate_arima_param_count(order=order, seasonal_order=seasonal_order, trend=None)
+
+        context = {
+            "metric_id": metric_id,
+            "geo_id": geo_id,
+            "property_type_id": property_type_id,
+            "anchor_date": anchor_date.date().isoformat(),
+            "data_asof": str(data_asof_dt),
+            "horizon_bt": int(horizon_bt),
+            "exog_method": exog_method,
+            "order": list(order),
+            "seasonal_order": list(seasonal_order),
+        }
+
+        try:
+            enforce_policy_b(
+                n_obs_train=int(diag["n_obs"]),
+                n_exogs=int(diag["n_exogs"]),
+                arima_param_count=int(arima_param_count),
+                exog_rank=int(diag["exog_rank"]),
+                exog_cond=float(diag["exog_cond"]),
+                thresholds=thresholds,
+                context=context,
+            )
+        except PolicyBViolation as e:
+            # deterministic failure artifact; skip this anchor/run
+            _write_policy_b_failure(
+                artifact_root=artifact_root,
+                batch_id=batch_id,
+                run_kind="backtest",
+                model_name=("sarimax_exog_bridge" if exog_method == "perfect_future" else "sarimax_exog_backtest"),
+                metric_id=metric_id,
+                geo_id=geo_id,
+                property_type_id=property_type_id,
+                anchor_date=anchor_date,
+                data_asof_dt=data_asof_dt,
+                horizon_bt=horizon_bt,
+                exog_method=exog_method,
+                selected_feature_ids=feature_ids,
+                report=e.report,
+            )
+            print(
+                "[backtest_exog] POLICY B FAIL — skipping anchor. "
+                f"failed_checks={e.report.get('failed_checks')} "
+                f"diag={e.report.get('diagnostics')}"
+            )
+            continue
+            
         
         # future exog must be present already (you assert no NaNs above)
         exog_future_df = X_future_sel.astype(float)
@@ -410,68 +477,66 @@ def run_backtest_sarimax_exog_single(
             enforce_invertibility=False,
         )
 
-        res = model.fit(disp=False)
+
+        try:
+            res = model.fit(disp=False)
+        except Exception as e:
+            report = {
+                "failed_checks": ["fit_exception"],
+                "diagnostics": {
+                    "exception_type": type(e).__name__,
+                    "exception": str(e),
+                },
+                "context": context,
+            }
+            _write_policy_b_failure(
+                artifact_root=artifact_root,
+                batch_id=batch_id,
+                run_kind="backtest",
+                model_name=("sarimax_exog_bridge" if exog_method == "perfect_future" else "sarimax_exog_backtest"),
+                metric_id=metric_id,
+                geo_id=geo_id,
+                property_type_id=property_type_id,
+                anchor_date=anchor_date,
+                data_asof_dt=data_asof_dt,
+                horizon_bt=horizon_bt,
+                exog_method=exog_method,
+                selected_feature_ids=feature_ids,
+                report=report,
+            )
+            print(f"[backtest_exog] FIT FAIL — skipping anchor. {type(e).__name__}: {e}")
+            continue
+
+
         mle_ret = getattr(res, "mle_retvals", {}) or {}
         converged = bool(mle_ret.get("converged", True))
         aic = float(getattr(res, "aic", np.nan))
         bic = float(getattr(res, "bic", np.nan))
-        
-        # ---- Retry ladder if optimizer doesn't converge ----
-        retry_used = None
-        if not converged:
-            # Retry 1: simpler non-seasonal model (often fixes convergence)
-            try:
-                model2 = SARIMAX(
-                    endog=endog,
-                    exog=exog_train_z,
-                    order=(1, 1, 1),
-                    seasonal_order=(0, 0, 0, 0),
-                    enforce_stationarity=False,
-                    enforce_invertibility=False,
-                )
-                res2 = model2.fit(disp=False)
-                mle_ret2 = getattr(res2, "mle_retvals", {}) or {}
-                converged2 = bool(mle_ret2.get("converged", True))
-                if converged2:
-                    res = res2
-                    converged = True
-                    retry_used = "retry_nonseasonal_111"
-                    aic = float(getattr(res, "aic", np.nan))
-                    bic = float(getattr(res, "bic", np.nan))
-            except Exception:
-                pass
-        
-            # Retry 2: reduce exog dimensionality (only if still not converged)
-            # This is a last resort and should be rare once scaling is in place.
-            if not converged and exog_train_z.shape[1] > 10:
-                try:
-                    k = max(10, exog_train_z.shape[1] // 2)
-                    exog_train_z2 = exog_train_z[:, :k]
-                    exog_future_z2 = exog_future_z[:, :k]
-        
-                    model3 = SARIMAX(
-                        endog=endog,
-                        exog=exog_train_z2,
-                        order=(1, 1, 1),
-                        seasonal_order=(0, 0, 0, 0),
-                        enforce_stationarity=False,
-                        enforce_invertibility=False,
-                    )
-                    res3 = model3.fit(disp=False)
-                    mle_ret3 = getattr(res3, "mle_retvals", {}) or {}
-                    converged3 = bool(mle_ret3.get("converged", True))
-                    if converged3:
-                        res = res3
-                        converged = True
-                        retry_used = f"retry_nonseasonal_111_reduce_exog_{k}"
-                        aic = float(getattr(res, "aic", np.nan))
-                        bic = float(getattr(res, "bic", np.nan))
-        
-                        # IMPORTANT: if we reduced exog, we must also use reduced future exog
-                        exog_future_z = exog_future_z2
-                except Exception:
-                    pass
 
+        if not converged:
+            report = {
+                "failed_checks": ["not_converged"],
+                "diagnostics": {"aic": aic, "bic": bic},
+                "context": context,
+            }
+            _write_policy_b_failure(
+                artifact_root=artifact_root,
+                batch_id=batch_id,
+                run_kind="backtest",
+                model_name=("sarimax_exog_bridge" if exog_method == "perfect_future" else "sarimax_exog_backtest"),
+                metric_id=metric_id,
+                geo_id=geo_id,
+                property_type_id=property_type_id,
+                anchor_date=anchor_date,
+                data_asof_dt=data_asof_dt,
+                horizon_bt=horizon_bt,
+                exog_method=exog_method,
+                selected_feature_ids=feature_ids,
+                report=report,
+            )
+            print("[backtest_exog] NOT CONVERGED — skipping anchor (no retries, no persistence).")
+            continue
+        
 
         exog_future = X_future_sel.to_numpy(dtype=float)
         fc = res.get_forecast(steps=horizon_bt, exog=exog_future_z)
@@ -490,7 +555,6 @@ def run_backtest_sarimax_exog_single(
             "converged": converged,
             "exog_scaled": True,
             "exog_scale_mode": "zscore_train",
-            "retry_used": retry_used,
             "mle_converged": converged,   # redundant but explicit
             #"mle_retvals": mle_ret if isinstance(mle_ret, dict) else None,
             "aic": aic,
@@ -498,6 +562,20 @@ def run_backtest_sarimax_exog_single(
             "exog_backtest_type": "forecasted_exog_seasonal_naive_else_last",
             "xgb_batch_id": xgb_batch_id,
             "sarimax_max_exog": int(sarimax_max_exog),
+
+            "policy_b": {
+                "min_obs_per_param": thresholds.min_obs_per_param,
+                "max_exog_cond": thresholds.max_exog_cond,
+                "require_full_rank": thresholds.require_full_rank,
+            },
+            "exog_rank": int(diag["exog_rank"]),
+            "exog_cond": float(diag["exog_cond"]),
+            "exog_smin": float(diag["exog_smin"]),
+            "arima_param_count_est": int(arima_param_count),
+
+
+
+            
         }
         algo_params["exog_method"] = exog_method
 
