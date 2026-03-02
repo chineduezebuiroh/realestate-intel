@@ -187,6 +187,7 @@ if __name__ == "__main__":
     rows = []
     
     for order, seasonal_order, trend in iter_specs(cfg):
+        print(f"[tune] trying order={order} seasonal_order={seasonal_order} trend={trend}", flush=True)
         spec_key = f"order={order} seas={seasonal_order} trend={trend}"
         per_anchor = []
         ok = True
@@ -213,6 +214,7 @@ if __name__ == "__main__":
 
 
             try:
+                print(f"[tune]  anchor={anchor.date()} fitting...", flush=True)
                 y_hat, fit_diag = fit_and_forecast(
                     y_train=y_train,
                     steps=cfg.horizon,
