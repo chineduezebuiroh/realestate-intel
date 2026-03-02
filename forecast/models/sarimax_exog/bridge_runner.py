@@ -413,11 +413,11 @@ def run_bridge_from_design_matrix_artifact(
     anchor_date: str,  # YYYY-MM-DD
     horizon: int,
     batch_id: str,
+    artifact_root: str,
     data_asof: Optional[str] = None,
     run_kind: str,  # "backtest" or "live"
     is_active: bool,
     model_version: str = "v0_bridge_artifact",
-    artifact_root: str,
 ) -> int:
     # ---- load artifacts ----
 
@@ -587,7 +587,22 @@ def run_bridge_from_design_matrix_artifact(
             },
             "context": context,
         }
-        _write_policy_b_failure_bridge(... report=report ...)
+        _write_policy_b_failure_bridge(
+            artifact_root=artifact_root,
+            batch_id=batch_id,
+            metric_id=metric_id,
+            geo_id=geo_id,
+            property_type_id=property_type_id,
+            anchor_date=anchor_date,
+            data_asof=data_asof,
+            horizon=horizon,
+            run_kind=run_kind,
+            model_version=model_version,
+            feature_ids_effective=list(map(str, feature_ids_effective)),
+            design_matrix_sha256=audit.get("design_matrix_sha256"),
+            feature_set_sha256=audit.get("feature_set_sha256"),
+            report=report,
+        )
         raise
 
 
@@ -1022,10 +1037,10 @@ def run_backtest_sarimax_exog_bridge(
                     anchor_date=anchor,
                     horizon=horizon,
                     batch_id=batch_id,
+                    artifact_root=artifact_root,
                     data_asof=str(data_asof_date),
                     run_kind=run_kind,
                     is_active=is_active,
-                    artifact_root=artifact_root,
                 )
         
                 results["success"].append({
