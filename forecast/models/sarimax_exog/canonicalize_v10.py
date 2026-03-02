@@ -62,14 +62,26 @@ def _resolve_out_audit(cfg: CanonicalizeConfig, n: int) -> Path:
 
 
 def build_canonical_exogs_v10(cfg: CanonicalizeConfig) -> tuple[Path, Path]:
-    # Load ranked candidates from prior canonical file
+    # Load ranked candidates from prior canonical file.
+    # v09.x canonical sets are stored with a fixed n in the filename (often n=100),
+    # so we must NOT request a different n here or we won't find the file.
+    # Deterministic rule: try n=100 first, else fall back to n=1000, else fail.
     df_in, in_path, in_sha = _load_canonical_exog_df(
         artifact_root=cfg.artifact_root,
         stability_version=cfg.input_stability_version,
         metric_id=cfg.metric_id,
-        n=1000,  # load plenty; we’ll stop at max_exogs_out
+        n=100,
         override_csv=None,
     )
+    if df_in is None or df_in.empty:
+        df_in, in_path, in_sha = _load_canonical_exog_df(
+            artifact_root=cfg.artifact_root,
+            stability_version=cfg.input_stability_version,
+            metric_id=cfg.metric_id,
+            n=1000,
+            override_csv=None,
+        )
+
     if df_in is None or df_in.empty:
         raise ValueError("input canonical exogs not found / empty")
 
