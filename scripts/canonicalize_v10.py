@@ -15,6 +15,8 @@ cfg = CanonicalizeConfig(
     max_exogs_out=int(os.environ.get("MAX_EXOGS_OUT", "30")),
 )
 
+print("CFG_DEBUG", cfg)
+
 out_csv, out_audit = build_canonical_exogs_v10(cfg)
 print("WROTE", out_csv)
 print("WROTE", out_audit)
