@@ -1,14 +1,18 @@
-# scripts/tune_sarimax_univariate.py
 from __future__ import annotations
+# scripts/tune_sarimax_univariate.py
 
+import warnings
 import itertools
+import duckdb
+
+import numpy as np
+import pandas as pd
+
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-import duckdb
-import numpy as np
-import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
 
 @dataclass(frozen=True)
@@ -112,8 +116,12 @@ def fit_and_forecast(
     enforce_stationarity: bool,
     enforce_invertibility: bool,
     maxiter: int,
-) -> np.ndarray:
-    # statsmodels likes numpy arrays for safety
+) -> tuple[np.ndarray, dict]:
+    """
+    Returns:
+      y_hat: np.ndarray of length `steps`
+      fit_diag: dict with convergence/fit diagnostics
+    """
     model = SARIMAX(
         endog=y_train.astype(float).to_numpy(),
         order=order,
@@ -122,10 +130,41 @@ def fit_and_forecast(
         enforce_stationarity=enforce_stationarity,
         enforce_invertibility=enforce_invertibility,
     )
-    res = model.fit(disp=False, maxiter=int(maxiter))
+
+    saw_convergence_warning = False
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        res = model.fit(disp=False, maxiter=int(maxiter))
+        saw_convergence_warning = any(
+            issubclass(getattr(x, "category", Warning), ConvergenceWarning) for x in w
+        )
+
+    mle_retvals = getattr(res, "mle_retvals", None) or {}
+    if isinstance(mle_retvals, dict):
+        fit_converged = bool(mle_retvals.get("converged")) if "converged" in mle_retvals else None
+        warnflag = mle_retvals.get("warnflag", None)
+        iterations = mle_retvals.get("iterations", None)
+        fopt = mle_retvals.get("fopt", None)
+    else:
+        fit_converged = None
+        warnflag = None
+        iterations = None
+        fopt = None
+
     fc = res.get_forecast(steps=int(steps))
     mean = np.asarray(fc.predicted_mean, dtype=float)
-    return mean
+
+    fit_diag = {
+        "fit_converged": fit_converged,
+        "warnflag": warnflag,
+        "iterations": iterations,
+        "fopt": fopt,
+        "aic": float(getattr(res, "aic", np.nan)),
+        "bic": float(getattr(res, "bic", np.nan)),
+        "saw_convergence_warning": bool(saw_convergence_warning),
+        "n_obs_train": int(len(y_train)),
+    }
+    return mean, fit_diag
 
 
 if __name__ == "__main__":
@@ -172,13 +211,14 @@ if __name__ == "__main__":
                 ok = False
                 continue
 
+
             try:
-                y_hat = fit_and_forecast(
+                y_hat, fit_diag = fit_and_forecast(
                     y_train=y_train,
                     steps=cfg.horizon,
                     order=order,
                     seasonal_order=seasonal_order,
-                    trend=trend,
+                    trend=trend,  # IMPORTANT: use the per-spec trend value
                     enforce_stationarity=cfg.enforce_stationarity,
                     enforce_invertibility=cfg.enforce_invertibility,
                     maxiter=cfg.maxiter,
@@ -187,6 +227,24 @@ if __name__ == "__main__":
                 per_anchor.append({"anchor": str(anchor.date()), "status": f"fit_fail {type(e).__name__}: {e}"})
                 ok = False
                 continue
+            
+            # ---- CONVERGENCE GATE (MANDATORY) ----
+            bad_convergence = (
+                fit_diag.get("fit_converged") is not True
+                or fit_diag.get("warnflag") not in (None, 0)
+                or fit_diag.get("saw_convergence_warning") is True
+            )
+            if bad_convergence:
+                per_anchor.append(
+                    {
+                        "anchor": str(anchor.date()),
+                        "status": "not_converged",
+                        "fit_diag": fit_diag,
+                    }
+                )
+                ok = False
+                continue
+
 
             # score first N months for apples-to-apples
             n = min(cfg.score_first_n, cfg.horizon)
