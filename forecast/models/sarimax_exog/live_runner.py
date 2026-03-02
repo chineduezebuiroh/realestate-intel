@@ -2,14 +2,77 @@ from __future__ import annotations
 # forecast/models/sarimax_exog/live_runner.py
 
 import json
-from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
+import numpy as np
 
-from forecast.db_forecast import get_connection, insert_predictions, insert_run
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+from datetime import datetime
+
+from forecast.core.db_forecast import get_connection, insert_predictions, insert_run
+
 from forecast.models.sarimax_exog.core import SarimaxExogSpec, fit_sarimax_exog, forecast_sarimax_exog
 from forecast.models.sarimax_exog.exog_future import build_exog_future, write_exog_future_artifact
+from forecast.models.sarimax_exog.policy_b import (
+    PolicyBThresholds,
+    PolicyBViolation,
+    compute_exog_diagnostics,
+    enforce_policy_b,
+    estimate_arima_param_count,
+)
+
+# ======================================
+# Helpers
+# ======================================
+def _write_policy_b_failure_live(
+    *,
+    artifact_root: str,
+    batch_id: str,
+    metric_id: str,
+    geo_id: str,
+    property_type_id: str,
+    anchor_date: str,
+    data_asof_effective: str,
+    horizon: int,
+    feature_ids: list[str],
+    design_matrix_audit_path: str,
+    design_matrix_sha256: Optional[str],
+    feature_set_sha256: Optional[str],
+    exog_future_audit_path: Optional[str],
+    exog_future_sha256: Optional[str],
+    report: dict,
+) -> None:
+    out_dir = Path(artifact_root) / batch_id / "sarimax_exog" / "policy_b_failures"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    fname = (
+        f"policy_b_failure__kind=live"
+        f"__metric={metric_id}__geo={geo_id}__pt={property_type_id}"
+        f"__anchor={pd.Timestamp(anchor_date).date().isoformat()}"
+        f"__asof={pd.Timestamp(data_asof_effective).date().isoformat()}"
+        f"__h={int(horizon)}.json"
+    )
+    payload = {
+        "ts_utc": datetime.utcnow().isoformat() + "Z",
+        "run_kind": "live",
+        "model": "sarimax_exog",
+        "batch_id": batch_id,
+        "metric_id": metric_id,
+        "geo_id": geo_id,
+        "property_type_id": str(property_type_id),
+        "anchor_date": str(anchor_date),
+        "data_asof_effective": str(data_asof_effective),
+        "horizon": int(horizon),
+        "feature_ids": list(map(str, feature_ids)),
+        "design_matrix_audit": str(design_matrix_audit_path),
+        "design_matrix_sha256": design_matrix_sha256,
+        "feature_set_sha256": feature_set_sha256,
+        "exog_future_audit": str(exog_future_audit_path) if exog_future_audit_path else None,
+        "exog_future_sha256": exog_future_sha256,
+        "policy_b": report,
+    }
+    (out_dir / fname).write_text(json.dumps(payload, indent=2, sort_keys=True))
 
 
 def _parse_asof_from_name(name: str) -> pd.Timestamp:
@@ -90,7 +153,9 @@ def _find_latest_design_matrix_artifact(
 
     return str(parquet_path), str(audit_path), audit
 
-
+# ======================================
+# Primary Function
+# ======================================
 def run_live_latest_artifact(
     *,
     metric_id: str,
@@ -172,9 +237,80 @@ def run_live_latest_artifact(
     y_train = y_full.loc[:anchor_ts]
     X_train = X_full.loc[:anchor_ts]
 
-    if len(y_train) < 24:
-        raise ValueError(f"[sarimax_exog_live] insufficient training rows: n={len(y_train)}")
+    # Enforce complete-case rows for fit (no implicit NA handling)
+    train_mask = y_train.notna() & X_train.notna().all(axis=1)
+    y_train = y_train.loc[train_mask].copy()
+    X_train = X_train.loc[train_mask].copy()
 
+    if len(y_train) < 24:
+        raise ValueError(f"[sarimax_exog_live] insufficient training rows after complete-case mask: n={len(y_train)}")
+
+
+    mu = X_train.mean(axis=0)
+    sd = X_train.std(axis=0, ddof=0).replace(0.0, 1.0).fillna(1.0)
+    X_train_z = (X_train - mu) / sd
+
+    X_future_z = (X_future - mu) / sd
+
+
+    thresholds = PolicyBThresholds(
+        min_obs_per_param=5.0,
+        max_exog_cond=1e12,
+        require_full_rank=True,
+        svd_rtol=1e-12,
+    )
+
+    diag = compute_exog_diagnostics(X_train_z.to_numpy(dtype=float), svd_rtol=thresholds.svd_rtol)
+    spec = SarimaxExogSpec()
+    arima_param_count = estimate_arima_param_count(order=tuple(spec.order), seasonal_order=tuple(spec.seasonal_order), trend=None)
+
+    context = {
+        "metric_id": metric_id,
+        "geo_id": geo_id,
+        "property_type_id": str(property_type_id),
+        "anchor_date": str(anchor_ts.date()),
+        "data_asof_effective": str(data_asof_effective),
+        "horizon": int(horizon),
+        "spec": {"order": list(spec.order), "seasonal_order": list(spec.seasonal_order)},
+    }
+
+    # Note: exog_future artifacts are already written by here (in your current flow).
+    # If you want fail-fast earlier, move gate before writing exog_future artifacts later.
+    try:
+        enforce_policy_b(
+            n_obs_train=int(diag["n_obs"]),
+            n_exogs=int(diag["n_exogs"]),
+            arima_param_count=int(arima_param_count),
+            exog_rank=int(diag["exog_rank"]),
+            exog_cond=float(diag["exog_cond"]),
+            thresholds=thresholds,
+            context=context,
+        )
+    except PolicyBViolation as e:
+        _write_policy_b_failure_live(
+            artifact_root=artifact_root,
+            batch_id=batch_id,
+            metric_id=metric_id,
+            geo_id=geo_id,
+            property_type_id=str(property_type_id),
+            anchor_date=str(anchor_ts.date()),
+            data_asof_effective=str(data_asof_effective),
+            horizon=int(horizon),
+            feature_ids=list(map(str, feature_ids)),
+            design_matrix_audit_path=design_audit_path,
+            design_matrix_sha256=audit.get("design_matrix_sha256"),
+            feature_set_sha256=audit.get("feature_set_sha256"),
+            exog_future_audit_path=str(exog_audit_path),
+            exog_future_sha256=exog_audit.get("exog_future_sha256"),
+            report=e.report,
+        )
+        raise ValueError(
+            "[sarimax_exog_live] POLICY B FAIL — refusing to fit/persist. "
+            f"failed_checks={e.report.get('failed_checks')}"
+        )
+    
+    
+    """
     # --- generate future exog (policy: seasonal naive) ---
     X_future = build_exog_future(
         X_hist=X_train,
@@ -204,6 +340,72 @@ def run_live_latest_artifact(
     spec = SarimaxExogSpec()
     res = fit_sarimax_exog(y_train=y_train, X_train=X_train, spec=spec)
     mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future, steps=int(horizon))
+    """
+
+
+    # --- fit + forecast (scaled exogs) ---
+    try:
+        res = fit_sarimax_exog(y_train=y_train, X_train=X_train_z, spec=spec)
+    except Exception as e:
+        report = {
+            "failed_checks": ["fit_exception"],
+            "diagnostics": {"exception_type": type(e).__name__, "exception": str(e)},
+            "context": context,
+        }
+        _write_policy_b_failure_live(
+            artifact_root=artifact_root,
+            batch_id=batch_id,
+            metric_id=metric_id,
+            geo_id=geo_id,
+            property_type_id=str(property_type_id),
+            anchor_date=str(anchor_ts.date()),
+            data_asof_effective=str(data_asof_effective),
+            horizon=int(horizon),
+            feature_ids=list(map(str, feature_ids)),
+            design_matrix_audit_path=design_audit_path,
+            design_matrix_sha256=audit.get("design_matrix_sha256"),
+            feature_set_sha256=audit.get("feature_set_sha256"),
+            exog_future_audit_path=str(exog_audit_path),
+            exog_future_sha256=exog_audit.get("exog_future_sha256"),
+            report=report,
+        )
+        raise
+
+    mle_retvals = getattr(res, "mle_retvals", None) or {}
+    fit_converged = bool(mle_retvals.get("converged")) if isinstance(mle_retvals, dict) else None
+    if fit_converged is False:
+        report = {
+            "failed_checks": ["not_converged"],
+            "diagnostics": {"aic": getattr(res, "aic", None), "bic": getattr(res, "bic", None), "mle_retvals": mle_retvals},
+            "context": context,
+        }
+        _write_policy_b_failure_live(
+            artifact_root=artifact_root,
+            batch_id=batch_id,
+            metric_id=metric_id,
+            geo_id=geo_id,
+            property_type_id=str(property_type_id),
+            anchor_date=str(anchor_ts.date()),
+            data_asof_effective=str(data_asof_effective),
+            horizon=int(horizon),
+            feature_ids=list(map(str, feature_ids)),
+            design_matrix_audit_path=design_audit_path,
+            design_matrix_sha256=audit.get("design_matrix_sha256"),
+            feature_set_sha256=audit.get("feature_set_sha256"),
+            exog_future_audit_path=str(exog_audit_path),
+            exog_future_sha256=exog_audit.get("exog_future_sha256"),
+            report=report,
+        )
+        raise ValueError("[sarimax_exog_live] NOT CONVERGED — refusing to persist run.")
+
+    mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future_z, steps=int(horizon))
+
+
+
+
+
+
+    
 
     target_dates = [pd.Timestamp(d).date() for d in X_future.index]
 
@@ -223,6 +425,22 @@ def run_live_latest_artifact(
         "fit_diag": {
             "aic": getattr(res, "aic", None),
             "bic": getattr(res, "bic", None),
+            "fit_converged": fit_converged,
+            "mle_retvals": mle_retvals,
+            "n_obs_train": int(diag["n_obs"]),
+            "n_exogs": int(diag["n_exogs"]),
+            "exog_rank": int(diag["exog_rank"]),
+            "exog_cond": float(diag["exog_cond"]),
+            "exog_smin": float(diag["exog_smin"]),
+            "exog_scaled": True,
+            "exog_scale_mode": "zscore_train",
+        },
+        "policy_b": {
+            "min_obs_per_param": thresholds.min_obs_per_param,
+            "max_exog_cond": thresholds.max_exog_cond,
+            "require_full_rank": thresholds.require_full_rank,
+            "svd_rtol": thresholds.svd_rtol,
+            "arima_param_count_est": int(arima_param_count),
         },
         "contracts": {
             "run_kind": "live",
