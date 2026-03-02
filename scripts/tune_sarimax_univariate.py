@@ -210,7 +210,7 @@ if __name__ == "__main__":
                 "spec": spec_key,
                 "order": str(order),
                 "seasonal_order": str(seasonal_order),
-                "trend": str(cfg.trend),
+                "trend": str(trend),
                 "n_anchors_ok": len(oks),
                 "avg_rmse": avg_rmse,
                 "avg_mae": avg_mae,
