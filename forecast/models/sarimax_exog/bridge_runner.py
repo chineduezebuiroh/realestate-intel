@@ -496,6 +496,21 @@ def run_bridge_from_design_matrix_artifact(
     X_train_sm = X_train.copy()
     X_future_sm = X_future.copy()
 
+
+    # --- deterministic exog diagnostics (always defined) ---
+    def _exog_diag(X: pd.DataFrame) -> dict:
+        Xv = X.to_numpy(dtype=float)
+        return {
+            "mean_abs_mean": float(np.abs(np.nanmean(Xv, axis=0)).mean()),
+            "mean_std": float(np.nanstd(Xv, axis=0).mean()),
+            "max_abs": float(np.nanmax(np.abs(Xv))),
+            "any_nan": bool(np.isnan(Xv).any()),
+            "any_inf": bool(np.isinf(Xv).any()),
+            "shape": [int(Xv.shape[0]), int(Xv.shape[1])],
+        }
+    
+    exog_diag_pre_fit = _exog_diag(X_train_sm)
+
     
     y_train_sm.index = _to_monthly_period_index(y_train_sm.index)
     X_train_sm.index = _to_monthly_period_index(X_train_sm.index)
