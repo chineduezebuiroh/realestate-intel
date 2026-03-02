@@ -32,7 +32,7 @@ class TuneConfig:
     Q_values: tuple[int, ...] = (0, 1)
 
     seasonal_period: int = 12
-    trend: Optional[str] = None  # None, "c", "t", "ct"
+    trend_grid: tuple[Optional[str], ...] = (None, "c")  # keep small; add "t","ct" only if you mean it
 
     enforce_stationarity: bool = False
     enforce_invertibility: bool = False
@@ -92,12 +92,15 @@ def score_forecast(y_true: np.ndarray, y_hat: np.ndarray) -> dict:
     return {"mae": mae, "rmse": rmse, "mape_pct": mape}
 
 
-def iter_specs(cfg: TuneConfig) -> Iterable[tuple[tuple[int, int, int], tuple[int, int, int, int]]]:
+def iter_specs(cfg: TuneConfig) -> Iterable[
+    tuple[tuple[int, int, int], tuple[int, int, int, int], Optional[str]]
+]:
     for p, d, q in itertools.product(cfg.p_values, cfg.d_values, cfg.q_values):
         for P, D, Q in itertools.product(cfg.P_values, cfg.D_values, cfg.Q_values):
-            order = (p, d, q)
-            seasonal_order = (P, D, Q, cfg.seasonal_period)
-            yield order, seasonal_order
+            for trend in cfg.trend_grid:
+                order = (p, d, q)
+                seasonal_order = (P, D, Q, cfg.seasonal_period)
+                yield order, seasonal_order, trend
 
 
 def fit_and_forecast(
@@ -125,12 +128,6 @@ def fit_and_forecast(
     return mean
 
 
-def main():
-    cfg = TuneConfig(
-        metric_id=str(pd.get_option("mode.data_manager")),  # dummy line removed below
-    )
-
-
 if __name__ == "__main__":
     # --- config via env vars / quick edits ---
     # Edit these directly if you prefer.
@@ -142,15 +139,16 @@ if __name__ == "__main__":
         anchors_csv="2020-12-31,2021-12-31,2022-12-31,2023-12-31,2024-06-30",
         horizon=18,
         min_train_len=87,
-        trend=None,
+        trend_grid=(None, "c"),
     )
 
     y = load_series(cfg)
     anchors = _parse_anchors(cfg.anchors_csv)
 
     rows = []
-    for order, seasonal_order in iter_specs(cfg):
-        spec_key = f"order={order} seas={seasonal_order} trend={cfg.trend}"
+    
+    for order, seasonal_order, trend in iter_specs(cfg):
+        spec_key = f"order={order} seas={seasonal_order} trend={trend}"
         per_anchor = []
         ok = True
 
@@ -180,7 +178,7 @@ if __name__ == "__main__":
                     steps=cfg.horizon,
                     order=order,
                     seasonal_order=seasonal_order,
-                    trend=cfg.trend,
+                    trend=trend,
                     enforce_stationarity=cfg.enforce_stationarity,
                     enforce_invertibility=cfg.enforce_invertibility,
                     maxiter=cfg.maxiter,
@@ -197,7 +195,11 @@ if __name__ == "__main__":
 
         # aggregate only ok anchors
         oks = [r for r in per_anchor if r.get("status") == "ok"]
-        if not oks:
+        n_ok = len(oks)
+        n_total = len(anchors)
+        
+        # STRICT: require success on every anchor
+        if n_ok != n_total:
             continue
 
         avg_rmse = float(np.mean([r["rmse"] for r in oks]))
@@ -225,7 +227,11 @@ if __name__ == "__main__":
     print(out.head(15).to_string(index=False))
 
     # Optional: write results
-    out_path = "artifacts/phasec/eval/sarimax_univariate_tuning__median_ppsf__dc_city__pt6__h12.csv"
+    out_path = (
+        "artifacts/phasec/eval/"
+        f"sarimax_univariate_tuning__metric={cfg.metric_id}__geo={cfg.geo_id}__pt={cfg.property_type_id}"
+        f"__h={cfg.horizon}__scoreN={cfg.score_first_n}__nanchors={len(anchors)}.csv"
+    )
     try:
         pd.Series([out_path]).to_csv  # no-op to silence linters
         out.to_csv(out_path, index=False)
