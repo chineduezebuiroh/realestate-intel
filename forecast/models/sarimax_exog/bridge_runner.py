@@ -17,6 +17,13 @@ from forecast.core.db_forecast import get_connection, insert_run, insert_predict
 from forecast.features.fact_loader import load_series_from_fact
 
 from forecast.models.sarimax_exog.core import SarimaxExogSpec, fit_sarimax_exog, forecast_sarimax_exog
+from forecast.models.sarimax_exog.policy_b import (
+    PolicyBThresholds,
+    PolicyBViolation,
+    compute_exog_diagnostics,
+    enforce_policy_b,
+    estimate_arima_param_count,
+)
 
 # ====================================================
 # Helpers
@@ -74,6 +81,56 @@ def _sha256_file(path: str) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _write_policy_b_failure_bridge(
+    *,
+    artifact_root: str,
+    batch_id: str,
+    metric_id: str,
+    geo_id: str,
+    property_type_id: str,
+    anchor_date: str,
+    data_asof: str,
+    horizon: int,
+    run_kind: str,
+    model_version: str,
+    feature_ids_effective: list[str],
+    design_matrix_sha256: Optional[str],
+    feature_set_sha256: Optional[str],
+    report: dict,
+) -> None:
+    out_dir = Path(artifact_root.rstrip("/")) / "runs" / batch_id / "sarimax_exog_bridge" / metric_id / "policy_b_failures"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    fname = (
+        f"policy_b_failure__kind={run_kind}"
+        f"__metric={metric_id}__geo={geo_id}__pt={property_type_id}"
+        f"__anchor={pd.Timestamp(anchor_date).date().isoformat()}"
+        f"__asof={pd.Timestamp(data_asof).date().isoformat()}"
+        f"__h={int(horizon)}"
+        f"__mv={model_version}"
+        f".json"
+    )
+    payload = {
+        "ts_utc": datetime.utcnow().isoformat() + "Z",
+        "run_kind": run_kind,
+        "model": "sarimax_exog",
+        "model_version": model_version,
+        "batch_id": batch_id,
+        "metric_id": metric_id,
+        "geo_id": geo_id,
+        "property_type_id": property_type_id,
+        "anchor_date": str(anchor_date),
+        "data_asof": str(data_asof),
+        "horizon": int(horizon),
+        "feature_ids_effective": list(map(str, feature_ids_effective)),
+        "design_matrix_sha256": design_matrix_sha256,
+        "feature_set_sha256": feature_set_sha256,
+        "policy_b": report,
+    }
+    (out_dir / fname).write_text(json.dumps(payload, indent=2, sort_keys=True))
+
 
 def _resolve_canonical_exog_csv(
     *,
@@ -360,6 +417,7 @@ def run_bridge_from_design_matrix_artifact(
     run_kind: str,  # "backtest" or "live"
     is_active: bool,
     model_version: str = "v0_bridge_artifact",
+    artifact_root: str,
 ) -> int:
     # ---- load artifacts ----
 
@@ -446,38 +504,126 @@ def run_bridge_from_design_matrix_artifact(
     
     spec = SarimaxExogSpec()
 
-    
+    # ----------------------------
+    # POLICY B (MANDATORY) — adequacy gate BEFORE FIT
+    # ----------------------------
+    thresholds = PolicyBThresholds(
+        min_obs_per_param=5.0,
+        max_exog_cond=1e12,
+        require_full_rank=True,
+        svd_rtol=1e-12,
+    )
 
-    # --- DEBUG: exog diagnostics right before fit ---
-    import numpy as np
-    
-    def _exog_diag(X: "pd.DataFrame") -> dict:
-        Xv = X.to_numpy(dtype=float)
-        return {
-            "mean_abs_mean": float(np.abs(np.nanmean(Xv, axis=0)).mean()),
-            "mean_std": float(np.nanstd(Xv, axis=0).mean()),
-            "max_abs": float(np.nanmax(np.abs(Xv))),
-            "any_nan": bool(np.isnan(Xv).any()),
-            "any_inf": bool(np.isinf(Xv).any()),
-            "shape": [int(Xv.shape[0]), int(Xv.shape[1])],
+    # diagnostics on EXACT matrix we pass to SARIMAX (post-scaling, post-windowing)
+    exog_train_np = X_train_sm.to_numpy(dtype=float)
+
+    diag = compute_exog_diagnostics(exog_train_np, svd_rtol=thresholds.svd_rtol)
+    arima_param_count = estimate_arima_param_count(
+        order=tuple(spec.order),
+        seasonal_order=tuple(spec.seasonal_order),
+        trend=None,
+    )
+
+    context = {
+        "metric_id": metric_id,
+        "geo_id": geo_id,
+        "property_type_id": property_type_id,
+        "anchor_date": anchor_date,
+        "data_asof": data_asof,
+        "horizon": int(horizon),
+        "run_kind": run_kind,
+        "spec": {
+            "order": list(spec.order),
+            "seasonal_order": list(spec.seasonal_order),
+            "enforce_stationarity": bool(spec.enforce_stationarity),
+            "enforce_invertibility": bool(spec.enforce_invertibility),
+        },
+    }
+
+    try:
+        enforce_policy_b(
+            n_obs_train=int(diag["n_obs"]),
+            n_exogs=int(diag["n_exogs"]),
+            arima_param_count=int(arima_param_count),
+            exog_rank=int(diag["exog_rank"]),
+            exog_cond=float(diag["exog_cond"]),
+            thresholds=thresholds,
+            context=context,
+        )
+    except PolicyBViolation as e:
+        _write_policy_b_failure_bridge(
+            artifact_root=artifact_root,
+            batch_id=batch_id,
+            metric_id=metric_id,
+            geo_id=geo_id,
+            property_type_id=property_type_id,
+            anchor_date=anchor_date,
+            data_asof=data_asof,
+            horizon=horizon,
+            run_kind=run_kind,
+            model_version=model_version,
+            feature_ids_effective=list(map(str, feature_ids_effective)),
+            design_matrix_sha256=audit.get("design_matrix_sha256"),
+            feature_set_sha256=audit.get("feature_set_sha256"),
+            report=e.report,
+        )
+        print(
+            "[sarimax_exog_bridge] POLICY B FAIL — refusing to fit. "
+            f"failed_checks={e.report.get('failed_checks')} "
+            f"diag={e.report.get('diagnostics')}"
+        )
+        # HARD FAIL this anchor: do NOT write a run_id, do NOT write predictions
+        raise
+
+    # If Policy B passes, we are allowed to fit.
+    try:
+        res = fit_sarimax_exog(y_train=y_train_sm, X_train=X_train_sm, spec=spec)
+    except Exception as e:
+        report = {
+            "failed_checks": ["fit_exception"],
+            "diagnostics": {
+                "exception_type": type(e).__name__,
+                "exception": str(e),
+            },
+            "context": context,
         }
-    
-    exog_diag_pre_fit = _exog_diag(X_train_sm)
+        _write_policy_b_failure_bridge(... report=report ...)
+        raise
 
-    Xv = X_train_sm.to_numpy(dtype=float)
-    # numerical rank + condition number
-    u,s,vt = np.linalg.svd(Xv, full_matrices=False)
-    rank = int((s > 1e-10).sum())
-    cond = float(s[0]/s[-1]) if s[-1] > 0 else float("inf")
-
-
-    
-    res = fit_sarimax_exog(y_train=y_train_sm, X_train=X_train_sm, spec=spec)
-    mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future_sm, steps=horizon)
 
     mle_retvals = getattr(res, "mle_retvals", None) or {}
     fit_converged = bool(mle_retvals.get("converged")) if isinstance(mle_retvals, dict) else None
 
+    if fit_converged is False:
+        report = {
+            "failed_checks": ["not_converged"],
+            "diagnostics": {
+                "aic": getattr(res, "aic", None),
+                "bic": getattr(res, "bic", None),
+                "mle_retvals": mle_retvals,
+            },
+            "context": context,
+        }
+        _write_policy_b_failure_bridge(
+            artifact_root=artifact_root,
+            batch_id=batch_id,
+            metric_id=metric_id,
+            geo_id=geo_id,
+            property_type_id=property_type_id,
+            anchor_date=anchor_date,
+            data_asof=data_asof,
+            horizon=horizon,
+            run_kind=run_kind,
+            model_version=model_version,
+            feature_ids_effective=list(map(str, feature_ids_effective)),
+            design_matrix_sha256=audit.get("design_matrix_sha256"),
+            feature_set_sha256=audit.get("feature_set_sha256"),
+            report=report,
+        )
+        raise ValueError("[sarimax_exog_bridge] NOT CONVERGED — refusing to persist run.")
+
+    # Only forecast if fit is acceptable
+    mean_fc, ci = forecast_sarimax_exog(res=res, X_future=X_future_sm, steps=horizon)
     
     #target_dates = [d.date() for d in X_future.index]
     target_dates = [pd.to_datetime(d).date() for d in X_future.index]
@@ -507,9 +653,16 @@ def run_bridge_from_design_matrix_artifact(
             "iterations": (mle_retvals.get("iterations") if isinstance(mle_retvals, dict) else None),
             "warnflag": (mle_retvals.get("warnflag") if isinstance(mle_retvals, dict) else None),
             "fopt": (mle_retvals.get("fopt") if isinstance(mle_retvals, dict) else None),
-            "exog_rank": rank,
-            "exog_cond": cond,
-            "exog_smin": float(s[-1]),
+            "policy_b": {
+                "min_obs_per_param": thresholds.min_obs_per_param,
+                "max_exog_cond": thresholds.max_exog_cond,
+                "require_full_rank": thresholds.require_full_rank,
+                "svd_rtol": thresholds.svd_rtol,
+                "arima_param_count_est": int(arima_param_count),
+            },
+            "exog_rank": int(diag["exog_rank"]),
+            "exog_cond": float(diag["exog_cond"]),
+            "exog_smin": float(diag["exog_smin"]),
         },
         "spec": {
             "order": list(spec.order),
@@ -872,6 +1025,7 @@ def run_backtest_sarimax_exog_bridge(
                     data_asof=str(data_asof_date),
                     run_kind=run_kind,
                     is_active=is_active,
+                    artifact_root=artifact_root,
                 )
         
                 results["success"].append({
