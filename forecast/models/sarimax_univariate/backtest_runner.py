@@ -227,7 +227,7 @@ def run_backtest_sarimax_single(
             enforce_invertibility=bool(enforce_invertibility),
             trend=trend,
         )
-        res = model.fit(disp=False)
+        res = model.fit(disp=False, maxiter=int(maxiter))
 
         # Forecast horizon_bt steps
         fc = res.get_forecast(steps=horizon_bt)
