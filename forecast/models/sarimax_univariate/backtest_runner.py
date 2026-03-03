@@ -262,7 +262,7 @@ def run_backtest_sarimax_single(
         run_id = insert_run(
             con=con,
             model_name="sarimax_univariate",
-            model_version_effective = model_version or "v1",
+            model_version=model_version_effective,
             target_metric_id=metric_id,
             target_geo_id=geo_id,
             target_property_type_id=property_type_id,
