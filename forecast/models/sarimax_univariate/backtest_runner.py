@@ -98,7 +98,14 @@ def run_backtest_sarimax_single(
     batch_id: Optional[str] = None,
     data_asof: Optional[str] = None,  # YYYY-MM-DD
     anchors_csv: Optional[str] = None,
-):
+    order: tuple[int, int, int] = (0, 1, 0),
+    seasonal_order: tuple[int, int, int, int] = (1, 1, 1, 12),
+    trend: str | None = None,
+    model_version: str | None = None,
+    enforce_stationarity: bool=False,
+    enforce_invertibility: bool=False,
+    maxiter: int = 200,
+):    
     """
     Run a few SARIMAX backtest folds for a single target series.
 
@@ -213,11 +220,12 @@ def run_backtest_sarimax_single(
 
         # Fit SARIMAX
         model = SARIMAX(
-            endog=y_train,
-            order=(1, 1, 1),
-            seasonal_order=(1, 1, 1, 12),
-            enforce_stationarity=False,
-            enforce_invertibility=False,
+            endog=y_train.astype(float),
+            order=order,
+            seasonal_order=seasonal_order,
+            enforce_stationarity=bool(enforce_stationarity),
+            enforce_invertibility=bool(enforce_invertibility),
+            trend=trend,
         )
         res = model.fit(disp=False)
 
@@ -227,11 +235,13 @@ def run_backtest_sarimax_single(
         ci = fc.conf_int().values  # shape (horizon_bt, 2)
 
         algo_params = {
-            "order": (1, 1, 1),
-            "seasonal_order": (1, 1, 1, 12),
+            "order": list(order),
+            "seasonal_order": list(seasonal_order),
+            "trend": trend,  # None or "c"/"t"/"ct"
+            "enforce_stationarity": bool(enforce_stationarity),
+            "enforce_invertibility": bool(enforce_invertibility),
             "n_obs": int(len(y_train)),
-            "anchor_date": str(anchor_date.date()),
-            
+            "anchor_date": str(anchor_date.date()),            
             "contracts": {
                 "run_kind": "backtest",
                 "anchor_date": str(anchor_date.date()),
@@ -248,10 +258,11 @@ def run_backtest_sarimax_single(
         
         con = get_connection()
 
+        model_version_effective = model_version or "v1"
         run_id = insert_run(
             con=con,
             model_name="sarimax_univariate",
-            model_version="v1",
+            model_version_effective = model_version or "v1",
             target_metric_id=metric_id,
             target_geo_id=geo_id,
             target_property_type_id=property_type_id,
@@ -289,46 +300,3 @@ def run_backtest_sarimax_single(
     print("\n[backtest] Summary:")
     for r in results_summary:
         print(f"  anchor={r['anchor_date'].date()} -> run_id={r['run_id']}")
-
-
-def main(argv: Optional[List[str]] = None) -> int:
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Run SARIMAX backtests for a single target series."
-    )
-    parser.add_argument("--metric_id", default="median_sale_price")
-    parser.add_argument("--geo_id", default="dc_city")
-    parser.add_argument("--property_type_id", default="-1")
-    parser.add_argument("--horizon", type=int, default=12)
-
-    parser.add_argument("--min_train_len", type=int, default=DEFAULT_MIN_TRAIN_LEN)
-    parser.add_argument("--anchor_step_months", type=int, default=DEFAULT_ANCHOR_STEP_MONTHS)
-    parser.add_argument("--max_anchors", type=int, default=DEFAULT_MAX_ANCHORS)
-    parser.add_argument("--latest_anchor_offset_months", type=int, default=None)
-
-    parser.add_argument("--batch_id", type=str, default=None)
-    parser.add_argument("--data_asof", type=str, default=None)  # YYYY-MM-DD
-    parser.add_argument(
-        "--anchors",
-        type=str,
-        default=None,
-        help="Comma-separated anchor dates YYYY-MM-DD. If provided, overrides internal anchor selection.",
-    )
-
-    args = parser.parse_args(argv)
-
-    run_backtest_sarimax_single(
-        metric_id=args.metric_id,
-        geo_id=args.geo_id,
-        property_type_id=args.property_type_id,
-        horizon=args.horizon,
-        min_train_len=args.min_train_len,
-        anchor_step_months=args.anchor_step_months,
-        max_anchors=args.max_anchors,
-        latest_anchor_offset_months=args.latest_anchor_offset_months,
-        batch_id=args.batch_id,
-        data_asof=args.data_asof,
-        anchors_csv=args.anchors,
-    )
-    return 0
