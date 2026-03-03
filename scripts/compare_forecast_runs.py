@@ -128,6 +128,10 @@ def load_runs_by_batch(
     batch_id: str,
     *,
     model_label: str,
+    metric: str,
+    geo: str,
+    pt: str,
+    horizon: Optional[int] = None,
     run_kind: Optional[str] = "backtest",
 ) -> pd.DataFrame:
     q = """
@@ -144,15 +148,26 @@ def load_runs_by_batch(
       run_kind
     from forecast_runs
     where batch_id = ?
+      and target_metric_id = ?
+      and target_geo_id = ?
+      and cast(target_property_type_id as varchar) = ?
     """
-    params = [batch_id]
+    params = [batch_id, metric, geo, str(pt)]
+    
+    if horizon is not None:
+        q += " and horizon_max_months = ?"
+        params.append(int(horizon))
+    
     if run_kind is not None:
         q += " and run_kind = ?"
         params.append(run_kind)
-
+    
     df = con.execute(q, params).df()
     if df.empty:
-        raise SystemExit(f"No forecast_runs rows for batch_id={batch_id!r} (run_kind={run_kind!r})")
+        raise SystemExit(
+            f"No forecast_runs rows for batch_id={batch_id!r} after filtering "
+            f"metric={metric!r} geo={geo!r} pt={str(pt)!r} horizon={horizon!r} run_kind={run_kind!r}"
+        )
 
     df["train_end"] = pd.to_datetime(df["train_end"])
     df["train_end"] = df["train_end"].dt.to_period("M").dt.to_timestamp("M")
@@ -380,7 +395,16 @@ def main() -> int:
     
         runs_parts = []
         for label, batch_id in picks:
-            dfb = load_runs_by_batch(con, batch_id=batch_id, model_label=label, run_kind="backtest")
+            dfb = load_runs_by_batch(
+                con,
+                batch_id=batch_id,
+                model_label=label,
+                metric=args.metric,
+                geo=args.geo,
+                pt=args.pt,
+                horizon=18,          # optional but recommended here since your batches are h=18
+                run_kind="backtest",
+            )
             runs_parts.append(dfb)
     
         runs_all = pd.concat(runs_parts, ignore_index=True)
