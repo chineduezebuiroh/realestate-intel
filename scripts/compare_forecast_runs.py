@@ -123,6 +123,45 @@ def load_runs(con: duckdb.DuckDBPyConnection, run_ids: List[int]) -> pd.DataFram
     return df
 
 
+def load_runs_by_batch(
+    con: duckdb.DuckDBPyConnection,
+    batch_id: str,
+    *,
+    model_label: str,
+    run_kind: Optional[str] = "backtest",
+) -> pd.DataFrame:
+    q = """
+    select
+      run_id,
+      model_name,
+      model_version,
+      target_metric_id,
+      target_geo_id,
+      target_property_type_id,
+      train_end,
+      horizon_max_months,
+      batch_id,
+      run_kind
+    from forecast_runs
+    where batch_id = ?
+    """
+    params = [batch_id]
+    if run_kind is not None:
+        q += " and run_kind = ?"
+        params.append(run_kind)
+
+    df = con.execute(q, params).df()
+    if df.empty:
+        raise SystemExit(f"No forecast_runs rows for batch_id={batch_id!r} (run_kind={run_kind!r})")
+
+    df["train_end"] = pd.to_datetime(df["train_end"])
+    df["train_end"] = df["train_end"].dt.to_period("M").dt.to_timestamp("M")
+
+    # attach label here so we can build anchors_df cleanly
+    df["model"] = model_label
+    return df
+
+
 def load_predictions(con: duckdb.DuckDBPyConnection, run_ids: List[int]) -> pd.DataFrame:
     q = f"""
     select
@@ -164,7 +203,11 @@ def score_levels(joined: pd.DataFrame, n: int) -> pd.DataFrame:
             }
         )
 
-    out = joined.groupby(["model", "anchor", "run_id"], as_index=False).apply(_score).reset_index(drop=True)
+    out = (
+        joined.groupby(["model", "anchor", "run_id"], as_index=False)
+        .apply(_score, include_groups=False)
+        .reset_index(drop=True)
+    )
     return out
 
 
@@ -297,37 +340,101 @@ def main() -> int:
     ap.add_argument("--metric", required=True)
     ap.add_argument("--geo", required=True)
     ap.add_argument("--pt", required=True)
-
     ap.add_argument(
         "--runs_json",
-        required=True,
+        required=False,
         help='JSON mapping model->(anchor_date->run_id). Example: \'{"sarimax_exog":{"2020-12-31":1220},"sarimax_univariate":{"2020-12-31":1233}}\'',
+    )
+    ap.add_argument(
+        "--pick",
+        action="append",
+        default=[],
+        help="Repeatable. Format: label=batch_id. Example: sarimax_univariate_old=phasec__...__v=02",
     )
     ap.add_argument("--horizons", default="6,12,18", help="Comma-separated horizons (months) for directional scoring.")
     ap.add_argument("--score_first_n", default="12,18", help="Comma-separated N for level scoring windows.")
+    
     args = ap.parse_args()
+    if not args.runs_json and not args.pick:
+        raise SystemExit("Provide either --runs_json or at least one --pick label=batch_id")
 
-    runs_map = parse_runs_json(args.runs_json)
+
     horizons = [int(x.strip()) for x in args.horizons.split(",") if x.strip()]
     score_ns = [int(x.strip()) for x in args.score_first_n.split(",") if x.strip()]
-
-    # Build mapping table (model, anchor, run_id)
-    rows = []
-    for model, amap in runs_map.items():
-        for anchor, rid in amap.items():
-            rows.append({"model": model, "anchor": _month_end(pd.Timestamp(anchor)), "run_id": int(rid)})
-    anchors_df = pd.DataFrame(rows)
-    if anchors_df.empty:
-        raise SystemExit("Empty runs_json mapping.")
-
-    run_ids = sorted(anchors_df["run_id"].unique().tolist())
-
+    
     con = duckdb.connect(args.db)
-
-    # Load
+    
+    # --- Build anchors_df and run_ids ---
+    if args.pick:
+        # Parse picks: label=batch_id
+        picks: List[Tuple[str, str]] = []
+        for s in args.pick:
+            if "=" not in s:
+                raise SystemExit(f"--pick must be label=batch_id, got: {s!r}")
+            label, batch = s.split("=", 1)
+            label = label.strip()
+            batch = batch.strip()
+            if not label or not batch:
+                raise SystemExit(f"--pick must be label=batch_id, got: {s!r}")
+            picks.append((label, batch))
+    
+        runs_parts = []
+        for label, batch_id in picks:
+            dfb = load_runs_by_batch(con, batch_id=batch_id, model_label=label, run_kind="backtest")
+            runs_parts.append(dfb)
+    
+        runs_all = pd.concat(runs_parts, ignore_index=True)
+    
+        # Enforce target match early (don’t let mixed batches poison results)
+        bad = runs_all[
+            (runs_all["target_metric_id"] != args.metric)
+            | (runs_all["target_geo_id"] != args.geo)
+            | (runs_all["target_property_type_id"].astype(str) != str(args.pt))
+        ]
+        if len(bad):
+            print("\nWARNING: Some runs in picked batches do not match metric/geo/pt you requested:")
+            print(bad[["model","batch_id","run_id","target_metric_id","target_geo_id","target_property_type_id"]].to_string(index=False))
+    
+        # Build anchors_df: anchor := train_end (the contract)
+        anchors_df = runs_all[["model", "run_id", "train_end"]].rename(columns={"train_end": "anchor"}).copy()
+    
+        # Intersect anchors across all models (THIS is what makes comparisons legit)
+        anchor_sets = {m: set(g["anchor"].tolist()) for m, g in anchors_df.groupby("model")}
+        common = set.intersection(*anchor_sets.values()) if anchor_sets else set()
+        if not common:
+            raise SystemExit("No common anchors across picked batches. You are not comparing like-for-like.")
+        before = len(anchors_df)
+        anchors_df = anchors_df[anchors_df["anchor"].isin(common)].copy()
+        after = len(anchors_df)
+    
+        # Optional: report shrink
+        if after != before:
+            print(f"[compare] anchor intersection kept {len(common)} anchors; rows {before} -> {after}")
+    
+        run_ids = sorted(anchors_df["run_id"].unique().tolist())
+        runs = runs_all[runs_all["run_id"].isin(run_ids)].copy()
+    
+    else:
+        # legacy mode: runs_json explicit mapping
+        if not args.runs_json:
+            raise SystemExit("Provide --runs_json or --pick")
+        runs_map = parse_runs_json(args.runs_json)
+    
+        rows = []
+        for model, amap in runs_map.items():
+            for anchor, rid in amap.items():
+                rows.append({"model": model, "anchor": _month_end(pd.Timestamp(anchor)), "run_id": int(rid)})
+        anchors_df = pd.DataFrame(rows)
+        if anchors_df.empty:
+            raise SystemExit("Empty runs_json mapping.")
+    
+        run_ids = sorted(anchors_df["run_id"].unique().tolist())
+        runs = load_runs(con, run_ids)
+    
+    # --- Load series & predictions ---
     actual = load_actual_series(con, args.metric, args.geo, args.pt)
     preds = load_predictions(con, run_ids)
-    runs = load_runs(con, run_ids)
+
 
     # Sanity: ensure runs match target
     bad = runs[
