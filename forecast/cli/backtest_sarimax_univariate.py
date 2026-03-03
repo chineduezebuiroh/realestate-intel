@@ -27,8 +27,33 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=None,
         help="Comma-separated anchor dates YYYY-MM-DD (optional). If provided, overrides internal anchor selection.",
     )
+    ap.add_argument("--order", type=str, default=None,
+                    help='ARIMA order as "p,d,q" (e.g. "0,1,0"). If omitted, use default/spec search.')
+    ap.add_argument("--seasonal-order", type=str, default=None,
+                    help='Seasonal order as "P,D,Q,s" (e.g. "1,1,1,12"). If omitted, use default/spec search.')
+    ap.add_argument("--trend", type=str, default=None,
+                    help='Trend: none|c|t|ct. If omitted, use runner default.')
+    ap.add_argument("--model-version", type=str, default=None,
+                    help="Optional model_version tag to write into forecast_runs.model_version")
 
     args = ap.parse_args(argv)
+
+    def _parse_int_tuple(s: str, n: int, name: str):
+        parts = [p.strip() for p in s.split(",")]
+        if len(parts) != n:
+            raise ValueError(f"{name} must have {n} ints, got {len(parts)}: {s!r}")
+        return tuple(int(p) for p in parts)
+    
+    order = _parse_int_tuple(args.order, 3, "--order") if args.order else None
+    seasonal_order = _parse_int_tuple(args.seasonal_order, 4, "--seasonal-order") if args.seasonal_order else None
+    
+    trend = args.trend
+    if trend is not None:
+        trend = trend.strip().lower()
+        if trend in ("none", "null", ""):
+            trend = None
+        elif trend not in ("c", "t", "ct"):
+            raise ValueError("--trend must be one of: none|c|t|ct")
 
     run_backtest_sarimax_single(
         metric_id=args.metric_id,
@@ -42,9 +67,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         batch_id=args.batch_id,
         data_asof=args.data_asof,
         anchors_csv=args.anchors,
+        order=order,
+        seasonal_order=seasonal_order,
+        trend=trend,
+        model_version=args.model_version,
     )
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
