@@ -67,6 +67,61 @@ def _linreg_slope_intercept(x: np.ndarray, y: np.ndarray) -> Tuple[float, float,
     return float(b), float(a), int(len(x))
 
 
+def compute_regime_thresholds_quantile(
+    actual: pd.DataFrame,
+    horizons: List[int],
+    q: List[float] = [0.2, 0.4, 0.6, 0.8],
+) -> Dict[int, List[float]]:
+    """
+    Returns {horizon_months: [q20, q40, q60, q80]} for delta_true (as fraction, not pct).
+    Uses the actual series only.
+    """
+    a = actual[["target_date", "y"]].copy()
+    a["target_date"] = pd.to_datetime(a["target_date"]).dt.to_period("M").dt.to_timestamp("M")
+    s = a.set_index("target_date")["y"].astype(float).sort_index()
+
+    out: Dict[int, List[float]] = {}
+    for h in horizons:
+        deltas = []
+        for anchor_me in s.index:
+            t_me = _add_months_me(anchor_me, h)
+            if t_me not in s.index:
+                continue
+            y0 = float(s.loc[anchor_me])
+            y1 = float(s.loc[t_me])
+            if not np.isfinite(y0) or not np.isfinite(y1) or abs(y0) < 1e-12:
+                continue
+            deltas.append((y1 / y0) - 1.0)
+
+        if len(deltas) < 30:
+            # you can tighten this later; for now don’t pretend it’s robust
+            out[h] = []
+            continue
+
+        qs = np.quantile(np.array(deltas, dtype=float), q).tolist()
+        out[h] = [float(x) for x in qs]
+
+    return out
+
+
+def bin_regime_by_thresholds(delta: float, qs: List[float]) -> str:
+    """
+    delta is fraction (0.05 == +5%).
+    qs is [q20, q40, q60, q80]
+    """
+    if not qs:
+        return "regime_unknown"
+    q20, q40, q60, q80 = qs
+    if delta <= q20:
+        return "R1_low"
+    if delta <= q40:
+        return "R2_midlow"
+    if delta <= q60:
+        return "R3_mid"
+    if delta <= q80:
+        return "R4_midhigh"
+    return "R5_high"
+    
 # -----------------------------
 # Core loads
 # -----------------------------
@@ -219,7 +274,7 @@ def score_levels(joined: pd.DataFrame, n: int) -> pd.DataFrame:
         )
 
     out = (
-        joined.groupby(["model", "anchor", "run_id"], as_index=False)
+        joined.groupby(["model", "anchor", "run_id"], as_index=False, group_keys=False)
         .apply(_score, include_groups=False)
         .reset_index(drop=True)
     )
@@ -239,7 +294,8 @@ def score_directional(
       - regime hit
       - abs error on delta pct
     """
-
+    thr = compute_regime_thresholds_quantile(actual, horizons=horizons)
+    
     # Build quick lookup for actual y at any month-end
     a = actual[["target_date", "y"]].copy()
     a = a.set_index("target_date")["y"].astype(float)
@@ -266,16 +322,29 @@ def score_directional(
                 continue
             y_hat = float(g["y_hat"].iloc[0])
 
+            
             # percent changes from anchor
             delta_true = (y_true / max(1e-12, y0)) - 1.0
             delta_hat = (y_hat / max(1e-12, y0)) - 1.0
+
+            # magnitude / blowup penalties (pct-points)
+            abs_delta_err_pctpts = abs(delta_hat - delta_true) * 100.0
+
+            # penalize exaggerated confidence (only when forecast magnitude > true magnitude)
+            overshoot_pctpts = max(0.0, (abs(delta_hat) - abs(delta_true)) * 100.0)
+
+            # punish big misses harder than small ones
+            squared_err_pctpts2 = ((delta_hat - delta_true) * 100.0) ** 2
+            
 
             dir_true = _safe_sign(delta_true)
             dir_hat = _safe_sign(delta_hat)
             dir_hit = int(dir_true == dir_hat)
 
-            reg_true = _bin_regime(delta_true)
-            reg_hat = _bin_regime(delta_hat)
+            qs = thr.get(int(h), [])
+            reg_true = bin_regime_by_thresholds(delta_true, qs)
+            reg_hat = bin_regime_by_thresholds(delta_hat, qs)
+
             reg_hit = int(reg_true == reg_hat)
 
             rows.append(
@@ -295,7 +364,9 @@ def score_directional(
                     "reg_true": reg_true,
                     "reg_hat": reg_hat,
                     "reg_hit": reg_hit,
-                    "abs_delta_err_pctpts": abs(delta_hat - delta_true) * 100.0,
+                    "abs_delta_err_pctpts": abs_delta_err_pctpts,
+                    "overshoot_pctpts": overshoot_pctpts,
+                    "squared_err_pctpts2": squared_err_pctpts2,
                 }
             )
 
@@ -324,6 +395,37 @@ def calibration_report(dir_df: pd.DataFrame) -> pd.DataFrame:
         )
     return pd.DataFrame(rows).sort_values(["horizon_months", "model"])
 
+
+def policy_eval_single_metric(dir_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    For each (model, horizon): treat reg_true as the 'truth' regime and reg_hat as predicted.
+    Returns confusion-style aggregates + a simple 'deploy/hold/defensive' action mapping (placeholder).
+    """
+    def action_from_regime(reg: str) -> str:
+        if reg.startswith("up_big"):
+            return "DEPLOY_AGGRESSIVE"
+        if reg.startswith("up_small"):
+            return "DEPLOY_NORMAL"
+        if reg.startswith("down_small"):
+            return "HOLD"
+        return "DEFENSIVE"
+
+    g = dir_df.copy()
+    g["action_true"] = g["reg_true"].map(action_from_regime)
+    g["action_hat"] = g["reg_hat"].map(action_from_regime)
+    g["action_hit"] = (g["action_true"] == g["action_hat"]).astype(int)
+
+    out = (
+        g.groupby(["model", "horizon_months"])
+        .agg(
+            n=("run_id", "count"),
+            action_hit_rate=("action_hit", "mean"),
+            mean_abs_delta_err=("abs_delta_err_pctpts", "mean"),
+        )
+        .reset_index()
+        .sort_values(["horizon_months", "action_hit_rate"], ascending=[True, False])
+    )
+    return out
 
 # -----------------------------
 # CLI
@@ -368,6 +470,13 @@ def main() -> int:
     )
     ap.add_argument("--horizons", default="6,12,18", help="Comma-separated horizons (months) for directional scoring.")
     ap.add_argument("--score_first_n", default="12,18", help="Comma-separated N for level scoring windows.")
+    ap.add_argument(
+        "--batch_horizon",
+        type=int,
+        default=None,
+        help="Optional. When using --pick, restrict selected runs to horizon_max_months == this value. "
+             "If omitted, do not filter by horizon.",
+    )
     
     args = ap.parse_args()
     if not args.runs_json and not args.pick:
@@ -402,7 +511,7 @@ def main() -> int:
                 metric=args.metric,
                 geo=args.geo,
                 pt=args.pt,
-                horizon=18,          # optional but recommended here since your batches are h=18
+                horizon=args.batch_horizon,
                 run_kind="backtest",
             )
             runs_parts.append(dfb)
@@ -421,6 +530,12 @@ def main() -> int:
     
         # Build anchors_df: anchor := train_end (the contract)
         anchors_df = runs_all[["model", "run_id", "train_end"]].rename(columns={"train_end": "anchor"}).copy()
+
+        dups = anchors_df.duplicated(subset=["model", "anchor"], keep=False)
+        if dups.any():
+            print("\nERROR: Duplicate (model, anchor) rows detected. You must have exactly one run per anchor per model.")
+            print(anchors_df.loc[dups].sort_values(["model", "anchor", "run_id"]).to_string(index=False))
+            raise SystemExit("Duplicate runs per anchor detected; fix batch selection or add disambiguation.")
     
         # Intersect anchors across all models (THIS is what makes comparisons legit)
         anchor_sets = {m: set(g["anchor"].tolist()) for m, g in anchors_df.groupby("model")}
@@ -524,6 +639,10 @@ def main() -> int:
     cal = calibration_report(dir_df)
     print("\n=== CALIBRATION (delta_true_pct ~ a + b*delta_hat_pct) ===")
     print(cal.to_string(index=False))
+
+    pe = policy_eval_single_metric(dir_df)
+    print("\n=== POLICY EVAL (single-metric action stub) ===")
+    print(pe.to_string(index=False))
 
     con.close()
     return 0
