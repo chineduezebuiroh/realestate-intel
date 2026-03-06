@@ -30,7 +30,7 @@ class TuneConfig:
     property_type_id: str = "6"
 
     anchors_csv: str = "2020-12-31,2021-12-31,2022-12-31,2023-12-31,2024-06-30"
-    horizon: int = 12
+    horizon: int = 24
     min_train_len: int = 87
 
     # Keep this small. Bigger grid = wasted time.
@@ -50,7 +50,7 @@ class TuneConfig:
     maxiter: int = 250
 
     # scoring horizon slice (use first 12 months for apples-to-apples)
-    score_first_n: int = 12
+    score_first_n: int = 24
 
 
 def _parse_anchors(anchors_csv: str) -> list[pd.Timestamp]:
@@ -183,7 +183,7 @@ if __name__ == "__main__":
         geo_id="dc_city",
         property_type_id="6",
         anchors_csv="2020-12-31,2021-12-31,2022-12-31,2023-12-31,2024-06-30",
-        horizon=12,
+        horizon=24,
         min_train_len=87,
         trend_grid=(None, "c"),
     )
