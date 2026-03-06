@@ -23,6 +23,50 @@ def _add_months_me(anchor_me: pd.Timestamp, n_months: int) -> pd.Timestamp:
     return (anchor_me.to_period("M") + n_months).to_timestamp("M")
 
 
+def _compute_delta_true_series(actual: pd.DataFrame, h: int) -> np.ndarray:
+    """
+    Compute realized forward % changes at horizon h for ALL valid anchors in actual.
+    Returns array of deltas (as decimals, e.g. 0.07 = +7%).
+    """
+    a = actual[["target_date", "y"]].copy()
+    a = a.set_index("target_date")["y"].astype(float).sort_index()
+
+    deltas = []
+    for t in a.index:
+        t2 = _add_months_me(pd.Timestamp(t), h)
+        if t2 in a.index:
+            y0 = float(a.loc[t])
+            y1 = float(a.loc[t2])
+            if np.isfinite(y0) and np.isfinite(y1) and abs(y0) > 1e-12:
+                deltas.append((y1 / y0) - 1.0)
+
+    return np.asarray(deltas, dtype=float)
+
+
+def _compute_regime_edges(actual: pd.DataFrame, h: int, q: Tuple[float, float, float] = (0.25, 0.50, 0.75)) -> Tuple[float, float, float]:
+    """
+    Return 3 cut points (q25, q50, q75) for delta_true at horizon h.
+    """
+    deltas = _compute_delta_true_series(actual, h)
+    deltas = deltas[np.isfinite(deltas)]
+    if len(deltas) < 20:
+        # don’t pretend you have regime science with tiny samples
+        raise SystemExit(f"Not enough delta_true samples to define quantile regimes for h={h}. Need >=20, got {len(deltas)}")
+    q1, q2, q3 = np.quantile(deltas, q)
+    return float(q1), float(q2), float(q3)
+
+
+def _bin_regime_quantile(delta: float, edges: Tuple[float, float, float]) -> str:
+    q1, q2, q3 = edges
+    if delta <= q1:
+        return "Q1_low"
+    if delta <= q2:
+        return "Q2_midlow"
+    if delta <= q3:
+        return "Q3_midhigh"
+    return "Q4_high"
+
+
 def _safe_sign(x: float, eps: float = 1e-12) -> int:
     if x > eps:
         return 1
@@ -286,6 +330,8 @@ def score_directional(
     actual: pd.DataFrame,
     anchors: pd.DataFrame,
     horizons: List[int],
+    regime_edges_by_h: Dict[int, Tuple[float, float, float]],
+    blowup_tol_pctpts: float = 10.0,
 ) -> pd.DataFrame:
     """
     Produce one row per (model, anchor, run_id, horizon_months) with:
@@ -342,11 +388,22 @@ def score_directional(
             dir_hit = int(dir_true == dir_hat)
 
             qs = thr.get(int(h), [])
-            reg_true = bin_regime_by_thresholds(delta_true, qs)
-            reg_hat = bin_regime_by_thresholds(delta_hat, qs)
+            
 
+            edges = regime_edges_by_h.get(int(h))
+            if edges is None:
+                continue  # no regime definition => no scoring
+            
+            reg_true = _bin_regime_quantile(delta_true, edges)
+            reg_hat  = _bin_regime_quantile(delta_hat,  edges)
             reg_hit = int(reg_true == reg_hat)
-
+            
+            abs_err_pctpts = abs(delta_hat - delta_true) * 100.0
+            
+            blowup_flag = int(abs_err_pctpts >= float(blowup_tol_pctpts))
+            blowup_excess_pctpts = max(0.0, abs_err_pctpts - float(blowup_tol_pctpts))
+            
+            
             rows.append(
                 {
                     "model": model,
@@ -361,10 +418,14 @@ def score_directional(
                     "dir_true": dir_true,
                     "dir_hat": dir_hat,
                     "dir_hit": dir_hit,
+
                     "reg_true": reg_true,
                     "reg_hat": reg_hat,
                     "reg_hit": reg_hit,
-                    "abs_delta_err_pctpts": abs_delta_err_pctpts,
+                    "abs_delta_err_pctpts": abs_err_pctpts,
+                    "blowup_flag": blowup_flag,
+                    "blowup_excess_pctpts": blowup_excess_pctpts,
+
                     "overshoot_pctpts": overshoot_pctpts,
                     "squared_err_pctpts2": squared_err_pctpts2,
                 }
@@ -477,6 +538,7 @@ def main() -> int:
         help="Optional. When using --pick, restrict selected runs to horizon_max_months == this value. "
              "If omitted, do not filter by horizon.",
     )
+    ap.add_argument("--blowup_tol_pctpts", type=float, default=10.0)
     
     args = ap.parse_args()
     if not args.runs_json and not args.pick:
@@ -572,6 +634,13 @@ def main() -> int:
     
     # --- Load series & predictions ---
     actual = load_actual_series(con, args.metric, args.geo, args.pt)
+
+    regime_edges_by_h = {h: _compute_regime_edges(actual, h) for h in horizons}
+    print("[compare] regime_edges_by_h (delta as decimal):")
+    for h in horizons:
+        q1,q2,q3 = regime_edges_by_h[h]
+        print(f"  h={h}: q25={q1:+.4f}, q50={q2:+.4f}, q75={q3:+.4f}")
+    
     preds = load_predictions(con, run_ids)
 
 
@@ -616,7 +685,14 @@ def main() -> int:
     # -----------------------------
     # DIRECTION / REGIME / CALIBRATION
     # -----------------------------
-    dir_df = score_directional(df, actual, anchors_df, horizons=horizons)
+    dir_df = score_directional(
+        df,
+        actual,
+        anchors_df,
+        horizons=horizons,
+        regime_edges_by_h=regime_edges_by_h,
+        blowup_tol_pctpts=args.blowup_tol_pctpts,
+    )
     if dir_df.empty:
         raise SystemExit("No directional rows produced. Check anchors/horizons coverage.")
 
@@ -628,6 +704,8 @@ def main() -> int:
             dir_hit_rate=("dir_hit", "mean"),
             reg_hit_rate=("reg_hit", "mean"),
             abs_delta_err_pctpts=("abs_delta_err_pctpts", "mean"),
+            blowup_rate=("blowup_flag", "mean"),
+            blowup_excess_pctpts=("blowup_excess_pctpts", "mean"),
         )
         .reset_index()
         .sort_values(["horizon_months", "reg_hit_rate", "dir_hit_rate"], ascending=[True, False, False])
