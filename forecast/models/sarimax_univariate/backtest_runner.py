@@ -33,6 +33,39 @@ def _parse_data_asof(x: Optional[str], default_date: pd.Timestamp):
         return default_date.date()
     return pd.to_datetime(x).date()
 
+
+def build_month_dummies(index: pd.DatetimeIndex) -> pd.DataFrame:
+    """
+    Deterministic month-of-year dummies for month-end timestamps.
+    Drops month_12 to avoid full collinearity with intercept/trend choices.
+    """
+    idx = pd.DatetimeIndex(index)
+    months = idx.month
+    df = pd.get_dummies(months, prefix="month", dtype=float)
+
+    # Ensure stable columns month_1 ... month_12 exist
+    for m in range(1, 13):
+        col = f"month_{m}"
+        if col not in df.columns:
+            df[col] = 0.0
+
+    df = df[[f"month_{m}" for m in range(1, 13)]].copy()
+
+    # Drop one column for reference category
+    df = df.drop(columns=["month_12"])
+
+    df.index = idx
+    return df
+
+
+def forecast_index_from_anchor(anchor_date: pd.Timestamp, horizon_bt: int) -> pd.DatetimeIndex:
+    """
+    Future month-end index for forecast horizon.
+    """
+    start = anchor_date.to_period("M") + 1
+    periods = [start + i for i in range(horizon_bt)]
+    return pd.DatetimeIndex([p.to_timestamp(how="end") for p in periods])
+
 # ==========================================================
 # Core backtest logic
 # ==========================================================
@@ -105,6 +138,7 @@ def run_backtest_sarimax_single(
     enforce_stationarity: bool=False,
     enforce_invertibility: bool=False,
     maxiter: int = 200,
+    use_month_dummies: bool = False,
 ):    
     """
     Run a few SARIMAX backtest folds for a single target series.
@@ -178,6 +212,7 @@ def run_backtest_sarimax_single(
         "data_asof": str(data_asof),
         "anchors": [str(pd.Timestamp(a).date()) for a in anchors],
         "anchors_source": "cli" if anchors_csv else "policy",
+        "use_month_dummies": bool(use_month_dummies),
     }
     anchors_path = out_dir / "anchors.json"
     anchors_path.write_text(json.dumps(anchors_payload, indent=2))
@@ -218,9 +253,20 @@ def run_backtest_sarimax_single(
 
         print(f"[backtest] Training length={len(y_train)}, backtest horizon={horizon_bt} months.")
 
+
+
+        exog_train = None
+        exog_future = None
+
+        if use_month_dummies:
+            exog_train = build_month_dummies(pd.DatetimeIndex(y_train.index))
+            future_idx = forecast_index_from_anchor(pd.Timestamp(anchor_date), horizon_bt)
+            exog_future = build_month_dummies(future_idx)
+
         # Fit SARIMAX
         model = SARIMAX(
             endog=y_train.astype(float),
+            exog=exog_train,
             order=order,
             seasonal_order=seasonal_order,
             enforce_stationarity=bool(enforce_stationarity),
@@ -230,7 +276,10 @@ def run_backtest_sarimax_single(
         res = model.fit(disp=False, maxiter=int(maxiter))
 
         # Forecast horizon_bt steps
-        fc = res.get_forecast(steps=horizon_bt)
+        fc = res.get_forecast(steps=horizon_bt, exog=exog_future)
+
+
+
         mean_fc = fc.predicted_mean.values
         ci = fc.conf_int().values  # shape (horizon_bt, 2)
 
@@ -241,7 +290,9 @@ def run_backtest_sarimax_single(
             "enforce_stationarity": bool(enforce_stationarity),
             "enforce_invertibility": bool(enforce_invertibility),
             "n_obs": int(len(y_train)),
-            "anchor_date": str(anchor_date.date()),            
+            "anchor_date": str(anchor_date.date()),   
+            "use_month_dummies": bool(use_month_dummies),
+            "exog_columns": list(exog_train.columns) if exog_train is not None else [],
             "contracts": {
                 "run_kind": "backtest",
                 "anchor_date": str(anchor_date.date()),
