@@ -25,12 +25,12 @@ from statsmodels.tools.sm_exceptions import ConvergenceWarning
 @dataclass(frozen=True)
 class TuneConfig:
     db_path: str = "./data/market.duckdb"
-    metric_id: str = "median_ppsf"
+    metric_id: str = "median_dom"
     geo_id: str = "dc_city"
     property_type_id: str = "6"
 
     anchors_csv: str = "2020-12-31,2021-12-31,2022-12-31,2023-12-31,2024-06-30"
-    horizon: int = 12
+    horizon: int = 6
     min_train_len: int = 87
 
     # Keep this small. Bigger grid = wasted time.
@@ -216,7 +216,7 @@ if __name__ == "__main__":
     # Edit these directly if you prefer.
     cfg = TuneConfig(
         db_path="./data/market.duckdb",
-        metric_id="median_dom",
+        metric_id="median_ppsf",
         geo_id="dc_city",
         property_type_id="6",
         anchors_csv="2020-12-31,2021-12-31,2022-12-31,2023-12-31,2024-06-30",
