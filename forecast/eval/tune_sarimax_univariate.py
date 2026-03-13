@@ -25,7 +25,7 @@ from statsmodels.tools.sm_exceptions import ConvergenceWarning
 @dataclass(frozen=True)
 class TuneConfig:
     db_path: str = "./data/market.duckdb"
-    metric_id: str = "median_dom"
+    metric_id: str = "median_ppsf"
     geo_id: str = "dc_city"
     property_type_id: str = "6"
 
@@ -52,7 +52,7 @@ class TuneConfig:
     # scoring horizon slice (use first 12 months for apples-to-apples)
     score_first_n: int = 12
 
-    use_month_dummies: bool = False
+    use_month_dummies: bool = True
 
 # =====================================================
 # Helpers
