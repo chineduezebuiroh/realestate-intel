@@ -52,7 +52,11 @@ class TuneConfig:
     # scoring horizon slice (use first 12 months for apples-to-apples)
     score_first_n: int = 12
 
+    use_month_dummies: bool = False
 
+# =====================================================
+# Helpers
+# =====================================================
 def _parse_anchors(anchors_csv: str) -> list[pd.Timestamp]:
     anchors = []
     for s in anchors_csv.split(","):
@@ -95,6 +99,27 @@ def forecast_dates(anchor: pd.Timestamp, h: int) -> list[pd.Timestamp]:
     return [ (start.to_period("M") + i).to_timestamp("M") for i in range(h) ]
 
 
+def build_month_dummies(index: pd.DatetimeIndex) -> pd.DataFrame:
+    idx = pd.DatetimeIndex(index)
+    months = idx.month
+    df = pd.get_dummies(months, prefix="month", dtype=float)
+
+    for m in range(1, 13):
+        col = f"month_{m}"
+        if col not in df.columns:
+            df[col] = 0.0
+
+    df = df[[f"month_{m}" for m in range(1, 13)]].copy()
+    df = df.drop(columns=["month_12"])
+    df.index = idx
+    return df
+
+
+def forecast_index_from_anchor(anchor: pd.Timestamp, h: int) -> pd.DatetimeIndex:
+    start = (anchor.to_period("M") + 1)
+    return pd.DatetimeIndex([(start + i).to_timestamp("M") for i in range(h)])
+
+
 def score_forecast(y_true: np.ndarray, y_hat: np.ndarray) -> dict:
     e = y_hat - y_true
     mae = float(np.mean(np.abs(e)))
@@ -113,7 +138,9 @@ def iter_specs(cfg: TuneConfig) -> Iterable[
                 seasonal_order = (P, D, Q, cfg.seasonal_period)
                 yield order, seasonal_order, trend
 
-
+# =====================================================
+# Primary Function
+# =====================================================
 def fit_and_forecast(
     y_train: pd.Series,
     steps: int,
@@ -123,14 +150,24 @@ def fit_and_forecast(
     enforce_stationarity: bool,
     enforce_invertibility: bool,
     maxiter: int,
-) -> tuple[np.ndarray, dict]:
+    use_month_dummies: bool = False,
+) -> np.ndarray:
     """
     Returns:
       y_hat: np.ndarray of length `steps`
       fit_diag: dict with convergence/fit diagnostics
     """
+    exog_train = None
+    exog_future = None
+
+    if use_month_dummies:
+        exog_train = build_month_dummies(pd.DatetimeIndex(y_train.index))
+        future_idx = forecast_index_from_anchor(pd.Timestamp(y_train.index[-1]), steps)
+        exog_future = build_month_dummies(future_idx)
+
     model = SARIMAX(
         endog=y_train.astype(float).to_numpy(),
+        exog=exog_train,
         order=order,
         seasonal_order=seasonal_order,
         trend=trend,
@@ -158,7 +195,7 @@ def fit_and_forecast(
         iterations = None
         fopt = None
 
-    fc = res.get_forecast(steps=int(steps))
+    fc = res.get_forecast(steps=int(steps), exog=exog_future)
     mean = np.asarray(fc.predicted_mean, dtype=float)
 
     fit_diag = {
@@ -195,7 +232,7 @@ if __name__ == "__main__":
     
     for order, seasonal_order, trend in iter_specs(cfg):
         print(f"[tune] trying order={order} seasonal_order={seasonal_order} trend={trend}", flush=True)
-        spec_key = f"order={order} seas={seasonal_order} trend={trend}"
+        spec_key = f"order={order} seas={seasonal_order} trend={trend} month_dummies={cfg.use_month_dummies}"
         per_anchor = []
         ok = True
 
@@ -231,6 +268,7 @@ if __name__ == "__main__":
                     enforce_stationarity=cfg.enforce_stationarity,
                     enforce_invertibility=cfg.enforce_invertibility,
                     maxiter=cfg.maxiter,
+                    use_month_dummies=cfg.use_month_dummies,
                 )
             except Exception as e:
                 per_anchor.append({"anchor": str(anchor.date()), "status": f"fit_fail {type(e).__name__}: {e}"})
@@ -282,6 +320,7 @@ if __name__ == "__main__":
                 "avg_rmse": avg_rmse,
                 "avg_mae": avg_mae,
                 "avg_mape_pct": avg_mape,
+                "use_month_dummies": bool(cfg.use_month_dummies),
             }
         )
 
@@ -294,10 +333,16 @@ if __name__ == "__main__":
     print(out.head(15).to_string(index=False))
 
     # Optional: write results
+    exog_tag = "monthdummies" if cfg.use_month_dummies else "noexog"
     out_path = (
-        "artifacts/phasec/eval/"
-        f"sarimax_univariate_tuning__metric={cfg.metric_id}__geo={cfg.geo_id}__pt={cfg.property_type_id}"
-        f"__h={cfg.horizon}__scoreN={cfg.score_first_n}__nanchors={len(anchors)}.csv"
+        f"artifacts/phasec/eval/"
+        f"sarimax_univariate_tuning__metric={cfg.metric_id}"
+        f"__geo={cfg.geo_id}"
+        f"__pt={cfg.property_type_id}"
+        f"__h={cfg.horizon}"
+        f"__scoreN={cfg.score_first_n}"
+        f"__nanchors={len(anchors)}"
+        f"__exog={exog_tag}.csv"
     )
     try:
         pd.Series([out_path]).to_csv  # no-op to silence linters
