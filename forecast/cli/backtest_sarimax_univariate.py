@@ -35,6 +35,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help='Trend: none|c|t|ct. If omitted, use runner default.')
     ap.add_argument("--model-version", type=str, default=None,
                     help="Optional model_version tag to write into forecast_runs.model_version")
+    ap.add_argument(
+        "--use-month-dummies",
+        action="store_true",
+        help="Include deterministic month-of-year dummy exogenous variables.",
+    )
 
     args = ap.parse_args(argv)
 
@@ -71,6 +76,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         seasonal_order=seasonal_order,
         trend=trend,
         model_version=args.model_version,
+        use_month_dummies=bool(args.use_month_dummies),
     )
     return 0
 
