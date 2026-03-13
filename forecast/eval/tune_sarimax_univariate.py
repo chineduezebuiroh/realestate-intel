@@ -216,7 +216,7 @@ if __name__ == "__main__":
     # Edit these directly if you prefer.
     cfg = TuneConfig(
         db_path="./data/market.duckdb",
-        metric_id="median_ppsf",
+        metric_id="median_sale_price",
         geo_id="dc_city",
         property_type_id="6",
         anchors_csv="2020-12-31,2021-12-31,2022-12-31,2023-12-31,2024-06-30",
