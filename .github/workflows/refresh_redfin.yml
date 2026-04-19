@@ -3,7 +3,7 @@ name: Refresh Redfin
 on:
   workflow_dispatch:
   schedule:
-    - cron: "15 11 5 * *"  # monthly-ish, adjust later
+    - cron: "15 11 28 * *"  # monthly-ish, adjust later
 
 concurrency:
   group: refresh-redfin-${{ github.ref }}
