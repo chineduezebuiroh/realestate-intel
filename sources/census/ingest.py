@@ -73,60 +73,90 @@ def census_request(year: int, dataset: str, var_codes: List[str], for_param: str
     return dict(zip(headers, row))
 """
 
-def census_request(base: str, params: dict, *, timeout: int = 60, max_attempts: int = 5):
-    """
-    Make a Census API request with retry/backoff for transient network/API failures.
-    """
+def census_request(
+    year: int,
+    dataset: str,
+    var_codes: List[str],
+    for_param: str,
+    in_param: Optional[str] = None,
+    *,
+    timeout: int = 60,
+    max_attempts: int = 5,
+):
+    base = f"https://api.census.gov/data/{year}/{dataset}"
+    params: Dict[str, str] = {"get": "NAME," + ",".join(var_codes), "for": for_param}
+    if in_param:
+        params["in"] = in_param
+    if CENSUS_KEY:
+        params["key"] = CENSUS_KEY
+
     last_err = None
 
     for attempt in range(1, max_attempts + 1):
         try:
             print(
                 f"[census:req] attempt={attempt}/{max_attempts} "
-                f"url={base} params={params}"
+                f"year={year} dataset={dataset} for={for_param} in={in_param}"
             )
             r = requests.get(base, params=params, timeout=timeout)
+
+            if r.status_code in (429, 500, 502, 503, 504):
+                last_err = RuntimeError(f"retryable status={r.status_code}")
+                wait_s = min(2 ** (attempt - 1), 20)
+                print(
+                    f"[census:req][warn] retryable HTTP status {r.status_code} "
+                    f"on attempt {attempt}/{max_attempts}; sleeping {wait_s}s"
+                )
+                if attempt < max_attempts:
+                    time.sleep(wait_s)
+                    continue
+                return None
+
+            if r.status_code == 404:
+                # Treat as "geo not available for this year/dataset" or bad geo mapping; skip.
+                return None
+
             r.raise_for_status()
-            return r
+            data = r.json()
+
+            if not data or len(data) < 2:
+                return None
+
+            headers, row = data[0], data[1]
+            return dict(zip(headers, row))
 
         except (ReadTimeout, ConnectionError) as e:
             last_err = e
             wait_s = min(2 ** (attempt - 1), 20)
             print(
                 f"[census:req][warn] transient failure on attempt {attempt}/{max_attempts}: "
-                f"{type(e).__name__}: {e}. sleeping {wait_s}s"
+                f"{type(e).__name__}: {e}; sleeping {wait_s}s"
             )
             if attempt < max_attempts:
                 time.sleep(wait_s)
                 continue
-            break
+            return None
 
         except RequestException as e:
-            # HTTP 4xx/5xx and other request-layer failures
             last_err = e
             status = getattr(getattr(e, "response", None), "status_code", None)
 
-            # Retry 5xx / 429; fail fast on most 4xx
-            retryable = status in {429, 500, 502, 503, 504}
-            if retryable and attempt < max_attempts:
+            if status in {429, 500, 502, 503, 504} and attempt < max_attempts:
                 wait_s = min(2 ** (attempt - 1), 20)
                 print(
-                    f"[census:req][warn] retryable HTTP failure on attempt {attempt}/{max_attempts}: "
-                    f"status={status} err={e}. sleeping {wait_s}s"
+                    f"[census:req][warn] retryable request exception on attempt {attempt}/{max_attempts}: "
+                    f"status={status} err={e}; sleeping {wait_s}s"
                 )
                 time.sleep(wait_s)
                 continue
 
-            print(
-                f"[census:req][err] non-retryable request failure: "
-                f"status={status} err={e}"
-            )
+            if status == 404:
+                return None
+
             raise
 
-    raise RuntimeError(
-        f"Census request failed after {max_attempts} attempts. "
-        f"Last error: {type(last_err).__name__}: {last_err}"
-    )
+    print(f"[census:req][warn] exhausted retries; last_err={last_err}")
+    return None
 
 
 def main():
