@@ -3,7 +3,7 @@ name: Refresh BLS
 on:
   workflow_dispatch:
   schedule:
-    - cron: "30 11 6 * *"
+    - cron: "30 11 28 * *"
 
 concurrency:
   group: refresh-bls-${{ github.ref }}
