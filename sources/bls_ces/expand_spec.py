@@ -111,8 +111,8 @@ def _download(url: str, dest: Path):
     # Try HTTPS, then HTTP, a few times
     tries = [
         url,
-        url.replace("https://", "http://", 1) if url.startswith("https://") else url
-        #url.replace("https://", "https://", 1) if url.startswith("https://") else url
+        #url.replace("https://", "http://", 1) if url.startswith("https://") else url
+        url.replace("https://", "https://", 1) if url.startswith("https://") else url
     ]
 
     last_exc = None
