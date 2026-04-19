@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 import requests
+from requests.exceptions import ReadTimeout, ConnectionError, RequestException
+
 import pandas as pd
+
 
 PLAN_PATH = Path("data/census/census_acs5_query_plan.generated.csv")
 OUT_RAW   = Path("data/census/census_acs5_raw.csv")
@@ -45,7 +48,7 @@ def build_census_geo_params(level: str, code: str) -> Optional[dict]:
 
     return None
     
-
+"""
 def census_request(year: int, dataset: str, var_codes: List[str], for_param: str, in_param: Optional[str] = None):
     base = f"https://api.census.gov/data/{year}/{dataset}"
     params: Dict[str, str] = {"get": "NAME," + ",".join(var_codes), "for": for_param}
@@ -68,6 +71,62 @@ def census_request(year: int, dataset: str, var_codes: List[str], for_param: str
         return None
     headers, row = data[0], data[1]
     return dict(zip(headers, row))
+"""
+
+def census_request(base: str, params: dict, *, timeout: int = 60, max_attempts: int = 5):
+    """
+    Make a Census API request with retry/backoff for transient network/API failures.
+    """
+    last_err = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            print(
+                f"[census:req] attempt={attempt}/{max_attempts} "
+                f"url={base} params={params}"
+            )
+            r = requests.get(base, params=params, timeout=timeout)
+            r.raise_for_status()
+            return r
+
+        except (ReadTimeout, ConnectionError) as e:
+            last_err = e
+            wait_s = min(2 ** (attempt - 1), 20)
+            print(
+                f"[census:req][warn] transient failure on attempt {attempt}/{max_attempts}: "
+                f"{type(e).__name__}: {e}. sleeping {wait_s}s"
+            )
+            if attempt < max_attempts:
+                time.sleep(wait_s)
+                continue
+            break
+
+        except RequestException as e:
+            # HTTP 4xx/5xx and other request-layer failures
+            last_err = e
+            status = getattr(getattr(e, "response", None), "status_code", None)
+
+            # Retry 5xx / 429; fail fast on most 4xx
+            retryable = status in {429, 500, 502, 503, 504}
+            if retryable and attempt < max_attempts:
+                wait_s = min(2 ** (attempt - 1), 20)
+                print(
+                    f"[census:req][warn] retryable HTTP failure on attempt {attempt}/{max_attempts}: "
+                    f"status={status} err={e}. sleeping {wait_s}s"
+                )
+                time.sleep(wait_s)
+                continue
+
+            print(
+                f"[census:req][err] non-retryable request failure: "
+                f"status={status} err={e}"
+            )
+            raise
+
+    raise RuntimeError(
+        f"Census request failed after {max_attempts} attempts. "
+        f"Last error: {type(last_err).__name__}: {last_err}"
+    )
 
 
 def main():
