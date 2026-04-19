@@ -24,6 +24,18 @@ def run_module(module: str) -> None:
     subprocess.run(cmd, check=True, cwd=REPO_ROOT, env=_env())
 
 
+def run_optional_module(module: str) -> bool:
+    cmd = [sys.executable, "-m", module]
+    print(f"[job] running OPTIONAL module: {' '.join(cmd)}")
+    try:
+        subprocess.run(cmd, check=True, cwd=REPO_ROOT, env=_env())
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"[job][warn] optional module failed: {module}")
+        print(f"[job][warn] continuing anyway; error={e}")
+        return False
+
+
 def ensure_dir(path: str) -> None:
     Path(path).mkdir(parents=True, exist_ok=True)
 
