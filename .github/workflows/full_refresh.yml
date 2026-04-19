@@ -33,4 +33,5 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run full refresh
-        run: python -m jobs.run_refresh_all
+        #run: python -m jobs.run_refresh_all
+        run: python -m jobs.run_refresh_all_hosted
