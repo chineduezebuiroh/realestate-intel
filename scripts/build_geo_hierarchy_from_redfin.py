@@ -111,17 +111,17 @@ def build_macro_hierarchy(
             "REGION": "county_name",
             "STATE": "county_state",
             "STATE_CODE": "state_code",
-            "PARENT_METRO_REGION": "parent_metro_name",
-            "PARENT_METRO_REGION_METRO_CODE": "parent_metro_code",
+            "PARENT_METRO_REGION": "parent_cbsa_metro_name",
+            "PARENT_METRO_REGION_METRO_CODE": "parent_cbsa_metro_code",
         }
     )
 
     metro_d = _dedupe_geo(metro, "metro").rename(
         columns={
             "TABLE_ID": "metro_table_id",
-            "REGION": "metro_name",
+            "REGION": "cbsa_metro_name",
             "STATE_CODE": "metro_state_code",
-            "PARENT_METRO_REGION_METRO_CODE": "metro_code",
+            "PARENT_METRO_REGION_METRO_CODE": "parent_cbsa_metro_code",
         }
     )
 
@@ -135,19 +135,19 @@ def build_macro_hierarchy(
     )
 
     county_d = county_d[
-        county_d["parent_metro_code"].notna()
-        & (county_d["parent_metro_code"].astype(str).str.upper() != "NA")
+        county_d["parent_cbsa_metro_code"].notna()
+        & (county_d["parent_cbsa_metro_code"].astype(str).str.upper() != "NA")
     ].copy()
 
     metro_d = metro_d[
-        metro_d["metro_code"].notna()
-        & (metro_d["metro_code"].astype(str).str.upper() != "NA")
+        metro_d["parent_cbsa_metro_code"].notna()
+        & (metro_d["parent_cbsa_metro_code"].astype(str).str.upper() != "NA")
     ].copy()
 
     out = county_d.merge(
-        metro_d[["metro_table_id", "metro_name", "metro_code"]],
-        left_on="parent_metro_code",
-        right_on="metro_code",
+        metro_d[["metro_table_id", "cbsa_metro_name", "parent_cbsa_metro_code"]],
+        left_on="parent_cbsa_metro_code",
+        right_on="parent_cbsa_metro_code",
         how="left",
     ).merge(
         state_d[["state_table_id", "state_name", "state_code", "census_region"]],
@@ -181,8 +181,8 @@ def build_local_zip_context(
             "REGION": "zip_region",
             "STATE": "zip_state",
             "STATE_CODE": "state_code",
-            "PARENT_METRO_REGION": "parent_city_or_region",
-            "PARENT_METRO_REGION_METRO_CODE": "parent_metro_code",
+            "PARENT_METRO_REGION": "parent_cbsa_metro_name",
+            "PARENT_METRO_REGION_METRO_CODE": "parent_cbsa_metro_code",
         }
     )
     z["zip5"] = z["zip_region"].map(_zip5)
@@ -202,6 +202,7 @@ def build_local_zip_context(
     xref["zip5"] = xref[zip_col].map(_zip5)
     xref["county_norm"] = xref[county_col].map(_norm_name)
     xref["state_code_norm"] = xref[state_col].astype(str).str.upper().str.strip()
+    xref['county_state_concat'] = xref["county_norm"] + ', ' + xref["state_code_norm"]
 
     if county_ref is not None:
         cref = county_ref.copy()
@@ -229,15 +230,15 @@ def build_local_zip_context(
             "REGION": "county_name",
             "STATE": "county_state",
             "STATE_CODE": "state_code",
-            "PARENT_METRO_REGION": "parent_metro_name",
-            "PARENT_METRO_REGION_METRO_CODE": "parent_metro_code",
+            "PARENT_METRO_REGION": "parent_cbsa_metro_name",
+            "PARENT_METRO_REGION_METRO_CODE": "parent_cbsa_metro_code",
         }
     )
     c["county_norm"] = c["county_name"].map(_norm_name)
     c["state_code_norm"] = c["state_code"].astype(str).str.upper().str.strip()
 
     out = z.merge(
-        xref[["zip5", "county_norm", "state_code_norm"]].drop_duplicates(),
+        xref[["zip5", "county_norm", "state_code_norm", "county_state_concat"]].drop_duplicates(),
         left_on=["zip5", "state_code"],
         right_on=["zip5", "state_code_norm"],
         how="inner",
@@ -252,7 +253,8 @@ def build_local_zip_context(
                 "parent_metro_code",
             ]
         ].drop_duplicates(),
-        on=["county_norm", "state_code_norm", "parent_metro_code"],
+        left_on=["county_state_concat", "state_code_norm", "parent_cbsa_metro_code"],
+        right_on=["county_norm", "state_code_norm", "parent_cbsa_metro_code"],
         how="left",
     )
 
