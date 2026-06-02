@@ -8,7 +8,7 @@ Psuedo-code to help explain the algorithm for mappging the various Redfin geogra
 
 ### Macro Regime Engine
 
-**'github_repo_reference_table' will be a table in  my repo with the state codes I want to iclude in the macro analysis**
+_'github_repo_reference_table' will be a table in  my repo with the state codes I want to iclude in the macro analysis_
 
 select  z."PARENT_METRO_REGION", z."PARENT_METRO_REGION_METRO_CODE", z."TABLE_ID" as COUNTY_ID, z.COUNTY,
         y."TABLE_ID" as METRO_ID, y.METRO,
@@ -38,8 +38,8 @@ join (  select  distinct c."PARENT_METRO_REGION", c."TABLE_ID", c."REGION" as ST
 
 ### Local Opportunity Engine
 
-**'github_repo_master_zip_county_xref_table' will be a master xref table in my repo with all zipcodes matched their respectie Counties**
-**'github_repo_county_reference_table' will be a reference table in my repo with all the counties for which I want to analyze zipcodes (and maybe eventually neighborhoods)**
+_'github_repo_master_zip_county_xref_table' will be a master xref table in my repo with all zipcodes matched their respectie Counties_
+_'github_repo_county_reference_table' will be a reference table in my repo with all the counties for which I want to analyze zipcodes (and maybe eventually neighborhoods)_
 
 select  z."PARENT_METRO_REGION", z."PARENT_METRO_REGION_METRO_CODE", z."TABLE_ID" as ZIP_CODE_ID, "zip_code" as GEO_LEVEL, z.ZIP,
         y."TABLE_ID" as COUNTY_ID, y.COUNTY, y."STATE", y."STATE_CODE"
