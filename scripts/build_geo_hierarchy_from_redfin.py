@@ -160,7 +160,7 @@ def build_macro_hierarchy(
     out["mapping_confidence"] = out["metro_table_id"].notna().map({True: "high", False: "medium"})
     out["needs_review"] = out["metro_table_id"].isna()
 
-    return out.sort_values(["state_code", "metro_name", "county_name"])
+    return out.sort_values(["state_code", "parent_cbsa_metro_name", "county_name"])
 
 
 def build_local_zip_context(
