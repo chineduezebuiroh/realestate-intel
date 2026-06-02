@@ -249,8 +249,8 @@ def build_local_zip_context(
                 "county_name",
                 "county_norm",
                 "state_code_norm",
-                "parent_metro_name",
-                "parent_metro_code",
+                "parent_cbsa_metro_name",
+                "parent_cbsa_metro_code",
             ]
         ].drop_duplicates(),
         left_on=["county_state_concat", "state_code_norm", "parent_cbsa_metro_code"],
