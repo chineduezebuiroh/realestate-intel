@@ -124,6 +124,9 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
+    # Drop rows where the confidence match isn't high
+    df = df[df['mapping_confidence'] == "high"]
+    
     rows = []
 
     # ZIPs
@@ -153,8 +156,9 @@ def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
 
         rows.append(
             {
-                "geo_name": r[zip_name_col],
+                "geo_name": r[zip5]+', '+r[state_code],
                 "geo_level": "zip",
+                "redfin_table_id": r[zip_table_id],
                 "include": 1,
                 "notes": "Generated from Redfin local context hierarchy"
                 + (f"; {'; '.join(notes)}" if notes else ""),
