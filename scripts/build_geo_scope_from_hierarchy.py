@@ -156,9 +156,9 @@ def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
 
         rows.append(
             {
-                "geo_name": r[zip5]+', '+r[state_code],
+                "geo_name": r['zip5']+', '+r['state_code'],
                 "geo_level": "zip",
-                "redfin_table_id": r[zip_table_id],
+                "redfin_table_id": r['zip_table_id'],
                 "include": 1,
                 "notes": "Generated from Redfin local context hierarchy"
                 + (f"; {'; '.join(notes)}" if notes else ""),
