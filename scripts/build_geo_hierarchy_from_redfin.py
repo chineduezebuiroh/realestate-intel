@@ -202,7 +202,7 @@ def build_local_zip_context(
     xref["zip5"] = xref[zip_col].map(_zip5)
     xref["county_norm"] = xref[county_col].map(_norm_name)
     xref["state_code_norm"] = xref[state_col].astype(str).str.upper().str.strip()
-    xref['county_state_concat'] = xref["county_norm"] + ', ' + xref["state_code_norm"]
+    xref['county_state_concat'] = xref["county_norm"] + ', ' + xref["state_code_norm"].astype(str).str.lower()
 
     if county_ref is not None:
         cref = county_ref.copy()
