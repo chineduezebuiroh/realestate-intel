@@ -156,7 +156,7 @@ def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
 
         rows.append(
             {
-                "geo_name": r['zip5']+', '+r['state_code'],
+                "geo_name": r['zip5']+', '+r['county_name'],
                 "geo_level": "zip",
                 "redfin_table_id": r['zip_table_id'],
                 "include": 1,
@@ -170,7 +170,7 @@ def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     out = out.sort_values(["geo_level", "geo_name"]).reset_index(drop=True)
-    return out[["geo_name", "geo_level", "include", "notes"]]
+    return out[["geo_name", "geo_level", "redfin_table_id", "include", "notes"]]
 
 
 def main() -> int:
