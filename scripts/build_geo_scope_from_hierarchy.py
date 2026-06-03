@@ -25,6 +25,9 @@ def _clean_bool_series(s: pd.Series) -> pd.Series:
 
 
 def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
+    # Drop rows where the confidence match isn't high
+    df = df[df['mapping_confidence'] == "high"]
+    
     rows = []
 
     # nation
@@ -32,6 +35,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
         {
             "geo_name": "United States",
             "geo_level": "nation",
+            "redfin_table_id": "",
             "include": 1,
             "notes": "Generated default nation scope",
         }
@@ -44,13 +48,14 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
                 {
                     "geo_name": name,
                     "geo_level": "region",
+                    "redfin_table_id": "",
                     "include": 1,
                     "notes": "Generated from Redfin state parent/census region metadata",
                 }
             )
 
     # states
-    state_cols = ["state_name", "state_code"]
+    state_cols = ["state_name", "state_code", "state_table_id"]
     if all(c in df.columns for c in state_cols):
         states = df[state_cols].dropna().drop_duplicates()
         for r in states.itertuples(index=False):
@@ -58,6 +63,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
                 {
                     "geo_name": r.state_name,
                     "geo_level": "state",
+                    "redfin_table_id": r.state_table_id,
                     "include": 1,
                     "notes": f"Generated from Redfin macro hierarchy; state_code={r.state_code}",
                 }
@@ -77,7 +83,8 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
             rows.append(
                 {
                     "geo_name": r[metro_name_col],
-                    "geo_level": "metro",
+                    "geo_level": "cbsa_metro",
+                    "redfin_table_id": code,
                     "include": 1,
                     "notes": f"Generated from Redfin macro hierarchy; metro_code={code}",
                 }
@@ -101,6 +108,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
                 {
                     "geo_name": r["county_name"],
                     "geo_level": "county",
+                    "redfin_table_id": r['county_table_id'],
                     "include": 1,
                     "notes": "Generated from Redfin macro hierarchy"
                     + (f"; {'; '.join(notes)}" if notes else ""),
@@ -112,7 +120,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     out = out.sort_values(["geo_level", "geo_name"]).reset_index(drop=True)
-    return out[["geo_name", "geo_level", "include", "notes"]]
+    return out[["geo_name", "geo_level", "redfin_table_id", "include", "notes"]]
 
 
 def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
