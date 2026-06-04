@@ -36,6 +36,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
             "geo_name": "United States",
             "geo_level": "nation",
             "redfin_code": "",
+            "state_code": "",
             "include": 1,
             "notes": "Generated default nation scope",
         }
@@ -49,6 +50,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
                     "geo_name": name,
                     "geo_level": "region",
                     "redfin_code": "",
+                    "state_code": "",
                     "include": 1,
                     "notes": "Generated from Redfin state parent/census region metadata",
                 }
@@ -64,6 +66,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
                     "geo_name": r.state_name,
                     "geo_level": "state",
                     "redfin_code": r.state_table_id,
+                    "state_code": r.state_code,
                     "include": 1,
                     "notes": f"Generated from Redfin macro hierarchy; state_code={r.state_code}",
                 }
@@ -73,18 +76,20 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
     metro_name_col = "cbsa_metro_name" if "cbsa_metro_name" in df.columns else "parent_cbsa_metro_name"
     metro_code_col = "parent_cbsa_metro_code"
     if metro_name_col in df.columns:
-        metro_cols = [metro_name_col]
+        metro_cols = [metro_name_col, "state_code"]
         if metro_code_col in df.columns:
             metro_cols.append(metro_code_col)
 
         metros = df[metro_cols].dropna().drop_duplicates()
         for _, r in metros.iterrows():
             code = r.get(metro_code_col, "")
+            state_code = r.get("state_code", "")
             rows.append(
                 {
                     "geo_name": r[metro_name_col],
                     "geo_level": "cbsa_metro",
                     "redfin_code": code,
+                    "state_code": state_code,
                     "include": 1,
                     "notes": f"Generated from Redfin macro hierarchy; metro_code={code}",
                 }
@@ -109,6 +114,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
                     "geo_name": r["county_name"],
                     "geo_level": "county",
                     "redfin_code": r['county_table_id'],
+                    "state_code": r['state_code'],
                     "include": 1,
                     "notes": "Generated from Redfin macro hierarchy"
                     + (f"; {'; '.join(notes)}" if notes else ""),
@@ -120,7 +126,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     out = out.sort_values(["geo_level", "geo_name"]).reset_index(drop=True)
-    return out[["geo_name", "geo_level", "redfin_code", "include", "notes"]]
+    return out[["geo_name", "geo_level", "redfin_code", "state_code", "include", "notes"]]
 
 
 def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
@@ -159,6 +165,7 @@ def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
                 "geo_name": r['zip5']+', '+r['county_name'],
                 "geo_level": "zip",
                 "redfin_code": r['zip_table_id'],
+                "state_code": r['state_code'],
                 "include": 1,
                 "notes": "Generated from Redfin local context hierarchy"
                 + (f"; {'; '.join(notes)}" if notes else ""),
@@ -170,7 +177,7 @@ def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     out = out.sort_values(["geo_level", "geo_name"]).reset_index(drop=True)
-    return out[["geo_name", "geo_level", "redfin_code", "include", "notes"]]
+    return out[["geo_name", "geo_level", "redfin_code", "state_code", "include", "notes"]]
 
 
 def main() -> int:
