@@ -14,8 +14,8 @@ OUT = CONFIG_DIR / "geo_manifest.generated.csv"
 
 
 MANIFEST_COLUMNS = [
-    "level",
     "geo_name",
+    "level",
     "bls_ces_area_code",
     "include_ces",
     "bls_laus_area_code",
@@ -32,6 +32,14 @@ MANIFEST_COLUMNS = [
     "fred_geo_code",
     "include_fred",
 ]
+
+STATE_FIPS = {
+    "CA": "06",
+    "DC": "11",
+    "MD": "24",
+    "NJ": "34",
+    "VA": "51",
+}
 
 
 def read_scope(path: Path) -> pd.DataFrame:
@@ -86,6 +94,76 @@ def apply_redfin_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.Dat
     return out
 
 
+def apply_bls_ces_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFrame:
+    out = manifest.copy()
+
+    out["bls_ces_area_code"] = out.get("bls_ces_area_code", "").fillna("").astype(str)
+    out["include_ces"] = out.get("include_ces", "0").fillna("0").astype(str)
+
+    # Nation
+    nation_mask = out["level"].astype(str).str.strip().eq("nation")
+    out.loc[nation_mask, "bls_ces_area_code"] = "0000000"
+    out.loc[nation_mask, "include_ces"] = "1"
+
+    # Need state_code for state + cbsa_metro rows.
+    if "state_code" not in scope.columns:
+        raise ValueError("Scope must include state_code for BLS CES resolver.")
+
+    ces_scope = scope[["geo_level", "geo_name", "state_code", "redfin_code"]].copy()
+    ces_scope = ces_scope.rename(columns={"geo_level": "level"})
+    ces_scope["level"] = ces_scope["level"].astype(str).str.strip()
+    ces_scope["geo_name"] = ces_scope["geo_name"].astype(str).str.strip()
+    ces_scope["state_code"] = ces_scope["state_code"].astype(str).str.upper().str.strip()
+    ces_scope["redfin_code"] = ces_scope["redfin_code"].astype(str).str.strip()
+
+    # State rows: state FIPS + 00000
+    state_scope = ces_scope[ces_scope["level"].eq("state")].copy()
+    state_scope["bls_ces_area_code_resolved"] = state_scope["state_code"].map(STATE_FIPS).fillna("") + "00000"
+    state_scope.loc[state_scope["state_code"].map(STATE_FIPS).isna(), "bls_ces_area_code_resolved"] = ""
+    state_scope["include_ces_resolved"] = state_scope["bls_ces_area_code_resolved"].ne("").astype(int).astype(str)
+
+    out = out.merge(
+        state_scope[["level", "geo_name", "bls_ces_area_code_resolved", "include_ces_resolved"]],
+        on=["level", "geo_name"],
+        how="left",
+    )
+
+    m = out["bls_ces_area_code_resolved"].fillna("").ne("")
+    out.loc[m, "bls_ces_area_code"] = out.loc[m, "bls_ces_area_code_resolved"]
+    out.loc[m, "include_ces"] = out.loc[m, "include_ces_resolved"]
+
+    out = out.drop(columns=["bls_ces_area_code_resolved", "include_ces_resolved"])
+
+    # CBSA metro rows: state FIPS + CBSA code.
+    # V1 safety rule: only keep if state_code is known and redfin_code is 5 digits.
+    metro_scope = ces_scope[ces_scope["level"].eq("cbsa_metro")].copy()
+    metro_scope["state_fips"] = metro_scope["state_code"].map(STATE_FIPS).fillna("")
+    metro_scope["redfin_code_5"] = metro_scope["redfin_code"].str.extract(r"(\d{5})", expand=False).fillna("")
+    metro_scope["bls_ces_area_code_resolved"] = metro_scope["state_fips"] + metro_scope["redfin_code_5"]
+
+    valid_metro = (
+        metro_scope["state_fips"].ne("")
+        & metro_scope["redfin_code_5"].str.fullmatch(r"\d{5}")
+    )
+
+    metro_scope.loc[~valid_metro, "bls_ces_area_code_resolved"] = ""
+    metro_scope["include_ces_resolved"] = metro_scope["bls_ces_area_code_resolved"].ne("").astype(int).astype(str)
+
+    out = out.merge(
+        metro_scope[["level", "geo_name", "bls_ces_area_code_resolved", "include_ces_resolved"]],
+        on=["level", "geo_name"],
+        how="left",
+    )
+
+    m = out["bls_ces_area_code_resolved"].fillna("").ne("")
+    out.loc[m, "bls_ces_area_code"] = out.loc[m, "bls_ces_area_code_resolved"]
+    out.loc[m, "include_ces"] = out.loc[m, "include_ces_resolved"]
+
+    out = out.drop(columns=["bls_ces_area_code_resolved", "include_ces_resolved"])
+
+    return out
+
+
 def finalize_manifest(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
@@ -113,6 +191,7 @@ def main() -> int:
 
     manifest = build_base_manifest(scope)
     manifest = apply_redfin_resolver(manifest, scope)
+    manifest = apply_bls_ces_resolver(manifest, scope)
     manifest = finalize_manifest(manifest)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
