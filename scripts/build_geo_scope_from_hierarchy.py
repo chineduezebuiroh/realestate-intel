@@ -35,7 +35,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
         {
             "geo_name": "United States",
             "geo_level": "nation",
-            "redfin_table_id": "",
+            "redfin_code": "",
             "include": 1,
             "notes": "Generated default nation scope",
         }
@@ -48,7 +48,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
                 {
                     "geo_name": name,
                     "geo_level": "region",
-                    "redfin_table_id": "",
+                    "redfin_code": "",
                     "include": 1,
                     "notes": "Generated from Redfin state parent/census region metadata",
                 }
@@ -63,7 +63,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
                 {
                     "geo_name": r.state_name,
                     "geo_level": "state",
-                    "redfin_table_id": r.state_table_id,
+                    "redfin_code": r.state_table_id,
                     "include": 1,
                     "notes": f"Generated from Redfin macro hierarchy; state_code={r.state_code}",
                 }
@@ -84,7 +84,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
                 {
                     "geo_name": r[metro_name_col],
                     "geo_level": "cbsa_metro",
-                    "redfin_table_id": code,
+                    "redfin_code": code,
                     "include": 1,
                     "notes": f"Generated from Redfin macro hierarchy; metro_code={code}",
                 }
@@ -108,7 +108,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
                 {
                     "geo_name": r["county_name"],
                     "geo_level": "county",
-                    "redfin_table_id": r['county_table_id'],
+                    "redfin_code": r['county_table_id'],
                     "include": 1,
                     "notes": "Generated from Redfin macro hierarchy"
                     + (f"; {'; '.join(notes)}" if notes else ""),
@@ -120,7 +120,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     out = out.sort_values(["geo_level", "geo_name"]).reset_index(drop=True)
-    return out[["geo_name", "geo_level", "redfin_table_id", "include", "notes"]]
+    return out[["geo_name", "geo_level", "redfin_code", "include", "notes"]]
 
 
 def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
@@ -158,7 +158,7 @@ def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
             {
                 "geo_name": r['zip5']+', '+r['county_name'],
                 "geo_level": "zip",
-                "redfin_table_id": r['zip_table_id'],
+                "redfin_code": r['zip_table_id'],
                 "include": 1,
                 "notes": "Generated from Redfin local context hierarchy"
                 + (f"; {'; '.join(notes)}" if notes else ""),
@@ -170,7 +170,7 @@ def build_local_scope(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     out = out.sort_values(["geo_level", "geo_name"]).reset_index(drop=True)
-    return out[["geo_name", "geo_level", "redfin_table_id", "include", "notes"]]
+    return out[["geo_name", "geo_level", "redfin_code", "include", "notes"]]
 
 
 def main() -> int:
