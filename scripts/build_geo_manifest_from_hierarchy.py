@@ -5,12 +5,15 @@ from pathlib import Path
 
 import pandas as pd
 
-
+# ===================================================
+# Constants and Configs
+# ===================================================
 CONFIG_DIR = Path("config")
 
 MACRO_SCOPE = CONFIG_DIR / "geo_scope_macro.csv"
 LOCAL_SCOPE = CONFIG_DIR / "geo_scope_local.csv"
 OUT = CONFIG_DIR / "geo_manifest.generated.csv"
+COUNTY_FIPS_XREF = CONFIG_DIR / "xref_county_fips.csv"
 
 
 MANIFEST_COLUMNS = [
@@ -27,6 +30,7 @@ MANIFEST_COLUMNS = [
     "include_census_bps",
     "bea_geo_fips",
     "include_bea_qgdp",
+    "include_bea_agdp",
     "fred_unemp_series_id",
     "include_fred_unemp",
     "fred_geo_code",
@@ -41,7 +45,9 @@ STATE_FIPS = {
     "VA": "51",
 }
 
-
+# ===================================================
+# Helpers
+# ===================================================
 def read_scope(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Missing required scope file: {path}")
@@ -70,7 +76,9 @@ def build_base_manifest(scope: pd.DataFrame) -> pd.DataFrame:
     out = out.drop_duplicates(subset=["level", "geo_name"], keep="first")
     return out
 
-
+# ===================================================
+# Resolvers
+# ===================================================
 def apply_redfin_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFrame:
     redfin = scope[["geo_level", "geo_name", "redfin_code"]].copy()
     redfin = redfin.rename(columns={"geo_level": "level"})
@@ -174,6 +182,96 @@ def apply_bls_ces_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.Da
     return out
 
 
+def apply_bea_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFrame:
+    out = manifest.copy()
+
+    for c in ["bea_geo_fips", "include_bea_qgdp", "include_bea_agdp"]:
+        if c not in out.columns:
+            out[c] = "" if c == "bea_geo_fips" else "0"
+
+    out["bea_geo_fips"] = out["bea_geo_fips"].fillna("").astype(str)
+    out["include_bea_qgdp"] = out["include_bea_qgdp"].fillna("0").astype(str)
+    out["include_bea_agdp"] = out["include_bea_agdp"].fillna("0").astype(str)
+
+    # Nation
+    nation_mask = out["level"].eq("nation")
+    out.loc[nation_mask, "bea_geo_fips"] = "00000"
+    out.loc[nation_mask, "include_bea_qgdp"] = "1"
+    out.loc[nation_mask, "include_bea_agdp"] = "1"
+
+    # State
+    if "state_code" not in scope.columns:
+        raise ValueError("Scope must include state_code for BEA resolver.")
+
+    bea_scope = scope[["geo_level", "geo_name", "state_code"]].copy()
+    bea_scope = bea_scope.rename(columns={"geo_level": "level"})
+    bea_scope["level"] = bea_scope["level"].astype(str).str.strip()
+    bea_scope["geo_name"] = bea_scope["geo_name"].astype(str).str.strip()
+    bea_scope["state_code"] = bea_scope["state_code"].astype(str).str.upper().str.strip()
+
+    state_scope = bea_scope[bea_scope["level"].eq("state")].copy()
+    state_scope["bea_geo_fips_resolved"] = state_scope["state_code"].map(STATE_FIPS).fillna("") + "000"
+    state_scope.loc[state_scope["state_code"].map(STATE_FIPS).isna(), "bea_geo_fips_resolved"] = ""
+
+    out = out.merge(
+        state_scope[["level", "geo_name", "bea_geo_fips_resolved"]],
+        on=["level", "geo_name"],
+        how="left",
+    )
+
+    m = out["bea_geo_fips_resolved"].fillna("").ne("")
+    out.loc[m, "bea_geo_fips"] = out.loc[m, "bea_geo_fips_resolved"]
+    out.loc[m, "include_bea_qgdp"] = "1"
+    out.loc[m, "include_bea_agdp"] = "1"
+
+    out = out.drop(columns=["bea_geo_fips_resolved"])
+
+    # County annual GDP
+    if not COUNTY_FIPS_XREF.exists():
+        raise FileNotFoundError(f"Missing required county FIPS xref: {COUNTY_FIPS_XREF}")
+
+    xref = pd.read_csv(COUNTY_FIPS_XREF, dtype=str).fillna("")
+    xref.columns = [c.strip().lower() for c in xref.columns]
+
+    required = {"county_name", "state_code", "state_fips", "county_fips"}
+    missing = required - set(xref.columns)
+    if missing:
+        raise ValueError(f"{COUNTY_FIPS_XREF} missing required columns: {sorted(missing)}")
+
+    xref["county_name_norm"] = xref["county_name"].astype(str).str.strip().str.lower()
+    xref["state_code"] = xref["state_code"].astype(str).str.upper().str.strip()
+    xref["state_fips"] = xref["state_fips"].astype(str).str.zfill(2)
+    xref["county_fips"] = xref["county_fips"].astype(str).str.zfill(3)
+
+    # Drop state-level pseudo-county rows.
+    xref = xref[xref["county_fips"].ne("000")].copy()
+    xref["bea_geo_fips_resolved"] = xref["state_fips"] + xref["county_fips"]
+
+    county_scope = bea_scope[bea_scope["level"].eq("county")].copy()
+    county_scope["county_name_norm"] = county_scope["geo_name"].astype(str).str.strip().str.lower()
+
+    county_scope = county_scope.merge(
+        xref[["county_name_norm", "state_code", "bea_geo_fips_resolved"]].drop_duplicates(),
+        on=["county_name_norm", "state_code"],
+        how="left",
+    )
+
+    out = out.merge(
+        county_scope[["level", "geo_name", "bea_geo_fips_resolved"]],
+        on=["level", "geo_name"],
+        how="left",
+    )
+
+    m = out["bea_geo_fips_resolved"].fillna("").ne("")
+    out.loc[m, "bea_geo_fips"] = out.loc[m, "bea_geo_fips_resolved"]
+    out.loc[m, "include_bea_qgdp"] = "0"
+    out.loc[m, "include_bea_agdp"] = "1"
+
+    out = out.drop(columns=["bea_geo_fips_resolved"])
+
+    return out
+
+
 def finalize_manifest(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
@@ -202,6 +300,7 @@ def main() -> int:
     manifest = build_base_manifest(scope)
     manifest = apply_redfin_resolver(manifest, scope)
     manifest = apply_bls_ces_resolver(manifest, scope)
+    manifest = apply_bea_resolver(manifest, scope)
     manifest = finalize_manifest(manifest)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
