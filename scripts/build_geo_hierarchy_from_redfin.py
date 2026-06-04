@@ -18,7 +18,7 @@ OUT_LOCAL = CONFIG_DIR / "geo_local_context.generated.csv"
 # Optional. Script should run without these.
 STATE_REF_PATH = CONFIG_DIR / "geo_state_scope.csv"
 COUNTY_REF_PATH = CONFIG_DIR / "geo_county_scope.csv"
-ZIP_COUNTY_XREF_PATH = CONFIG_DIR / "zip_county_xref.csv"
+ZIP_COUNTY_XREF_PATH = CONFIG_DIR / "xref_zip_county.csv"
 
 
 def _find_file(name: str) -> Path:
