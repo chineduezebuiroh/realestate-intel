@@ -97,8 +97,18 @@ def apply_redfin_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.Dat
 def apply_bls_ces_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFrame:
     out = manifest.copy()
 
-    out["bls_ces_area_code"] = out.get("bls_ces_area_code", "").fillna("").astype(str)
-    out["include_ces"] = out.get("include_ces", "0").fillna("0").astype(str)
+    #out["bls_ces_area_code"] = out.get("bls_ces_area_code", "").fillna("").astype(str)
+    #out["include_ces"] = out.get("include_ces", "0").fillna("0").astype(str)
+
+    if "bls_ces_area_code" not in out.columns:
+        out["bls_ces_area_code"] = ""
+    else:
+        out["bls_ces_area_code"] = out["bls_ces_area_code"].fillna("").astype(str)
+    
+    if "include_ces" not in out.columns:
+        out["include_ces"] = "0"
+    else:
+        out["include_ces"] = out["include_ces"].fillna("0").astype(str)
 
     # Nation
     nation_mask = out["level"].astype(str).str.strip().eq("nation")
