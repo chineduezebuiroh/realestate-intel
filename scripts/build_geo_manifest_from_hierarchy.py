@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+import re
+
 # ===================================================
 # Constants and Configs
 # ===================================================
@@ -48,6 +50,13 @@ STATE_FIPS = {
 # ===================================================
 # Helpers
 # ===================================================
+def norm_county_name(x: object) -> str:
+    s = str(x).strip().lower()
+    s = re.sub(r",\s*[a-z]{2}$", "", s)   # remove trailing ", CA"
+    s = re.sub(r"\s+", " ", s)
+    return s
+    
+
 def read_scope(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Missing required scope file: {path}")
@@ -238,7 +247,8 @@ def apply_bea_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFr
     if missing:
         raise ValueError(f"{COUNTY_FIPS_XREF} missing required columns: {sorted(missing)}")
 
-    xref["county_name_norm"] = xref["county_name"].astype(str).str.strip().str.lower()
+    #xref["county_name_norm"] = xref["county_name"].astype(str).str.strip().str.lower() <--- DELETE LATER?
+    xref["county_name_norm"] = xref["county_name"].map(norm_county_name)
     xref["state_code"] = xref["state_code"].astype(str).str.upper().str.strip()
     xref["state_fips"] = xref["state_fips"].astype(str).str.zfill(2)
     xref["county_fips"] = xref["county_fips"].astype(str).str.zfill(3)
@@ -248,7 +258,8 @@ def apply_bea_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFr
     xref["bea_geo_fips_resolved"] = xref["state_fips"] + xref["county_fips"]
 
     county_scope = bea_scope[bea_scope["level"].eq("county")].copy()
-    county_scope["county_name_norm"] = county_scope["geo_name"].astype(str).str.strip().str.lower()
+    #county_scope["county_name_norm"] = county_scope["geo_name"].astype(str).str.strip().str.lower() <--- DELETE LATER?
+    county_scope["county_name_norm"] = county_scope["geo_name"].map(norm_county_name)
 
     county_scope = county_scope.merge(
         xref[["county_name_norm", "state_code", "bea_geo_fips_resolved"]].drop_duplicates(),
