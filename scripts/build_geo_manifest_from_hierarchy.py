@@ -63,12 +63,16 @@ def county_join_key(name: object, state_code: object) -> str:
 
     s = re.sub(r",\s*[a-z]{2}$", "", s)
     s = re.sub(r"\s+", " ", s).strip()
+    s = s.replace("&", "and")
 
     if st == "VA":
         if "city county" in s:
             return s.replace(" city county", " city").strip()
 
         if s.endswith(" county"):
+            return s
+
+        if s.endswith(" city"):
             return s
 
         return f"{s} city"
