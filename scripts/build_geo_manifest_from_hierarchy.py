@@ -289,8 +289,9 @@ def apply_bea_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFr
     )
 
     county_scope = county_scope.merge(
-        xref[["county_name_norm", "state_code", "bea_geo_fips_resolved"]].drop_duplicates(),
+        #xref[["county_name_norm", "state_code", "bea_geo_fips_resolved"]].drop_duplicates(), <--- DELETE LATER?
         #on=["county_name_norm", "state_code"], <--- DELETE LATER?
+        xref[["county_join_key", "state_code", "bea_geo_fips_resolved"]].drop_duplicates(),
         on=["county_join_key", "state_code"],
         how="left",
     )
