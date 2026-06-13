@@ -50,10 +50,29 @@ STATE_FIPS = {
 # ===================================================
 # Helpers
 # ===================================================
+"""
 def norm_county_name(x: object) -> str:
     s = str(x).strip().lower()
     s = re.sub(r",\s*[a-z]{2}$", "", s)   # remove trailing ", CA"
     s = re.sub(r"\s+", " ", s)
+    return s
+"""
+def county_join_key(name: object, state_code: object) -> str:
+    s = str(name).strip().lower()
+    st = str(state_code).strip().upper()
+
+    s = re.sub(r",\s*[a-z]{2}$", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+
+    if st == "VA":
+        if "city county" in s:
+            return s.replace(" city county", " city").strip()
+
+        if s.endswith(" county"):
+            return s
+
+        return f"{s} city"
+
     return s
     
 
@@ -248,7 +267,11 @@ def apply_bea_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFr
         raise ValueError(f"{COUNTY_FIPS_XREF} missing required columns: {sorted(missing)}")
 
     #xref["county_name_norm"] = xref["county_name"].astype(str).str.strip().str.lower() <--- DELETE LATER?
-    xref["county_name_norm"] = xref["county_name"].map(norm_county_name)
+    #xref["county_name_norm"] = xref["county_name"].map(norm_county_name)
+    xref["county_join_key"] = xref.apply(
+        lambda r: county_join_key(r["county_name"], r["state_code"]),
+        axis=1
+    )
     xref["state_code"] = xref["state_code"].astype(str).str.upper().str.strip()
     xref["state_fips"] = xref["state_fips"].astype(str).str.zfill(2)
     xref["county_fips"] = xref["county_fips"].astype(str).str.zfill(3)
@@ -259,11 +282,16 @@ def apply_bea_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFr
 
     county_scope = bea_scope[bea_scope["level"].eq("county")].copy()
     #county_scope["county_name_norm"] = county_scope["geo_name"].astype(str).str.strip().str.lower() <--- DELETE LATER?
-    county_scope["county_name_norm"] = county_scope["geo_name"].map(norm_county_name)
+    #county_scope["county_name_norm"] = county_scope["geo_name"].map(norm_county_name)
+    county_scope["county_join_key"] = county_scope.apply(
+        lambda r: county_join_key(r["geo_name"], r["state_code"]),
+        axis=1
+    )
 
     county_scope = county_scope.merge(
         xref[["county_name_norm", "state_code", "bea_geo_fips_resolved"]].drop_duplicates(),
-        on=["county_name_norm", "state_code"],
+        #on=["county_name_norm", "state_code"], <--- DELETE LATER?
+        on=["county_join_key", "state_code"]
         how="left",
     )
 
