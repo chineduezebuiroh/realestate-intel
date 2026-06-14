@@ -47,16 +47,18 @@ STATE_FIPS = {
     "VA": "51",
 }
 
+FRED_UNEMP_SERIES = {
+    "nation": "UNRATE",
+    "CA": "CAUR",
+    "DC": "DCUR",
+    "MD": "MDUR",
+    "NJ": "NJUR",
+    "VA": "VAUR",
+}
+
 # ===================================================
 # Helpers
 # ===================================================
-"""
-def norm_county_name(x: object) -> str:
-    s = str(x).strip().lower()
-    s = re.sub(r",\s*[a-z]{2}$", "", s)   # remove trailing ", CA"
-    s = re.sub(r"\s+", " ", s)
-    return s
-"""
 def county_join_key(name: object, state_code: object) -> str:
     s = str(name).strip().lower()
     st = str(state_code).strip().upper()
@@ -136,9 +138,6 @@ def apply_redfin_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.Dat
 
 def apply_bls_ces_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFrame:
     out = manifest.copy()
-
-    #out["bls_ces_area_code"] = out.get("bls_ces_area_code", "").fillna("").astype(str)
-    #out["include_ces"] = out.get("include_ces", "0").fillna("0").astype(str)
 
     if "bls_ces_area_code" not in out.columns:
         out["bls_ces_area_code"] = ""
@@ -270,8 +269,6 @@ def apply_bea_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFr
     if missing:
         raise ValueError(f"{COUNTY_FIPS_XREF} missing required columns: {sorted(missing)}")
 
-    #xref["county_name_norm"] = xref["county_name"].astype(str).str.strip().str.lower() <--- DELETE LATER?
-    #xref["county_name_norm"] = xref["county_name"].map(norm_county_name)
     xref["county_join_key"] = xref.apply(
         lambda r: county_join_key(r["county_name"], r["state_code"]),
         axis=1
@@ -285,16 +282,12 @@ def apply_bea_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFr
     xref["bea_geo_fips_resolved"] = xref["state_fips"] + xref["county_fips"]
 
     county_scope = bea_scope[bea_scope["level"].eq("county")].copy()
-    #county_scope["county_name_norm"] = county_scope["geo_name"].astype(str).str.strip().str.lower() <--- DELETE LATER?
-    #county_scope["county_name_norm"] = county_scope["geo_name"].map(norm_county_name)
     county_scope["county_join_key"] = county_scope.apply(
         lambda r: county_join_key(r["geo_name"], r["state_code"]),
         axis=1
     )
 
     county_scope = county_scope.merge(
-        #xref[["county_name_norm", "state_code", "bea_geo_fips_resolved"]].drop_duplicates(), <--- DELETE LATER?
-        #on=["county_name_norm", "state_code"], <--- DELETE LATER?
         xref[["county_join_key", "state_code", "bea_geo_fips_resolved"]].drop_duplicates(),
         on=["county_join_key", "state_code"],
         how="left",
@@ -315,6 +308,56 @@ def apply_bea_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFr
 
     return out
 
+
+def apply_fred_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFrame:
+    out = manifest.copy()
+
+    for c in ["fred_unemp_series_id", "include_fred_unemp", "fred_geo_code", "include_fred"]:
+        if c not in out.columns:
+            out[c] = "" if c in ["fred_unemp_series_id", "fred_geo_code"] else "0"
+
+    out["fred_unemp_series_id"] = out["fred_unemp_series_id"].fillna("").astype(str)
+    out["include_fred_unemp"] = out["include_fred_unemp"].fillna("0").astype(str)
+    out["fred_geo_code"] = out["fred_geo_code"].fillna("").astype(str)
+    out["include_fred"] = out["include_fred"].fillna("0").astype(str)
+
+    # Nation: national macro FRED + unemployment
+    nation_mask = out["level"].astype(str).str.strip().eq("nation")
+    out.loc[nation_mask, "fred_unemp_series_id"] = FRED_UNEMP_SERIES["nation"]
+    out.loc[nation_mask, "include_fred_unemp"] = "1"
+    out.loc[nation_mask, "fred_geo_code"] = "US"
+    out.loc[nation_mask, "include_fred"] = "1"
+
+    if "state_code" not in scope.columns:
+        raise ValueError("Scope must include state_code for FRED resolver.")
+
+    fred_scope = scope[["geo_level", "geo_name", "state_code"]].copy()
+    fred_scope = fred_scope.rename(columns={"geo_level": "level"})
+    fred_scope["level"] = fred_scope["level"].astype(str).str.strip()
+    fred_scope["geo_name"] = fred_scope["geo_name"].astype(str).str.strip()
+    fred_scope["state_code"] = fred_scope["state_code"].astype(str).str.upper().str.strip()
+
+    # States: unemployment series only. No generic fred_geo_code.
+    state_scope = fred_scope[fred_scope["level"].eq("state")].copy()
+    state_scope["fred_unemp_series_id_resolved"] = state_scope["state_code"].map(FRED_UNEMP_SERIES).fillna("")
+    state_scope["include_fred_unemp_resolved"] = state_scope["fred_unemp_series_id_resolved"].ne("").astype(int).astype(str)
+
+    out = out.merge(
+        state_scope[
+            ["level", "geo_name", "fred_unemp_series_id_resolved", "include_fred_unemp_resolved"]
+        ],
+        on=["level", "geo_name"],
+        how="left",
+    )
+
+    m = out["fred_unemp_series_id_resolved"].fillna("").ne("")
+    out.loc[m, "fred_unemp_series_id"] = out.loc[m, "fred_unemp_series_id_resolved"]
+    out.loc[m, "include_fred_unemp"] = out.loc[m, "include_fred_unemp_resolved"]
+
+    out = out.drop(columns=["fred_unemp_series_id_resolved", "include_fred_unemp_resolved"])
+
+    return out
+    
 
 def finalize_manifest(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
@@ -345,6 +388,7 @@ def main() -> int:
     manifest = apply_redfin_resolver(manifest, scope)
     manifest = apply_bls_ces_resolver(manifest, scope)
     manifest = apply_bea_resolver(manifest, scope)
+    manifest = apply_fred_resolver(manifest, scope)
     manifest = finalize_manifest(manifest)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
