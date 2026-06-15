@@ -61,25 +61,47 @@ def _source_inventory(con: duckdb.DuckDBPyConnection, refresh_ts: str) -> pd.Dat
     df = con.execute(q).df()
     df["latest_refresh_timestamp"] = refresh_ts
 
-    def estimate_frequency(row: pd.Series) -> str:
+    SOURCE_FREQUENCY = {
+        "redfin": "monthly",
+        "ces": "monthly",
+        "laus": "monthly",
+        "fred_macro": "monthly",
+        "fred_unemp": "monthly",
+        "bea_gdp_qtr": "quarterly",
+        "census_acs5": "annual",
+        "census_bps": "monthly",
+        "census_nrc_fred": "monthly",
+    }
+    
+    def estimate_frequency(row):
+        source_id = str(row["source_id"]).lower()
+    
+        if source_id in SOURCE_FREQUENCY:
+            return SOURCE_FREQUENCY[source_id]
+    
+        # fallback inference for future sources
         n = row["row_count"]
         first = pd.to_datetime(row["first_date"])
         last = pd.to_datetime(row["last_date"])
-
+    
         if pd.isna(first) or pd.isna(last) or n == 0:
             return "unknown"
-
+    
         years = max((last - first).days / 365.25, 0.01)
-        obs_per_year = n / max(row["metric_count"] * row["geo_count"] * years, 1)
-
+        obs_per_year = n / max(
+            row["metric_count"] * row["geo_count"] * years,
+            1
+        )
+    
         if obs_per_year >= 10:
             return "monthly_or_higher"
         if obs_per_year >= 3:
             return "quarterly"
         if obs_per_year >= 0.5:
             return "annual"
+    
         return "sparse"
-
+    
     df["estimated_frequency"] = df.apply(estimate_frequency, axis=1)
 
     return df[
