@@ -38,12 +38,13 @@ The platform organizes indicators into six primary families:
 
 Demand indicators measure population growth, labor market strength, and economic expansion.
 
-| Indicator    | Primary Source | Frequency | Supported Geo Levels         |
-| ------------ | -------------- | --------- | ---------------------------- |
-| Population   | Census ACS     | Annual    | Nation, State, County        |
-| Labor Force  | BLS LAUS       | Monthly   | Nation, State, Metro, County |
-| Employment   | BLS CES / LAUS | Monthly   | Nation, State, Metro, County |
-| Unemployment | BLS LAUS       | Monthly   | Nation, State, Metro, County |
+| Indicator    | Primary Source   | Frequency           | Supported Geo Levels         |
+| ------------ | ---------------- | ------------------- | ---------------------------- |
+| Population   | Census ACS       | Annual              | Nation, State, County        |
+| GDP          | BEA QGDP / AGDP  | Quarterly / Annual  | Nation, State, County        |
+| Labor Force  | BLS LAUS         | Monthly             | Nation, State, Metro, County |
+| Employment   | BLS CES / LAUS   | Monthly             | Nation, State, Metro, County |
+| Unemployment | BLS LAUS         | Monthly             | Nation, State, Metro, County |
 
 ### Notes
 
