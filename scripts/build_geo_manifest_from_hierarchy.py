@@ -213,6 +213,123 @@ def apply_bls_ces_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.Da
     return out
 
 
+def apply_bls_laus_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFrame:
+    out = manifest.copy()
+
+    for c in ["bls_laus_area_code", "include_laus"]:
+        if c not in out.columns:
+            out[c] = "" if c == "bls_laus_area_code" else "0"
+
+    out["bls_laus_area_code"] = out["bls_laus_area_code"].fillna("").astype(str)
+    out["include_laus"] = out["include_laus"].fillna("0").astype(str)
+
+    # Nation
+    nation_mask = out["level"].astype(str).str.strip().eq("nation")
+    out.loc[nation_mask, "bls_laus_area_code"] = "0000000000000"
+    out.loc[nation_mask, "include_laus"] = "1"
+
+    if "state_code" not in scope.columns:
+        raise ValueError("Scope must include state_code for BLS LAUS resolver.")
+
+    laus_scope = scope[["geo_level", "geo_name", "state_code", "redfin_code"]].copy()
+    laus_scope = laus_scope.rename(columns={"geo_level": "level"})
+    laus_scope["level"] = laus_scope["level"].astype(str).str.strip()
+    laus_scope["geo_name"] = laus_scope["geo_name"].astype(str).str.strip()
+    laus_scope["state_code"] = laus_scope["state_code"].astype(str).str.upper().str.strip()
+    laus_scope["redfin_code"] = laus_scope["redfin_code"].astype(str).str.strip()
+
+    # State: state_fips + 11 zeros
+    state_scope = laus_scope[laus_scope["level"].eq("state")].copy()
+    state_scope["state_fips"] = state_scope["state_code"].map(STATE_FIPS).fillna("")
+    state_scope["bls_laus_area_code_resolved"] = state_scope["state_fips"] + "00000000000"
+    state_scope.loc[state_scope["state_fips"].eq(""), "bls_laus_area_code_resolved"] = ""
+
+    out = out.merge(
+        state_scope[["level", "geo_name", "bls_laus_area_code_resolved"]],
+        on=["level", "geo_name"],
+        how="left",
+    )
+
+    m = out["bls_laus_area_code_resolved"].fillna("").ne("")
+    out.loc[m, "bls_laus_area_code"] = out.loc[m, "bls_laus_area_code_resolved"]
+    out.loc[m, "include_laus"] = "1"
+    out = out.drop(columns=["bls_laus_area_code_resolved"])
+
+    # CBSA metro: state_fips + metro_fips + 6 zeros
+    metro_scope = laus_scope[laus_scope["level"].eq("cbsa_metro")].copy()
+    metro_scope["state_fips"] = metro_scope["state_code"].map(STATE_FIPS).fillna("")
+    metro_scope["metro_fips"] = metro_scope["redfin_code"].str.extract(r"(\d{5})", expand=False).fillna("")
+    metro_scope["bls_laus_area_code_resolved"] = (
+        metro_scope["state_fips"] + metro_scope["metro_fips"] + "000000"
+    )
+
+    valid_metro = metro_scope["state_fips"].ne("") & metro_scope["metro_fips"].str.fullmatch(r"\d{5}")
+    metro_scope.loc[~valid_metro, "bls_laus_area_code_resolved"] = ""
+
+    out = out.merge(
+        metro_scope[["level", "geo_name", "bls_laus_area_code_resolved"]],
+        on=["level", "geo_name"],
+        how="left",
+    )
+
+    m = out["bls_laus_area_code_resolved"].fillna("").ne("")
+    out.loc[m, "bls_laus_area_code"] = out.loc[m, "bls_laus_area_code_resolved"]
+    out.loc[m, "include_laus"] = "1"
+    out = out.drop(columns=["bls_laus_area_code_resolved"])
+
+    # County: state_fips + county_fips + 8 zeros
+    if not COUNTY_FIPS_XREF.exists():
+        raise FileNotFoundError(f"Missing required county FIPS xref: {COUNTY_FIPS_XREF}")
+
+    xref = pd.read_csv(COUNTY_FIPS_XREF, dtype=str).fillna("")
+    xref.columns = [c.strip().lower() for c in xref.columns]
+
+    required = {"county_name", "state_code", "state_fips", "county_fips"}
+    missing = required - set(xref.columns)
+    if missing:
+        raise ValueError(f"{COUNTY_FIPS_XREF} missing required columns: {sorted(missing)}")
+
+    xref["state_code"] = xref["state_code"].astype(str).str.upper().str.strip()
+    xref["state_fips"] = xref["state_fips"].astype(str).str.zfill(2)
+    xref["county_fips"] = xref["county_fips"].astype(str).str.zfill(3)
+    xref = xref[
+        xref["county_fips"].notna()
+        & xref["county_fips"].ne("")
+        & xref["county_fips"].ne("000")
+    ].copy()
+
+    xref["county_join_key"] = xref.apply(
+        lambda r: county_join_key(r["county_name"], r["state_code"]),
+        axis=1,
+    )
+    xref["bls_laus_area_code_resolved"] = xref["state_fips"] + xref["county_fips"] + "00000000"
+
+    county_scope = laus_scope[laus_scope["level"].eq("county")].copy()
+    county_scope["county_join_key"] = county_scope.apply(
+        lambda r: county_join_key(r["geo_name"], r["state_code"]),
+        axis=1,
+    )
+
+    county_scope = county_scope.merge(
+        xref[["county_join_key", "state_code", "bls_laus_area_code_resolved"]].drop_duplicates(),
+        on=["county_join_key", "state_code"],
+        how="left",
+    )
+
+    out = out.merge(
+        county_scope[["level", "geo_name", "bls_laus_area_code_resolved"]],
+        on=["level", "geo_name"],
+        how="left",
+    )
+
+    m = out["bls_laus_area_code_resolved"].fillna("").ne("")
+    out.loc[m, "bls_laus_area_code"] = out.loc[m, "bls_laus_area_code_resolved"]
+    out.loc[m, "include_laus"] = "1"
+    out = out.drop(columns=["bls_laus_area_code_resolved"])
+
+    return out
+
+
 def apply_bea_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFrame:
     out = manifest.copy()
 
@@ -499,6 +616,7 @@ def main() -> int:
     manifest = build_base_manifest(scope)
     manifest = apply_redfin_resolver(manifest, scope)
     manifest = apply_bls_ces_resolver(manifest, scope)
+    manifest = apply_bls_laus_resolver(manifest, scope)
     manifest = apply_bea_resolver(manifest, scope)
     manifest = apply_fred_resolver(manifest, scope)
     manifest = apply_census_resolver(manifest, scope)
