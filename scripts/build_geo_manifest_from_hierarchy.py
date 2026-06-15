@@ -501,6 +501,7 @@ def main() -> int:
     manifest = apply_bls_ces_resolver(manifest, scope)
     manifest = apply_bea_resolver(manifest, scope)
     manifest = apply_fred_resolver(manifest, scope)
+    manifest = apply_census_resolver(manifest, scope)
     manifest = finalize_manifest(manifest)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
