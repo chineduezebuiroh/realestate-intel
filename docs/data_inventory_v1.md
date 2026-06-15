@@ -121,3 +121,65 @@ upload audit artifacts
 ```
 
 The audit should not replace source validation. It is a platform-level visibility layer.
+
+# Publication Lag Audit
+
+## Purpose
+
+Track how delayed each source is relative to the period being measured.
+
+Examples:
+
+| Source | Frequency | Typical Publication Lag |
+|----------|----------|----------|
+| Redfin | Monthly | ~1 month |
+| BLS CES | Monthly | ~1 month |
+| BLS LAUS | Monthly | ~1 month |
+| Census ACS | Annual | ~1 year |
+| Census BPS | Monthly | ~1 month |
+| BEA QGDP | Quarterly | ~1 quarter |
+| BEA AGDP | Annual | ~1 year |
+| FRED | Varies | Source-dependent |
+
+## Future Output
+
+publication_lag_inventory.csv
+
+Fields:
+
+- source_id
+- frequency
+- publication_lag_periods
+- publication_lag_notes
+
+
+
+# Revision Audit
+
+## Purpose
+
+Track whether historical values may change after publication.
+
+## Classification
+
+| Source | Revision Behavior |
+|----------|----------|
+| Redfin | Rare / Snapshot |
+| BLS CES | Revised |
+| BLS LAUS | Revised |
+| Census ACS | Generally Final |
+| Census BPS | Revised |
+| BEA QGDP | Revised |
+| BEA AGDP | Revised |
+| FRED | Depends on underlying source |
+
+## Future Output
+
+revision_inventory.csv
+
+Fields:
+
+- source_id
+- revision_flag
+- revision_type
+- revision_notes
