@@ -199,7 +199,55 @@ Composite:
 
 ---
 
+## Unemployment
+
+Raw Sources:
+- LAUS
+- FRED Unemployment
+
+Tier 1 Features:
+
+- unemployment_rate_level
+- unemployment_rate_mom
+- unemployment_rate_yoy
+
+Normalized Features:
+
+- unemployment_rate_level_pct
+- unemployment_rate_mom_pct
+- unemployment_rate_yoy_pct
+
+Composite:
+
+- unemployment_score
+
+---
+
 # Supply Features
+
+## Active Inventory
+
+Raw Sources:
+
+- Redfin
+
+Tier 1 Features:
+
+- inventory_level
+- inventory_mom
+- inventory_yoy
+
+Normalized Features:
+
+- inventory_level_pct
+- inventory_mom_pct
+- inventory_yoy_pct
+
+Composite:
+
+- inventory_score
+
+---
 
 ## Building Permits
 
@@ -249,6 +297,38 @@ Composite:
 
 ---
 
+## Construction Labor Activity
+
+Raw Sources:
+- CES
+
+Tier 1 Features:
+
+- construction_payroll_level
+- construction_payroll_mom
+- construction_payroll_yoy
+
+Composite:
+
+- construction_activity_score
+
+---
+
+# Affordability Features
+
+Raw Sources:
+
+- Redfin
+- Census ACS
+- FRED
+
+Tier 1 Features:
+
+- price_to_income ratio
+- payment burden
+
+---
+
 # Price Features
 
 Raw Sources:
@@ -265,6 +345,16 @@ Tier 1 Features:
 - median_ppsf_mom
 - median_ppsf_yoy
 
+Normalized Features:
+
+- median_sale_price_level_pct
+- median_sale_price_mom_pct
+- median_sale_price_yoy_pct
+
+- median_ppsf_level_pct
+- median_ppsf_mom_pct
+- median_ppsf_yoy_pct
+
 Composite:
 
 - price_score
@@ -273,27 +363,99 @@ Composite:
 
 # Liquidity Features
 
+## Days on Market (DOM)
+
 Raw Sources:
 
 - Redfin
 
 Tier 1 Features:
 
-- inventory_level
-- inventory_mom
-- inventory_yoy
+- dom_level
+- dom_mom
+- dom_yoy
+
+Normalized Features:
+
+- dom_level_pct
+- dom_mom_pct
+- dom_yoy_pct
+
+Composite:
+
+- dom_score
+
+---
+
+## Sale-to-List Ratio
+
+Raw Sources:
+
+- Redfin
+
+Tier 1 Features:
+
+- avg_sale_to_list_level
+- avg_sale_to_list_mom
+- avg_sale_to_list_yoy
+
+Normalized Features:
+
+- avg_sale_to_list_level_pct
+- avg_sale_to_list_mom_pct
+- avg_sale_to_list_yoy_pct
+
+Composite:
+
+- sale_to_list_score
+
+---
+
+## Transaction Volume
+
+Raw Sources:
+
+- Redfin
+
+Tier 1 Features:
+
+- homes_sold_level
+- homes_sold_mom
+- homes_sold_yoy
+
+Normalized Features:
+
+- homes_sold_level_pct
+- homes_sold_mom_pct
+- homes_sold_yoy_pct
+
+Composite:
+
+- homes_sold_score
+
+---
+
+## Months of Supply
+
+Raw Sources:
+
+- Redfin
+
+Tier 1 Features:
 
 - months_supply_level
 - months_supply_mom
 - months_supply_yoy
 
-- dom_level
-- dom_mom
-- dom_yoy
+Normalized Features:
+
+- months_supply_level_pct
+- months_supply_mom_pct
+- months_supply_yoy_pct
 
 Composite:
 
-- liquidity_score
+- months_supply_score
 
 ---
 
@@ -303,22 +465,67 @@ Raw Sources:
 
 - FRED
 
+## Policy Rates
+
 Tier 1 Features:
 
 - fedfunds_level
 - fedfunds_mom
 - fedfunds_yoy
 
+Normalized Features:
+
+- fedfunds_level_pct
+- fedfunds_mom_pct
+- fedfunds_yoy_pct
+
+Composite:
+
+- fed_funds_score
+
+--- 
+
+## Mortgage Financing
+
+Tier 1 Features:
+
 - mortgage30_level
 - mortgage30_mom
 - mortgage30_yoy
 
-- yield_curve_level
-- yield_curve_mom
+- mortgage15_level
+- mortgage15_mom
+- mortgage15_yoy
+
+Normalized Features:
+
+- mortgage30_level_pct
+- mortgage30_mom_pct
+- mortgage30_yoy_pct
+
+- mortgage15_level_pct
+- mortgage15_mom_pct
+- mortgage15_yoy_pct
 
 Composite:
 
-- capital_markets_score
+- mortgage_score
+
+--- 
+
+## Credit / Term Structure
+
+Tier 1 Features:
+
+- spread_2y_10y
+- spread_10y_fedfunds
+- spread_30y_fedfunds
+
+- Not clear yet on if we need to normalize these and if so, how that will work  
+
+Composite:
+
+- rate_spread_score
 
 ---
 
