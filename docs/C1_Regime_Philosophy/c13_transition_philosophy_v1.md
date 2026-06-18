@@ -60,15 +60,40 @@ occurs because the market moved across a boundary rather than because a new labe
 
 ---
 
-# Transition Risk
+# Current Regime & Forecast Regime
 
-Markets near regime boundaries should be treated differently than markets near regime centers.
+The regime itself is the product. The cycle wheel is divided into:
+
+- 4 major quadrants
+- 12 minor phases
+
+Once classified:
+
+```text
+Recovery → Early Expansion → Expansion → Late Expansion → Early Hypersupply ...
+```
+
+- the exact coordinate becomes less important.
+- The classification already carries the nuance.
+
+We don't actually need to know:
+```text
+Demand = 0.417 and Supply = -0.128
+```
+
+We need something that's actionable:
+```text
+Baltimore is currently in Early Expansion and forecasted to enter Expansion within 12 months.
+```
 
 Example:
 
-A market deep inside Expansion is more stable than a market sitting directly on the Expansion / Late Expansion boundary.
+```text
+Current: Expansion
+Forecast: Late Expansion
+```
 
-Transition risk should therefore become an explicit output.
+That is effectively a transition signal.
 
 ---
 
