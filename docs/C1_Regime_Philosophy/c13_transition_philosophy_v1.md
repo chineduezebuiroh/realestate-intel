@@ -126,12 +126,6 @@ Therefore:
 
 This preserves economic discipline without imposing false rigidity.
 
-## Forecasted Transitions
-
-Forecasted transitions are generated using forecasted indicator values. The same coordinate and classification framework should be used for both current and forecasted regimes. No separate forecast regime framework should exist.
-
-Forecasted regime movement should be interpreted as the expected direction implied by forecasted conditions, not as a deterministic path.
-
 ---
 
 # Forecasted Transitions
@@ -141,6 +135,8 @@ Forecasted transitions are generated using forecasted indicator values.
 The same coordinate and classification framework should be used for both current and forecasted regimes.
 
 No separate forecast regime framework should exist.
+
+Forecasted regime movement should be interpreted as the expected direction implied by forecasted conditions, not as a deterministic path.
 
 ---
 
