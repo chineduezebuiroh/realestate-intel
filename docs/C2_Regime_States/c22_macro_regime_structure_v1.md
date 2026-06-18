@@ -1,4 +1,4 @@
-# C2.1 — Cycle Wheel Geometry v1
+# C2.2 — Macro Regime Structure v1
 
 ## Purpose
 
