@@ -97,23 +97,40 @@ That is effectively a transition signal.
 
 ---
 
-# Momentum Matters
+# Momentum And Cycle Direction
 
-Direction of travel matters.
+Markets generally move through the cycle in an ordered sequence.
+
+Conceptually:
+
+```text
+Recovery
+→ Expansion
+→ Hypersupply
+→ Recession
+→ Recovery
+```
 
 Two markets can occupy similar coordinates but have different expected paths.
 
-Example:
+## Path Flexibility
 
-Market A:
-Moving toward Expansion
+Although movement is generally cyclical, the framework should not hard-code strict limits on how far or how quickly a market can move. Markets should generally not reverse through boundaries, but they may move rapidly during periods of stress, policy shock, credit tightening, supply shock, or demand collapse.
 
-Market B:
-Moving toward Recession
+Therefore:
 
-Both may currently occupy similar locations.
+- cyclical order should guide interpretation
+- forecasted transitions should be reviewed for plausibility
+- large regime jumps should be flagged for explanation
+- large regime jumps should not be automatically prohibited
 
-Transition tracking should therefore include velocity and direction of movement.
+This preserves economic discipline without imposing false rigidity.
+
+## Forecasted Transitions
+
+Forecasted transitions are generated using forecasted indicator values. The same coordinate and classification framework should be used for both current and forecasted regimes. No separate forecast regime framework should exist.
+
+Forecasted regime movement should be interpreted as the expected direction implied by forecasted conditions, not as a deterministic path.
 
 ---
 
