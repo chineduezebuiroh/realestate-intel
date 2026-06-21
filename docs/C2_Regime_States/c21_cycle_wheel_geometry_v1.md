@@ -340,3 +340,10 @@ No separate forecast regime framework should exist.
 ```
 
 This convention must remain consistent across all regime calculations.
+
+
+# Governance Rule:
+
+- Cardinal points represent maximum expression of a regime's dominant force.
+
+- Diagonal boundaries represent equilibrium points between competing forces and therefore define regime transitions.
