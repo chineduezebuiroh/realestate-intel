@@ -166,11 +166,11 @@ B2.2 — Normalization Framework
 
 Output range:
 
--1.00 = Extremely Supportive Financing Conditions
++1.00 = Extremely Supportive Financing Conditions
 
 0.00 = Neutral Financing Conditions
 
-+1.00 = Extremely Restrictive Financing Conditions
+-1.00 = Extremely Restrictive Financing Conditions
 
 All normalization is performed relative to historical experience.
 
