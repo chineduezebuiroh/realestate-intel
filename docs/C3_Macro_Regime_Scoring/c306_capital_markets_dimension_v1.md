@@ -1,4 +1,4 @@
-# C3.6 — Capital Markets Dimension v1
+# C3.06 — Capital Markets Dimension v1
 
 ## Purpose
 
