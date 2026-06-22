@@ -1,4 +1,4 @@
-# C3.9 — Dimension Weighting Framework v1
+# C3.09 — Dimension Weighting Framework v1
 
 ## Purpose
 
