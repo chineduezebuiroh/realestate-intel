@@ -1,4 +1,4 @@
-# C3.2 — Supply Dimension v1
+# C3.02 — Supply Dimension v1
 
 ## Purpose
 
