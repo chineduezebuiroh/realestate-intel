@@ -1,4 +1,4 @@
-# C3.4 — Transaction Activity Dimension v1
+# C3.04 — Transaction Activity Dimension v1
 
 ## Purpose
 
