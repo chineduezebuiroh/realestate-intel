@@ -1,4 +1,4 @@
-# C3.3 — Affordability Dimension v1
+# C3.03 — Affordability Dimension v1
 
 ## Purpose
 
