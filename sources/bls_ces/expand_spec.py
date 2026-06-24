@@ -96,7 +96,7 @@ def load_ces_geo_targets():
     return area_map
 
 
-
+"""
 def _download(url: str, dest: Path):
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Only download if missing (idempotent). Force with CES_FORCE=1
@@ -132,13 +132,60 @@ def _download(url: str, dest: Path):
         print(f"[ces] WARN: failed to refresh {dest.name} ({last_exc}); using existing file.")
         return
     raise last_exc
+"""
 
+def _download(url: str, dest: Path):
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Only download if missing. Force with CES_FORCE=1.
+    if dest.exists() and os.getenv("CES_FORCE", "0") not in ("1", "true", "True"):
+        return
+
+    headers = {
+        "User-Agent": (
+            "realestate-intel/1.0 "
+            "(https://github.com/chineduezebuiroh/realestate-intel)"
+        ),
+        "Accept": "text/plain,text/csv,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Connection": "close",
+    }
+
+    tries = [url]
+    if url.startswith("https://"):
+        tries.append(url.replace("https://", "http://", 1))
+
+    last_exc = None
+
+    for attempt in range(3):
+        for u in tries:
+            try:
+                print(f"[ces] downloading {u} -> {dest}")
+                r = requests.get(u, headers=headers, timeout=60)
+                if r.status_code == 403:
+                    raise requests.HTTPError(f"403 from {u}")
+                r.raise_for_status()
+
+                if not r.content:
+                    raise ValueError(f"empty response from {u}")
+
+                dest.write_bytes(r.content)
+                return
+
+            except Exception as e:
+                last_exc = e
+                print(f"[ces] WARN: download attempt failed: {e}")
+
+    if dest.exists():
+        print(f"[ces] WARN: failed to refresh {dest.name} ({last_exc}); using existing file.")
+        return
+
+    raise last_exc
 
 
 def ensure_bls_files():
     _download(SM_SERIES_URL, BLS_DIR / "sm.series")
     _download(SM_DATA_ALL_URL, BLS_DIR / "sm.data.1.AllData")
-
 
 
 def _read_sm_series(path: Path):
@@ -200,7 +247,6 @@ def _read_sm_series(path: Path):
     return rows
 
 
-
 def _seasonal_tag(s: str) -> str:
     s = (s or "").upper()
     if s == "S":
@@ -208,7 +254,6 @@ def _seasonal_tag(s: str) -> str:
     if s == "U":
         return "NSA"
     return "NSA"
-
 
 
 def generate_csv(sm_series_rows, out_path: Path):
@@ -223,7 +268,6 @@ def generate_csv(sm_series_rows, out_path: Path):
     # small debug
     print(f"[ces:gen][debug] CES_AREA_MAP keys sample:", list(CES_AREA_MAP.keys())[:10])
     
-
 
     # best[(geo_id, metric_base, seasonal)] = row with max (end_year, end_period)
     best = {}
@@ -293,7 +337,6 @@ def generate_csv(sm_series_rows, out_path: Path):
             }
 
     
-
     # Final rows to write (drop end_year / end_period helper fields)
     rows = []
     for w in best.values():
