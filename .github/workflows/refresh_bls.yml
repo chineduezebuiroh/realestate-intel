@@ -17,6 +17,7 @@ jobs:
       PYTHONPATH: .
       DUCKDB_PATH: data/market.duckdb
       ARTIFACT_ROOT: artifacts/phasea
+      BLS_API_KEY: ${{ secrets.BLS_API_KEY }}
 
     steps:
       - name: Checkout
