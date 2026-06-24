@@ -17,11 +17,9 @@ def main() -> int:
 
     failures: list[str] = []
 
-    run_step("sources.bls_ces.expand_spec", failures)
     run_step("sources.bls_ces.ingest", failures)
     run_step("sources.bls_ces.validate", failures)
 
-    run_step("sources.bls_laus.expand_spec", failures)
     run_step("sources.bls_laus.ingest", failures)
     run_step("sources.bls_laus.validate", failures)
 
