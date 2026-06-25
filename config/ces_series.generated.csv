@@ -1,0 +1,123 @@
+geo_id,series_id,metric_base,seasonal,name,area
+arlington_msd,SMU51116946500000001,ces_education_health_services,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMU51116945500000001,ces_financial_activities,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMU51116949000000001,ces_government,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMU51116945000000001,ces_information,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMU51116947000000001,ces_leisure_hospitality,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMU51116943000000001,ces_manufacturing,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMU51116948000000001,ces_other_services,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMU51116946000000001,ces_prof_business_services,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMS51116940000000001,ces_total_nonfarm,S,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMU51116940000000001,ces_total_nonfarm,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMU51116940500000001,ces_total_private,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,SMU51116944000000001,ces_trade_transport_utilities,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
+baltimore_msa,SMU24125806500000001,ces_education_health_services,U,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMU24125805500000001,ces_financial_activities,U,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMU24125809000000001,ces_government,U,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMU24125805000000001,ces_information,U,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMU24125807000000001,ces_leisure_hospitality,U,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMU24125803000000001,ces_manufacturing,U,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMU24125808000000001,ces_other_services,U,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMU24125806000000001,ces_prof_business_services,U,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMS24125800000000001,ces_total_nonfarm,S,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMU24125800000000001,ces_total_nonfarm,U,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMU24125800500000001,ces_total_private,U,,"Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,SMU24125804000000001,ces_trade_transport_utilities,U,,"Baltimore-Columbia-Towson, MD MSA"
+dc_msa,SMU11479006500000001,ces_education_health_services,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMU11479005500000001,ces_financial_activities,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMU11479009000000001,ces_government,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMU11479005000000001,ces_information,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMU11479007000000001,ces_leisure_hospitality,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMU11479003000000001,ces_manufacturing,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMU11479008000000001,ces_other_services,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMU11479006000000001,ces_prof_business_services,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMS11479000000000001,ces_total_nonfarm,S,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMU11479000000000001,ces_total_nonfarm,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMU11479000500000001,ces_total_private,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,SMU11479004000000001,ces_trade_transport_utilities,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msd,SMU11477646500000001,ces_education_health_services,U,,"Washington, DC-MD MSD"
+dc_msd,SMU11477645500000001,ces_financial_activities,U,,"Washington, DC-MD MSD"
+dc_msd,SMU11477649000000001,ces_government,U,,"Washington, DC-MD MSD"
+dc_msd,SMU11477645000000001,ces_information,U,,"Washington, DC-MD MSD"
+dc_msd,SMU11477647000000001,ces_leisure_hospitality,U,,"Washington, DC-MD MSD"
+dc_msd,SMU11477643000000001,ces_manufacturing,U,,"Washington, DC-MD MSD"
+dc_msd,SMU11477648000000001,ces_other_services,U,,"Washington, DC-MD MSD"
+dc_msd,SMU11477646000000001,ces_prof_business_services,U,,"Washington, DC-MD MSD"
+dc_msd,SMS11477640000000001,ces_total_nonfarm,S,,"Washington, DC-MD MSD"
+dc_msd,SMU11477640000000001,ces_total_nonfarm,U,,"Washington, DC-MD MSD"
+dc_msd,SMU11477640500000001,ces_total_private,U,,"Washington, DC-MD MSD"
+dc_msd,SMU11477644000000001,ces_trade_transport_utilities,U,,"Washington, DC-MD MSD"
+dc_state,SMS11000006500000001,ces_education_health_services,S,,District of Columbia
+dc_state,SMU11000006500000001,ces_education_health_services,U,,District of Columbia
+dc_state,SMS11000005500000001,ces_financial_activities,S,,District of Columbia
+dc_state,SMU11000005500000001,ces_financial_activities,U,,District of Columbia
+dc_state,SMS11000009000000001,ces_government,S,,District of Columbia
+dc_state,SMU11000009000000001,ces_government,U,,District of Columbia
+dc_state,SMS11000005000000001,ces_information,S,,District of Columbia
+dc_state,SMU11000005000000001,ces_information,U,,District of Columbia
+dc_state,SMS11000007000000001,ces_leisure_hospitality,S,,District of Columbia
+dc_state,SMU11000007000000001,ces_leisure_hospitality,U,,District of Columbia
+dc_state,SMS11000003000000001,ces_manufacturing,S,,District of Columbia
+dc_state,SMU11000003000000001,ces_manufacturing,U,,District of Columbia
+dc_state,SMS11000008000000001,ces_other_services,S,,District of Columbia
+dc_state,SMU11000008000000001,ces_other_services,U,,District of Columbia
+dc_state,SMS11000006000000001,ces_prof_business_services,S,,District of Columbia
+dc_state,SMU11000006000000001,ces_prof_business_services,U,,District of Columbia
+dc_state,SMS11000000000000001,ces_total_nonfarm,S,,District of Columbia
+dc_state,SMU11000000000000001,ces_total_nonfarm,U,,District of Columbia
+dc_state,SMS11000000500000001,ces_total_private,S,,District of Columbia
+dc_state,SMU11000000500000001,ces_total_private,U,,District of Columbia
+dc_state,SMS11000004000000001,ces_trade_transport_utilities,S,,District of Columbia
+dc_state,SMU11000004000000001,ces_trade_transport_utilities,U,,District of Columbia
+md_state,SMS24000002000000001,ces_construction,S,,Maryland
+md_state,SMU24000002000000001,ces_construction,U,,Maryland
+md_state,SMS24000006500000001,ces_education_health_services,S,,Maryland
+md_state,SMU24000006500000001,ces_education_health_services,U,,Maryland
+md_state,SMS24000005500000001,ces_financial_activities,S,,Maryland
+md_state,SMU24000005500000001,ces_financial_activities,U,,Maryland
+md_state,SMS24000009000000001,ces_government,S,,Maryland
+md_state,SMU24000009000000001,ces_government,U,,Maryland
+md_state,SMS24000005000000001,ces_information,S,,Maryland
+md_state,SMU24000005000000001,ces_information,U,,Maryland
+md_state,SMS24000007000000001,ces_leisure_hospitality,S,,Maryland
+md_state,SMU24000007000000001,ces_leisure_hospitality,U,,Maryland
+md_state,SMS24000003000000001,ces_manufacturing,S,,Maryland
+md_state,SMU24000003000000001,ces_manufacturing,U,,Maryland
+md_state,SMS24000001000000001,ces_mining_logging,S,,Maryland
+md_state,SMU24000001000000001,ces_mining_logging,U,,Maryland
+md_state,SMS24000008000000001,ces_other_services,S,,Maryland
+md_state,SMU24000008000000001,ces_other_services,U,,Maryland
+md_state,SMS24000006000000001,ces_prof_business_services,S,,Maryland
+md_state,SMU24000006000000001,ces_prof_business_services,U,,Maryland
+md_state,SMS24000000000000001,ces_total_nonfarm,S,,Maryland
+md_state,SMU24000000000000001,ces_total_nonfarm,U,,Maryland
+md_state,SMS24000000500000001,ces_total_private,S,,Maryland
+md_state,SMU24000000500000001,ces_total_private,U,,Maryland
+md_state,SMS24000004000000001,ces_trade_transport_utilities,S,,Maryland
+md_state,SMU24000004000000001,ces_trade_transport_utilities,U,,Maryland
+va_state,SMS51000002000000001,ces_construction,S,,Virginia
+va_state,SMU51000002000000001,ces_construction,U,,Virginia
+va_state,SMS51000006500000001,ces_education_health_services,S,,Virginia
+va_state,SMU51000006500000001,ces_education_health_services,U,,Virginia
+va_state,SMS51000005500000001,ces_financial_activities,S,,Virginia
+va_state,SMU51000005500000001,ces_financial_activities,U,,Virginia
+va_state,SMS51000009000000001,ces_government,S,,Virginia
+va_state,SMU51000009000000001,ces_government,U,,Virginia
+va_state,SMS51000005000000001,ces_information,S,,Virginia
+va_state,SMU51000005000000001,ces_information,U,,Virginia
+va_state,SMS51000007000000001,ces_leisure_hospitality,S,,Virginia
+va_state,SMU51000007000000001,ces_leisure_hospitality,U,,Virginia
+va_state,SMS51000003000000001,ces_manufacturing,S,,Virginia
+va_state,SMU51000003000000001,ces_manufacturing,U,,Virginia
+va_state,SMS51000001000000001,ces_mining_logging,S,,Virginia
+va_state,SMU51000001000000001,ces_mining_logging,U,,Virginia
+va_state,SMS51000008000000001,ces_other_services,S,,Virginia
+va_state,SMU51000008000000001,ces_other_services,U,,Virginia
+va_state,SMS51000006000000001,ces_prof_business_services,S,,Virginia
+va_state,SMU51000006000000001,ces_prof_business_services,U,,Virginia
+va_state,SMS51000000000000001,ces_total_nonfarm,S,,Virginia
+va_state,SMU51000000000000001,ces_total_nonfarm,U,,Virginia
+va_state,SMS51000000500000001,ces_total_private,S,,Virginia
+va_state,SMU51000000500000001,ces_total_private,U,,Virginia
+va_state,SMS51000004000000001,ces_trade_transport_utilities,S,,Virginia
+va_state,SMU51000004000000001,ces_trade_transport_utilities,U,,Virginia

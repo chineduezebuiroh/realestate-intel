@@ -1,0 +1,97 @@
+geo_id,series_id,metric_base,seasonal,name,notes
+dc_state,LAUST110000000000003,laus_unemployment_rate,NSA,"Unemployment Rate (State, NSA)",District of Columbia
+dc_state,LASST110000000000003,laus_unemployment_rate,SA,"Unemployment Rate (State, SA)",District of Columbia
+dc_state,LAUST110000000000004,laus_unemployment,NSA,"Unemployment (State, NSA)",District of Columbia
+dc_state,LASST110000000000004,laus_unemployment,SA,"Unemployment (State, SA)",District of Columbia
+dc_state,LAUST110000000000005,laus_employment,NSA,"Employment (State, NSA)",District of Columbia
+dc_state,LASST110000000000005,laus_employment,SA,"Employment (State, SA)",District of Columbia
+dc_state,LAUST110000000000006,laus_labor_force,NSA,"Labor Force (State, NSA)",District of Columbia
+dc_state,LASST110000000000006,laus_labor_force,SA,"Labor Force (State, SA)",District of Columbia
+md_state,LAUST240000000000003,laus_unemployment_rate,NSA,"Unemployment Rate (State, NSA)",Maryland
+md_state,LASST240000000000003,laus_unemployment_rate,SA,"Unemployment Rate (State, SA)",Maryland
+md_state,LAUST240000000000004,laus_unemployment,NSA,"Unemployment (State, NSA)",Maryland
+md_state,LASST240000000000004,laus_unemployment,SA,"Unemployment (State, SA)",Maryland
+md_state,LAUST240000000000005,laus_employment,NSA,"Employment (State, NSA)",Maryland
+md_state,LASST240000000000005,laus_employment,SA,"Employment (State, SA)",Maryland
+md_state,LAUST240000000000006,laus_labor_force,NSA,"Labor Force (State, NSA)",Maryland
+md_state,LASST240000000000006,laus_labor_force,SA,"Labor Force (State, SA)",Maryland
+va_state,LAUST510000000000003,laus_unemployment_rate,NSA,"Unemployment Rate (State, NSA)",Virginia
+va_state,LASST510000000000003,laus_unemployment_rate,SA,"Unemployment Rate (State, SA)",Virginia
+va_state,LAUST510000000000004,laus_unemployment,NSA,"Unemployment (State, NSA)",Virginia
+va_state,LASST510000000000004,laus_unemployment,SA,"Unemployment (State, SA)",Virginia
+va_state,LAUST510000000000005,laus_employment,NSA,"Employment (State, NSA)",Virginia
+va_state,LASST510000000000005,laus_employment,SA,"Employment (State, SA)",Virginia
+va_state,LAUST510000000000006,laus_labor_force,NSA,"Labor Force (State, NSA)",Virginia
+va_state,LASST510000000000006,laus_labor_force,SA,"Labor Force (State, SA)",Virginia
+dc_msa,LAUMT114790000000003,laus_unemployment_rate,NSA,"Unemployment Rate (Metro_Area, NSA)","Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,LAUMT114790000000004,laus_unemployment,NSA,"Unemployment (Metro_Area, NSA)","Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,LAUMT114790000000005,laus_employment,NSA,"Employment (Metro_Area, NSA)","Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+dc_msa,LAUMT114790000000006,laus_labor_force,NSA,"Labor Force (Metro_Area, NSA)","Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
+baltimore_msa,LAUMT241258000000003,laus_unemployment_rate,NSA,"Unemployment Rate (Metro_Area, NSA)","Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,LAUMT241258000000004,laus_unemployment,NSA,"Unemployment (Metro_Area, NSA)","Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,LAUMT241258000000005,laus_employment,NSA,"Employment (Metro_Area, NSA)","Baltimore-Columbia-Towson, MD MSA"
+baltimore_msa,LAUMT241258000000006,laus_labor_force,NSA,"Labor Force (Metro_Area, NSA)","Baltimore-Columbia-Towson, MD MSA"
+dc_msd,LAUDV114776400000003,laus_unemployment_rate,NSA,"Unemployment Rate (Metro_Division, NSA)","Washington, DC-MD MSD"
+dc_msd,LAUDV114776400000004,laus_unemployment,NSA,"Unemployment (Metro_Division, NSA)","Washington, DC-MD MSD"
+dc_msd,LAUDV114776400000005,laus_employment,NSA,"Employment (Metro_Division, NSA)","Washington, DC-MD MSD"
+dc_msd,LAUDV114776400000006,laus_labor_force,NSA,"Labor Force (Metro_Division, NSA)","Washington, DC-MD MSD"
+arlington_msd,LAUDV511169400000003,laus_unemployment_rate,NSA,"Unemployment Rate (Metro_Division, NSA)","Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,LAUDV511169400000004,laus_unemployment,NSA,"Unemployment (Metro_Division, NSA)","Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,LAUDV511169400000005,laus_employment,NSA,"Employment (Metro_Division, NSA)","Arlington-Alexandria-Reston, VA-WV MSD"
+arlington_msd,LAUDV511169400000006,laus_labor_force,NSA,"Labor Force (Metro_Division, NSA)","Arlington-Alexandria-Reston, VA-WV MSD"
+dc_csa,LAUCA115480000000003,laus_unemployment_rate,NSA,"Unemployment Rate (Combined_Area, NSA)","Washington-Baltimore-Arlington, DC-MD-VA-WV-PA CSA"
+dc_csa,LAUCA115480000000004,laus_unemployment,NSA,"Unemployment (Combined_Area, NSA)","Washington-Baltimore-Arlington, DC-MD-VA-WV-PA CSA"
+dc_csa,LAUCA115480000000005,laus_employment,NSA,"Employment (Combined_Area, NSA)","Washington-Baltimore-Arlington, DC-MD-VA-WV-PA CSA"
+dc_csa,LAUCA115480000000006,laus_labor_force,NSA,"Labor Force (Combined_Area, NSA)","Washington-Baltimore-Arlington, DC-MD-VA-WV-PA CSA"
+montgomery_county_md,LAUCN240310000000003,laus_unemployment_rate,NSA,"Unemployment Rate (County, NSA)","Montgomery County, MD"
+montgomery_county_md,LAUCN240310000000004,laus_unemployment,NSA,"Unemployment (County, NSA)","Montgomery County, MD"
+montgomery_county_md,LAUCN240310000000005,laus_employment,NSA,"Employment (County, NSA)","Montgomery County, MD"
+montgomery_county_md,LAUCN240310000000006,laus_labor_force,NSA,"Labor Force (County, NSA)","Montgomery County, MD"
+prince_georges_county_md,LAUCN240330000000003,laus_unemployment_rate,NSA,"Unemployment Rate (County, NSA)","Prince George's County, MD"
+prince_georges_county_md,LAUCN240330000000004,laus_unemployment,NSA,"Unemployment (County, NSA)","Prince George's County, MD"
+prince_georges_county_md,LAUCN240330000000005,laus_employment,NSA,"Employment (County, NSA)","Prince George's County, MD"
+prince_georges_county_md,LAUCN240330000000006,laus_labor_force,NSA,"Labor Force (County, NSA)","Prince George's County, MD"
+prince_william_county_va,LAUCN511530000000003,laus_unemployment_rate,NSA,"Unemployment Rate (County, NSA)","Prince William County, VA"
+prince_william_county_va,LAUCN511530000000004,laus_unemployment,NSA,"Unemployment (County, NSA)","Prince William County, VA"
+prince_william_county_va,LAUCN511530000000005,laus_employment,NSA,"Employment (County, NSA)","Prince William County, VA"
+prince_william_county_va,LAUCN511530000000006,laus_labor_force,NSA,"Labor Force (County, NSA)","Prince William County, VA"
+arlington_county_va,LAUCN510130000000003,laus_unemployment_rate,NSA,"Unemployment Rate (County, NSA)","Arlington County, VA"
+arlington_county_va,LAUCN510130000000004,laus_unemployment,NSA,"Unemployment (County, NSA)","Arlington County, VA"
+arlington_county_va,LAUCN510130000000005,laus_employment,NSA,"Employment (County, NSA)","Arlington County, VA"
+arlington_county_va,LAUCN510130000000006,laus_labor_force,NSA,"Labor Force (County, NSA)","Arlington County, VA"
+alexandria_city,LAUCN515100000000003,laus_unemployment_rate,NSA,"Unemployment Rate (County, NSA)","Alexandria city, VA"
+alexandria_city,LAUCN515100000000004,laus_unemployment,NSA,"Unemployment (County, NSA)","Alexandria city, VA"
+alexandria_city,LAUCN515100000000005,laus_employment,NSA,"Employment (County, NSA)","Alexandria city, VA"
+alexandria_city,LAUCN515100000000006,laus_labor_force,NSA,"Labor Force (County, NSA)","Alexandria city, VA"
+dc_county,LAUCN110010000000003,laus_unemployment_rate,NSA,"Unemployment Rate (County, NSA)",District of Columbia
+dc_county,LAUCN110010000000004,laus_unemployment,NSA,"Unemployment (County, NSA)",District of Columbia
+dc_county,LAUCN110010000000005,laus_employment,NSA,"Employment (County, NSA)",District of Columbia
+dc_county,LAUCN110010000000006,laus_labor_force,NSA,"Labor Force (County, NSA)",District of Columbia
+baltimore_county,LAUCN240050000000003,laus_unemployment_rate,NSA,"Unemployment Rate (County, NSA)","Baltimore County, MD"
+baltimore_county,LAUCN240050000000004,laus_unemployment,NSA,"Unemployment (County, NSA)","Baltimore County, MD"
+baltimore_county,LAUCN240050000000005,laus_employment,NSA,"Employment (County, NSA)","Baltimore County, MD"
+baltimore_county,LAUCN240050000000006,laus_labor_force,NSA,"Labor Force (County, NSA)","Baltimore County, MD"
+baltimore_city_county,LAUCN245100000000003,laus_unemployment_rate,NSA,"Unemployment Rate (County, NSA)","Baltimore city, MD"
+baltimore_city_county,LAUCN245100000000004,laus_unemployment,NSA,"Unemployment (County, NSA)","Baltimore city, MD"
+baltimore_city_county,LAUCN245100000000005,laus_employment,NSA,"Employment (County, NSA)","Baltimore city, MD"
+baltimore_city_county,LAUCN245100000000006,laus_labor_force,NSA,"Labor Force (County, NSA)","Baltimore city, MD"
+dc_city,LAUCT115000000000003,laus_unemployment_rate,NSA,"Unemployment Rate (City, NSA)","Washington city, DC"
+dc_city,LAUCT115000000000004,laus_unemployment,NSA,"Unemployment (City, NSA)","Washington city, DC"
+dc_city,LAUCT115000000000005,laus_employment,NSA,"Employment (City, NSA)","Washington city, DC"
+dc_city,LAUCT115000000000006,laus_labor_force,NSA,"Labor Force (City, NSA)","Washington city, DC"
+baltimore_city,LAUCT240400000000003,laus_unemployment_rate,NSA,"Unemployment Rate (City, NSA)","Baltimore city, MD"
+baltimore_city,LAUCT240400000000004,laus_unemployment,NSA,"Unemployment (City, NSA)","Baltimore city, MD"
+baltimore_city,LAUCT240400000000005,laus_employment,NSA,"Employment (City, NSA)","Baltimore city, MD"
+baltimore_city,LAUCT240400000000006,laus_labor_force,NSA,"Labor Force (City, NSA)","Baltimore city, MD"
+bowie_city,LAUCT240877500000003,laus_unemployment_rate,NSA,"Unemployment Rate (City, NSA)","Bowie city, MD"
+bowie_city,LAUCT240877500000004,laus_unemployment,NSA,"Unemployment (City, NSA)","Bowie city, MD"
+bowie_city,LAUCT240877500000005,laus_employment,NSA,"Employment (City, NSA)","Bowie city, MD"
+bowie_city,LAUCT240877500000006,laus_labor_force,NSA,"Labor Force (City, NSA)","Bowie city, MD"
+rockville_city,LAUCT246767500000003,laus_unemployment_rate,NSA,"Unemployment Rate (City, NSA)","Rockville city, MD"
+rockville_city,LAUCT246767500000004,laus_unemployment,NSA,"Unemployment (City, NSA)","Rockville city, MD"
+rockville_city,LAUCT246767500000005,laus_employment,NSA,"Employment (City, NSA)","Rockville city, MD"
+rockville_city,LAUCT246767500000006,laus_labor_force,NSA,"Labor Force (City, NSA)","Rockville city, MD"
+alexandria_city,LAUCT510100000000003,laus_unemployment_rate,NSA,"Unemployment Rate (City, NSA)","Alexandria city, VA"
+alexandria_city,LAUCT510100000000004,laus_unemployment,NSA,"Unemployment (City, NSA)","Alexandria city, VA"
+alexandria_city,LAUCT510100000000005,laus_employment,NSA,"Employment (City, NSA)","Alexandria city, VA"
+alexandria_city,LAUCT510100000000006,laus_labor_force,NSA,"Labor Force (City, NSA)","Alexandria city, VA"
