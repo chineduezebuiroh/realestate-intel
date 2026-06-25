@@ -6,7 +6,8 @@ from pathlib import Path
 import requests
 import pandas as pd  # make sure this is imported at the top
 
-GEO_MANIFEST = Path("config/geo_manifest.csv")
+# GEO_MANIFEST = Path("config/geo_manifest.csv")
+GEO_MANIFEST = Path(os.getenv("GEO_MANIFEST_PATH", "config/geo_manifest.generated.csv"))
 
 # 🔧 Populated at runtime in main()
 #CES_AREA_MAP = {}
