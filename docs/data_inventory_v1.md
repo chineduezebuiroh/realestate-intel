@@ -122,6 +122,8 @@ upload audit artifacts
 
 The audit should not replace source validation. It is a platform-level visibility layer.
 
+---
+
 # Publication Lag Audit
 
 ## Purpose
@@ -152,7 +154,7 @@ Fields:
 - publication_lag_periods
 - publication_lag_notes
 
-
+---
 
 # Revision Audit
 
@@ -183,3 +185,39 @@ Fields:
 - revision_flag
 - revision_type
 - revision_notes
+
+---
+
+# Generated Config Artifact Governance
+
+## Purpose
+
+Certain configuration files are generated from authoritative source data and
+are intentionally committed to source control.
+
+These artifacts provide deterministic inputs to ingestion workflows and avoid
+requiring metadata regeneration during routine refresh jobs.
+
+## Committed Generated Artifacts
+
+- config/geo_manifest.generated.csv
+- config/ces_series.generated.csv
+- config/laus_series.generated.csv
+
+## Generation Workflow
+
+Generated artifacts should be regenerated whenever:
+
+- geo scope changes
+- mapping logic changes
+- upstream metadata changes
+- spec-generation code changes
+
+Routine data refresh jobs consume these committed artifacts and should not
+regenerate them.
+
+## Future Automation
+
+Generation, staging, and commit of these artifacts will eventually be handled
+through a dedicated developer workflow
+(`scripts/generate_committed_configs.py`).
