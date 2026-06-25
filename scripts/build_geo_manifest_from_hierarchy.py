@@ -252,8 +252,8 @@ def apply_bls_laus_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.D
 
     # Nation
     nation_mask = out["level"].astype(str).str.strip().eq("nation")
-    out.loc[nation_mask, "bls_laus_area_code"] = "0000000000000"
-    out.loc[nation_mask, "include_laus"] = "1"
+    out.loc[nation_mask, "bls_laus_area_code"] = ""
+    out.loc[nation_mask, "include_laus"] = "0"
 
     if "state_code" not in scope.columns:
         raise ValueError("Scope must include state_code for BLS LAUS resolver.")
@@ -268,7 +268,7 @@ def apply_bls_laus_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.D
     # State: state_fips + 11 zeros
     state_scope = laus_scope[laus_scope["level"].eq("state")].copy()
     state_scope["state_fips"] = state_scope["state_code"].map(STATE_FIPS).fillna("")
-    state_scope["bls_laus_area_code_resolved"] = state_scope["state_fips"] + "00000000000"
+    state_scope["bls_laus_area_code_resolved"] = state_scope["state_fips"] + "0000000000"
     state_scope.loc[state_scope["state_fips"].eq(""), "bls_laus_area_code_resolved"] = ""
 
     out = out.merge(
