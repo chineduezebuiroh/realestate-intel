@@ -1,123 +1,673 @@
 geo_id,series_id,metric_base,seasonal,name,area
-arlington_msd,SMU51116946500000001,ces_education_health_services,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMU51116945500000001,ces_financial_activities,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMU51116949000000001,ces_government,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMU51116945000000001,ces_information,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMU51116947000000001,ces_leisure_hospitality,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMU51116943000000001,ces_manufacturing,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMU51116948000000001,ces_other_services,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMU51116946000000001,ces_prof_business_services,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMS51116940000000001,ces_total_nonfarm,S,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMU51116940000000001,ces_total_nonfarm,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMU51116940500000001,ces_total_private,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-arlington_msd,SMU51116944000000001,ces_trade_transport_utilities,U,,"Arlington-Alexandria-Reston, VA-WV MSD"
-baltimore_msa,SMU24125806500000001,ces_education_health_services,U,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMU24125805500000001,ces_financial_activities,U,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMU24125809000000001,ces_government,U,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMU24125805000000001,ces_information,U,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMU24125807000000001,ces_leisure_hospitality,U,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMU24125803000000001,ces_manufacturing,U,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMU24125808000000001,ces_other_services,U,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMU24125806000000001,ces_prof_business_services,U,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMS24125800000000001,ces_total_nonfarm,S,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMU24125800000000001,ces_total_nonfarm,U,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMU24125800500000001,ces_total_private,U,,"Baltimore-Columbia-Towson, MD MSA"
-baltimore_msa,SMU24125804000000001,ces_trade_transport_utilities,U,,"Baltimore-Columbia-Towson, MD MSA"
-dc_msa,SMU11479006500000001,ces_education_health_services,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMU11479005500000001,ces_financial_activities,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMU11479009000000001,ces_government,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMU11479005000000001,ces_information,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMU11479007000000001,ces_leisure_hospitality,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMU11479003000000001,ces_manufacturing,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMU11479008000000001,ces_other_services,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMU11479006000000001,ces_prof_business_services,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMS11479000000000001,ces_total_nonfarm,S,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMU11479000000000001,ces_total_nonfarm,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMU11479000500000001,ces_total_private,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msa,SMU11479004000000001,ces_trade_transport_utilities,U,,"Washington-Arlington-Alexandria, DC-VA-MD-WV MSA"
-dc_msd,SMU11477646500000001,ces_education_health_services,U,,"Washington, DC-MD MSD"
-dc_msd,SMU11477645500000001,ces_financial_activities,U,,"Washington, DC-MD MSD"
-dc_msd,SMU11477649000000001,ces_government,U,,"Washington, DC-MD MSD"
-dc_msd,SMU11477645000000001,ces_information,U,,"Washington, DC-MD MSD"
-dc_msd,SMU11477647000000001,ces_leisure_hospitality,U,,"Washington, DC-MD MSD"
-dc_msd,SMU11477643000000001,ces_manufacturing,U,,"Washington, DC-MD MSD"
-dc_msd,SMU11477648000000001,ces_other_services,U,,"Washington, DC-MD MSD"
-dc_msd,SMU11477646000000001,ces_prof_business_services,U,,"Washington, DC-MD MSD"
-dc_msd,SMS11477640000000001,ces_total_nonfarm,S,,"Washington, DC-MD MSD"
-dc_msd,SMU11477640000000001,ces_total_nonfarm,U,,"Washington, DC-MD MSD"
-dc_msd,SMU11477640500000001,ces_total_private,U,,"Washington, DC-MD MSD"
-dc_msd,SMU11477644000000001,ces_trade_transport_utilities,U,,"Washington, DC-MD MSD"
-dc_state,SMS11000006500000001,ces_education_health_services,S,,District of Columbia
-dc_state,SMU11000006500000001,ces_education_health_services,U,,District of Columbia
-dc_state,SMS11000005500000001,ces_financial_activities,S,,District of Columbia
-dc_state,SMU11000005500000001,ces_financial_activities,U,,District of Columbia
-dc_state,SMS11000009000000001,ces_government,S,,District of Columbia
-dc_state,SMU11000009000000001,ces_government,U,,District of Columbia
-dc_state,SMS11000005000000001,ces_information,S,,District of Columbia
-dc_state,SMU11000005000000001,ces_information,U,,District of Columbia
-dc_state,SMS11000007000000001,ces_leisure_hospitality,S,,District of Columbia
-dc_state,SMU11000007000000001,ces_leisure_hospitality,U,,District of Columbia
-dc_state,SMS11000003000000001,ces_manufacturing,S,,District of Columbia
-dc_state,SMU11000003000000001,ces_manufacturing,U,,District of Columbia
-dc_state,SMS11000008000000001,ces_other_services,S,,District of Columbia
-dc_state,SMU11000008000000001,ces_other_services,U,,District of Columbia
-dc_state,SMS11000006000000001,ces_prof_business_services,S,,District of Columbia
-dc_state,SMU11000006000000001,ces_prof_business_services,U,,District of Columbia
-dc_state,SMS11000000000000001,ces_total_nonfarm,S,,District of Columbia
-dc_state,SMU11000000000000001,ces_total_nonfarm,U,,District of Columbia
-dc_state,SMS11000000500000001,ces_total_private,S,,District of Columbia
-dc_state,SMU11000000500000001,ces_total_private,U,,District of Columbia
-dc_state,SMS11000004000000001,ces_trade_transport_utilities,S,,District of Columbia
-dc_state,SMU11000004000000001,ces_trade_transport_utilities,U,,District of Columbia
-md_state,SMS24000002000000001,ces_construction,S,,Maryland
-md_state,SMU24000002000000001,ces_construction,U,,Maryland
-md_state,SMS24000006500000001,ces_education_health_services,S,,Maryland
-md_state,SMU24000006500000001,ces_education_health_services,U,,Maryland
-md_state,SMS24000005500000001,ces_financial_activities,S,,Maryland
-md_state,SMU24000005500000001,ces_financial_activities,U,,Maryland
-md_state,SMS24000009000000001,ces_government,S,,Maryland
-md_state,SMU24000009000000001,ces_government,U,,Maryland
-md_state,SMS24000005000000001,ces_information,S,,Maryland
-md_state,SMU24000005000000001,ces_information,U,,Maryland
-md_state,SMS24000007000000001,ces_leisure_hospitality,S,,Maryland
-md_state,SMU24000007000000001,ces_leisure_hospitality,U,,Maryland
-md_state,SMS24000003000000001,ces_manufacturing,S,,Maryland
-md_state,SMU24000003000000001,ces_manufacturing,U,,Maryland
-md_state,SMS24000001000000001,ces_mining_logging,S,,Maryland
-md_state,SMU24000001000000001,ces_mining_logging,U,,Maryland
-md_state,SMS24000008000000001,ces_other_services,S,,Maryland
-md_state,SMU24000008000000001,ces_other_services,U,,Maryland
-md_state,SMS24000006000000001,ces_prof_business_services,S,,Maryland
-md_state,SMU24000006000000001,ces_prof_business_services,U,,Maryland
-md_state,SMS24000000000000001,ces_total_nonfarm,S,,Maryland
-md_state,SMU24000000000000001,ces_total_nonfarm,U,,Maryland
-md_state,SMS24000000500000001,ces_total_private,S,,Maryland
-md_state,SMU24000000500000001,ces_total_private,U,,Maryland
-md_state,SMS24000004000000001,ces_trade_transport_utilities,S,,Maryland
-md_state,SMU24000004000000001,ces_trade_transport_utilities,U,,Maryland
-va_state,SMS51000002000000001,ces_construction,S,,Virginia
-va_state,SMU51000002000000001,ces_construction,U,,Virginia
-va_state,SMS51000006500000001,ces_education_health_services,S,,Virginia
-va_state,SMU51000006500000001,ces_education_health_services,U,,Virginia
-va_state,SMS51000005500000001,ces_financial_activities,S,,Virginia
-va_state,SMU51000005500000001,ces_financial_activities,U,,Virginia
-va_state,SMS51000009000000001,ces_government,S,,Virginia
-va_state,SMU51000009000000001,ces_government,U,,Virginia
-va_state,SMS51000005000000001,ces_information,S,,Virginia
-va_state,SMU51000005000000001,ces_information,U,,Virginia
-va_state,SMS51000007000000001,ces_leisure_hospitality,S,,Virginia
-va_state,SMU51000007000000001,ces_leisure_hospitality,U,,Virginia
-va_state,SMS51000003000000001,ces_manufacturing,S,,Virginia
-va_state,SMU51000003000000001,ces_manufacturing,U,,Virginia
-va_state,SMS51000001000000001,ces_mining_logging,S,,Virginia
-va_state,SMU51000001000000001,ces_mining_logging,U,,Virginia
-va_state,SMS51000008000000001,ces_other_services,S,,Virginia
-va_state,SMU51000008000000001,ces_other_services,U,,Virginia
-va_state,SMS51000006000000001,ces_prof_business_services,S,,Virginia
-va_state,SMU51000006000000001,ces_prof_business_services,U,,Virginia
-va_state,SMS51000000000000001,ces_total_nonfarm,S,,Virginia
-va_state,SMU51000000000000001,ces_total_nonfarm,U,,Virginia
-va_state,SMS51000000500000001,ces_total_private,S,,Virginia
-va_state,SMU51000000500000001,ces_total_private,U,,Virginia
-va_state,SMS51000004000000001,ces_trade_transport_utilities,S,,Virginia
-va_state,SMU51000004000000001,ces_trade_transport_utilities,U,,Virginia
+anaheim_ca_metro_area__cbsa_metro,SMU06112442000000001,ces_construction,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112446500000001,ces_education_health_services,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112445500000001,ces_financial_activities,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112449000000001,ces_government,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112445000000001,ces_information,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112447000000001,ces_leisure_hospitality,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112443000000001,ces_manufacturing,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112441000000001,ces_mining_logging,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112448000000001,ces_other_services,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112446000000001,ces_prof_business_services,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMS06112440000000001,ces_total_nonfarm,S,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112440000000001,ces_total_nonfarm,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112440500000001,ces_total_private,U,,"Anaheim, CA metro area"
+anaheim_ca_metro_area__cbsa_metro,SMU06112444000000001,ces_trade_transport_utilities,U,,"Anaheim, CA metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121006500000001,ces_education_health_services,U,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121005500000001,ces_financial_activities,U,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121009000000001,ces_government,U,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121005000000001,ces_information,U,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121007000000001,ces_leisure_hospitality,U,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121003000000001,ces_manufacturing,U,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121008000000001,ces_other_services,U,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121006000000001,ces_prof_business_services,U,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMS34121000000000001,ces_total_nonfarm,S,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121000000000001,ces_total_nonfarm,U,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121000500000001,ces_total_private,U,,"Atlantic City, NJ metro area"
+atlantic_city_nj_metro_area__cbsa_metro,SMU34121004000000001,ces_trade_transport_utilities,U,,"Atlantic City, NJ metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125402000000001,ces_construction,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125406500000001,ces_education_health_services,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125405500000001,ces_financial_activities,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125409000000001,ces_government,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125405000000001,ces_information,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125407000000001,ces_leisure_hospitality,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125403000000001,ces_manufacturing,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125401000000001,ces_mining_logging,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125408000000001,ces_other_services,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125406000000001,ces_prof_business_services,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMS06125400000000001,ces_total_nonfarm,S,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125400000000001,ces_total_nonfarm,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125400500000001,ces_total_private,U,,"Bakersfield, CA metro area"
+bakersfield_ca_metro_area__cbsa_metro,SMU06125404000000001,ces_trade_transport_utilities,U,,"Bakersfield, CA metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125806500000001,ces_education_health_services,U,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125805500000001,ces_financial_activities,U,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125809000000001,ces_government,U,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125805000000001,ces_information,U,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125807000000001,ces_leisure_hospitality,U,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125803000000001,ces_manufacturing,U,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125808000000001,ces_other_services,U,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125806000000001,ces_prof_business_services,U,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMS24125800000000001,ces_total_nonfarm,S,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125800000000001,ces_total_nonfarm,U,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125800500000001,ces_total_private,U,,"Baltimore, MD metro area"
+baltimore_md_metro_area__cbsa_metro,SMU24125804000000001,ces_trade_transport_utilities,U,,"Baltimore, MD metro area"
+blacksburg_va_metro_area__cbsa_metro,SMU51139809000000001,ces_government,U,,"Blacksburg, VA metro area"
+blacksburg_va_metro_area__cbsa_metro,SMS51139800000000001,ces_total_nonfarm,S,,"Blacksburg, VA metro area"
+blacksburg_va_metro_area__cbsa_metro,SMU51139800000000001,ces_total_nonfarm,U,,"Blacksburg, VA metro area"
+blacksburg_va_metro_area__cbsa_metro,SMU51139800500000001,ces_total_private,U,,"Blacksburg, VA metro area"
+california__state,SMS06000002000000001,ces_construction,S,,California
+california__state,SMU06000002000000001,ces_construction,U,,California
+california__state,SMS06000006500000001,ces_education_health_services,S,,California
+california__state,SMU06000006500000001,ces_education_health_services,U,,California
+california__state,SMS06000005500000001,ces_financial_activities,S,,California
+california__state,SMU06000005500000001,ces_financial_activities,U,,California
+california__state,SMS06000009000000001,ces_government,S,,California
+california__state,SMU06000009000000001,ces_government,U,,California
+california__state,SMS06000005000000001,ces_information,S,,California
+california__state,SMU06000005000000001,ces_information,U,,California
+california__state,SMS06000007000000001,ces_leisure_hospitality,S,,California
+california__state,SMU06000007000000001,ces_leisure_hospitality,U,,California
+california__state,SMS06000003000000001,ces_manufacturing,S,,California
+california__state,SMU06000003000000001,ces_manufacturing,U,,California
+california__state,SMS06000001000000001,ces_mining_logging,S,,California
+california__state,SMU06000001000000001,ces_mining_logging,U,,California
+california__state,SMS06000008000000001,ces_other_services,S,,California
+california__state,SMU06000008000000001,ces_other_services,U,,California
+california__state,SMS06000006000000001,ces_prof_business_services,S,,California
+california__state,SMU06000006000000001,ces_prof_business_services,U,,California
+california__state,SMS06000000000000001,ces_total_nonfarm,S,,California
+california__state,SMU06000000000000001,ces_total_nonfarm,U,,California
+california__state,SMS06000000500000001,ces_total_private,S,,California
+california__state,SMU06000000500000001,ces_total_private,U,,California
+california__state,SMS06000004000000001,ces_trade_transport_utilities,S,,California
+california__state,SMU06000004000000001,ces_trade_transport_utilities,U,,California
+camden_nj_metro_area__cbsa_metro,SMU34158046500000001,ces_education_health_services,U,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMU34158045500000001,ces_financial_activities,U,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMU34158049000000001,ces_government,U,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMU34158045000000001,ces_information,U,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMU34158047000000001,ces_leisure_hospitality,U,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMU34158043000000001,ces_manufacturing,U,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMU34158048000000001,ces_other_services,U,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMU34158046000000001,ces_prof_business_services,U,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMS34158040000000001,ces_total_nonfarm,S,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMU34158040000000001,ces_total_nonfarm,U,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMU34158040500000001,ces_total_private,U,,"Camden, NJ metro area"
+camden_nj_metro_area__cbsa_metro,SMU34158044000000001,ces_trade_transport_utilities,U,,"Camden, NJ metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168206500000001,ces_education_health_services,U,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168205500000001,ces_financial_activities,U,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168209000000001,ces_government,U,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168205000000001,ces_information,U,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168207000000001,ces_leisure_hospitality,U,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168203000000001,ces_manufacturing,U,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168208000000001,ces_other_services,U,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168206000000001,ces_prof_business_services,U,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMS51168200000000001,ces_total_nonfarm,S,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168200000000001,ces_total_nonfarm,U,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168200500000001,ces_total_private,U,,"Charlottesville, VA metro area"
+charlottesville_va_metro_area__cbsa_metro,SMU51168204000000001,ces_trade_transport_utilities,U,,"Charlottesville, VA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170206500000001,ces_education_health_services,U,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170205500000001,ces_financial_activities,U,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170209000000001,ces_government,U,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170205000000001,ces_information,U,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170207000000001,ces_leisure_hospitality,U,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170203000000001,ces_manufacturing,U,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170208000000001,ces_other_services,U,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170206000000001,ces_prof_business_services,U,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMS06170200000000001,ces_total_nonfarm,S,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170200000000001,ces_total_nonfarm,U,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170200500000001,ces_total_private,U,,"Chico, CA metro area"
+chico_ca_metro_area__cbsa_metro,SMU06170204000000001,ces_trade_transport_utilities,U,,"Chico, CA metro area"
+district_of_columbia__state,SMS11000006500000001,ces_education_health_services,S,,District of Columbia
+district_of_columbia__state,SMU11000006500000001,ces_education_health_services,U,,District of Columbia
+district_of_columbia__state,SMS11000005500000001,ces_financial_activities,S,,District of Columbia
+district_of_columbia__state,SMU11000005500000001,ces_financial_activities,U,,District of Columbia
+district_of_columbia__state,SMS11000009000000001,ces_government,S,,District of Columbia
+district_of_columbia__state,SMU11000009000000001,ces_government,U,,District of Columbia
+district_of_columbia__state,SMS11000005000000001,ces_information,S,,District of Columbia
+district_of_columbia__state,SMU11000005000000001,ces_information,U,,District of Columbia
+district_of_columbia__state,SMS11000007000000001,ces_leisure_hospitality,S,,District of Columbia
+district_of_columbia__state,SMU11000007000000001,ces_leisure_hospitality,U,,District of Columbia
+district_of_columbia__state,SMS11000003000000001,ces_manufacturing,S,,District of Columbia
+district_of_columbia__state,SMU11000003000000001,ces_manufacturing,U,,District of Columbia
+district_of_columbia__state,SMS11000008000000001,ces_other_services,S,,District of Columbia
+district_of_columbia__state,SMU11000008000000001,ces_other_services,U,,District of Columbia
+district_of_columbia__state,SMS11000006000000001,ces_prof_business_services,S,,District of Columbia
+district_of_columbia__state,SMU11000006000000001,ces_prof_business_services,U,,District of Columbia
+district_of_columbia__state,SMS11000000000000001,ces_total_nonfarm,S,,District of Columbia
+district_of_columbia__state,SMU11000000000000001,ces_total_nonfarm,U,,District of Columbia
+district_of_columbia__state,SMS11000000500000001,ces_total_private,S,,District of Columbia
+district_of_columbia__state,SMU11000000500000001,ces_total_private,U,,District of Columbia
+district_of_columbia__state,SMS11000004000000001,ces_trade_transport_utilities,S,,District of Columbia
+district_of_columbia__state,SMU11000004000000001,ces_trade_transport_utilities,U,,District of Columbia
+el_centro_ca_metro_area__cbsa_metro,SMU06209406500000001,ces_education_health_services,U,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMU06209405500000001,ces_financial_activities,U,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMU06209409000000001,ces_government,U,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMU06209405000000001,ces_information,U,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMU06209407000000001,ces_leisure_hospitality,U,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMU06209403000000001,ces_manufacturing,U,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMU06209408000000001,ces_other_services,U,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMU06209406000000001,ces_prof_business_services,U,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMS06209400000000001,ces_total_nonfarm,S,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMU06209400000000001,ces_total_nonfarm,U,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMU06209400500000001,ces_total_private,U,,"El Centro, CA metro area"
+el_centro_ca_metro_area__cbsa_metro,SMU06209404000000001,ces_trade_transport_utilities,U,,"El Centro, CA metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232242023800001,ces_construction,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232246500000001,ces_education_health_services,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232245500000001,ces_financial_activities,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232249000000001,ces_government,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232245000000001,ces_information,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232247000000001,ces_leisure_hospitality,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232243000000001,ces_manufacturing,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232248000000001,ces_other_services,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232246000000001,ces_prof_business_services,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMS24232240000000001,ces_total_nonfarm,S,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232240000000001,ces_total_nonfarm,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232240500000001,ces_total_private,U,,"Frederick, MD metro area"
+frederick_md_metro_area__cbsa_metro,SMU24232244000000001,ces_trade_transport_utilities,U,,"Frederick, MD metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234202000000001,ces_construction,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234206500000001,ces_education_health_services,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234205500000001,ces_financial_activities,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234209000000001,ces_government,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234205000000001,ces_information,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234207000000001,ces_leisure_hospitality,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234203000000001,ces_manufacturing,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234201000000001,ces_mining_logging,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234208000000001,ces_other_services,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234206000000001,ces_prof_business_services,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMS06234200000000001,ces_total_nonfarm,S,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234200000000001,ces_total_nonfarm,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234200500000001,ces_total_private,U,,"Fresno, CA metro area"
+fresno_ca_metro_area__cbsa_metro,SMU06234204000000001,ces_trade_transport_utilities,U,,"Fresno, CA metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251806500000001,ces_education_health_services,U,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251805500000001,ces_financial_activities,U,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251809000000001,ces_government,U,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251805000000001,ces_information,U,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251807000000001,ces_leisure_hospitality,U,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251803000000001,ces_manufacturing,U,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251808000000001,ces_other_services,U,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251806000000001,ces_prof_business_services,U,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMS24251800000000001,ces_total_nonfarm,S,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251800000000001,ces_total_nonfarm,U,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251800500000001,ces_total_private,U,,"Hagerstown, MD metro area"
+hagerstown_md_metro_area__cbsa_metro,SMU24251804000000001,ces_trade_transport_utilities,U,,"Hagerstown, MD metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252606500000001,ces_education_health_services,U,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252605500000001,ces_financial_activities,U,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252609000000001,ces_government,U,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252605000000001,ces_information,U,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252607000000001,ces_leisure_hospitality,U,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252603000000001,ces_manufacturing,U,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252608000000001,ces_other_services,U,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252606000000001,ces_prof_business_services,U,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMS06252600000000001,ces_total_nonfarm,S,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252600000000001,ces_total_nonfarm,U,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252600500000001,ces_total_private,U,,"Hanford, CA metro area"
+hanford_ca_metro_area__cbsa_metro,SMU06252604000000001,ces_trade_transport_utilities,U,,"Hanford, CA metro area"
+harrisonburg_va_metro_area__cbsa_metro,SMU51255009000000001,ces_government,U,,"Harrisonburg, VA metro area"
+harrisonburg_va_metro_area__cbsa_metro,SMS51255000000000001,ces_total_nonfarm,S,,"Harrisonburg, VA metro area"
+harrisonburg_va_metro_area__cbsa_metro,SMU51255000000000001,ces_total_nonfarm,U,,"Harrisonburg, VA metro area"
+harrisonburg_va_metro_area__cbsa_metro,SMU51255000500000001,ces_total_private,U,,"Harrisonburg, VA metro area"
+harrisonburg_va_metro_area__cbsa_metro,SMU51255004000000001,ces_trade_transport_utilities,U,,"Harrisonburg, VA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310842000000001,ces_construction,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310846500000001,ces_education_health_services,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310845500000001,ces_financial_activities,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310849000000001,ces_government,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310845000000001,ces_information,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310847000000001,ces_leisure_hospitality,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310843000000001,ces_manufacturing,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310841000000001,ces_mining_logging,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310848000000001,ces_other_services,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310846000000001,ces_prof_business_services,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMS06310840000000001,ces_total_nonfarm,S,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310840000000001,ces_total_nonfarm,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310840500000001,ces_total_private,U,,"Los Angeles, CA metro area"
+los_angeles_ca_metro_area__cbsa_metro,SMU06310844000000001,ces_trade_transport_utilities,U,,"Los Angeles, CA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313406500000001,ces_education_health_services,U,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313405500000001,ces_financial_activities,U,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313409000000001,ces_government,U,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313405000000001,ces_information,U,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313407000000001,ces_leisure_hospitality,U,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313403000000001,ces_manufacturing,U,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313408000000001,ces_other_services,U,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313406000000001,ces_prof_business_services,U,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMS51313400000000001,ces_total_nonfarm,S,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313400000000001,ces_total_nonfarm,U,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313400500000001,ces_total_private,U,,"Lynchburg, VA metro area"
+lynchburg_va_metro_area__cbsa_metro,SMU51313404000000001,ces_trade_transport_utilities,U,,"Lynchburg, VA metro area"
+maryland__state,SMS24000002000000001,ces_construction,S,,Maryland
+maryland__state,SMU24000002000000001,ces_construction,U,,Maryland
+maryland__state,SMS24000006500000001,ces_education_health_services,S,,Maryland
+maryland__state,SMU24000006500000001,ces_education_health_services,U,,Maryland
+maryland__state,SMS24000005500000001,ces_financial_activities,S,,Maryland
+maryland__state,SMU24000005500000001,ces_financial_activities,U,,Maryland
+maryland__state,SMS24000009000000001,ces_government,S,,Maryland
+maryland__state,SMU24000009000000001,ces_government,U,,Maryland
+maryland__state,SMS24000005000000001,ces_information,S,,Maryland
+maryland__state,SMU24000005000000001,ces_information,U,,Maryland
+maryland__state,SMS24000007000000001,ces_leisure_hospitality,S,,Maryland
+maryland__state,SMU24000007000000001,ces_leisure_hospitality,U,,Maryland
+maryland__state,SMS24000003000000001,ces_manufacturing,S,,Maryland
+maryland__state,SMU24000003000000001,ces_manufacturing,U,,Maryland
+maryland__state,SMS24000001000000001,ces_mining_logging,S,,Maryland
+maryland__state,SMU24000001000000001,ces_mining_logging,U,,Maryland
+maryland__state,SMS24000008000000001,ces_other_services,S,,Maryland
+maryland__state,SMU24000008000000001,ces_other_services,U,,Maryland
+maryland__state,SMS24000006000000001,ces_prof_business_services,S,,Maryland
+maryland__state,SMU24000006000000001,ces_prof_business_services,U,,Maryland
+maryland__state,SMS24000000000000001,ces_total_nonfarm,S,,Maryland
+maryland__state,SMU24000000000000001,ces_total_nonfarm,U,,Maryland
+maryland__state,SMS24000000500000001,ces_total_private,S,,Maryland
+maryland__state,SMU24000000500000001,ces_total_private,U,,Maryland
+maryland__state,SMS24000004000000001,ces_trade_transport_utilities,S,,Maryland
+maryland__state,SMU24000004000000001,ces_trade_transport_utilities,U,,Maryland
+merced_ca_metro_area__cbsa_metro,SMU06329006500000001,ces_education_health_services,U,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMU06329005500000001,ces_financial_activities,U,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMU06329009000000001,ces_government,U,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMU06329005000000001,ces_information,U,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMU06329007000000001,ces_leisure_hospitality,U,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMU06329003000000001,ces_manufacturing,U,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMU06329008000000001,ces_other_services,U,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMU06329006000000001,ces_prof_business_services,U,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMS06329000000000001,ces_total_nonfarm,S,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMU06329000000000001,ces_total_nonfarm,U,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMU06329000500000001,ces_total_private,U,,"Merced, CA metro area"
+merced_ca_metro_area__cbsa_metro,SMU06329004000000001,ces_trade_transport_utilities,U,,"Merced, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337006500000001,ces_education_health_services,U,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337005500000001,ces_financial_activities,U,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337009000000001,ces_government,U,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337005000000001,ces_information,U,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337007000000001,ces_leisure_hospitality,U,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337003000000001,ces_manufacturing,U,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337008000000001,ces_other_services,U,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337006000000001,ces_prof_business_services,U,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMS06337000000000001,ces_total_nonfarm,S,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337000000000001,ces_total_nonfarm,U,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337000500000001,ces_total_private,U,,"Modesto, CA metro area"
+modesto_ca_metro_area__cbsa_metro,SMU06337004000000001,ces_trade_transport_utilities,U,,"Modesto, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349006500000001,ces_education_health_services,U,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349005500000001,ces_financial_activities,U,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349009000000001,ces_government,U,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349005000000001,ces_information,U,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349007000000001,ces_leisure_hospitality,U,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349003000000001,ces_manufacturing,U,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349008000000001,ces_other_services,U,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349006000000001,ces_prof_business_services,U,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMS06349000000000001,ces_total_nonfarm,S,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349000000000001,ces_total_nonfarm,U,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349000500000001,ces_total_private,U,,"Napa, CA metro area"
+napa_ca_metro_area__cbsa_metro,SMU06349004000000001,ces_trade_transport_utilities,U,,"Napa, CA metro area"
+new_jersey__state,SMS34000002000000001,ces_construction,S,,New Jersey
+new_jersey__state,SMU34000002000000001,ces_construction,U,,New Jersey
+new_jersey__state,SMS34000006500000001,ces_education_health_services,S,,New Jersey
+new_jersey__state,SMU34000006500000001,ces_education_health_services,U,,New Jersey
+new_jersey__state,SMS34000005500000001,ces_financial_activities,S,,New Jersey
+new_jersey__state,SMU34000005500000001,ces_financial_activities,U,,New Jersey
+new_jersey__state,SMS34000009000000001,ces_government,S,,New Jersey
+new_jersey__state,SMU34000009000000001,ces_government,U,,New Jersey
+new_jersey__state,SMS34000005000000001,ces_information,S,,New Jersey
+new_jersey__state,SMU34000005000000001,ces_information,U,,New Jersey
+new_jersey__state,SMS34000007000000001,ces_leisure_hospitality,S,,New Jersey
+new_jersey__state,SMU34000007000000001,ces_leisure_hospitality,U,,New Jersey
+new_jersey__state,SMS34000003000000001,ces_manufacturing,S,,New Jersey
+new_jersey__state,SMU34000003000000001,ces_manufacturing,U,,New Jersey
+new_jersey__state,SMS34000001000000001,ces_mining_logging,S,,New Jersey
+new_jersey__state,SMU34000001000000001,ces_mining_logging,U,,New Jersey
+new_jersey__state,SMS34000008000000001,ces_other_services,S,,New Jersey
+new_jersey__state,SMU34000008000000001,ces_other_services,U,,New Jersey
+new_jersey__state,SMS34000006000000001,ces_prof_business_services,S,,New Jersey
+new_jersey__state,SMU34000006000000001,ces_prof_business_services,U,,New Jersey
+new_jersey__state,SMS34000000000000001,ces_total_nonfarm,S,,New Jersey
+new_jersey__state,SMU34000000000000001,ces_total_nonfarm,U,,New Jersey
+new_jersey__state,SMS34000000500000001,ces_total_private,S,,New Jersey
+new_jersey__state,SMU34000000500000001,ces_total_private,U,,New Jersey
+new_jersey__state,SMS34000004000000001,ces_trade_transport_utilities,S,,New Jersey
+new_jersey__state,SMU34000004000000001,ces_trade_transport_utilities,U,,New Jersey
+newark_nj_metro_area__cbsa_metro,SMU34350842023600001,ces_construction,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350846500000001,ces_education_health_services,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350845500000001,ces_financial_activities,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350849000000001,ces_government,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350845000000001,ces_information,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350847000000001,ces_leisure_hospitality,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350843000000001,ces_manufacturing,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350848000000001,ces_other_services,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350846000000001,ces_prof_business_services,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMS34350840000000001,ces_total_nonfarm,S,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350840000000001,ces_total_nonfarm,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350840500000001,ces_total_private,U,,"Newark, NJ metro area"
+newark_nj_metro_area__cbsa_metro,SMU34350844000000001,ces_trade_transport_utilities,U,,"Newark, NJ metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360842000000001,ces_construction,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360846500000001,ces_education_health_services,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360845500000001,ces_financial_activities,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360849000000001,ces_government,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360845000000001,ces_information,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360847000000001,ces_leisure_hospitality,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360843000000001,ces_manufacturing,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360841000000001,ces_mining_logging,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360848000000001,ces_other_services,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360846000000001,ces_prof_business_services,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMS06360840000000001,ces_total_nonfarm,S,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360840000000001,ces_total_nonfarm,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360840500000001,ces_total_private,U,,"Oakland, CA metro area"
+oakland_ca_metro_area__cbsa_metro,SMU06360844000000001,ces_trade_transport_utilities,U,,"Oakland, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371002000000001,ces_construction,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371006500000001,ces_education_health_services,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371005500000001,ces_financial_activities,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371009000000001,ces_government,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371005000000001,ces_information,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371007000000001,ces_leisure_hospitality,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371003000000001,ces_manufacturing,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371001000000001,ces_mining_logging,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371008000000001,ces_other_services,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371006000000001,ces_prof_business_services,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMS06371000000000001,ces_total_nonfarm,S,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371000000000001,ces_total_nonfarm,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371000500000001,ces_total_private,U,,"Oxnard, CA metro area"
+oxnard_ca_metro_area__cbsa_metro,SMU06371004000000001,ces_trade_transport_utilities,U,,"Oxnard, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398206500000001,ces_education_health_services,U,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398205500000001,ces_financial_activities,U,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398209000000001,ces_government,U,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398205000000001,ces_information,U,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398207000000001,ces_leisure_hospitality,U,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398203000000001,ces_manufacturing,U,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398208000000001,ces_other_services,U,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398206000000001,ces_prof_business_services,U,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMS06398200000000001,ces_total_nonfarm,S,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398200000000001,ces_total_nonfarm,U,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398200500000001,ces_total_private,U,,"Redding, CA metro area"
+redding_ca_metro_area__cbsa_metro,SMU06398204000000001,ces_trade_transport_utilities,U,,"Redding, CA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400606500000001,ces_education_health_services,U,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400605500000001,ces_financial_activities,U,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400609000000001,ces_government,U,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400605000000001,ces_information,U,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400607000000001,ces_leisure_hospitality,U,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400603000000001,ces_manufacturing,U,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400608000000001,ces_other_services,U,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400606000000001,ces_prof_business_services,U,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMS51400600000000001,ces_total_nonfarm,S,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400600000000001,ces_total_nonfarm,U,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400600500000001,ces_total_private,U,,"Richmond, VA metro area"
+richmond_va_metro_area__cbsa_metro,SMU51400604000000001,ces_trade_transport_utilities,U,,"Richmond, VA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401402000000001,ces_construction,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401406500000001,ces_education_health_services,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401405500000001,ces_financial_activities,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401409000000001,ces_government,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401405000000001,ces_information,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401407000000001,ces_leisure_hospitality,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401403000000001,ces_manufacturing,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401401000000001,ces_mining_logging,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401408000000001,ces_other_services,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401406000000001,ces_prof_business_services,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMS06401400000000001,ces_total_nonfarm,S,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401400000000001,ces_total_nonfarm,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401400500000001,ces_total_private,U,,"Riverside, CA metro area"
+riverside_ca_metro_area__cbsa_metro,SMU06401404000000001,ces_trade_transport_utilities,U,,"Riverside, CA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402206500000001,ces_education_health_services,U,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402205500000001,ces_financial_activities,U,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402209000000001,ces_government,U,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402205000000001,ces_information,U,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402207000000001,ces_leisure_hospitality,U,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402203000000001,ces_manufacturing,U,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402208000000001,ces_other_services,U,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402206000000001,ces_prof_business_services,U,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMS51402200000000001,ces_total_nonfarm,S,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402200000000001,ces_total_nonfarm,U,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402200500000001,ces_total_private,U,,"Roanoke, VA metro area"
+roanoke_va_metro_area__cbsa_metro,SMU51402204000000001,ces_trade_transport_utilities,U,,"Roanoke, VA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409002000000001,ces_construction,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409006500000001,ces_education_health_services,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409005500000001,ces_financial_activities,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409009000000001,ces_government,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409005000000001,ces_information,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409007000000001,ces_leisure_hospitality,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409003000000001,ces_manufacturing,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409001000000001,ces_mining_logging,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409008000000001,ces_other_services,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409006000000001,ces_prof_business_services,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMS06409000000000001,ces_total_nonfarm,S,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409000000000001,ces_total_nonfarm,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409000500000001,ces_total_private,U,,"Sacramento, CA metro area"
+sacramento_ca_metro_area__cbsa_metro,SMU06409004000000001,ces_trade_transport_utilities,U,,"Sacramento, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415002000000001,ces_construction,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415006500000001,ces_education_health_services,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415005500000001,ces_financial_activities,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415009000000001,ces_government,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415005000000001,ces_information,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415007000000001,ces_leisure_hospitality,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415003000000001,ces_manufacturing,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415001000000001,ces_mining_logging,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415008000000001,ces_other_services,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415006000000001,ces_prof_business_services,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMS06415000000000001,ces_total_nonfarm,S,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415000000000001,ces_total_nonfarm,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415000500000001,ces_total_private,U,,"Salinas, CA metro area"
+salinas_ca_metro_area__cbsa_metro,SMU06415004000000001,ces_trade_transport_utilities,U,,"Salinas, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417402000000001,ces_construction,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417406500000001,ces_education_health_services,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417405500000001,ces_financial_activities,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417409000000001,ces_government,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417405000000001,ces_information,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417407000000001,ces_leisure_hospitality,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417403000000001,ces_manufacturing,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417401000000001,ces_mining_logging,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417408000000001,ces_other_services,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417406000000001,ces_prof_business_services,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMS06417400000000001,ces_total_nonfarm,S,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417400000000001,ces_total_nonfarm,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417400500000001,ces_total_private,U,,"San Diego, CA metro area"
+san_diego_ca_metro_area__cbsa_metro,SMU06417404000000001,ces_trade_transport_utilities,U,,"San Diego, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418842000000001,ces_construction,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418846500000001,ces_education_health_services,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418845500000001,ces_financial_activities,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418849000000001,ces_government,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418845000000001,ces_information,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418847000000001,ces_leisure_hospitality,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418843000000001,ces_manufacturing,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418841000000001,ces_mining_logging,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418848000000001,ces_other_services,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418846000000001,ces_prof_business_services,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMS06418840000000001,ces_total_nonfarm,S,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418840000000001,ces_total_nonfarm,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418840500000001,ces_total_private,U,,"San Francisco, CA metro area"
+san_francisco_ca_metro_area__cbsa_metro,SMU06418844000000001,ces_trade_transport_utilities,U,,"San Francisco, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419402000000001,ces_construction,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419406500000001,ces_education_health_services,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419405500000001,ces_financial_activities,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419409000000001,ces_government,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419405000000001,ces_information,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419407000000001,ces_leisure_hospitality,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419403000000001,ces_manufacturing,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419401000000001,ces_mining_logging,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419408000000001,ces_other_services,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419406000000001,ces_prof_business_services,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMS06419400000000001,ces_total_nonfarm,S,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419400000000001,ces_total_nonfarm,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419400500000001,ces_total_private,U,,"San Jose, CA metro area"
+san_jose_ca_metro_area__cbsa_metro,SMU06419404000000001,ces_trade_transport_utilities,U,,"San Jose, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420206500000001,ces_education_health_services,U,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420205500000001,ces_financial_activities,U,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420209000000001,ces_government,U,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420205000000001,ces_information,U,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420207000000001,ces_leisure_hospitality,U,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420203000000001,ces_manufacturing,U,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420208000000001,ces_other_services,U,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420206000000001,ces_prof_business_services,U,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMS06420200000000001,ces_total_nonfarm,S,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420200000000001,ces_total_nonfarm,U,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420200500000001,ces_total_private,U,,"San Luis Obispo, CA metro area"
+san_luis_obispo_ca_metro_area__cbsa_metro,SMU06420204000000001,ces_trade_transport_utilities,U,,"San Luis Obispo, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420342000000001,ces_construction,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420346500000001,ces_education_health_services,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420345500000001,ces_financial_activities,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420349000000001,ces_government,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420345000000001,ces_information,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420347000000001,ces_leisure_hospitality,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420343000000001,ces_manufacturing,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420341000000001,ces_mining_logging,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420348000000001,ces_other_services,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420346000000001,ces_prof_business_services,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMS06420340000000001,ces_total_nonfarm,S,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420340000000001,ces_total_nonfarm,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420340500000001,ces_total_private,U,,"San Rafael, CA metro area"
+san_rafael_ca_metro_area__cbsa_metro,SMU06420344000000001,ces_trade_transport_utilities,U,,"San Rafael, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421006500000001,ces_education_health_services,U,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421005500000001,ces_financial_activities,U,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421009000000001,ces_government,U,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421005000000001,ces_information,U,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421007000000001,ces_leisure_hospitality,U,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421003000000001,ces_manufacturing,U,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421008000000001,ces_other_services,U,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421006000000001,ces_prof_business_services,U,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMS06421000000000001,ces_total_nonfarm,S,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421000000000001,ces_total_nonfarm,U,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421000500000001,ces_total_private,U,,"Santa Cruz, CA metro area"
+santa_cruz_ca_metro_area__cbsa_metro,SMU06421004000000001,ces_trade_transport_utilities,U,,"Santa Cruz, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422002000000001,ces_construction,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422006500000001,ces_education_health_services,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422005500000001,ces_financial_activities,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422009000000001,ces_government,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422005000000001,ces_information,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422007000000001,ces_leisure_hospitality,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422003000000001,ces_manufacturing,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422001000000001,ces_mining_logging,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422008000000001,ces_other_services,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422006000000001,ces_prof_business_services,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMS06422000000000001,ces_total_nonfarm,S,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422000000000001,ces_total_nonfarm,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422000500000001,ces_total_private,U,,"Santa Maria, CA metro area"
+santa_maria_ca_metro_area__cbsa_metro,SMU06422004000000001,ces_trade_transport_utilities,U,,"Santa Maria, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422202000000001,ces_construction,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422206500000001,ces_education_health_services,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422205500000001,ces_financial_activities,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422209000000001,ces_government,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422205000000001,ces_information,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422207000000001,ces_leisure_hospitality,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422203000000001,ces_manufacturing,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422201000000001,ces_mining_logging,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422208000000001,ces_other_services,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422206000000001,ces_prof_business_services,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMS06422200000000001,ces_total_nonfarm,S,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422200000000001,ces_total_nonfarm,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422200500000001,ces_total_private,U,,"Santa Rosa, CA metro area"
+santa_rosa_ca_metro_area__cbsa_metro,SMU06422204000000001,ces_trade_transport_utilities,U,,"Santa Rosa, CA metro area"
+staunton_va_metro_area__cbsa_metro,SMU51444209000000001,ces_government,U,,"Staunton, VA metro area"
+staunton_va_metro_area__cbsa_metro,SMS51444200000000001,ces_total_nonfarm,S,,"Staunton, VA metro area"
+staunton_va_metro_area__cbsa_metro,SMU51444200000000001,ces_total_nonfarm,U,,"Staunton, VA metro area"
+staunton_va_metro_area__cbsa_metro,SMU51444200500000001,ces_total_private,U,,"Staunton, VA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447002000000001,ces_construction,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447006500000001,ces_education_health_services,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447005500000001,ces_financial_activities,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447009000000001,ces_government,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447005000000001,ces_information,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447007000000001,ces_leisure_hospitality,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447003000000001,ces_manufacturing,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447001000000001,ces_mining_logging,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447008000000001,ces_other_services,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447006000000001,ces_prof_business_services,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMS06447000000000001,ces_total_nonfarm,S,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447000000000001,ces_total_nonfarm,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447000500000001,ces_total_private,U,,"Stockton, CA metro area"
+stockton_ca_metro_area__cbsa_metro,SMU06447004000000001,ces_trade_transport_utilities,U,,"Stockton, CA metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459406500000001,ces_education_health_services,U,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459405500000001,ces_financial_activities,U,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459409000000001,ces_government,U,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459405000000001,ces_information,U,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459407000000001,ces_leisure_hospitality,U,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459403000000001,ces_manufacturing,U,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459408000000001,ces_other_services,U,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459406000000001,ces_prof_business_services,U,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMS34459400000000001,ces_total_nonfarm,S,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459400000000001,ces_total_nonfarm,U,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459400500000001,ces_total_private,U,,"Trenton, NJ metro area"
+trenton_nj_metro_area__cbsa_metro,SMU34459404000000001,ces_trade_transport_utilities,U,,"Trenton, NJ metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467002000000001,ces_construction,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467006500000001,ces_education_health_services,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467005500000001,ces_financial_activities,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467009000000001,ces_government,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467005000000001,ces_information,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467007000000001,ces_leisure_hospitality,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467003000000001,ces_manufacturing,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467001000000001,ces_mining_logging,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467008000000001,ces_other_services,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467006000000001,ces_prof_business_services,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMS06467000000000001,ces_total_nonfarm,S,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467000000000001,ces_total_nonfarm,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467000500000001,ces_total_private,U,,"Vallejo, CA metro area"
+vallejo_ca_metro_area__cbsa_metro,SMU06467004000000001,ces_trade_transport_utilities,U,,"Vallejo, CA metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472206500000001,ces_education_health_services,U,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472205500000001,ces_financial_activities,U,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472209000000001,ces_government,U,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472205000000001,ces_information,U,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472207000000001,ces_leisure_hospitality,U,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472203000000001,ces_manufacturing,U,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472208000000001,ces_other_services,U,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472206000000001,ces_prof_business_services,U,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMS34472200000000001,ces_total_nonfarm,S,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472200000000001,ces_total_nonfarm,U,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472200500000001,ces_total_private,U,,"Vineland, NJ metro area"
+vineland_nj_metro_area__cbsa_metro,SMU34472204000000001,ces_trade_transport_utilities,U,,"Vineland, NJ metro area"
+virginia__state,SMS51000002000000001,ces_construction,S,,Virginia
+virginia__state,SMU51000002000000001,ces_construction,U,,Virginia
+virginia__state,SMS51000006500000001,ces_education_health_services,S,,Virginia
+virginia__state,SMU51000006500000001,ces_education_health_services,U,,Virginia
+virginia__state,SMS51000005500000001,ces_financial_activities,S,,Virginia
+virginia__state,SMU51000005500000001,ces_financial_activities,U,,Virginia
+virginia__state,SMS51000009000000001,ces_government,S,,Virginia
+virginia__state,SMU51000009000000001,ces_government,U,,Virginia
+virginia__state,SMS51000005000000001,ces_information,S,,Virginia
+virginia__state,SMU51000005000000001,ces_information,U,,Virginia
+virginia__state,SMS51000007000000001,ces_leisure_hospitality,S,,Virginia
+virginia__state,SMU51000007000000001,ces_leisure_hospitality,U,,Virginia
+virginia__state,SMS51000003000000001,ces_manufacturing,S,,Virginia
+virginia__state,SMU51000003000000001,ces_manufacturing,U,,Virginia
+virginia__state,SMS51000001000000001,ces_mining_logging,S,,Virginia
+virginia__state,SMU51000001000000001,ces_mining_logging,U,,Virginia
+virginia__state,SMS51000008000000001,ces_other_services,S,,Virginia
+virginia__state,SMU51000008000000001,ces_other_services,U,,Virginia
+virginia__state,SMS51000006000000001,ces_prof_business_services,S,,Virginia
+virginia__state,SMU51000006000000001,ces_prof_business_services,U,,Virginia
+virginia__state,SMS51000000000000001,ces_total_nonfarm,S,,Virginia
+virginia__state,SMU51000000000000001,ces_total_nonfarm,U,,Virginia
+virginia__state,SMS51000000500000001,ces_total_private,S,,Virginia
+virginia__state,SMU51000000500000001,ces_total_private,U,,Virginia
+virginia__state,SMS51000004000000001,ces_trade_transport_utilities,S,,Virginia
+virginia__state,SMU51000004000000001,ces_trade_transport_utilities,U,,Virginia
+virginia_beach_va_metro_area__cbsa_metro,SMU51472606500000001,ces_education_health_services,U,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMU51472605500000001,ces_financial_activities,U,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMU51472609000000001,ces_government,U,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMU51472605000000001,ces_information,U,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMU51472607000000001,ces_leisure_hospitality,U,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMU51472603000000001,ces_manufacturing,U,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMU51472608000000001,ces_other_services,U,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMU51472606000000001,ces_prof_business_services,U,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMS51472600000000001,ces_total_nonfarm,S,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMU51472600000000001,ces_total_nonfarm,U,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMU51472600500000001,ces_total_private,U,,"Virginia Beach, VA metro area"
+virginia_beach_va_metro_area__cbsa_metro,SMU51472604000000001,ces_trade_transport_utilities,U,,"Virginia Beach, VA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473006500000001,ces_education_health_services,U,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473005500000001,ces_financial_activities,U,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473009000000001,ces_government,U,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473005000000001,ces_information,U,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473007000000001,ces_leisure_hospitality,U,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473003000000001,ces_manufacturing,U,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473008000000001,ces_other_services,U,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473006000000001,ces_prof_business_services,U,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMS06473000000000001,ces_total_nonfarm,S,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473000000000001,ces_total_nonfarm,U,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473000500000001,ces_total_private,U,,"Visalia, CA metro area"
+visalia_ca_metro_area__cbsa_metro,SMU06473004000000001,ces_trade_transport_utilities,U,,"Visalia, CA metro area"
+winchester_va_metro_area__cbsa_metro,SMU51490209000000001,ces_government,U,,"Winchester, VA metro area"
+winchester_va_metro_area__cbsa_metro,SMS51490200000000001,ces_total_nonfarm,S,,"Winchester, VA metro area"
+winchester_va_metro_area__cbsa_metro,SMU51490200000000001,ces_total_nonfarm,U,,"Winchester, VA metro area"
+winchester_va_metro_area__cbsa_metro,SMU51490200500000001,ces_total_private,U,,"Winchester, VA metro area"
+winchester_va_metro_area__cbsa_metro,SMU51490204000000001,ces_trade_transport_utilities,U,,"Winchester, VA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497006500000001,ces_education_health_services,U,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497005500000001,ces_financial_activities,U,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497009000000001,ces_government,U,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497005000000001,ces_information,U,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497007000000001,ces_leisure_hospitality,U,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497003000000001,ces_manufacturing,U,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497008000000001,ces_other_services,U,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497006000000001,ces_prof_business_services,U,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMS06497000000000001,ces_total_nonfarm,S,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497000000000001,ces_total_nonfarm,U,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497000500000001,ces_total_private,U,,"Yuba City, CA metro area"
+yuba_city_ca_metro_area__cbsa_metro,SMU06497004000000001,ces_trade_transport_utilities,U,,"Yuba City, CA metro area"

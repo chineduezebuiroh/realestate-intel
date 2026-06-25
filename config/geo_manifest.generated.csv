@@ -1,0 +1,376 @@
+geo_slug,geo_name,level,bls_ces_area_code,include_ces,bls_laus_area_code,include_laus,redfin_code,include_redfin,census_code,include_census,include_census_bps,bea_geo_fips,include_bea_qgdp,include_bea_agdp,fred_unemp_series_id,include_fred_unemp,fred_geo_code,include_fred
+anaheim_ca_metro_area__cbsa_metro,"Anaheim, CA metro area",cbsa_metro,0611244,1,MT0611244000000,1,11244,1,11244,1,1,,0,0,,0,,0
+atlantic_city_nj_metro_area__cbsa_metro,"Atlantic City, NJ metro area",cbsa_metro,3412100,1,MT3412100000000,1,12100,1,12100,1,1,,0,0,,0,,0
+bakersfield_ca_metro_area__cbsa_metro,"Bakersfield, CA metro area",cbsa_metro,0612540,1,MT0612540000000,1,12540,1,12540,1,1,,0,0,,0,,0
+baltimore_md_metro_area__cbsa_metro,"Baltimore, MD metro area",cbsa_metro,2412580,1,MT2412580000000,1,12580,1,12580,1,1,,0,0,,0,,0
+big_stone_gap_va_metro_area__cbsa_metro,"Big Stone Gap, VA metro area",cbsa_metro,5113720,1,MT5113720000000,1,13720,1,13720,1,1,,0,0,,0,,0
+blacksburg_va_metro_area__cbsa_metro,"Blacksburg, VA metro area",cbsa_metro,5113980,1,MT5113980000000,1,13980,1,13980,1,1,,0,0,,0,,0
+california_md_metro_area__cbsa_metro,"California, MD metro area",cbsa_metro,2415680,1,MT2415680000000,1,15680,1,15680,1,1,,0,0,,0,,0
+cambridge_md_metro_area__cbsa_metro,"Cambridge, MD metro area",cbsa_metro,2415700,1,MT2415700000000,1,15700,1,15700,1,1,,0,0,,0,,0
+camden_nj_metro_area__cbsa_metro,"Camden, NJ metro area",cbsa_metro,3415804,1,MT3415804000000,1,15804,1,15804,1,1,,0,0,,0,,0
+charlottesville_va_metro_area__cbsa_metro,"Charlottesville, VA metro area",cbsa_metro,5116820,1,MT5116820000000,1,16820,1,16820,1,1,,0,0,,0,,0
+chico_ca_metro_area__cbsa_metro,"Chico, CA metro area",cbsa_metro,0617020,1,MT0617020000000,1,17020,1,17020,1,1,,0,0,,0,,0
+clearlake_ca_metro_area__cbsa_metro,"Clearlake, CA metro area",cbsa_metro,0617340,1,MT0617340000000,1,17340,1,17340,1,1,,0,0,,0,,0
+crescent_city_ca_metro_area__cbsa_metro,"Crescent City, CA metro area",cbsa_metro,0618860,1,MT0618860000000,1,18860,1,18860,1,1,,0,0,,0,,0
+cumberland_md_metro_area__cbsa_metro,"Cumberland, MD metro area",cbsa_metro,2419060,1,MT2419060000000,1,19060,1,19060,1,1,,0,0,,0,,0
+danville_va_metro_area__cbsa_metro,"Danville, VA metro area",cbsa_metro,5119260,1,MT5119260000000,1,19260,1,19260,1,1,,0,0,,0,,0
+easton_md_metro_area__cbsa_metro,"Easton, MD metro area",cbsa_metro,2420660,1,MT2420660000000,1,20660,1,20660,1,1,,0,0,,0,,0
+el_centro_ca_metro_area__cbsa_metro,"El Centro, CA metro area",cbsa_metro,0620940,1,MT0620940000000,1,20940,1,20940,1,1,,0,0,,0,,0
+eureka_ca_metro_area__cbsa_metro,"Eureka, CA metro area",cbsa_metro,0621700,1,MT0621700000000,1,21700,1,21700,1,1,,0,0,,0,,0
+frederick_md_metro_area__cbsa_metro,"Frederick, MD metro area",cbsa_metro,2423224,1,MT2423224000000,1,23224,1,23224,1,1,,0,0,,0,,0
+fresno_ca_metro_area__cbsa_metro,"Fresno, CA metro area",cbsa_metro,0623420,1,MT0623420000000,1,23420,1,23420,1,1,,0,0,,0,,0
+hagerstown_md_metro_area__cbsa_metro,"Hagerstown, MD metro area",cbsa_metro,2425180,1,MT2425180000000,1,25180,1,25180,1,1,,0,0,,0,,0
+hanford_ca_metro_area__cbsa_metro,"Hanford, CA metro area",cbsa_metro,0625260,1,MT0625260000000,1,25260,1,25260,1,1,,0,0,,0,,0
+harrisonburg_va_metro_area__cbsa_metro,"Harrisonburg, VA metro area",cbsa_metro,5125500,1,MT5125500000000,1,25500,1,25500,1,1,,0,0,,0,,0
+los_angeles_ca_metro_area__cbsa_metro,"Los Angeles, CA metro area",cbsa_metro,0631084,1,MT0631084000000,1,31084,1,31084,1,1,,0,0,,0,,0
+lynchburg_va_metro_area__cbsa_metro,"Lynchburg, VA metro area",cbsa_metro,5131340,1,MT5131340000000,1,31340,1,31340,1,1,,0,0,,0,,0
+madera_ca_metro_area__cbsa_metro,"Madera, CA metro area",cbsa_metro,0631460,1,MT0631460000000,1,31460,1,31460,1,1,,0,0,,0,,0
+martinsville_va_metro_area__cbsa_metro,"Martinsville, VA metro area",cbsa_metro,5132300,1,MT5132300000000,1,32300,1,32300,1,1,,0,0,,0,,0
+merced_ca_metro_area__cbsa_metro,"Merced, CA metro area",cbsa_metro,0632900,1,MT0632900000000,1,32900,1,32900,1,1,,0,0,,0,,0
+modesto_ca_metro_area__cbsa_metro,"Modesto, CA metro area",cbsa_metro,0633700,1,MT0633700000000,1,33700,1,33700,1,1,,0,0,,0,,0
+napa_ca_metro_area__cbsa_metro,"Napa, CA metro area",cbsa_metro,0634900,1,MT0634900000000,1,34900,1,34900,1,1,,0,0,,0,,0
+new_brunswick_nj_metro_area__cbsa_metro,"New Brunswick, NJ metro area",cbsa_metro,3435154,1,MT3435154000000,1,35154,1,35154,1,1,,0,0,,0,,0
+newark_nj_metro_area__cbsa_metro,"Newark, NJ metro area",cbsa_metro,3435084,1,MT3435084000000,1,35084,1,35084,1,1,,0,0,,0,,0
+oakland_ca_metro_area__cbsa_metro,"Oakland, CA metro area",cbsa_metro,0636084,1,MT0636084000000,1,36084,1,36084,1,1,,0,0,,0,,0
+ocean_city_nj_metro_area__cbsa_metro,"Ocean City, NJ metro area",cbsa_metro,3436140,1,MT3436140000000,1,36140,1,36140,1,1,,0,0,,0,,0
+oxnard_ca_metro_area__cbsa_metro,"Oxnard, CA metro area",cbsa_metro,0637100,1,MT0637100000000,1,37100,1,37100,1,1,,0,0,,0,,0
+red_bluff_ca_metro_area__cbsa_metro,"Red Bluff, CA metro area",cbsa_metro,0639780,1,MT0639780000000,1,39780,1,39780,1,1,,0,0,,0,,0
+redding_ca_metro_area__cbsa_metro,"Redding, CA metro area",cbsa_metro,0639820,1,MT0639820000000,1,39820,1,39820,1,1,,0,0,,0,,0
+richmond_va_metro_area__cbsa_metro,"Richmond, VA metro area",cbsa_metro,5140060,1,MT5140060000000,1,40060,1,40060,1,1,,0,0,,0,,0
+riverside_ca_metro_area__cbsa_metro,"Riverside, CA metro area",cbsa_metro,0640140,1,MT0640140000000,1,40140,1,40140,1,1,,0,0,,0,,0
+roanoke_va_metro_area__cbsa_metro,"Roanoke, VA metro area",cbsa_metro,5140220,1,MT5140220000000,1,40220,1,40220,1,1,,0,0,,0,,0
+sacramento_ca_metro_area__cbsa_metro,"Sacramento, CA metro area",cbsa_metro,0640900,1,MT0640900000000,1,40900,1,40900,1,1,,0,0,,0,,0
+salinas_ca_metro_area__cbsa_metro,"Salinas, CA metro area",cbsa_metro,0641500,1,MT0641500000000,1,41500,1,41500,1,1,,0,0,,0,,0
+san_diego_ca_metro_area__cbsa_metro,"San Diego, CA metro area",cbsa_metro,0641740,1,MT0641740000000,1,41740,1,41740,1,1,,0,0,,0,,0
+san_francisco_ca_metro_area__cbsa_metro,"San Francisco, CA metro area",cbsa_metro,0641884,1,MT0641884000000,1,41884,1,41884,1,1,,0,0,,0,,0
+san_jose_ca_metro_area__cbsa_metro,"San Jose, CA metro area",cbsa_metro,0641940,1,MT0641940000000,1,41940,1,41940,1,1,,0,0,,0,,0
+san_luis_obispo_ca_metro_area__cbsa_metro,"San Luis Obispo, CA metro area",cbsa_metro,0642020,1,MT0642020000000,1,42020,1,42020,1,1,,0,0,,0,,0
+san_rafael_ca_metro_area__cbsa_metro,"San Rafael, CA metro area",cbsa_metro,0642034,1,MT0642034000000,1,42034,1,42034,1,1,,0,0,,0,,0
+santa_cruz_ca_metro_area__cbsa_metro,"Santa Cruz, CA metro area",cbsa_metro,0642100,1,MT0642100000000,1,42100,1,42100,1,1,,0,0,,0,,0
+santa_maria_ca_metro_area__cbsa_metro,"Santa Maria, CA metro area",cbsa_metro,0642200,1,MT0642200000000,1,42200,1,42200,1,1,,0,0,,0,,0
+santa_rosa_ca_metro_area__cbsa_metro,"Santa Rosa, CA metro area",cbsa_metro,0642220,1,MT0642220000000,1,42220,1,42220,1,1,,0,0,,0,,0
+sonora_ca_metro_area__cbsa_metro,"Sonora, CA metro area",cbsa_metro,0643760,1,MT0643760000000,1,43760,1,43760,1,1,,0,0,,0,,0
+staunton_va_metro_area__cbsa_metro,"Staunton, VA metro area",cbsa_metro,5144420,1,MT5144420000000,1,44420,1,44420,1,1,,0,0,,0,,0
+stockton_ca_metro_area__cbsa_metro,"Stockton, CA metro area",cbsa_metro,0644700,1,MT0644700000000,1,44700,1,44700,1,1,,0,0,,0,,0
+susanville_ca_metro_area__cbsa_metro,"Susanville, CA metro area",cbsa_metro,0645000,1,MT0645000000000,1,45000,1,45000,1,1,,0,0,,0,,0
+trenton_nj_metro_area__cbsa_metro,"Trenton, NJ metro area",cbsa_metro,3445940,1,MT3445940000000,1,45940,1,45940,1,1,,0,0,,0,,0
+truckee_ca_metro_area__cbsa_metro,"Truckee, CA metro area",cbsa_metro,0646020,1,MT0646020000000,1,46020,1,46020,1,1,,0,0,,0,,0
+ukiah_ca_metro_area__cbsa_metro,"Ukiah, CA metro area",cbsa_metro,0646380,1,MT0646380000000,1,46380,1,46380,1,1,,0,0,,0,,0
+vallejo_ca_metro_area__cbsa_metro,"Vallejo, CA metro area",cbsa_metro,0646700,1,MT0646700000000,1,46700,1,46700,1,1,,0,0,,0,,0
+vineland_nj_metro_area__cbsa_metro,"Vineland, NJ metro area",cbsa_metro,3447220,1,MT3447220000000,1,47220,1,47220,1,1,,0,0,,0,,0
+virginia_beach_va_metro_area__cbsa_metro,"Virginia Beach, VA metro area",cbsa_metro,5147260,1,MT5147260000000,1,47260,1,47260,1,1,,0,0,,0,,0
+visalia_ca_metro_area__cbsa_metro,"Visalia, CA metro area",cbsa_metro,0647300,1,MT0647300000000,1,47300,1,47300,1,1,,0,0,,0,,0
+washington_dc_metro_area__cbsa_metro,"Washington, DC metro area",cbsa_metro,1147894,1,MT1147894000000,1,47894,1,47894,1,1,,0,0,,0,,0
+winchester_va_metro_area__cbsa_metro,"Winchester, VA metro area",cbsa_metro,5149020,1,MT5149020000000,1,49020,1,49020,1,1,,0,0,,0,,0
+yuba_city_ca_metro_area__cbsa_metro,"Yuba City, CA metro area",cbsa_metro,0649700,1,MT0649700000000,1,49700,1,49700,1,1,,0,0,,0,,0
+alameda_county_ca__county,"Alameda County, CA",county,,0,CN0600100000000,1,303,1,06001,1,1,06001,0,1,,0,,0
+albemarle_county_va__county,"Albemarle County, VA",county,,0,CN5100300000000,1,2938,1,51003,1,1,51003,0,1,,0,,0
+alexandria_va__county,"Alexandria, VA",county,,0,CN5151000000000,1,3032,1,51510,1,1,51510,0,1,,0,,0
+allegany_county_md__county,"Allegany County, MD",county,,0,CN2400100000000,1,1310,1,24001,1,1,24001,0,1,,0,,0
+amelia_county_va__county,"Amelia County, VA",county,,0,CN5100700000000,1,2940,1,51007,1,1,51007,0,1,,0,,0
+amherst_county_va__county,"Amherst County, VA",county,,0,CN5100900000000,1,2941,1,51009,1,1,51009,0,1,,0,,0
+anne_arundel_county_md__county,"Anne Arundel County, MD",county,,0,CN2400300000000,1,1311,1,24003,1,1,24003,0,1,,0,,0
+appomattox_county_va__county,"Appomattox County, VA",county,,0,CN5101100000000,1,2942,1,51011,1,1,51011,0,1,,0,,0
+arlington_county_va__county,"Arlington County, VA",county,,0,CN5101300000000,1,2943,1,51013,1,1,51013,0,1,,0,,0
+atlantic_county_nj__county,"Atlantic County, NJ",county,,0,CN3400100000000,1,1891,1,34001,1,1,34001,0,1,,0,,0
+augusta_county_va__county,"Augusta County, VA",county,,0,CN5101500000000,1,2944,1,51015,1,1,51015,0,1,,0,,0
+baltimore_city_county_md__county,"Baltimore City County, MD",county,,0,CN2451000000000,1,1333,1,24510,1,1,24510,0,1,,0,,0
+baltimore_county_md__county,"Baltimore County, MD",county,,0,CN2400500000000,1,1312,1,24005,1,1,24005,0,1,,0,,0
+bedford_county_va__county,"Bedford County, VA",county,,0,CN5101900000000,1,2946,1,51019,1,1,51019,0,1,,0,,0
+botetourt_county_va__county,"Botetourt County, VA",county,,0,CN5102300000000,1,2948,1,51023,1,1,51023,0,1,,0,,0
+burlington_county_nj__county,"Burlington County, NJ",county,,0,CN3400500000000,1,1893,1,34005,1,1,34005,0,1,,0,,0
+butte_county_ca__county,"Butte County, CA",county,,0,CN0600700000000,1,306,1,06007,1,1,06007,0,1,,0,,0
+calvert_county_md__county,"Calvert County, MD",county,,0,CN2400900000000,1,1313,1,24009,1,1,24009,0,1,,0,,0
+camden_county_nj__county,"Camden County, NJ",county,,0,CN3400700000000,1,1894,1,34007,1,1,34007,0,1,,0,,0
+campbell_county_va__county,"Campbell County, VA",county,,0,CN5103100000000,1,2952,1,51031,1,1,51031,0,1,,0,,0
+cape_may_county_nj__county,"Cape May County, NJ",county,,0,CN3400900000000,1,1895,1,34009,1,1,34009,0,1,,0,,0
+carroll_county_md__county,"Carroll County, MD",county,,0,CN2401300000000,1,1315,1,24013,1,1,24013,0,1,,0,,0
+charles_city_county_va__county,"Charles City County, VA",county,,0,CN5103600000000,1,2955,1,51036,1,1,51036,0,1,,0,,0
+charles_county_md__county,"Charles County, MD",county,,0,CN2401700000000,1,1317,1,24017,1,1,24017,0,1,,0,,0
+charlottesville_va__county,"Charlottesville, VA",county,,0,CN5154000000000,1,3036,1,51540,1,1,51540,0,1,,0,,0
+chesapeake_va__county,"Chesapeake, VA",county,,0,CN5155000000000,1,3037,1,51550,1,1,51550,0,1,,0,,0
+chesterfield_county_va__county,"Chesterfield County, VA",county,,0,CN5104100000000,1,2957,1,51041,1,1,51041,0,1,,0,,0
+clarke_county_va__county,"Clarke County, VA",county,,0,CN5104300000000,1,2958,1,51043,1,1,51043,0,1,,0,,0
+colonial_heights_va__county,"Colonial Heights, VA",county,,0,CN5157000000000,1,3038,1,51570,1,1,51570,0,1,,0,,0
+contra_costa_county_ca__county,"Contra Costa County, CA",county,,0,CN0601300000000,1,309,1,06013,1,1,06013,0,1,,0,,0
+craig_county_va__county,"Craig County, VA",county,,0,CN5104500000000,1,2959,1,51045,1,1,51045,0,1,,0,,0
+culpeper_county_va__county,"Culpeper County, VA",county,,0,CN5104700000000,1,2960,1,51047,1,1,51047,0,1,,0,,0
+cumberland_county_nj__county,"Cumberland County, NJ",county,,0,CN3401100000000,1,1896,1,34011,1,1,34011,0,1,,0,,0
+danville_va__county,"Danville, VA",county,,0,CN5159000000000,1,3040,1,51590,1,1,51590,0,1,,0,,0
+del_norte_county_ca__county,"Del Norte County, CA",county,,0,CN0601500000000,1,310,1,06015,1,1,06015,0,1,,0,,0
+dinwiddie_county_va__county,"Dinwiddie County, VA",county,,0,CN5105300000000,1,2963,1,51053,1,1,51053,0,1,,0,,0
+district_of_columbia_dc__county,"District of Columbia, DC",county,,0,CN1100100000000,1,436,1,11001,1,1,11001,0,1,,0,,0
+dorchester_county_md__county,"Dorchester County, MD",county,,0,CN2401900000000,1,1318,1,24019,1,1,24019,0,1,,0,,0
+el_dorado_county_ca__county,"El Dorado County, CA",county,,0,CN0601700000000,1,311,1,06017,1,1,06017,0,1,,0,,0
+essex_county_nj__county,"Essex County, NJ",county,,0,CN3401300000000,1,1897,1,34013,1,1,34013,0,1,,0,,0
+fairfax_city_county_va__county,"Fairfax City County, VA",county,,0,CN5160000000000,1,3042,1,51600,1,1,51600,0,1,,0,,0
+fairfax_county_va__county,"Fairfax County, VA",county,,0,CN5105900000000,1,2965,1,51059,1,1,51059,0,1,,0,,0
+falls_church_va__county,"Falls Church, VA",county,,0,CN5161000000000,1,3043,1,51610,1,1,51610,0,1,,0,,0
+fauquier_county_va__county,"Fauquier County, VA",county,,0,CN5106100000000,1,2966,1,51061,1,1,51061,0,1,,0,,0
+fluvanna_county_va__county,"Fluvanna County, VA",county,,0,CN5106500000000,1,2968,1,51065,1,1,51065,0,1,,0,,0
+franklin_city_county_va__county,"Franklin City County, VA",county,,0,CN5162000000000,1,3044,1,51620,1,1,51620,0,1,,0,,0
+franklin_county_va__county,"Franklin County, VA",county,,0,CN5106700000000,1,2969,1,51067,1,1,51067,0,1,,0,,0
+frederick_county_md__county,"Frederick County, MD",county,,0,CN2402100000000,1,1319,1,24021,1,1,24021,0,1,,0,,0
+frederick_county_va__county,"Frederick County, VA",county,,0,CN5106900000000,1,2970,1,51069,1,1,51069,0,1,,0,,0
+fredericksburg_va__county,"Fredericksburg, VA",county,,0,CN5163000000000,1,3045,1,51630,1,1,51630,0,1,,0,,0
+fresno_county_ca__county,"Fresno County, CA",county,,0,CN0601900000000,1,312,1,06019,1,1,06019,0,1,,0,,0
+giles_county_va__county,"Giles County, VA",county,,0,CN5107100000000,1,2971,1,51071,1,1,51071,0,1,,0,,0
+gloucester_county_nj__county,"Gloucester County, NJ",county,,0,CN3401500000000,1,1898,1,34015,1,1,34015,0,1,,0,,0
+gloucester_county_va__county,"Gloucester County, VA",county,,0,CN5107300000000,1,2972,1,51073,1,1,51073,0,1,,0,,0
+goochland_county_va__county,"Goochland County, VA",county,,0,CN5107500000000,1,2973,1,51075,1,1,51075,0,1,,0,,0
+greene_county_va__county,"Greene County, VA",county,,0,CN5107900000000,1,2975,1,51079,1,1,51079,0,1,,0,,0
+hampton_va__county,"Hampton, VA",county,,0,CN5165000000000,1,3047,1,51650,1,1,51650,0,1,,0,,0
+hanover_county_va__county,"Hanover County, VA",county,,0,CN5108500000000,1,2978,1,51085,1,1,51085,0,1,,0,,0
+harford_county_md__county,"Harford County, MD",county,,0,CN2402500000000,1,1321,1,24025,1,1,24025,0,1,,0,,0
+harrisonburg_va__county,"Harrisonburg, VA",county,,0,CN5166000000000,1,3048,1,51660,1,1,51660,0,1,,0,,0
+henrico_county_va__county,"Henrico County, VA",county,,0,CN5108700000000,1,2979,1,51087,1,1,51087,0,1,,0,,0
+henry_county_va__county,"Henry County, VA",county,,0,CN5108900000000,1,2980,1,51089,1,1,51089,0,1,,0,,0
+hopewell_va__county,"Hopewell, VA",county,,0,CN5167000000000,1,3049,1,51670,1,1,51670,0,1,,0,,0
+howard_county_md__county,"Howard County, MD",county,,0,CN2402700000000,1,1322,1,24027,1,1,24027,0,1,,0,,0
+humboldt_county_ca__county,"Humboldt County, CA",county,,0,CN0602300000000,1,314,1,06023,1,1,06023,0,1,,0,,0
+hunterdon_county_nj__county,"Hunterdon County, NJ",county,,0,CN3401900000000,1,1900,1,34019,1,1,34019,0,1,,0,,0
+imperial_county_ca__county,"Imperial County, CA",county,,0,CN0602500000000,1,315,1,06025,1,1,06025,0,1,,0,,0
+isle_of_wight_county_va__county,"Isle of Wight County, VA",county,,0,CN5109300000000,1,2982,1,51093,1,1,51093,0,1,,0,,0
+james_city_county_va__county,"James City County, VA",county,,0,CN5109500000000,1,2983,1,51095,1,1,51095,0,1,,0,,0
+kern_county_ca__county,"Kern County, CA",county,,0,CN0602900000000,1,317,1,06029,1,1,06029,0,1,,0,,0
+king_and_queen_county_va__county,"King & Queen County, VA",county,,0,CN5109700000000,1,2984,1,51097,1,1,51097,0,1,,0,,0
+king_william_county_va__county,"King William County, VA",county,,0,CN5110100000000,1,2986,1,51101,1,1,51101,0,1,,0,,0
+kings_county_ca__county,"Kings County, CA",county,,0,CN0603100000000,1,318,1,06031,1,1,06031,0,1,,0,,0
+lake_county_ca__county,"Lake County, CA",county,,0,CN0603300000000,1,319,1,06033,1,1,06033,0,1,,0,,0
+lassen_county_ca__county,"Lassen County, CA",county,,0,CN0603500000000,1,320,1,06035,1,1,06035,0,1,,0,,0
+los_angeles_county_ca__county,"Los Angeles County, CA",county,,0,CN0603700000000,1,321,1,06037,1,1,06037,0,1,,0,,0
+loudoun_county_va__county,"Loudoun County, VA",county,,0,CN5110700000000,1,2989,1,51107,1,1,51107,0,1,,0,,0
+lynchburg_va__county,"Lynchburg, VA",county,,0,CN5168000000000,1,3051,1,51680,1,1,51680,0,1,,0,,0
+madera_county_ca__county,"Madera County, CA",county,,0,CN0603900000000,1,322,1,06039,1,1,06039,0,1,,0,,0
+madison_county_va__county,"Madison County, VA",county,,0,CN5111300000000,1,2992,1,51113,1,1,51113,0,1,,0,,0
+manassas_park_va__county,"Manassas Park, VA",county,,0,CN5168500000000,1,3053,1,51685,1,1,51685,0,1,,0,,0
+manassas_va__county,"Manassas, VA",county,,0,CN5168300000000,1,3052,1,51683,1,1,51683,0,1,,0,,0
+marin_county_ca__county,"Marin County, CA",county,,0,CN0604100000000,1,323,1,06041,1,1,06041,0,1,,0,,0
+martinsville_va__county,"Martinsville, VA",county,,0,CN5169000000000,1,3054,1,51690,1,1,51690,0,1,,0,,0
+mathews_county_va__county,"Mathews County, VA",county,,0,CN5111500000000,1,2993,1,51115,1,1,51115,0,1,,0,,0
+mendocino_county_ca__county,"Mendocino County, CA",county,,0,CN0604500000000,1,325,1,06045,1,1,06045,0,1,,0,,0
+merced_county_ca__county,"Merced County, CA",county,,0,CN0604700000000,1,326,1,06047,1,1,06047,0,1,,0,,0
+mercer_county_nj__county,"Mercer County, NJ",county,,0,CN3402100000000,1,1901,1,34021,1,1,34021,0,1,,0,,0
+middlesex_county_nj__county,"Middlesex County, NJ",county,,0,CN3402300000000,1,1902,1,34023,1,1,34023,0,1,,0,,0
+monmouth_county_nj__county,"Monmouth County, NJ",county,,0,CN3402500000000,1,1903,1,34025,1,1,34025,0,1,,0,,0
+monterey_county_ca__county,"Monterey County, CA",county,,0,CN0605300000000,1,329,1,06053,1,1,06053,0,1,,0,,0
+montgomery_county_md__county,"Montgomery County, MD",county,,0,CN2403100000000,1,1324,1,24031,1,1,24031,0,1,,0,,0
+montgomery_county_va__county,"Montgomery County, VA",county,,0,CN5112100000000,1,2996,1,51121,1,1,51121,0,1,,0,,0
+morris_county_nj__county,"Morris County, NJ",county,,0,CN3402700000000,1,1904,1,34027,1,1,34027,0,1,,0,,0
+napa_county_ca__county,"Napa County, CA",county,,0,CN0605500000000,1,330,1,06055,1,1,06055,0,1,,0,,0
+nelson_county_va__county,"Nelson County, VA",county,,0,CN5112500000000,1,2997,1,51125,1,1,51125,0,1,,0,,0
+nevada_county_ca__county,"Nevada County, CA",county,,0,CN0605700000000,1,331,1,06057,1,1,06057,0,1,,0,,0
+new_kent_county_va__county,"New Kent County, VA",county,,0,CN5112700000000,1,2998,1,51127,1,1,51127,0,1,,0,,0
+newport_news_va__county,"Newport News, VA",county,,0,CN5170000000000,1,3055,1,51700,1,1,51700,0,1,,0,,0
+norfolk_va__county,"Norfolk, VA",county,,0,CN5171000000000,1,3056,1,51710,1,1,51710,0,1,,0,,0
+norton_va__county,"Norton, VA",county,,0,CN5172000000000,1,3057,1,51720,1,1,51720,0,1,,0,,0
+ocean_county_nj__county,"Ocean County, NJ",county,,0,CN3402900000000,1,1905,1,34029,1,1,34029,0,1,,0,,0
+orange_county_ca__county,"Orange County, CA",county,,0,CN0605900000000,1,332,1,06059,1,1,06059,0,1,,0,,0
+petersburg_va__county,"Petersburg, VA",county,,0,CN5173000000000,1,3058,1,51730,1,1,51730,0,1,,0,,0
+pittsylvania_county_va__county,"Pittsylvania County, VA",county,,0,CN5114300000000,1,3005,1,51143,1,1,51143,0,1,,0,,0
+placer_county_ca__county,"Placer County, CA",county,,0,CN0606100000000,1,333,1,06061,1,1,06061,0,1,,0,,0
+poquoson_va__county,"Poquoson, VA",county,,0,CN5173500000000,1,3059,1,51735,1,1,51735,0,1,,0,,0
+portsmouth_va__county,"Portsmouth, VA",county,,0,CN5174000000000,1,3060,1,51740,1,1,51740,0,1,,0,,0
+powhatan_county_va__county,"Powhatan County, VA",county,,0,CN5114500000000,1,3006,1,51145,1,1,51145,0,1,,0,,0
+prince_george_county_va__county,"Prince George County, VA",county,,0,CN5114900000000,1,3008,1,51149,1,1,51149,0,1,,0,,0
+prince_george_s_county_md__county,"Prince George's County, MD",county,,0,CN2403300000000,1,1325,1,24033,1,1,24033,0,1,,0,,0
+prince_william_county_va__county,"Prince William County, VA",county,,0,CN5115300000000,1,3009,1,51153,1,1,51153,0,1,,0,,0
+pulaski_county_va__county,"Pulaski County, VA",county,,0,CN5115500000000,1,3010,1,51155,1,1,51155,0,1,,0,,0
+queen_anne_s_county_md__county,"Queen Anne's County, MD",county,,0,CN2403500000000,1,1326,1,24035,1,1,24035,0,1,,0,,0
+radford_va__county,"Radford, VA",county,,0,CN5175000000000,1,3061,1,51750,1,1,51750,0,1,,0,,0
+rappahannock_county_va__county,"Rappahannock County, VA",county,,0,CN5115700000000,1,3011,1,51157,1,1,51157,0,1,,0,,0
+richmond_city_county_va__county,"Richmond City County, VA",county,,0,CN5176000000000,1,3062,1,51760,1,1,51760,0,1,,0,,0
+riverside_county_ca__county,"Riverside County, CA",county,,0,CN0606500000000,1,335,1,06065,1,1,06065,0,1,,0,,0
+roanoke_city_county_va__county,"Roanoke City County, VA",county,,0,CN5177000000000,1,3063,1,51770,1,1,51770,0,1,,0,,0
+roanoke_county_va__county,"Roanoke County, VA",county,,0,CN5116100000000,1,3013,1,51161,1,1,51161,0,1,,0,,0
+rockingham_county_va__county,"Rockingham County, VA",county,,0,CN5116500000000,1,3015,1,51165,1,1,51165,0,1,,0,,0
+sacramento_county_ca__county,"Sacramento County, CA",county,,0,CN0606700000000,1,336,1,06067,1,1,06067,0,1,,0,,0
+salem_va__county,"Salem, VA",county,,0,CN5177500000000,1,3064,1,51775,1,1,51775,0,1,,0,,0
+san_benito_county_ca__county,"San Benito County, CA",county,,0,CN0606900000000,1,337,1,06069,1,1,06069,0,1,,0,,0
+san_bernardino_county_ca__county,"San Bernardino County, CA",county,,0,CN0607100000000,1,338,1,06071,1,1,06071,0,1,,0,,0
+san_diego_county_ca__county,"San Diego County, CA",county,,0,CN0607300000000,1,339,1,06073,1,1,06073,0,1,,0,,0
+san_francisco_county_ca__county,"San Francisco County, CA",county,,0,CN0607500000000,1,340,1,06075,1,1,06075,0,1,,0,,0
+san_joaquin_county_ca__county,"San Joaquin County, CA",county,,0,CN0607700000000,1,341,1,06077,1,1,06077,0,1,,0,,0
+san_luis_obispo_county_ca__county,"San Luis Obispo County, CA",county,,0,CN0607900000000,1,342,1,06079,1,1,06079,0,1,,0,,0
+san_mateo_county_ca__county,"San Mateo County, CA",county,,0,CN0608100000000,1,343,1,06081,1,1,06081,0,1,,0,,0
+santa_barbara_county_ca__county,"Santa Barbara County, CA",county,,0,CN0608300000000,1,344,1,06083,1,1,06083,0,1,,0,,0
+santa_clara_county_ca__county,"Santa Clara County, CA",county,,0,CN0608500000000,1,345,1,06085,1,1,06085,0,1,,0,,0
+santa_cruz_county_ca__county,"Santa Cruz County, CA",county,,0,CN0608700000000,1,346,1,06087,1,1,06087,0,1,,0,,0
+shasta_county_ca__county,"Shasta County, CA",county,,0,CN0608900000000,1,347,1,06089,1,1,06089,0,1,,0,,0
+solano_county_ca__county,"Solano County, CA",county,,0,CN0609500000000,1,350,1,06095,1,1,06095,0,1,,0,,0
+somerset_county_nj__county,"Somerset County, NJ",county,,0,CN3403500000000,1,1908,1,34035,1,1,34035,0,1,,0,,0
+sonoma_county_ca__county,"Sonoma County, CA",county,,0,CN0609700000000,1,351,1,06097,1,1,06097,0,1,,0,,0
+southampton_county_va__county,"Southampton County, VA",county,,0,CN5117500000000,1,3020,1,51175,1,1,51175,0,1,,0,,0
+spotsylvania_county_va__county,"Spotsylvania County, VA",county,,0,CN5117700000000,1,3021,1,51177,1,1,51177,0,1,,0,,0
+st_mary_s_county_md__county,"St. Mary's County, MD",county,,0,CN2403700000000,1,1327,1,24037,1,1,24037,0,1,,0,,0
+stafford_county_va__county,"Stafford County, VA",county,,0,CN5117900000000,1,3022,1,51179,1,1,51179,0,1,,0,,0
+stanislaus_county_ca__county,"Stanislaus County, CA",county,,0,CN0609900000000,1,352,1,06099,1,1,06099,0,1,,0,,0
+staunton_va__county,"Staunton, VA",county,,0,CN5179000000000,1,3065,1,51790,1,1,51790,0,1,,0,,0
+suffolk_va__county,"Suffolk, VA",county,,0,CN5180000000000,1,3066,1,51800,1,1,51800,0,1,,0,,0
+sussex_county_nj__county,"Sussex County, NJ",county,,0,CN3403700000000,1,1909,1,34037,1,1,34037,0,1,,0,,0
+sussex_county_va__county,"Sussex County, VA",county,,0,CN5118300000000,1,3024,1,51183,1,1,51183,0,1,,0,,0
+sutter_county_ca__county,"Sutter County, CA",county,,0,CN0610100000000,1,353,1,06101,1,1,06101,0,1,,0,,0
+talbot_county_md__county,"Talbot County, MD",county,,0,CN2404100000000,1,1329,1,24041,1,1,24041,0,1,,0,,0
+tehama_county_ca__county,"Tehama County, CA",county,,0,CN0610300000000,1,354,1,06103,1,1,06103,0,1,,0,,0
+tulare_county_ca__county,"Tulare County, CA",county,,0,CN0610700000000,1,356,1,06107,1,1,06107,0,1,,0,,0
+tuolumne_county_ca__county,"Tuolumne County, CA",county,,0,CN0610900000000,1,357,1,06109,1,1,06109,0,1,,0,,0
+union_county_nj__county,"Union County, NJ",county,,0,CN3403900000000,1,1910,1,34039,1,1,34039,0,1,,0,,0
+ventura_county_ca__county,"Ventura County, CA",county,,0,CN0611100000000,1,358,1,06111,1,1,06111,0,1,,0,,0
+virginia_beach_va__county,"Virginia Beach, VA",county,,0,CN5181000000000,1,3067,1,51810,1,1,51810,0,1,,0,,0
+warren_county_va__county,"Warren County, VA",county,,0,CN5118700000000,1,3026,1,51187,1,1,51187,0,1,,0,,0
+washington_county_md__county,"Washington County, MD",county,,0,CN2404300000000,1,1330,1,24043,1,1,24043,0,1,,0,,0
+waynesboro_va__county,"Waynesboro, VA",county,,0,CN5182000000000,1,3068,1,51820,1,1,51820,0,1,,0,,0
+williamsburg_va__county,"Williamsburg, VA",county,,0,CN5183000000000,1,3069,1,51830,1,1,51830,0,1,,0,,0
+winchester_va__county,"Winchester, VA",county,,0,CN5184000000000,1,3070,1,51840,1,1,51840,0,1,,0,,0
+wise_county_va__county,"Wise County, VA",county,,0,CN5119500000000,1,3029,1,51195,1,1,51195,0,1,,0,,0
+yolo_county_ca__county,"Yolo County, CA",county,,0,CN0611300000000,1,359,1,06113,1,1,06113,0,1,,0,,0
+york_county_va__county,"York County, VA",county,,0,CN5119900000000,1,3031,1,51199,1,1,51199,0,1,,0,,0
+yuba_county_ca__county,"Yuba County, CA",county,,0,CN0611500000000,1,360,1,06115,1,1,06115,0,1,,0,,0
+united_states__nation,United States,nation,0000000,1,,0,,0,00,1,1,00000,1,1,UNRATE,1,US,1
+northeast_region__region,Northeast Region,region,,0,,0,,0,,0,0,,0,0,,0,,0
+south_region__region,South Region,region,,0,,0,,0,,0,0,,0,0,,0,,0
+west_region__region,West Region,region,,0,,0,,0,,0,0,,0,0,,0,,0
+california__state,California,state,0600000,1,ST0600000000000,1,9,1,06,1,1,06000,1,1,CAUR,1,,0
+district_of_columbia__state,District of Columbia,state,1100000,1,ST1100000000000,1,17,1,11,1,1,11000,1,1,DCUR,1,,0
+maryland__state,Maryland,state,2400000,1,ST2400000000000,1,43,1,24,1,1,24000,1,1,MDUR,1,,0
+new_jersey__state,New Jersey,state,3400000,1,ST3400000000000,1,12,1,34,1,1,34000,1,1,NJUR,1,,0
+virginia__state,Virginia,state,5100000,1,ST5100000000000,1,42,1,51,1,1,51000,1,1,VAUR,1,,0
+20001_district_of_columbia_dc__zip,"20001, District of Columbia, DC",zip,,0,,0,7747,1,,0,0,,0,0,,0,,0
+20002_district_of_columbia_dc__zip,"20002, District of Columbia, DC",zip,,0,,0,7748,1,,0,0,,0,0,,0,,0
+20003_district_of_columbia_dc__zip,"20003, District of Columbia, DC",zip,,0,,0,7749,1,,0,0,,0,0,,0,,0
+20004_district_of_columbia_dc__zip,"20004, District of Columbia, DC",zip,,0,,0,7750,1,,0,0,,0,0,,0,,0
+20005_district_of_columbia_dc__zip,"20005, District of Columbia, DC",zip,,0,,0,7751,1,,0,0,,0,0,,0,,0
+20006_district_of_columbia_dc__zip,"20006, District of Columbia, DC",zip,,0,,0,7752,1,,0,0,,0,0,,0,,0
+20007_district_of_columbia_dc__zip,"20007, District of Columbia, DC",zip,,0,,0,7753,1,,0,0,,0,0,,0,,0
+20008_district_of_columbia_dc__zip,"20008, District of Columbia, DC",zip,,0,,0,7754,1,,0,0,,0,0,,0,,0
+20009_district_of_columbia_dc__zip,"20009, District of Columbia, DC",zip,,0,,0,7755,1,,0,0,,0,0,,0,,0
+20010_district_of_columbia_dc__zip,"20010, District of Columbia, DC",zip,,0,,0,7756,1,,0,0,,0,0,,0,,0
+20011_district_of_columbia_dc__zip,"20011, District of Columbia, DC",zip,,0,,0,7757,1,,0,0,,0,0,,0,,0
+20012_district_of_columbia_dc__zip,"20012, District of Columbia, DC",zip,,0,,0,7758,1,,0,0,,0,0,,0,,0
+20015_district_of_columbia_dc__zip,"20015, District of Columbia, DC",zip,,0,,0,7760,1,,0,0,,0,0,,0,,0
+20016_district_of_columbia_dc__zip,"20016, District of Columbia, DC",zip,,0,,0,7761,1,,0,0,,0,0,,0,,0
+20017_district_of_columbia_dc__zip,"20017, District of Columbia, DC",zip,,0,,0,7762,1,,0,0,,0,0,,0,,0
+20018_district_of_columbia_dc__zip,"20018, District of Columbia, DC",zip,,0,,0,7763,1,,0,0,,0,0,,0,,0
+20019_district_of_columbia_dc__zip,"20019, District of Columbia, DC",zip,,0,,0,7764,1,,0,0,,0,0,,0,,0
+20020_district_of_columbia_dc__zip,"20020, District of Columbia, DC",zip,,0,,0,7765,1,,0,0,,0,0,,0,,0
+20024_district_of_columbia_dc__zip,"20024, District of Columbia, DC",zip,,0,,0,7768,1,,0,0,,0,0,,0,,0
+20027_district_of_columbia_dc__zip,"20027, District of Columbia, DC",zip,,0,,0,7770,1,,0,0,,0,0,,0,,0
+20030_district_of_columbia_dc__zip,"20030, District of Columbia, DC",zip,,0,,0,7772,1,,0,0,,0,0,,0,,0
+20032_district_of_columbia_dc__zip,"20032, District of Columbia, DC",zip,,0,,0,7773,1,,0,0,,0,0,,0,,0
+20036_district_of_columbia_dc__zip,"20036, District of Columbia, DC",zip,,0,,0,7776,1,,0,0,,0,0,,0,,0
+20037_district_of_columbia_dc__zip,"20037, District of Columbia, DC",zip,,0,,0,7777,1,,0,0,,0,0,,0,,0
+20040_district_of_columbia_dc__zip,"20040, District of Columbia, DC",zip,,0,,0,7780,1,,0,0,,0,0,,0,,0
+20059_district_of_columbia_dc__zip,"20059, District of Columbia, DC",zip,,0,,0,7797,1,,0,0,,0,0,,0,,0
+20060_district_of_columbia_dc__zip,"20060, District of Columbia, DC",zip,,0,,0,7798,1,,0,0,,0,0,,0,,0
+20216_district_of_columbia_dc__zip,"20216, District of Columbia, DC",zip,,0,,0,7920,1,,0,0,,0,0,,0,,0
+20226_district_of_columbia_dc__zip,"20226, District of Columbia, DC",zip,,0,,0,7929,1,,0,0,,0,0,,0,,0
+20227_district_of_columbia_dc__zip,"20227, District of Columbia, DC",zip,,0,,0,7930,1,,0,0,,0,0,,0,,0
+20306_district_of_columbia_dc__zip,"20306, District of Columbia, DC",zip,,0,,0,7960,1,,0,0,,0,0,,0,,0
+20391_district_of_columbia_dc__zip,"20391, District of Columbia, DC",zip,,0,,0,7981,1,,0,0,,0,0,,0,,0
+20398_district_of_columbia_dc__zip,"20398, District of Columbia, DC",zip,,0,,0,7986,1,,0,0,,0,0,,0,,0
+20422_district_of_columbia_dc__zip,"20422, District of Columbia, DC",zip,,0,,0,8007,1,,0,0,,0,0,,0,,0
+20515_district_of_columbia_dc__zip,"20515, District of Columbia, DC",zip,,0,,0,8048,1,,0,0,,0,0,,0,,0
+20529_district_of_columbia_dc__zip,"20529, District of Columbia, DC",zip,,0,,0,8058,1,,0,0,,0,0,,0,,0
+20560_district_of_columbia_dc__zip,"20560, District of Columbia, DC",zip,,0,,0,8086,1,,0,0,,0,0,,0,,0
+20593_district_of_columbia_dc__zip,"20593, District of Columbia, DC",zip,,0,,0,8104,1,,0,0,,0,0,,0,,0
+20601_prince_george_s_county_md__zip,"20601, Prince George's County, MD",zip,,0,,0,8108,1,,0,0,,0,0,,0,,0
+20607_prince_george_s_county_md__zip,"20607, Prince George's County, MD",zip,,0,,0,8113,1,,0,0,,0,0,,0,,0
+20608_prince_george_s_county_md__zip,"20608, Prince George's County, MD",zip,,0,,0,8114,1,,0,0,,0,0,,0,,0
+20613_prince_george_s_county_md__zip,"20613, Prince George's County, MD",zip,,0,,0,8119,1,,0,0,,0,0,,0,,0
+20616_prince_george_s_county_md__zip,"20616, Prince George's County, MD",zip,,0,,0,8121,1,,0,0,,0,0,,0,,0
+20623_prince_george_s_county_md__zip,"20623, Prince George's County, MD",zip,,0,,0,8128,1,,0,0,,0,0,,0,,0
+20703_prince_george_s_county_md__zip,"20703, Prince George's County, MD",zip,,0,,0,8177,1,,0,0,,0,0,,0,,0
+20704_prince_george_s_county_md__zip,"20704, Prince George's County, MD",zip,,0,,0,8178,1,,0,0,,0,0,,0,,0
+20705_prince_george_s_county_md__zip,"20705, Prince George's County, MD",zip,,0,,0,8179,1,,0,0,,0,0,,0,,0
+20706_prince_george_s_county_md__zip,"20706, Prince George's County, MD",zip,,0,,0,8180,1,,0,0,,0,0,,0,,0
+20707_prince_george_s_county_md__zip,"20707, Prince George's County, MD",zip,,0,,0,8181,1,,0,0,,0,0,,0,,0
+20708_prince_george_s_county_md__zip,"20708, Prince George's County, MD",zip,,0,,0,8182,1,,0,0,,0,0,,0,,0
+20710_prince_george_s_county_md__zip,"20710, Prince George's County, MD",zip,,0,,0,8184,1,,0,0,,0,0,,0,,0
+20712_prince_george_s_county_md__zip,"20712, Prince George's County, MD",zip,,0,,0,8186,1,,0,0,,0,0,,0,,0
+20715_prince_george_s_county_md__zip,"20715, Prince George's County, MD",zip,,0,,0,8188,1,,0,0,,0,0,,0,,0
+20716_prince_george_s_county_md__zip,"20716, Prince George's County, MD",zip,,0,,0,8189,1,,0,0,,0,0,,0,,0
+20717_prince_george_s_county_md__zip,"20717, Prince George's County, MD",zip,,0,,0,8190,1,,0,0,,0,0,,0,,0
+20720_prince_george_s_county_md__zip,"20720, Prince George's County, MD",zip,,0,,0,8193,1,,0,0,,0,0,,0,,0
+20721_prince_george_s_county_md__zip,"20721, Prince George's County, MD",zip,,0,,0,8194,1,,0,0,,0,0,,0,,0
+20722_prince_george_s_county_md__zip,"20722, Prince George's County, MD",zip,,0,,0,8195,1,,0,0,,0,0,,0,,0
+20731_prince_george_s_county_md__zip,"20731, Prince George's County, MD",zip,,0,,0,8200,1,,0,0,,0,0,,0,,0
+20735_prince_george_s_county_md__zip,"20735, Prince George's County, MD",zip,,0,,0,8203,1,,0,0,,0,0,,0,,0
+20737_prince_george_s_county_md__zip,"20737, Prince George's County, MD",zip,,0,,0,8205,1,,0,0,,0,0,,0,,0
+20740_prince_george_s_county_md__zip,"20740, Prince George's County, MD",zip,,0,,0,8207,1,,0,0,,0,0,,0,,0
+20741_prince_george_s_county_md__zip,"20741, Prince George's County, MD",zip,,0,,0,8208,1,,0,0,,0,0,,0,,0
+20743_prince_george_s_county_md__zip,"20743, Prince George's County, MD",zip,,0,,0,8210,1,,0,0,,0,0,,0,,0
+20744_prince_george_s_county_md__zip,"20744, Prince George's County, MD",zip,,0,,0,8211,1,,0,0,,0,0,,0,,0
+20745_prince_george_s_county_md__zip,"20745, Prince George's County, MD",zip,,0,,0,8212,1,,0,0,,0,0,,0,,0
+20746_prince_george_s_county_md__zip,"20746, Prince George's County, MD",zip,,0,,0,8213,1,,0,0,,0,0,,0,,0
+20747_prince_george_s_county_md__zip,"20747, Prince George's County, MD",zip,,0,,0,8214,1,,0,0,,0,0,,0,,0
+20748_prince_george_s_county_md__zip,"20748, Prince George's County, MD",zip,,0,,0,8215,1,,0,0,,0,0,,0,,0
+20752_prince_george_s_county_md__zip,"20752, Prince George's County, MD",zip,,0,,0,8219,1,,0,0,,0,0,,0,,0
+20757_prince_george_s_county_md__zip,"20757, Prince George's County, MD",zip,,0,,0,8223,1,,0,0,,0,0,,0,,0
+20768_prince_george_s_county_md__zip,"20768, Prince George's County, MD",zip,,0,,0,8230,1,,0,0,,0,0,,0,,0
+20769_prince_george_s_county_md__zip,"20769, Prince George's County, MD",zip,,0,,0,8231,1,,0,0,,0,0,,0,,0
+20770_prince_george_s_county_md__zip,"20770, Prince George's County, MD",zip,,0,,0,8232,1,,0,0,,0,0,,0,,0
+20771_prince_george_s_county_md__zip,"20771, Prince George's County, MD",zip,,0,,0,8233,1,,0,0,,0,0,,0,,0
+20772_prince_george_s_county_md__zip,"20772, Prince George's County, MD",zip,,0,,0,8234,1,,0,0,,0,0,,0,,0
+20774_prince_george_s_county_md__zip,"20774, Prince George's County, MD",zip,,0,,0,8236,1,,0,0,,0,0,,0,,0
+20781_prince_george_s_county_md__zip,"20781, Prince George's County, MD",zip,,0,,0,8242,1,,0,0,,0,0,,0,,0
+20782_prince_george_s_county_md__zip,"20782, Prince George's County, MD",zip,,0,,0,8243,1,,0,0,,0,0,,0,,0
+20783_prince_george_s_county_md__zip,"20783, Prince George's County, MD",zip,,0,,0,8244,1,,0,0,,0,0,,0,,0
+20784_prince_george_s_county_md__zip,"20784, Prince George's County, MD",zip,,0,,0,8245,1,,0,0,,0,0,,0,,0
+20785_prince_george_s_county_md__zip,"20785, Prince George's County, MD",zip,,0,,0,8246,1,,0,0,,0,0,,0,,0
+20812_montgomery_county_md__zip,"20812, Montgomery County, MD",zip,,0,,0,8257,1,,0,0,,0,0,,0,,0
+20814_montgomery_county_md__zip,"20814, Montgomery County, MD",zip,,0,,0,8259,1,,0,0,,0,0,,0,,0
+20815_montgomery_county_md__zip,"20815, Montgomery County, MD",zip,,0,,0,8260,1,,0,0,,0,0,,0,,0
+20816_montgomery_county_md__zip,"20816, Montgomery County, MD",zip,,0,,0,8261,1,,0,0,,0,0,,0,,0
+20817_montgomery_county_md__zip,"20817, Montgomery County, MD",zip,,0,,0,8262,1,,0,0,,0,0,,0,,0
+20818_montgomery_county_md__zip,"20818, Montgomery County, MD",zip,,0,,0,8263,1,,0,0,,0,0,,0,,0
+20824_montgomery_county_md__zip,"20824, Montgomery County, MD",zip,,0,,0,8264,1,,0,0,,0,0,,0,,0
+20830_montgomery_county_md__zip,"20830, Montgomery County, MD",zip,,0,,0,8267,1,,0,0,,0,0,,0,,0
+20832_montgomery_county_md__zip,"20832, Montgomery County, MD",zip,,0,,0,8268,1,,0,0,,0,0,,0,,0
+20833_montgomery_county_md__zip,"20833, Montgomery County, MD",zip,,0,,0,8269,1,,0,0,,0,0,,0,,0
+20837_montgomery_county_md__zip,"20837, Montgomery County, MD",zip,,0,,0,8270,1,,0,0,,0,0,,0,,0
+20838_montgomery_county_md__zip,"20838, Montgomery County, MD",zip,,0,,0,8271,1,,0,0,,0,0,,0,,0
+20839_montgomery_county_md__zip,"20839, Montgomery County, MD",zip,,0,,0,8272,1,,0,0,,0,0,,0,,0
+20841_montgomery_county_md__zip,"20841, Montgomery County, MD",zip,,0,,0,8273,1,,0,0,,0,0,,0,,0
+20842_montgomery_county_md__zip,"20842, Montgomery County, MD",zip,,0,,0,8274,1,,0,0,,0,0,,0,,0
+20848_montgomery_county_md__zip,"20848, Montgomery County, MD",zip,,0,,0,8276,1,,0,0,,0,0,,0,,0
+20849_montgomery_county_md__zip,"20849, Montgomery County, MD",zip,,0,,0,8277,1,,0,0,,0,0,,0,,0
+20850_montgomery_county_md__zip,"20850, Montgomery County, MD",zip,,0,,0,8278,1,,0,0,,0,0,,0,,0
+20851_montgomery_county_md__zip,"20851, Montgomery County, MD",zip,,0,,0,8279,1,,0,0,,0,0,,0,,0
+20852_montgomery_county_md__zip,"20852, Montgomery County, MD",zip,,0,,0,8280,1,,0,0,,0,0,,0,,0
+20853_montgomery_county_md__zip,"20853, Montgomery County, MD",zip,,0,,0,8281,1,,0,0,,0,0,,0,,0
+20854_montgomery_county_md__zip,"20854, Montgomery County, MD",zip,,0,,0,8282,1,,0,0,,0,0,,0,,0
+20855_montgomery_county_md__zip,"20855, Montgomery County, MD",zip,,0,,0,8283,1,,0,0,,0,0,,0,,0
+20860_montgomery_county_md__zip,"20860, Montgomery County, MD",zip,,0,,0,8286,1,,0,0,,0,0,,0,,0
+20861_montgomery_county_md__zip,"20861, Montgomery County, MD",zip,,0,,0,8287,1,,0,0,,0,0,,0,,0
+20862_montgomery_county_md__zip,"20862, Montgomery County, MD",zip,,0,,0,8288,1,,0,0,,0,0,,0,,0
+20866_montgomery_county_md__zip,"20866, Montgomery County, MD",zip,,0,,0,8289,1,,0,0,,0,0,,0,,0
+20868_montgomery_county_md__zip,"20868, Montgomery County, MD",zip,,0,,0,8290,1,,0,0,,0,0,,0,,0
+20871_montgomery_county_md__zip,"20871, Montgomery County, MD",zip,,0,,0,8291,1,,0,0,,0,0,,0,,0
+20872_montgomery_county_md__zip,"20872, Montgomery County, MD",zip,,0,,0,8292,1,,0,0,,0,0,,0,,0
+20874_montgomery_county_md__zip,"20874, Montgomery County, MD",zip,,0,,0,8293,1,,0,0,,0,0,,0,,0
+20876_montgomery_county_md__zip,"20876, Montgomery County, MD",zip,,0,,0,8295,1,,0,0,,0,0,,0,,0
+20877_montgomery_county_md__zip,"20877, Montgomery County, MD",zip,,0,,0,8296,1,,0,0,,0,0,,0,,0
+20878_montgomery_county_md__zip,"20878, Montgomery County, MD",zip,,0,,0,8297,1,,0,0,,0,0,,0,,0
+20879_montgomery_county_md__zip,"20879, Montgomery County, MD",zip,,0,,0,8298,1,,0,0,,0,0,,0,,0
+20880_montgomery_county_md__zip,"20880, Montgomery County, MD",zip,,0,,0,8299,1,,0,0,,0,0,,0,,0
+20882_montgomery_county_md__zip,"20882, Montgomery County, MD",zip,,0,,0,8300,1,,0,0,,0,0,,0,,0
+20884_montgomery_county_md__zip,"20884, Montgomery County, MD",zip,,0,,0,8302,1,,0,0,,0,0,,0,,0
+20886_montgomery_county_md__zip,"20886, Montgomery County, MD",zip,,0,,0,8304,1,,0,0,,0,0,,0,,0
+20889_montgomery_county_md__zip,"20889, Montgomery County, MD",zip,,0,,0,8305,1,,0,0,,0,0,,0,,0
+20894_montgomery_county_md__zip,"20894, Montgomery County, MD",zip,,0,,0,8308,1,,0,0,,0,0,,0,,0
+20895_montgomery_county_md__zip,"20895, Montgomery County, MD",zip,,0,,0,8309,1,,0,0,,0,0,,0,,0
+20896_montgomery_county_md__zip,"20896, Montgomery County, MD",zip,,0,,0,8310,1,,0,0,,0,0,,0,,0
+20901_montgomery_county_md__zip,"20901, Montgomery County, MD",zip,,0,,0,8314,1,,0,0,,0,0,,0,,0
+20902_montgomery_county_md__zip,"20902, Montgomery County, MD",zip,,0,,0,8315,1,,0,0,,0,0,,0,,0
+20903_montgomery_county_md__zip,"20903, Montgomery County, MD",zip,,0,,0,8316,1,,0,0,,0,0,,0,,0
+20904_montgomery_county_md__zip,"20904, Montgomery County, MD",zip,,0,,0,8317,1,,0,0,,0,0,,0,,0
+20905_montgomery_county_md__zip,"20905, Montgomery County, MD",zip,,0,,0,8318,1,,0,0,,0,0,,0,,0
+20906_montgomery_county_md__zip,"20906, Montgomery County, MD",zip,,0,,0,8319,1,,0,0,,0,0,,0,,0
+20907_montgomery_county_md__zip,"20907, Montgomery County, MD",zip,,0,,0,8320,1,,0,0,,0,0,,0,,0
+20910_montgomery_county_md__zip,"20910, Montgomery County, MD",zip,,0,,0,8322,1,,0,0,,0,0,,0,,0
+20912_montgomery_county_md__zip,"20912, Montgomery County, MD",zip,,0,,0,8324,1,,0,0,,0,0,,0,,0
+20913_montgomery_county_md__zip,"20913, Montgomery County, MD",zip,,0,,0,8325,1,,0,0,,0,0,,0,,0
+20914_montgomery_county_md__zip,"20914, Montgomery County, MD",zip,,0,,0,8326,1,,0,0,,0,0,,0,,0
+20918_montgomery_county_md__zip,"20918, Montgomery County, MD",zip,,0,,0,8329,1,,0,0,,0,0,,0,,0
+20993_montgomery_county_md__zip,"20993, Montgomery County, MD",zip,,0,,0,8330,1,,0,0,,0,0,,0,,0
+21771_montgomery_county_md__zip,"21771, Montgomery County, MD",zip,,0,,0,8644,1,,0,0,,0,0,,0,,0
