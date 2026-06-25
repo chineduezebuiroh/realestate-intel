@@ -357,3 +357,6 @@ def main():
         w.writerows(rows)
 
     print(f"[laus:gen] wrote {len(rows)} series rows → {OUT_CSV}")
+
+if __name__ == "__main__":
+    main()
