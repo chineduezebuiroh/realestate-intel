@@ -268,7 +268,7 @@ def apply_bls_laus_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.D
     # State: state_fips + 11 zeros
     state_scope = laus_scope[laus_scope["level"].eq("state")].copy()
     state_scope["state_fips"] = state_scope["state_code"].map(STATE_FIPS).fillna("")
-    state_scope["bls_laus_area_code_resolved"] = state_scope["state_fips"] + "0000000000"
+    state_scope["bls_laus_area_code_resolved"] = "ST" + state_scope["state_fips"] + "00000000000"
     state_scope.loc[state_scope["state_fips"].eq(""), "bls_laus_area_code_resolved"] = ""
 
     out = out.merge(
@@ -287,7 +287,7 @@ def apply_bls_laus_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.D
     metro_scope["state_fips"] = metro_scope["state_code"].map(STATE_FIPS).fillna("")
     metro_scope["metro_fips"] = metro_scope["redfin_code"].str.extract(r"(\d{5})", expand=False).fillna("")
     metro_scope["bls_laus_area_code_resolved"] = (
-        metro_scope["state_fips"] + metro_scope["metro_fips"] + "000000"
+        "MT" + metro_scope["state_fips"] + metro_scope["metro_fips"] + "000000"
     )
 
     valid_metro = metro_scope["state_fips"].ne("") & metro_scope["metro_fips"].str.fullmatch(r"\d{5}")
@@ -329,7 +329,7 @@ def apply_bls_laus_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.D
         lambda r: county_join_key(r["county_name"], r["state_code"]),
         axis=1,
     )
-    xref["bls_laus_area_code_resolved"] = xref["state_fips"] + xref["county_fips"] + "00000000"
+    xref["bls_laus_area_code_resolved"] = "CN" + xref["state_fips"] + xref["county_fips"] + "00000000"
 
     county_scope = laus_scope[laus_scope["level"].eq("county")].copy()
     county_scope["county_join_key"] = county_scope.apply(
