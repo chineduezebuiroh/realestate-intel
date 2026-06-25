@@ -11,7 +11,8 @@ BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
 BLS_DIR.mkdir(parents=True, exist_ok=True)
 
-GEO_MANIFEST = Path("config/geo_manifest.csv")
+# GEO_MANIFEST = Path("config/geo_manifest.csv")
+GEO_MANIFEST = Path(os.getenv("GEO_MANIFEST_PATH", "config/geo_manifest.generated.csv"))
 
 LA_AREA   = BLS_DIR / "la.area"
 LA_SERIES = BLS_DIR / "la.series"
