@@ -6,7 +6,6 @@ from pathlib import Path
 import requests
 import pandas as pd  # make sure this is imported at the top
 
-# GEO_MANIFEST = Path("config/geo_manifest.csv")
 GEO_MANIFEST = Path(os.getenv("GEO_MANIFEST_PATH", "config/geo_manifest.generated.csv"))
 
 # 🔧 Populated at runtime in main()
@@ -52,29 +51,31 @@ CES_AREA_MAP = {}
 #CES_LEVEL_MAP: dict[str, str] = {}
 
 
-
 def load_ces_geo_targets():
     """
-    Build an exact mapping from CES area_code (digits only) -> (geo_id, geo_name).
+    Build an exact mapping from CES area_code (digits only) -> (geo_slug, geo_name).
 
-    Uses config/geo_manifest.csv and only rows with include_ces=1 and a non-empty
-    bls_ces_area_code. We do NOT try to be clever with variants; area_code must
-    match exactly what appears in sm.series.
+    Uses config/geo_manifest.generated.csv and only rows with include_ces=1 and a
+    non-empty bls_ces_area_code. We do NOT try to be clever with variants;
+    area_code must match exactly what appears in sm.series.
     """
-    import pandas as pd
-
     if not GEO_MANIFEST.exists():
         raise SystemExit("[ces:gen] missing config/geo_manifest.csv")
 
     gm = pd.read_csv(GEO_MANIFEST, dtype=str)
 
     # normalize
-    gm["include_ces"] = gm.get("include_ces", "").astype(str).str.lower().isin(
-        ["1", "true", "yes", "y"]
+    required = {"geo_slug", "geo_name", "include_ces", "bls_ces_area_code"}
+    missing = required - set(gm.columns)
+    if missing:
+        raise SystemExit(f"[ces:gen] {GEO_MANIFEST} missing columns: {sorted(missing)}")
+    
+    gm["include_ces"] = gm["include_ces"].astype(str).str.strip().str.lower().isin(
+        ["1", "true", "yes", "y", "t"]
     )
-    gm["bls_ces_area_code"] = gm.get("bls_ces_area_code", "").fillna("").astype(str)
-    gm["geo_id"] = gm.get("geo_id", "").fillna("").astype(str)
-    gm["geo_name"] = gm.get("geo_name", "").fillna("").astype(str)
+    gm["bls_ces_area_code"] = gm["bls_ces_area_code"].fillna("").astype(str).str.strip()
+    gm["geo_slug"] = gm["geo_slug"].fillna("").astype(str).str.strip()
+    gm["geo_name"] = gm["geo_name"].fillna("").astype(str).str.strip()
 
     area_map: dict[str, tuple[str, str]] = {}
 
@@ -91,49 +92,11 @@ def load_ces_geo_targets():
         if not key:
             continue
 
-        area_map[key] = (row.geo_id, row.geo_name)
+        area_map[key] = (row.geo_slug, row.geo_name)
 
     print(f"[ces:gen] loaded {len(area_map)} CES area mappings from geo_manifest")
     return area_map
 
-
-"""
-def _download(url: str, dest: Path):
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    # Only download if missing (idempotent). Force with CES_FORCE=1
-    if dest.exists() and os.getenv("CES_FORCE", "0") not in ("1", "true", "True"):
-        return
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    }
-
-    # Try HTTPS, then HTTP, a few times
-    tries = [
-        url,
-        #url.replace("https://", "http://", 1) if url.startswith("https://") else url
-        url.replace("https://", "https://", 1) if url.startswith("https://") else url
-    ]
-
-    last_exc = None
-    for attempt in range(3):
-        for u in tries:
-            try:
-                r = requests.get(u, headers=headers, timeout=60)
-                if r.status_code == 403:
-                    raise requests.HTTPError(f"403 from {u}")
-                r.raise_for_status()
-                dest.write_bytes(r.content)
-                return
-            except Exception as e:
-                last_exc = e
-    # If all attempts failed but file already exists, keep going
-    if dest.exists():
-        print(f"[ces] WARN: failed to refresh {dest.name} ({last_exc}); using existing file.")
-        return
-    raise last_exc
-"""
 
 def _download(url: str, dest: Path):
     dest.parent.mkdir(parents=True, exist_ok=True)
