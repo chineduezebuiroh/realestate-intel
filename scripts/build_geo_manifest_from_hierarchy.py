@@ -19,6 +19,7 @@ COUNTY_FIPS_XREF = CONFIG_DIR / "xref_county_fips.csv"
 
 
 MANIFEST_COLUMNS = [
+    "geo_slug",
     "geo_name",
     "level",
     "bls_ces_area_code",
@@ -99,6 +100,20 @@ def read_scope(path: Path) -> pd.DataFrame:
     return df
 
 
+def slugify_geo_name(geo_name: object, level: object) -> str:
+    name = str(geo_name or "").strip().lower()
+    lvl = str(level or "").strip().lower()
+
+    s = name
+    s = s.replace("&", " and ")
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+
+    lvl = re.sub(r"[^a-z0-9]+", "_", lvl).strip("_")
+
+    return f"{s}__{lvl}"
+
+
 def build_base_manifest(scope: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(
         {
@@ -108,8 +123,13 @@ def build_base_manifest(scope: pd.DataFrame) -> pd.DataFrame:
     )
 
     out = out.drop_duplicates(subset=["level", "geo_name"], keep="first")
-    return out
+    out["geo_slug"] = out.apply(
+        lambda r: slugify_geo_name(r["geo_name"], r["level"]),
+        axis=1,
+    )
 
+    return out
+    
 # ===================================================
 # Resolvers
 # ===================================================
@@ -587,7 +607,9 @@ def apply_census_resolver(manifest: pd.DataFrame, scope: pd.DataFrame) -> pd.Dat
 
     return out
     
-
+# ===================================================
+# Final Manifest File
+# ===================================================
 def finalize_manifest(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
@@ -601,7 +623,7 @@ def finalize_manifest(df: pd.DataFrame) -> pd.DataFrame:
             out[c] = out[c].replace({"": "0"})
 
     out = out[MANIFEST_COLUMNS]
-    out = out.drop_duplicates(subset=["level", "geo_name"], keep="first")
+    out = out.drop_duplicates(subset=["geo_slug"], keep="first")
     out = out.sort_values(["level", "geo_name"]).reset_index(drop=True)
 
     return out
