@@ -11,7 +11,6 @@ BLS_BASE = "https://download.bls.gov/pub/time.series/la/"
 BLS_DIR  = Path("config/bls")
 BLS_DIR.mkdir(parents=True, exist_ok=True)
 
-# GEO_MANIFEST = Path("config/geo_manifest.csv")
 GEO_MANIFEST = Path(os.getenv("GEO_MANIFEST_PATH", "config/geo_manifest.generated.csv"))
 
 LA_AREA   = BLS_DIR / "la.area"
@@ -161,13 +160,13 @@ def load_laus_areas_from_manifest() -> list[dict]:
 
     gm = pd.read_csv(GEO_MANIFEST, dtype=str)
 
-    required = {"geo_id", "geo_name", "level", "include_laus", "bls_laus_area_code"}
+    required = {"geo_slug", "geo_name", "level", "include_laus", "bls_laus_area_code"}
     missing = required - set(gm.columns)
     if missing:
         raise SystemExit(f"[laus:gen] geo_manifest.csv missing columns: {sorted(missing)}")
 
     # Normalize
-    gm["geo_id"] = gm["geo_id"].astype(str).str.strip()
+    gm["geo_slug"] = gm["geo_slug"].astype(str).str.strip()
     gm["geo_name"] = gm["geo_name"].astype(str).str.strip()
     gm["level"] = gm["level"].astype(str).str.strip().str.lower()
     gm["include_laus"] = gm["include_laus"].astype(str).str.strip().str.lower()
@@ -178,13 +177,13 @@ def load_laus_areas_from_manifest() -> list[dict]:
 
     # And only rows with a non-empty LAUS area code
     gm = gm[gm["bls_laus_area_code"] != ""]
-    gm = gm[gm["geo_id"] != ""]
+    gm = gm[gm["geo_slug"] != ""]
 
     areas = []
     for row in gm.itertuples():
         areas.append(
             {
-                "geo_id": row.geo_id,
+                "geo_id": row.geo_slug,
                 "name": row.geo_name,
                 "level": row.level,
                 "area_code": row.bls_laus_area_code,
