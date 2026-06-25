@@ -68,11 +68,8 @@ def ensure_dims(con: duckdb.DuckDBPyConnection, metric_ids: list[str]):
         WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id=?)
         """, [mid, name, freq, unit, cat, mid])
 
-def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
-    if df.empty:
-        return
 
-    # ensure fact table
+def ensure_fact_table(con: duckdb.DuckDBPyConnection):
     con.execute("""
     CREATE TABLE IF NOT EXISTS fact_timeseries(
       geo_id TEXT NOT NULL,
@@ -84,6 +81,15 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
       PRIMARY KEY (geo_id, metric_id, date, property_type_id)
     );
     """)
+
+
+def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
+    if df.empty:
+        return
+
+    # ensure fact table
+    ensure_fact_table(con)
+    
     # dedupe
     df = (df.sort_values(["geo_id","metric_id","date","property_type_id"])
             .drop_duplicates(subset=["geo_id","metric_id","date","property_type_id"], keep="last"))
@@ -284,6 +290,7 @@ def main():
     # create basic dims/tables + upsert
     con = connect()
     ensure_dims(con, all_df["metric_id"].unique().tolist())
+    ensure_fact_table(con)
 
     # 🔁 Always start with a clean CES slice in fact_timeseries
     con.execute("""
