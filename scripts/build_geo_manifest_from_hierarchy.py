@@ -17,7 +17,6 @@ LOCAL_SCOPE = CONFIG_DIR / "geo_scope_local.csv"
 OUT = CONFIG_DIR / "geo_manifest.generated.csv"
 COUNTY_FIPS_XREF = CONFIG_DIR / "xref_county_fips.csv"
 
-
 MANIFEST_COLUMNS = [
     "geo_slug",
     "geo_name",
@@ -81,7 +80,7 @@ def county_join_key(name: object, state_code: object) -> str:
         return f"{s} city"
 
     return s
-    
+
 
 def read_scope(path: Path) -> pd.DataFrame:
     if not path.exists():
@@ -89,6 +88,14 @@ def read_scope(path: Path) -> pd.DataFrame:
 
     df = pd.read_csv(path, dtype=str).fillna("")
 
+    # Fix known Redfin DC state naming artifact.
+    dc_state_mask = (
+        df.get("geo_level", "").astype(str).str.strip().eq("state")
+        & df.get("state_code", "").astype(str).str.strip().str.upper().eq("DC")
+        & df.get("geo_name", "").astype(str).str.strip().eq("Columbia")
+    )
+    df.loc[dc_state_mask, "geo_name"] = "District of Columbia"
+        
     required = {"geo_name", "geo_level", "include", "redfin_code"}
     missing = required - set(df.columns)
     if missing:
