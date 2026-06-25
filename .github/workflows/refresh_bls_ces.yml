@@ -1,0 +1,37 @@
+name: Refresh BLS CES
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 11 28 * *"
+
+concurrency:
+  group: refresh-bls-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  refresh-bls:
+    runs-on: ubuntu-latest
+
+    env:
+      PYTHONPATH: .
+      DUCKDB_PATH: data/market.duckdb
+      ARTIFACT_ROOT: artifacts/phasea
+      BLS_API_KEY: ${{ secrets.BLS_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements.txt
+
+      - name: Run BLS refresh
+        run: python -m jobs.run_refresh_bls_ces
