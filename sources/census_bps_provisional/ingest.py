@@ -19,7 +19,7 @@ import requests
 # We'll harden discovery once you confirm the directory contents on your machine.
 BPS_PROV_DIR_URL = "https://www2.census.gov/econ/bps/"
 
-GEO_MANIFEST = Path("config/geo_manifest.csv")
+GEO_MANIFEST = Path("config/geo_manifest.generated.csv")
 
 RAW_PATH = Path("data/census/bps_provisional_raw.csv")
 OUT_TIMESERIES_PATH = Path("data/census/census_bps_provisional_timeseries.csv")
@@ -264,7 +264,7 @@ def map_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
     df["geo_id"] = None
 
     for row in gm.itertuples():
-        geo = row.geo_id
+        geo = row.geo_slug
         level = row.level
         code = row.census_code
 
