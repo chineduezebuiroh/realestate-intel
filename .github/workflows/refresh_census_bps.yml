@@ -1,0 +1,36 @@
+name: Refresh Census BPS
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "45 11 7 * *"
+
+concurrency:
+  group: refresh-census-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  refresh-census:
+    runs-on: ubuntu-latest
+
+    env:
+      PYTHONPATH: .
+      DUCKDB_PATH: data/market.duckdb
+      ARTIFACT_ROOT: artifacts/phasea
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements.txt
+
+      - name: Run Census BPS refresh
+        run: python -m jobs.run_refresh_census_bps
