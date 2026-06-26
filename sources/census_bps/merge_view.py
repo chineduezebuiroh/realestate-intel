@@ -50,7 +50,7 @@ def main() -> None:
     # Hard invariant: if both sources exist for a key and values differ, scream.
     # (You can relax this later, but don’t start lax.)
     conflicts = con.execute(f"""
-      WITH both AS (
+      WITH source_overlap AS (
         SELECT
           geo_id, metric_id, date, property_type_id,
           COUNT(DISTINCT source_id) AS n_sources,
@@ -60,7 +60,7 @@ def main() -> None:
         GROUP BY 1,2,3,4
       )
       SELECT COUNT(*) AS n_conflicts
-      FROM both
+      FROM source_overlap
       WHERE n_sources > 1 AND n_values > 1;
     """).fetchone()[0]
 
