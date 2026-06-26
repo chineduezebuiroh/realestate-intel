@@ -66,37 +66,31 @@ ALIASES: dict[str, list[str]] = {
     "value_5plus": ["value_5plus", "value_5_units"],
 }
 
-PROVISIONAL_COLUMNS = [
-    "survey_date",
-    "state_fips",
-    "region_code",
-    "division_code",
-    "geo_name",
-    "bldgs_1",
-    "units_1",
-    "value_1",
-    "bldgs_2",
-    "units_2",
-    "value_2",
-    "bldgs_3_4",
-    "units_3_4",
-    "value_3_4",
-    "bldgs_5plus",
-    "units_5plus",
-    "value_5plus",
-    "bldgs_1_rep",
-    "units_1_rep",
-    "value_1_rep",
-    "bldgs_2_rep",
-    "units_2_rep",
-    "value_2_rep",
-    "bldgs_3_4_rep",
-    "units_3_4_rep",
-    "value_3_4_rep",
-    "bldgs_5plus_rep",
-    "units_5plus_rep",
-    "value_5plus_rep",
+MEASURE_COLUMNS = [
+    "bldgs_1", "units_1", "value_1",
+    "bldgs_2", "units_2", "value_2",
+    "bldgs_3_4", "units_3_4", "value_3_4",
+    "bldgs_5plus", "units_5plus", "value_5plus",
+    "bldgs_1_rep", "units_1_rep", "value_1_rep",
+    "bldgs_2_rep", "units_2_rep", "value_2_rep",
+    "bldgs_3_4_rep", "units_3_4_rep", "value_3_4_rep",
+    "bldgs_5plus_rep", "units_5plus_rep", "value_5plus_rep",
 ]
+
+PROVISIONAL_COLUMNS_BY_LEVEL = {
+    "state": [
+        "survey_date", "state_fips", "region_code", "division_code", "geo_name",
+        *MEASURE_COLUMNS,
+    ],
+    "county": [
+        "survey_date", "state_fips", "county_fips_3", "region_code", "division_code", "geo_name",
+        *MEASURE_COLUMNS,
+    ],
+    "cbsa_metro": [
+        "survey_date", "csa_code", "cbsa_code", "hheader", "geo_name",
+        *MEASURE_COLUMNS,
+    ],
+}
 
 PROVISIONAL_LEVELS = {
     "state": {
@@ -205,7 +199,7 @@ def read_provisional_txt(path: Path, level: str) -> pd.DataFrame:
             sep=",",
             header=None,
             skiprows=3,
-            names=PROVISIONAL_COLUMNS,
+            names=PROVISIONAL_COLUMNS_BY_LEVEL[level],
             dtype=str,
             engine="python",
             encoding="utf-8",
@@ -216,13 +210,27 @@ def read_provisional_txt(path: Path, level: str) -> pd.DataFrame:
             sep=",",
             header=None,
             skiprows=3,
-            names=PROVISIONAL_COLUMNS,
+            names=PROVISIONAL_COLUMNS_BY_LEVEL[level],
             dtype=str,
             engine="python",
             encoding="latin1",
         )
 
     df = df.dropna(how="all").copy()
+
+    if level == "county":
+        df["county_fips"] = (
+            df["state_fips"].astype(str).str.zfill(2)
+            + df["county_fips_3"].astype(str).str.zfill(3)
+        )
+    elif level == "cbsa_metro":
+        df["state_fips"] = ""
+        df["county_fips"] = ""
+    else:
+        df["county_fips"] = ""
+    
+    df["place_fips"] = ""
+
     df["provisional_level"] = level
     df["period"] = "Monthly"
     df["location_type"] = {
@@ -377,7 +385,7 @@ def map_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
             mask = (df["location_type"] == "County") & (df["county_fips"] == code)
         elif level == "city":
             mask = (df["location_type"] == "Place") & (df["place_fips"] == code)
-        elif level in ("metro_area","msa","metro"):
+        elif level in ("cbsa_metro", "metro_area", "msa", "metro"):
             mask = (df["location_type"] == "Metro") & (df["cbsa_code"] == code)
         else:
             continue
@@ -411,15 +419,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     
     df_raw = pd.concat(frames, ignore_index=True)
 
-    df_raw["county_fips"] = ""
-    df_raw["place_fips"] = ""
-    df_raw["cbsa_code"] = ""
-    
-    county_mask = df_raw["provisional_level"].eq("county")
-    cbsa_mask = df_raw["provisional_level"].eq("cbsa_metro")
-    
+    """
     df_raw.loc[county_mask, "county_fips"] = df_raw.loc[county_mask, "state_fips"]
     df_raw.loc[cbsa_mask, "cbsa_code"] = df_raw.loc[cbsa_mask, "state_fips"]
+    """
     
     df_raw.to_csv(RAW_PATH, index=False)
     print(f"[bps:prov] wrote raw → {RAW_PATH} ({len(df_raw):,} rows)")
