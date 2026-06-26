@@ -199,15 +199,28 @@ def read_csv_from_maybe_zip(path: Path) -> pd.DataFrame:
 
 
 def read_provisional_txt(path: Path, level: str) -> pd.DataFrame:
-    df = pd.read_csv(
-        path,
-        sep=",",
-        header=None,
-        skiprows=3,
-        names=PROVISIONAL_COLUMNS,
-        dtype=str,
-        engine="python",
-    )
+    try:
+        df = pd.read_csv(
+            path,
+            sep=",",
+            header=None,
+            skiprows=3,
+            names=PROVISIONAL_COLUMNS,
+            dtype=str,
+            engine="python",
+            encoding="utf-8",
+        )
+    except UnicodeDecodeError:
+        df = pd.read_csv(
+            path,
+            sep=",",
+            header=None,
+            skiprows=3,
+            names=PROVISIONAL_COLUMNS,
+            dtype=str,
+            engine="python",
+            encoding="latin1",
+        )
 
     df = df.dropna(how="all").copy()
     df["provisional_level"] = level
