@@ -35,7 +35,11 @@ This ensures:
 # CONFIG and CONSTANTS
 # ===================================================================
 BPS_MASTER_DIR_URL = "https://www2.census.gov/econ/bps/Master%20Data%20Set/"
-BPS_COMPILED_RE = re.compile(r"BPS(?:%20|[ _])Compiled_(\d{6})\.zip", re.IGNORECASE)
+#BPS_COMPILED_RE = re.compile(r"BPS(?:%20|[ _])Compiled_(\d{6})\.zip", re.IGNORECASE)
+BPS_COMPILED_RE = re.compile(
+    r"BPS(?:%20|[ _])Compiled(?:%20|[ _])(?:File(?:%20|[ _]))?(\d{6})\.zip",
+    re.IGNORECASE,
+)
 
 GEO_MANIFEST = Path("config/geo_manifest.generated.csv")
 
@@ -94,7 +98,8 @@ def discover_latest_compiled_zip_url() -> str:
 
     yyyymm = max(matches)  # lexicographic works for YYYYMM
     # Prefer URL-encoded form to be safe
-    fname = f"BPS%20Compiled_{yyyymm}.zip"
+    #fname = f"BPS%20Compiled_{yyyymm}.zip"
+    fname = f"BPS_Compiled_File_{yyyymm}.zip"
     url = urljoin(BPS_MASTER_DIR_URL, fname)
 
     print(f"[bps] latest compiled ZIP detected: {yyyymm} → {url}")
