@@ -66,6 +66,38 @@ ALIASES: dict[str, list[str]] = {
     "value_5plus": ["value_5plus", "value_5_units"],
 }
 
+PROVISIONAL_COLUMNS = [
+    "survey_date",
+    "state_fips",
+    "region_code",
+    "division_code",
+    "geo_name",
+    "bldgs_1",
+    "units_1",
+    "value_1",
+    "bldgs_2",
+    "units_2",
+    "value_2",
+    "bldgs_3_4",
+    "units_3_4",
+    "value_3_4",
+    "bldgs_5plus",
+    "units_5plus",
+    "value_5plus",
+    "bldgs_1_rep",
+    "units_1_rep",
+    "value_1_rep",
+    "bldgs_2_rep",
+    "units_2_rep",
+    "value_2_rep",
+    "bldgs_3_4_rep",
+    "units_3_4_rep",
+    "value_3_4_rep",
+    "bldgs_5plus_rep",
+    "units_5plus_rep",
+    "value_5plus_rep",
+]
+
 PROVISIONAL_LEVELS = {
     "state": {
         "url": "https://www2.census.gov/econ/bps/State/",
@@ -167,18 +199,29 @@ def read_csv_from_maybe_zip(path: Path) -> pd.DataFrame:
 
 
 def read_provisional_txt(path: Path, level: str) -> pd.DataFrame:
-    # Try pipe first, then comma, then whitespace. We’ll tighten after first real parse.
-    for sep in ["|", ",", r"\s+"]:
-        try:
-            df = pd.read_csv(path, sep=sep, engine="python", low_memory=False)
-            if len(df.columns) > 1:
-                df.columns = [c.strip().lower() for c in df.columns]
-                df["provisional_level"] = level
-                return df
-        except Exception:
-            continue
+    df = pd.read_csv(
+        path,
+        sep=",",
+        header=None,
+        skiprows=3,
+        names=PROVISIONAL_COLUMNS,
+        dtype=str,
+        engine="python",
+    )
 
-    raise SystemExit(f"[bps:prov] could not parse provisional txt file: {path}")
+    df = df.dropna(how="all").copy()
+    df["provisional_level"] = level
+    df["period"] = "Monthly"
+    df["location_type"] = {
+        "state": "State",
+        "county": "County",
+        "cbsa_metro": "Metro",
+    }[level]
+
+    df["year"] = df["survey_date"].str.slice(0, 4)
+    df["month"] = df["survey_date"].str.slice(4, 6)
+
+    return df
 
 
 def normalize_schema(df: pd.DataFrame) -> pd.DataFrame:
