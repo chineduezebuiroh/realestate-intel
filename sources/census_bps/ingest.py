@@ -37,7 +37,7 @@ This ensures:
 BPS_MASTER_DIR_URL = "https://www2.census.gov/econ/bps/Master%20Data%20Set/"
 BPS_COMPILED_RE = re.compile(r"BPS(?:%20|[ _])Compiled_(\d{6})\.zip", re.IGNORECASE)
 
-GEO_MANIFEST = Path("config/geo_manifest.csv")
+GEO_MANIFEST = Path("config/geo_manifest.generated.csv")
 
 DEFAULT_ZIP_PATH = Path("data/census/bps_master_latest.zip")
 RAW_CSV_PATH = Path("data/census/bps_compiled_raw.csv")
@@ -507,7 +507,7 @@ def map_bps_to_geo(df_long: pd.DataFrame, gm: pd.DataFrame) -> pd.DataFrame:
     df["geo_id"] = None
 
     for row in gm.itertuples():
-        geo = row.geo_id
+        geo = row.geo_slug
         level = row.level
         code = row.census_code
 
