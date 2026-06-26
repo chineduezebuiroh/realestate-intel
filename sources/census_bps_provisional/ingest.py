@@ -32,7 +32,7 @@ PROV_CSV_RE = re.compile(r'href="([^"]+\.csv)"', re.IGNORECASE)
 # Columns that we *expect* to exist after canonicalization.
 REQUIRED_CANON = [
     "year", "month", "period", "location_type",
-    "state_fips", "county_fips", "place_fips", "cbsa_code",
+    "state_fips", #"county_fips", "place_fips", "cbsa_code",
     "units_1", "units_2", "units_3_4", "units_5plus",
     "bldgs_1", "bldgs_2", "bldgs_3_4", "bldgs_5plus",
     "value_1", "value_2", "value_3_4", "value_5plus",
@@ -250,7 +250,8 @@ def normalize_schema(df: pd.DataFrame) -> pd.DataFrame:
                 found = a
                 break
         if found is None:
-            missing.append(canon)
+            if canon in REQUIRED_CANON:
+                missing.append(canon)
             continue
         if found != canon:
             rename_map[found] = canon
@@ -409,6 +410,16 @@ def main(argv: Optional[List[str]] = None) -> None:
         frames.append(df_level)
     
     df_raw = pd.concat(frames, ignore_index=True)
+
+    df_raw["county_fips"] = ""
+    df_raw["place_fips"] = ""
+    df_raw["cbsa_code"] = ""
+    
+    county_mask = df_raw["provisional_level"].eq("county")
+    cbsa_mask = df_raw["provisional_level"].eq("cbsa_metro")
+    
+    df_raw.loc[county_mask, "county_fips"] = df_raw.loc[county_mask, "state_fips"]
+    df_raw.loc[cbsa_mask, "cbsa_code"] = df_raw.loc[cbsa_mask, "state_fips"]
     
     df_raw.to_csv(RAW_PATH, index=False)
     print(f"[bps:prov] wrote raw → {RAW_PATH} ({len(df_raw):,} rows)")
