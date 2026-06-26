@@ -217,8 +217,10 @@ def insert_into_fact(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
 
     con.register("bps_stage", df)
 
+    """
     # KEY CHANGE: delete existing rows for the same PK keys (regardless of source_id)
     con.execute("""
+    """
         DELETE FROM fact_timeseries f
         WHERE EXISTS (
             SELECT 1
@@ -228,8 +230,15 @@ def insert_into_fact(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
               AND CAST(s.date AS DATE) = f.date
               AND s.property_type_id = f.property_type_id
         )
+    """
     """)
     print("[bps:transform] cleared existing rows for staged keys (any source_id)")
+    """
+
+    # replace the staged-key-only delete with source-slice delete for census_bps
+    con.execute("DELETE FROM fact_timeseries WHERE source_id = ?", [SOURCE_ID])
+    print("[bps:transform] cleared existing census_bps rows")
+    
 
     con.execute("""
         INSERT INTO fact_timeseries (
