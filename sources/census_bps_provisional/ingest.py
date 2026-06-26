@@ -66,6 +66,23 @@ ALIASES: dict[str, list[str]] = {
     "value_5plus": ["value_5plus", "value_5_units"],
 }
 
+PROVISIONAL_LEVELS = {
+    "state": {
+        "url": "https://www2.census.gov/econ/bps/State/",
+        "prefix": "st",
+    },
+    "county": {
+        "url": "https://www2.census.gov/econ/bps/County/",
+        "prefix": "co",
+    },
+    "cbsa_metro": {
+        "url": "https://www2.census.gov/econ/bps/CBSA%20%28beginning%20Jan%202024%29/",
+        "prefix": "cbsa",
+    },
+}
+
+CURRENT_FILE_RE_TEMPLATE = r'href="({prefix}(\d{{4}})c\.txt)"'
+
 # -----------------------------------------------------------------------------
 # HELPERS
 # -----------------------------------------------------------------------------
