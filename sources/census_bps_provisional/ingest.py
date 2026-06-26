@@ -75,30 +75,42 @@ def http_get_text(url: str) -> str:
     return r.text
 
 
-def discover_latest_provisional_url() -> str:
-    """
-    Very simple discovery: scrape BPS_PROV_DIR_URL and pick the most recent-looking
-    ZIP if present; else CSV. You will likely need to refine this once you see the listing.
+def yymm_sort_key(yymm: str) -> tuple[int, int]:
+    yy = int(yymm[:2])
+    mm = int(yymm[2:])
+    year = 2000 + yy if yy <= 79 else 1900 + yy
+    return year, mm
 
-    If discovery fails, we hard-fail. Provisional must be explicit, not "best effort".
-    """
-    print(f"[bps:prov] discovering provisional from {BPS_PROV_DIR_URL}")
-    html = http_get_text(BPS_PROV_DIR_URL)
 
-    zips = PROV_ZIP_RE.findall(html)
-    csvs = PROV_CSV_RE.findall(html)
+def discover_latest_provisional_urls() -> dict[str, str]:
+    urls: dict[str, str] = {}
 
-    # Prefer zip over csv (usually larger + structured)
-    candidates = zips or csvs
-    if not candidates:
-        raise SystemExit("[bps:prov] could not discover any provisional .zip or .csv links")
+    for level, cfg in PROVISIONAL_LEVELS.items():
+        base_url = cfg["url"]
+        prefix = cfg["prefix"]
 
-    # Pick lexicographically max by filename. This is crude but deterministic.
-    # We'll tighten it after we confirm the naming pattern.
-    pick = sorted(candidates)[-1]
-    url = urljoin(BPS_PROV_DIR_URL, pick)
-    print(f"[bps:prov] provisional candidate picked: {url}")
-    return url
+        print(f"[bps:prov] discovering {level} provisional from {base_url}")
+        html = http_get_text(base_url)
+
+        pat = re.compile(
+            CURRENT_FILE_RE_TEMPLATE.format(prefix=re.escape(prefix)),
+            re.IGNORECASE,
+        )
+        matches = pat.findall(html)
+
+        if not matches:
+            raise SystemExit(
+                f"[bps:prov] could not discover current-month {level} provisional file "
+                f"with prefix={prefix} at {base_url}"
+            )
+
+        fname, yymm = max(matches, key=lambda x: yymm_sort_key(x[1]))
+        url = urljoin(base_url, fname)
+
+        print(f"[bps:prov] latest {level} provisional: {yymm} → {url}")
+        urls[level] = url
+
+    return urls
 
 
 def download(url: str, dest: Path, overwrite: bool = False) -> Path:
@@ -135,6 +147,21 @@ def read_csv_from_maybe_zip(path: Path) -> pd.DataFrame:
 
     df.columns = [c.strip().lower() for c in df.columns]
     return df
+
+
+def read_provisional_txt(path: Path, level: str) -> pd.DataFrame:
+    # Try pipe first, then comma, then whitespace. We’ll tighten after first real parse.
+    for sep in ["|", ",", r"\s+"]:
+        try:
+            df = pd.read_csv(path, sep=sep, engine="python", low_memory=False)
+            if len(df.columns) > 1:
+                df.columns = [c.strip().lower() for c in df.columns]
+                df["provisional_level"] = level
+                return df
+        except Exception:
+            continue
+
+    raise SystemExit(f"[bps:prov] could not parse provisional txt file: {path}")
 
 
 def normalize_schema(df: pd.DataFrame) -> pd.DataFrame:
@@ -297,15 +324,19 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--out", default=str(OUT_TIMESERIES_PATH))
     args = p.parse_args(argv)
 
-    url = args.url or discover_latest_provisional_url()
-    fname = url.split("/")[-1].replace("%20", "_")
-    cache = Path("data/census") / f"bps_provisional__{fname}"
-    cache = cache if cache.suffix else cache.with_suffix(".zip")
-
-    path = download(url, cache, overwrite=args.force_download)
-    df_raw = read_csv_from_maybe_zip(path)
-
-    RAW_PATH.parent.mkdir(parents=True, exist_ok=True)
+    urls = discover_latest_provisional_urls()
+    
+    frames = []
+    for level, url in urls.items():
+        fname = url.split("/")[-1].replace("%20", "_")
+        cache = Path("data/census") / f"bps_provisional__{level}__{fname}"
+    
+        path = download(url, cache, overwrite=args.force_download)
+        df_level = read_provisional_txt(path, level)
+        frames.append(df_level)
+    
+    df_raw = pd.concat(frames, ignore_index=True)
+    
     df_raw.to_csv(RAW_PATH, index=False)
     print(f"[bps:prov] wrote raw → {RAW_PATH} ({len(df_raw):,} rows)")
 
@@ -330,4 +361,3 @@ def main(argv: Optional[List[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
-
