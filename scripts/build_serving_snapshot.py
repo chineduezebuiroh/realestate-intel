@@ -1,9 +1,6 @@
 from __future__ import annotations
 # scripts/build_serving_snapshot.py
 
-import os
-from pathlib import Path
-
 import duckdb
 
 from core.config import (
