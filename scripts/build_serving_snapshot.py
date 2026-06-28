@@ -7,16 +7,11 @@ from pathlib import Path
 import duckdb
 
 from core.config import (
-    MARKET_DB_PATH,
-    MARKET_SERVING_DB_PATH,
-    SERVING_START_DATE,
+    FULL_DB_PATH,
+    SERVING_DB_PATH,
+    SERVING_START_DATE
 )
 
-"""
-FULL_DB_PATH = Path(os.getenv("FULL_DUCKDB_PATH", os.getenv("DUCKDB_PATH", "data/market.duckdb")))
-SERVING_DB_PATH = Path(os.getenv("SERVING_DUCKDB_PATH", "data/market_serving.duckdb"))
-SERVING_START_DATE = os.getenv("SERVING_START_DATE", "2015-01-01")
-"""
 
 DIM_TABLES = [
     "dim_source",
@@ -100,7 +95,7 @@ def create_fact_timeseries(serving: duckdb.DuckDBPyConnection, full_alias: str) 
     ).fetchone()[0]
 
     if not exists:
-        raise SystemExit(f"[snapshot][fatal] fact_timeseries missing in {MARKET_DB_PATH}")
+        raise SystemExit(f"[snapshot][fatal] fact_timeseries missing in {FULL_DB_PATH}")
 
     serving.execute(
         f"""
@@ -209,19 +204,19 @@ def validate_snapshot(serving: duckdb.DuckDBPyConnection) -> None:
 
 
 def main() -> int:
-    if not MARKET_DB_PATH.exists():
-        raise SystemExit(f"[snapshot][fatal] full DB not found: {MARKET_DB_PATH}")
+    if not FULL_DB_PATH.exists():
+        raise SystemExit(f"[snapshot][fatal] full DB not found: {FULL_DB_PATH}")
 
-    MARKET_SERVING_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if MARKET_SERVING_DB_PATH.exists():
-        MARKET_SERVING_DB_PATH.unlink()
+    SERVING_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if SERVING_DB_PATH.exists():
+        SERVING_DB_PATH.unlink()
 
-    print(f"[snapshot] full DB: {MARKET_DB_PATH}")
-    print(f"[snapshot] serving DB: {MARKET_SERVING_DB_PATH}")
+    print(f"[snapshot] full DB: {FULL_DB_PATH}")
+    print(f"[snapshot] serving DB: {SERVING_DB_PATH}")
     print(f"[snapshot] serving start date: {SERVING_START_DATE}")
 
-    serving = duckdb.connect(str(MARKET_SERVING_DB_PATH))
-    serving.execute(f"ATTACH '{MARKET_DB_PATH}' AS full_db")
+    serving = duckdb.connect(str(SERVING_DB_PATH))
+    serving.execute(f"ATTACH '{FULL_DB_PATH}' AS full_db")
 
     for table_name in DIM_TABLES:
         copy_table_if_exists(serving, "full_db", table_name)
@@ -232,8 +227,8 @@ def main() -> int:
 
     serving.close()
 
-    size_mb = MARKET_SERVING_DB_PATH.stat().st_size / (1024 * 1024)
-    print(f"[snapshot] done: {MARKET_SERVING_DB_PATH} ({size_mb:,.1f} MB)")
+    size_mb = SERVING_DB_PATH.stat().st_size / (1024 * 1024)
+    print(f"[snapshot] done: {SERVING_DB_PATH} ({size_mb:,.1f} MB)")
     return 0
 
 
