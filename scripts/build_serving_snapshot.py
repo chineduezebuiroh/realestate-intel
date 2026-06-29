@@ -62,15 +62,18 @@ def copy_table_if_exists(
     full_alias: str,
     table_name: str,
 ) -> None:
-    exists = serving.execute(
-        f"""
-        SELECT COUNT(*)
-        FROM {full_alias}.information_schema.tables
-        WHERE table_schema = 'main'
-          AND table_name = ?
-        """,
-        [table_name],
-    ).fetchone()[0]
+    exists = bool(
+        serving.execute(
+            """
+            SELECT COUNT(*)
+            FROM duckdb_tables()
+            WHERE database_name = ?
+              AND schema_name = 'main'
+              AND table_name = ?
+            """,
+            [full_alias, table_name],
+        ).fetchone()[0]
+    )
 
     if not exists:
         print(f"[snapshot][warn] source table missing, skipping: {table_name}")
@@ -82,14 +85,18 @@ def copy_table_if_exists(
 
 
 def create_fact_timeseries(serving: duckdb.DuckDBPyConnection, full_alias: str) -> None:
-    exists = serving.execute(
-        f"""
-        SELECT COUNT(*)
-        FROM {full_alias}.information_schema.tables
-        WHERE table_schema = 'main'
-          AND table_name = 'fact_timeseries'
-        """
-    ).fetchone()[0]
+    exists = bool(
+        serving.execute(
+            """
+            SELECT COUNT(*)
+            FROM duckdb_tables()
+            WHERE database_name = ?
+              AND schema_name = 'main'
+              AND table_name = 'fact_timeseries'
+            """,
+            [full_alias],
+        ).fetchone()[0]
+    )
 
     if not exists:
         raise SystemExit(f"[snapshot][fatal] fact_timeseries missing in {FULL_DB_PATH}")
