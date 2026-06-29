@@ -48,10 +48,12 @@ def ensure_dir(path: str) -> None:
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
-def print_context(job_name: str) -> None:
-    env = _env()
-    print(f"[job] name={job_name}")
+def print_context(name: str, env_overrides: dict[str, str] | None = None) -> None:
+    env = _env(env_overrides)
+
+    print(f"[job] name={name}")
     print(f"[job] repo_root={REPO_ROOT}")
     print(f"[job] python={sys.executable}")
-    print(f"[job] DUCKDB_PATH={env['DUCKDB_PATH']}")
-    print(f"[job] ARTIFACT_ROOT={env['ARTIFACT_ROOT']}")
+    print(f"[job] DUCKDB_PATH={env.get('DUCKDB_PATH')}")
+    print(f"[job] ARTIFACT_ROOT={env.get('ARTIFACT_ROOT')}")
+    
