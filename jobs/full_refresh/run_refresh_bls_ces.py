@@ -1,5 +1,5 @@
 from __future__ import annotations
-# jobs/full_refresh/run_refresh_ces.py
+# jobs/full_refresh/run_refresh_bls_ces.py
 
 from jobs.common import print_context, run_module
 
