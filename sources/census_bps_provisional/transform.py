@@ -87,19 +87,6 @@ def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
       SELECT 1 FROM dim_source WHERE source_id = 'census_bps_provisional'
     );
     """)
-
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     
     con.execute("""
     CREATE TABLE IF NOT EXISTS dim_metric(
