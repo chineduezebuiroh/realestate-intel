@@ -1,4 +1,11 @@
-#!/usr/bin/env python
+from __future__ import annotations
+# sources/bea_gdp/transform.py
+
+from pathlib import Path
+import pandas as pd
+
+from core.db import connect  # you said this DEFINITELY exists
+
 """
 sources/bea_qgdp/transform.py
 
@@ -10,64 +17,69 @@ Then:
 - upsert into fact_timeseries (PK: geo_id, metric_id, date, property_type_id)
 """
 
-from pathlib import Path
-import pandas as pd
-
-from core.db import connect  # you said this DEFINITELY exists
-
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RAW_PATH = REPO_ROOT / "data" / "bea" / "bea_qgdp_raw_long.csv"
+RAW_QGDP_PATH = REPO_ROOT / "data" / "bea" / "bea_qgdp_raw_long.csv"
+RAW_AGDP_PATH = REPO_ROOT / "data" / "bea" / "bea_agdp_raw_long.csv"
 
 
 def ensure_dims(con, df: pd.DataFrame) -> None:
-    # dim_source
-    con.execute("""
-    CREATE TABLE IF NOT EXISTS dim_source(
-      source_id TEXT PRIMARY KEY,
-      name TEXT,
-      url TEXT,
-      cadence TEXT,
-      license TEXT
-    );
-    """)
-    con.execute("""
-    INSERT INTO dim_source(source_id, name, url, cadence, license)
-    SELECT 'bea_gdp_qtr',
-           'BEA GDP (Quarterly)',
-           'https://www.bea.gov/data',
-           'quarterly',
-           'public'
-    WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id='bea_gdp_qtr');
-    """)
-
-    # dim_metric
-    con.execute("""
-    CREATE TABLE IF NOT EXISTS dim_metric(
-      metric_id TEXT PRIMARY KEY,
-      name TEXT,
-      frequency TEXT,
-      unit TEXT,
-      category TEXT
-    );
-    """)
-    # single metric in this pass
-    mid = "bea_qgdp_real_total_chained2017_saar"
+    sources = [
+        (
+            "bea_gdp_qtr",
+            "BEA GDP (Quarterly)",
+            "quarterly",
+        ),
+        (
+            "bea_gdp_ann",
+            "BEA GDP (Annual)",
+            "annual",
+        ),
+    ]
+    
+    for source_id, name, cadence in sources:
+        con.execute("""
+        INSERT INTO dim_source(source_id,name,url,cadence,license)
+        SELECT ?, ?, 'https://www.bea.gov/data', ?, 'public'
+        WHERE NOT EXISTS (
+            SELECT 1 FROM dim_source WHERE source_id=?
+        );
+        """, [source_id, name, cadence, source_id])
+    
+    
+    metrics = [
+        (
+            "bea_qgdp_real_total_chained2017_saar",
+            "Real GDP (Quarterly, chained 2017 dollars SAAR)",
+            "quarterly",
+        ),
+        (
+            "bea_agdp_real_total_chained2017",
+            "Real GDP (Annual, chained 2017 dollars)",
+            "annual",
+        ),
+    ]
+    
     unit = None
     if "unit" in df.columns and df["unit"].notna().any():
         unit = str(df.loc[df["unit"].notna(), "unit"].iloc[0])
-    con.execute("""
-    INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
-    SELECT ?, ?, ?, ?, ?
-    WHERE NOT EXISTS (SELECT 1 FROM dim_metric WHERE metric_id=?);
-    """, [
-        mid,
-        "Real GDP by state (BEA Regional SQGDP9, LineCode=1, chained 2017 dollars, SAAR)",
-        "quarterly",
-        unit or "chained 2017 dollars (SAAR)",
-        "gdp",
-        mid
-    ])
+    
+    for metric_id, name, freq in metrics:
+        con.execute("""
+        INSERT INTO dim_metric(metric_id,name,frequency,unit,category)
+        SELECT ?,?,?,?,?
+        WHERE NOT EXISTS (
+            SELECT 1 FROM dim_metric
+            WHERE metric_id=?
+        );
+        """,
+        [
+            metric_id,
+            name,
+            freq,
+            unit,
+            "gdp",
+            metric_id,
+        ])
 
     # dim_market
     con.execute("""
@@ -135,12 +147,25 @@ def upsert_fact_timeseries(con, df: pd.DataFrame) -> None:
 
 
 def main():
-    if not RAW_PATH.exists():
-        raise SystemExit(f"[bea:transform] Missing raw file: {RAW_PATH}")
 
-    df = pd.read_csv(RAW_PATH)
-    if df.empty:
-        raise SystemExit("[bea:transform] Raw file is empty.")
+    frames = []
+
+    if RAW_QGDP_PATH.exists():
+        q = pd.read_csv(RAW_QGDP_PATH)
+        if not q.empty:
+            frames.append(q)
+
+    if RAW_AGDP_PATH.exists():
+        a = pd.read_csv(RAW_AGDP_PATH)
+        if not a.empty:
+            frames.append(a)
+
+    if not frames:
+        raise SystemExit(
+            "[bea:transform] No quarterly or annual raw BEA files found."
+        )
+
+    df = pd.concat(frames, ignore_index=True)
 
     con = connect()
 
@@ -148,13 +173,21 @@ def main():
     upsert_fact_timeseries(con, df)
 
     summary = con.execute("""
-      SELECT geo_id, COUNT(*) as n_rows, MIN(date) as first_date, MAX(date) as last_date
-      FROM fact_timeseries
-      WHERE source_id='bea_gdp_qtr'
-      GROUP BY 1
-      ORDER BY 1
+        SELECT
+            source_id,
+            metric_id,
+            COUNT(*) rows,
+            MIN(date) first_date,
+            MAX(date) last_date
+        FROM fact_timeseries
+        WHERE source_id IN (
+            'bea_gdp_qtr',
+            'bea_gdp_ann'
+        )
+        GROUP BY 1,2
+        ORDER BY 1,2
     """).fetchdf()
-    print("[bea:transform] DONE. fact_timeseries rows by geo:")
+
     print(summary)
 
     con.close()
