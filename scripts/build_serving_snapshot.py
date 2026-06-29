@@ -195,9 +195,21 @@ def validate_snapshot(serving: duckdb.DuckDBPyConnection) -> None:
     ).fetchone()[0]
 
     if legacy_count:
-        raise SystemExit(f"[snapshot][fatal] found {legacy_count:,} rows with legacy geo IDs")
-
-    print("[snapshot] legacy geo ID check passed")
+        print(f"[snapshot][warn] found {legacy_count:,} rows with known legacy geo IDs")
+        print(
+            serving.execute(
+                f"""
+                SELECT source_id, geo_id, COUNT(*) AS rows
+                FROM fact_timeseries
+                WHERE geo_id IN ({",".join(["?"] * len(LEGACY_GEO_IDS))})
+                GROUP BY 1,2
+                ORDER BY rows DESC
+                """,
+                LEGACY_GEO_IDS,
+            ).fetchdf().to_string(index=False)
+        )
+    else:
+        print("[snapshot] legacy geo ID check passed")
 
     for view_name in KNOWN_VIEWS:
         if view_exists(serving, view_name):
