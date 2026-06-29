@@ -44,12 +44,6 @@ UNEMP_METRIC_ID = "fred_unemployment_rate_sa"
 
 
 def get_fred_client() -> Fred | None:
-    """
-    if not Fred:
-        print("[fred-unemp] fredapi not installed; add it to requirements.txt")
-        return None
-    """
-
     if Fred is None:
         raise SystemExit(
             "[fred-unemp][fatal] fredapi is not installed. "
