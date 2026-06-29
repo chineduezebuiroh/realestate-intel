@@ -2,12 +2,12 @@ from __future__ import annotations
 # jobs/incremental_refresh/run_refresh_bls_laus.py
 
 from jobs.common import print_context, run_module
-from core.config import MARKET_SERVING_DB_PATH
+from core.config import SERVING_DB_PATH
 
 
 def main() -> int:
     env = {
-        "DUCKDB_PATH": str(MARKET_SERVING_DB_PATH),
+        "DUCKDB_PATH": str(SERVING_DB_PATH),
         "LAUS_REFRESH_MODE": "incremental",
     }
 
