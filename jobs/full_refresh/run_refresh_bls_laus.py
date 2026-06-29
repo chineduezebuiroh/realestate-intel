@@ -1,35 +1,22 @@
 from __future__ import annotations
-# jobs/run_refresh_bls.py
+# jobs/full_refresh/run_refresh_bls_laus.py
 
 from jobs.common import print_context, run_module
-
-
-def run_step(module: str, failures: list[str]) -> None:
-    try:
-        run_module(module)
-    except Exception as exc:
-        print(f"[job][ERROR] {module} failed: {exc}")
-        failures.append(module)
+from core.config import MARKET_DB_PATH
 
 
 def main() -> int:
-    print_context("refresh_bls")
+    env = {
+        "DUCKDB_PATH": str(FULL_DB_PATH),
+        "LAUS_REFRESH_MODE": "full",
+    }
 
-    failures: list[str] = []
+    print_context("refresh_bls_laus_full", env_overrides=env)
 
-    run_step("sources.bls_ces.ingest", failures)
-    run_step("sources.bls_ces.validate", failures)
+    run_module("sources.bls_laus.ingest", env_overrides=env)
+    run_module("sources.bls_laus.validate", env_overrides=env)
 
-    run_step("sources.bls_laus.ingest", failures)
-    run_step("sources.bls_laus.validate", failures)
-
-    if failures:
-        print("[job][FAIL] refresh_bls completed with failures:")
-        for module in failures:
-            print(f"  - {module}")
-        return 1
-
-    print("[job] refresh_bls complete")
+    print("[job] refresh_bls_laus_full complete")
     return 0
 
 
