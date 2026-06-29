@@ -6,7 +6,9 @@ Itemize local job commands that will require manual kickoff, since they won't ha
 
 ---
 
-## Build Serving Snapshot Job
+## Local Execution Commands
+
+### Build Serving Snapshot Job
 - PYTHONPATH=. python -m jobs.run_build_serving_snapshot
 
 
