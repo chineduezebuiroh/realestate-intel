@@ -176,9 +176,9 @@ def main():
         SELECT
             source_id,
             metric_id,
-            COUNT(*) rows,
-            MIN(date) first_date,
-            MAX(date) last_date
+            COUNT(*) as rows,
+            MIN(date) as first_date,
+            MAX(date) as last_date
         FROM fact_timeseries
         WHERE source_id IN (
             'bea_gdp_qtr',
