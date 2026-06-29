@@ -70,15 +70,37 @@ def ensure_fact_table(con: duckdb.DuckDBPyConnection) -> None:
 def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("""
     CREATE TABLE IF NOT EXISTS dim_source(
-      source_id TEXT PRIMARY KEY, name TEXT, url TEXT, cadence TEXT, license TEXT
+      source_id TEXT PRIMARY KEY,
+      name TEXT,
+      url TEXT,
+      cadence TEXT,
+      license TEXT
+    );
+    
+    INSERT INTO dim_source(source_id, name, url, cadence, license)
+    SELECT 'census_bps_provisional',
+           'Census Building Permits Survey Provisional',
+           'https://www.census.gov/construction/bps/',
+           'monthly',
+           'public'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM dim_source WHERE source_id = 'census_bps_provisional'
     );
     """)
-    con.execute("""
-    INSERT INTO dim_source(source_id, name, url, cadence, license)
-    SELECT ?, 'Census Building Permits Survey (provisional)', 'https://www.census.gov/construction/bps/', 'monthly', 'public'
-    WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id=?);
-    """, [SOURCE_ID, SOURCE_ID])
 
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     con.execute("""
     CREATE TABLE IF NOT EXISTS dim_metric(
       metric_id TEXT PRIMARY KEY, name TEXT, frequency TEXT, unit TEXT, category TEXT
@@ -87,13 +109,11 @@ def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
     for mid, name, freq, unit, cat in DIM_METRICS:
         con.execute("""
         INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
-        VALUES (?,?,?,?,?)
-        ON CONFLICT(metric_id) DO UPDATE SET
-          name=excluded.name,
-          frequency=excluded.frequency,
-          unit=excluded.unit,
-          category=excluded.category;
-        """, [mid, name, freq, unit, cat])
+        SELECT ?, ?, 'monthly', ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM dim_metric WHERE metric_id = ?
+        )
+        """, [metric_id, name, unit, category, metric_id])
 
 
 def load_timeseries(path: Path) -> pd.DataFrame:
