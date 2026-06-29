@@ -1,3 +1,4 @@
+from __future__ import annotations
 # sources/fred_unemp/ingest.py
 
 import os
