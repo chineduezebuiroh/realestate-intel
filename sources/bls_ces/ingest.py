@@ -14,6 +14,18 @@ GEN_PATH = Path("config/ces_series.generated.csv")
 BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
 
+CES_REFRESH_MODE = os.getenv("CES_REFRESH_MODE", "full").strip().lower()
+
+VALID_REFRESH_MODES = {"full", "incremental"}
+
+if CES_REFRESH_MODE not in VALID_REFRESH_MODES:
+    raise SystemExit(
+        f"[ces] invalid CES_REFRESH_MODE={CES_REFRESH_MODE}; "
+        f"expected one of {sorted(VALID_REFRESH_MODES)}"
+    )
+
+CES_INCREMENTAL_LOOKBACK_YEARS = int(os.getenv("CES_INCREMENTAL_LOOKBACK_YEARS", "3"))
+
 
 # Optional: handy filter while debugging, comma-sep geo_id list
 FILTER_GEOS = set(
@@ -123,11 +135,18 @@ def fetch_series(series_ids: list[str]) -> list[dict]:
     else:
         print("[ces] using BLS key: no (public quota)")
 
-    # Build dynamic ~20-year windows from 1990 → current year
+    # Build dynamic mode-dependent  ~20-year windows from 1990 → current year
     current_year = date.today().year
-    start_year = current_year - 59
-    window_span = 20  # years per window
+    
+    if CES_REFRESH_MODE == "incremental":
+        start_year = current_year - CES_INCREMENTAL_LOOKBACK_YEARS
+    else:
+        start_year = current_year - 59
+    
+    window_span = 20
+    print(f"[ces] refresh mode={CES_REFRESH_MODE}; year window={start_year}-{current_year}")
 
+    
     year_ranges: list[tuple[str, str]] = []
     y = start_year
     while y <= current_year:
@@ -292,12 +311,31 @@ def main():
     ensure_dims(con, all_df["metric_id"].unique().tolist())
     ensure_fact_table(con)
 
-    # 🔁 Always start with a clean CES slice in fact_timeseries
-    con.execute("""
-        DELETE FROM fact_timeseries
-        WHERE source_id = 'ces';
-    """)
-    print("[ces] cleared existing CES rows from fact_timeseries")
+    # 🔁 Execute mode-dependent cleanse of CES records in fact_timeseries
+    if CES_REFRESH_MODE == "full":
+        con.execute("""
+            DELETE FROM fact_timeseries
+            WHERE source_id = 'ces';
+        """)
+        print("[ces] full mode: cleared existing CES rows from fact_timeseries")
+    else:
+        min_date = all_df["date"].min()
+        max_date = all_df["date"].max()
+        con.register("ces_stage_keys", all_df[["geo_id", "metric_id", "property_type_id"]].drop_duplicates())
+        con.execute("""
+            DELETE FROM fact_timeseries AS f
+            WHERE f.source_id = 'ces'
+              AND f.date BETWEEN ? AND ?
+              AND EXISTS (
+                  SELECT 1
+                  FROM ces_stage_keys s
+                  WHERE s.geo_id = f.geo_id
+                    AND s.metric_id = f.metric_id
+                    AND s.property_type_id = f.property_type_id
+              )
+        """, [min_date, max_date])
+        print(f"[ces] incremental mode: cleared CES rows for staged keys/date window {min_date} → {max_date}")
+
 
     # ... existing logic that reads ces_series.generated.csv,
     # hits the BLS API, and inserts new rows into fact_timeseries ...
