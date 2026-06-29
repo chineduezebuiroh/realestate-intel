@@ -1,3 +1,4 @@
+from __future__ import annotations
 # sources/fred_macro/ingest.py
 
 import os
@@ -52,7 +53,7 @@ All series are written as:
 
 load_dotenv()
 
-GEO_MANIFEST_PATH = Path("config/geo_manifest.csv")
+GEO_MANIFEST_PATH = Path("config/geo_manifest.generated.csv")
 
 FRED_API_KEY = os.getenv("FRED_API_KEY", "").strip()
 
@@ -184,9 +185,12 @@ SPREAD_SERIES_META: Dict[str, Dict[str, str]] = {
 
 
 def get_fred_client() -> Fred | None:
-    if not Fred:
-        print("[fred] fredapi not installed; add it to requirements.txt")
-        return None
+    if Fred is None:
+        raise SystemExit(
+            "[fred-macro][fatal] fredapi is not installed. "
+            "Install requirements before running this refresh."
+        )
+        
     if not FRED_API_KEY:
         print("[fred] FRED_API_KEY not set; skipping FRED macro ingest.")
         return None
@@ -228,7 +232,7 @@ def load_fred_geo_map() -> Dict[str, str]:
     Otherwise, fallback to:
       'US' -> 'us_nation'
     """
-    fallback = {"US": "us_nation"}
+    fallback = {"US": "united_states__nation"}
 
     if not GEO_MANIFEST_PATH.exists():
         print(f"[fred] geo_manifest not found at {GEO_MANIFEST_PATH}, using fallback geo map: {fallback}")
@@ -249,10 +253,12 @@ def load_fred_geo_map() -> Dict[str, str]:
         print("[fred] No rows with fred_geo_code in geo_manifest; using fallback map.")
         return fallback
 
+    geo_col = "geo_slug" if "geo_slug" in df.columns else "geo_id"
+    
     geo_map = {
-        str(r["fred_geo_code"]).strip(): str(r["geo_id"]).strip()
+        str(r["fred_geo_code"]).strip(): str(r[geo_col]).strip()
         for _, r in df.iterrows()
-        if str(r["fred_geo_code"]).strip() and str(r["geo_id"]).strip()
+        if str(r["fred_geo_code"]).strip() and str(r[geo_col]).strip()
     }
 
     for code, gid in fallback.items():
