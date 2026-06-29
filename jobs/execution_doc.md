@@ -13,6 +13,7 @@ Itemize local job commands that will require manual kickoff, since they won't ha
 
 
 ### BLS CES (Bureau of Labor Statistics Current Employment Statistics) Full Refresh
+- PYTHONPATH=. python -m jobs.full_refresh.run_generate_bls_specs.py
 - PYTHONPATH=. python -m jobs.full_refresh.run_refresh_bls_ces
 
 ---
