@@ -6,8 +6,6 @@ from core.config import FULL_DB_PATH
 
 
 def main() -> int:
-    print_context("refresh_bls_ces_full")
-
     env = {
         "DUCKDB_PATH": str(FULL_DB_PATH),
         "CES_REFRESH_MODE": "full",
