@@ -1,5 +1,5 @@
 from __future__ import annotations
-# sources/bea_gdp/ingest.py
+# sources/bea/ingest_gdp.py
 
 from dotenv import load_dotenv
 load_dotenv()
