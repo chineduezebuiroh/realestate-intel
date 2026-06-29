@@ -1,5 +1,5 @@
 from __future__ import annotations
-# sources/bea_gdp/transform.py
+# sources/bea/transform_gdp.py
 
 from pathlib import Path
 import pandas as pd
