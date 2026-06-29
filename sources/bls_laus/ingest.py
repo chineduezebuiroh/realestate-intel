@@ -20,6 +20,18 @@ from core.db import connect
 BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 BLS_KEY = (os.getenv("BLS_API_KEY") or "").strip()
 
+LAUS_REFRESH_MODE = os.getenv("LAUS_REFRESH_MODE", "full").strip().lower()
+VALID_REFRESH_MODES = {"full", "incremental"}
+
+if LAUS_REFRESH_MODE not in VALID_REFRESH_MODES:
+    raise SystemExit(
+        f"[laus] invalid LAUS_REFRESH_MODE={LAUS_REFRESH_MODE}; "
+        f"expected one of {sorted(VALID_REFRESH_MODES)}"
+    )
+
+LAUS_INCREMENTAL_LOOKBACK_YEARS = int(os.getenv("LAUS_INCREMENTAL_LOOKBACK_YEARS", "3"))
+
+
 # Where ensure_bls_files() writes the flat files
 BLS_DIR = Path("config/bls")
 
@@ -299,8 +311,14 @@ def fetch_series(series_ids: list[str]) -> list[dict]:
         print("[laus] using BLS key: no (public quota)")
 
     current_year = date.today().year
-    start_year = 1976
+    
+    if LAUS_REFRESH_MODE == "incremental":
+        start_year = current_year - LAUS_INCREMENTAL_LOOKBACK_YEARS
+    else:
+        start_year = 1976
+    
     window_span = 20
+    print(f"[laus] refresh mode={LAUS_REFRESH_MODE}; year window={start_year}-{current_year}")
 
     year_ranges: list[tuple[str, str]] = []
     y = start_year
@@ -450,16 +468,33 @@ def upsert(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
     )
 
     # right before con.register("df_stage", ...)
-    keys = df[["geo_id","metric_id","property_type_id","source_id"]].drop_duplicates()
+    keys = df[["geo_id", "metric_id", "property_type_id", "source_id"]].drop_duplicates()
     con.register("laus_keys", keys)
-    con.execute("""
-    DELETE FROM fact_timeseries f
-    USING laus_keys k
-    WHERE f.geo_id=k.geo_id
-      AND f.metric_id=k.metric_id
-      AND f.property_type_id=k.property_type_id
-      AND f.source_id=k.source_id;
-    """)
+    
+    if LAUS_REFRESH_MODE == "full":
+        con.execute("""
+        DELETE FROM fact_timeseries f
+        USING laus_keys k
+        WHERE f.geo_id=k.geo_id
+          AND f.metric_id=k.metric_id
+          AND f.property_type_id=k.property_type_id
+          AND f.source_id=k.source_id;
+        """)
+        print("[laus] full mode: cleared existing LAUS rows for staged keys")
+    else:
+        min_date = df["date"].min()
+        max_date = df["date"].max()
+        con.execute("""
+        DELETE FROM fact_timeseries f
+        USING laus_keys k
+        WHERE f.geo_id=k.geo_id
+          AND f.metric_id=k.metric_id
+          AND f.property_type_id=k.property_type_id
+          AND f.source_id=k.source_id
+          AND f.date BETWEEN ? AND ?;
+        """, [min_date, max_date])
+        print(f"[laus] incremental mode: cleared LAUS rows for staged keys/date window {min_date} → {max_date}")
+
 
     con.register("df_stage", df[["geo_id","metric_id","date","property_type_id","value","source_id"]])
     con.execute("""
