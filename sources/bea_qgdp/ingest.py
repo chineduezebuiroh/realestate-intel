@@ -1,15 +1,5 @@
-#!/usr/bin/env python
-"""
-sources/bea_qgdp/ingest.py
-
-Fetch BEA Regional quarterly Real GDP by state (SQGDP9, LineCode=1)
-for geos flagged in config/geo_manifest.csv (include_bea_qgdp=1).
-
-Outputs a raw long file:
-  data/bea/bea_qgdp_raw_long.csv
-
-No DB writes here. That's handled by transform/bea_qgdp_transform.py.
-"""
+from __future__ import annotations
+# sources/bea_gdp/ingest.py
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -24,10 +14,23 @@ from typing import Dict, Tuple, List
 import requests
 import pandas as pd
 
+"""
+sources/bea_qgdp/ingest.py
 
-# ----------------- Paths / Config -----------------
+Fetch BEA Regional quarterly Real GDP by state (SQGDP9, LineCode=1)
+for geos flagged in config/geo_manifest.csv (include_bea_qgdp=1).
+
+Outputs a raw long file:
+  data/bea/bea_qgdp_raw_long.csv
+
+No DB writes here. That's handled by transform/bea_qgdp_transform.py.
+"""
+
+# =================================================
+# ----------- Paths / Config Constants -----------
+# =================================================
 REPO_ROOT = Path(__file__).resolve().parents[2]
-GEO_MANIFEST = REPO_ROOT / "config" / "geo_manifest.csv"
+GEO_MANIFEST = REPO_ROOT / "config" / "geo_manifest.generated.csv"
 
 OUT_DIR = REPO_ROOT / "data" / "bea"
 RAW_PATH = OUT_DIR / "bea_qgdp_raw_long.csv"
@@ -44,9 +47,9 @@ REGIONAL_DATASET = "Regional"
 REGIONAL_TABLE = "SQGDP9"
 REGIONAL_LINECODE_TOTAL = 1
 
-
-# ----------------- Helpers -----------------
-
+# =================================================
+# ----------- Helpers -----------
+# =================================================
 def parse_quarter_to_month_end(qstr: str) -> pd.Timestamp:
     """
     Convert BEA 'TimePeriod' like '2005Q1' to a quarter-end *month-end* timestamp.
@@ -115,7 +118,7 @@ def load_bea_geo_targets() -> Dict[str, Tuple[str, str]]:
             flag = (r.get("include_bea_qgdp") or "0").strip()
             if flag not in ("1", "true", "True"):
                 continue
-            geo_id = (r.get("geo_id") or "").strip()
+            geo_id = (r.get("geo_slug") or r.get("geo_id") or "").strip()
             name = (r.get("geo_name") or "").strip()
             code = (r.get("bea_geo_fips") or "").strip()
             if not geo_id or not code:
