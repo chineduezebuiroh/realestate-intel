@@ -2,7 +2,7 @@ from __future__ import annotations
 # jobs/full_refresh/run_refresh_bls_laus.py
 
 from jobs.common import print_context, run_module
-from core.config import MARKET_DB_PATH
+from core.config import FULL_DB_PATH
 
 
 def main() -> int:
