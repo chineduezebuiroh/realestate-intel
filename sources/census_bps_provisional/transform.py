@@ -93,7 +93,29 @@ def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
       metric_id TEXT PRIMARY KEY, name TEXT, frequency TEXT, unit TEXT, category TEXT
     );
     """)
-    for mid, name, freq, unit, cat in DIM_METRICS:
+
+
+    metrics = [
+        ("bps_units_1", "Building Permits Units - 1 Unit", "units", "housing_supply"),
+        ("bps_units_2", "Building Permits Units - 2 Units", "units", "housing_supply"),
+        ("bps_units_3_4", "Building Permits Units - 3-4 Units", "units", "housing_supply"),
+        ("bps_units_5plus", "Building Permits Units - 5+ Units", "units", "housing_supply"),
+        ("bps_units_total", "Building Permits Units - Total", "units", "housing_supply"),
+    
+        ("bps_bldgs_1", "Building Permits Buildings - 1 Unit", "buildings", "housing_supply"),
+        ("bps_bldgs_2", "Building Permits Buildings - 2 Units", "buildings", "housing_supply"),
+        ("bps_bldgs_3_4", "Building Permits Buildings - 3-4 Units", "buildings", "housing_supply"),
+        ("bps_bldgs_5plus", "Building Permits Buildings - 5+ Units", "buildings", "housing_supply"),
+        ("bps_bldgs_total", "Building Permits Buildings - Total", "buildings", "housing_supply"),
+    
+        ("bps_value_1", "Building Permits Value - 1 Unit", "thousand_dollars", "housing_supply"),
+        ("bps_value_2", "Building Permits Value - 2 Units", "thousand_dollars", "housing_supply"),
+        ("bps_value_3_4", "Building Permits Value - 3-4 Units", "thousand_dollars", "housing_supply"),
+        ("bps_value_5plus", "Building Permits Value - 5+ Units", "thousand_dollars", "housing_supply"),
+        ("bps_value_total", "Building Permits Value - Total", "thousand_dollars", "housing_supply"),
+    ]
+    
+    for metric_id, name, unit, category in metrics:
         con.execute("""
         INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
         SELECT ?, ?, 'monthly', ?, ?
