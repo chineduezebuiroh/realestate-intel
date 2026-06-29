@@ -36,7 +36,7 @@ Rows are written into fact_timeseries:
 
 load_dotenv()
 
-GEO_MANIFEST_PATH = Path("config/geo_manifest.csv")
+GEO_MANIFEST_PATH = Path("config/geo_manifest.generated.csv")
 FRED_API_KEY = os.getenv("FRED_API_KEY", "").strip()
 
 SOURCE_ID = "fred_unemp"
@@ -72,7 +72,10 @@ def load_unemp_targets() -> Dict[str, str]:
 
     df = pd.read_csv(GEO_MANIFEST_PATH)
 
-    missing = {"geo_id", "fred_unemp_series_id"} - set(df.columns)
+    geo_col = "geo_slug" if "geo_slug" in df.columns else "geo_id"
+    
+    missing = {geo_col, "fred_unemp_series_id"} - set(df.columns)
+    
     if missing:
         raise SystemExit(
             "[fred-unemp] geo_manifest.csv must have columns: "
@@ -89,9 +92,9 @@ def load_unemp_targets() -> Dict[str, str]:
         return {}
 
     targets = {
-        str(r["geo_id"]).strip(): str(r["fred_unemp_series_id"]).strip()
+        str(r[geo_col]).strip(): str(r["fred_unemp_series_id"]).strip()
         for _, r in df.iterrows()
-        if str(r["geo_id"]).strip() and str(r["fred_unemp_series_id"]).strip()
+        if str(r[geo_col]).strip() and str(r["fred_unemp_series_id"]).strip()
     }
 
     print("[fred-unemp] Targets:", targets)
