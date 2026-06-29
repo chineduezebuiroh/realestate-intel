@@ -13,6 +13,8 @@ def main() -> int:
         "CES_REFRESH_MODE": "full",
     }
 
+    print_context("refresh_bls_ces_full", env_overrides=env)
+
     run_module("sources.bls_ces.ingest", env_overrides=env)
     run_module("sources.bls_ces.validate", env_overrides=env)
 
