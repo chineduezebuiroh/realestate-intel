@@ -11,8 +11,8 @@ def main() -> int:
     }
 
     print_context("refresh_bea_gdp_incremental", env_overrides=env)
-    run_module("sources.bea_qgdp.ingest", env_overrides=env)
-    run_module("sources.bea_qgdp.transform", env_overrides=env)
+    run_module("sources.bea.ingest_gdp", env_overrides=env)
+    run_module("sources.bea.transform_gdp", env_overrides=env)
 
     print("[job] refresh_bea_gdp_incremental complete")
     return 0
