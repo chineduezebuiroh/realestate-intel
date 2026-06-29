@@ -1,21 +1,21 @@
-name: Refresh BLS LAUS
+name: Refresh BLS LAUS Incremental
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "30 11 28 * *"
+  #schedule:
+  #  - cron: "30 11 28 * *"
 
 concurrency:
   group: refresh-bls-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  refresh-bls:
+  refresh-bls-laus:
     runs-on: ubuntu-latest
 
     env:
       PYTHONPATH: .
-      DUCKDB_PATH: data/market.duckdb
+      DUCKDB_PATH: data/market_serving.duckdb
       ARTIFACT_ROOT: artifacts/phasea
       BLS_API_KEY: ${{ secrets.BLS_API_KEY }}
 
@@ -33,5 +33,5 @@ jobs:
           python -m pip install --upgrade pip wheel
           pip install -r requirements.txt
 
-      - name: Run BLS refresh
-        run: python -m jobs.run_refresh_bls_laus
+      - name: Run BLS Refresh Incremental
+        run: python -m jobs.incremental_refresh.run_refresh_bls_laus
