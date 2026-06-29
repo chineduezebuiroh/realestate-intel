@@ -1,5 +1,5 @@
 from __future__ import annotations
-# jobs/run_generate_bls_specs.py
+# jobs/full_refresh/run_generate_bls_specs.py
 
 from jobs.common import print_context, run_module
 
