@@ -10,25 +10,33 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _env() -> dict[str, str]:
+def _env(overrides: dict[str, str] | None = None) -> dict[str, str]:
     env = os.environ.copy()
-    env.setdefault("PYTHONPATH", str(REPO_ROOT))
-    env.setdefault("DUCKDB_PATH", "data/market.duckdb")
-    env.setdefault("ARTIFACT_ROOT", "artifacts/phasea")
+    env["PYTHONPATH"] = str(REPO_ROOT)
+
+    if "DUCKDB_PATH" not in env:
+        env["DUCKDB_PATH"] = "data/market.duckdb"
+
+    if "ARTIFACT_ROOT" not in env:
+        env["ARTIFACT_ROOT"] = "artifacts/phasea"
+
+    if overrides:
+        env.update(overrides)
+
     return env
 
 
-def run_module(module: str) -> None:
+def run_module(module: str, env_overrides: dict[str, str] | None = None) -> None:
     cmd = [sys.executable, "-m", module]
     print(f"[job] running module: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, cwd=REPO_ROOT, env=_env())
+    subprocess.run(cmd, check=True, cwd=REPO_ROOT, env=_env(env_overrides))
 
 
-def run_optional_module(module: str) -> bool:
+def run_optional_module(module: str, env_overrides: dict[str, str] | None = None) -> None:
     cmd = [sys.executable, "-m", module]
     print(f"[job] running OPTIONAL module: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, check=True, cwd=REPO_ROOT, env=_env())
+        subprocess.run(cmd, check=True, cwd=REPO_ROOT, env=_env(env_overrides))
         return True
     except subprocess.CalledProcessError as e:
         print(f"[job][warn] optional module failed: {module}")
