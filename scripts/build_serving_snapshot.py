@@ -106,7 +106,7 @@ def create_fact_timeseries(serving: duckdb.DuckDBPyConnection, full_alias: str) 
         CREATE TABLE fact_timeseries AS
         SELECT *
         FROM {full_alias}.fact_timeseries
-        WHERE date >= DATE ?
+        WHERE date >= CAST(? AS DATE)
         """,
         [SERVING_START_DATE],
     )
