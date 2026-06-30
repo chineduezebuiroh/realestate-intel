@@ -23,7 +23,12 @@ def main():
     if not RAW_PATH.exists():
         raise SystemExit(f"[census:transform] missing {RAW_PATH}; run census ingest first")
 
-    df = pd.read_csv(RAW_PATH)
+    try:
+        df = pd.read_csv(RAW_PATH)
+    except pd.errors.EmptyDataError:
+        print("[census:transform] raw file has no columns/rows; nothing to load")
+        return
+        
     if df.empty:
         print("[census:transform] raw file empty; nothing to load")
         return
