@@ -45,7 +45,15 @@ def build_census_geo_params(level: str, code: str) -> Optional[dict]:
             return None
         return {"for": f"place:{code[2:]}", "in": f"state:{code[:2]}"}
 
-    if level in ("msa", "metro_area", "metro"):
+    if level in (
+        "msa",
+        "metro",
+        "metro_area",
+        "cbsa",
+        "cbsa_metro",
+        "metropolitan_statistical_area",
+        "micropolitan_statistical_area",
+    ):
         return {"for": f"metropolitan statistical area/micropolitan statistical area:{code}"}
 
     # intentionally unsupported (keep behavior explicit)
