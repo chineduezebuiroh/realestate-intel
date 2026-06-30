@@ -223,6 +223,9 @@ def main():
         print(f"[census] skipped unsupported geo_ids ({len(skipped_geo_ids)}): {sorted(set(skipped_geo_ids))}")
 
     df = pd.DataFrame(rows)
+    if df.empty:
+        raise SystemExit("[census][fatal] ingest produced 0 rows")
+        
     OUT_RAW.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT_RAW, index=False)
 
