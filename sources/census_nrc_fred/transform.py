@@ -41,16 +41,15 @@ def ensure_dims(con: duckdb.DuckDBPyConnection) -> None:
             category TEXT
         );
     """)
+
     for mid, name, freq, unit, cat in DIM_METRICS:
         con.execute("""
             INSERT INTO dim_metric(metric_id, name, frequency, unit, category)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(metric_id) DO UPDATE SET
-              name=excluded.name,
-              frequency=excluded.frequency,
-              unit=excluded.unit,
-              category=excluded.category
-        """, [mid, name, freq, unit, cat])
+            SELECT ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM dim_metric WHERE metric_id = ?
+            )
+        """, [mid, name, freq, unit, cat, mid])
 
 
 def ensure_fact_table(con: duckdb.DuckDBPyConnection) -> None:
@@ -107,10 +106,22 @@ def load_raw(csv_path: Path) -> pd.DataFrame:
 
 
 def insert_into_fact(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
-    # wipe this source only
-    con.execute("DELETE FROM fact_timeseries WHERE source_id = ?", [SOURCE_ID])
-
     con.register("nrc_df", df)
+
+    con.execute(
+        """
+        DELETE FROM fact_timeseries AS f
+        WHERE EXISTS (
+            SELECT 1
+            FROM nrc_df s
+            WHERE s.geo_id = f.geo_id
+              AND s.metric_id = f.metric_id
+              AND CAST(s.date AS DATE) = f.date
+              AND s.property_type_id = f.property_type_id
+        )
+        """
+    )
+
     con.execute(
         """
         INSERT INTO fact_timeseries (
@@ -127,9 +138,9 @@ def insert_into_fact(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
         FROM nrc_df
         """
     )
-    con.unregister("nrc_df")
 
-    print(f"[nrc_fred:transform] inserted {len(df):,} rows into fact_timeseries")
+    con.unregister("nrc_df")
+    print(f"[nrc_fred:transform] upserted {len(df):,} rows into fact_timeseries")
 
 
 def main(argv: Optional[List[str]] = None) -> None:
@@ -150,4 +161,3 @@ def main(argv: Optional[List[str]] = None) -> None:
 
 if __name__ == "__main__":
     main()
-
