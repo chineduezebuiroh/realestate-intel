@@ -18,6 +18,11 @@ def main() -> int:
     run_module("sources.census_acs.transform", env_overrides=env)
     run_module("sources.census_acs.validate", env_overrides=env)
 
+    run_module("sources.census_decennial.expand_spec", env_overrides=env)
+    run_module("sources.census_decennial.ingest", env_overrides=env)
+    run_module("sources.census_decennial.transform", env_overrides=env)
+    run_module("sources.census_decennial.validate", env_overrides=env)
+
     print("[job] refresh_census_demographics_full complete")
     return 0
 
