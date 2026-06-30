@@ -15,6 +15,8 @@ PLAN_PATH = Path("data/census/census_acs5_query_plan.generated.csv")
 OUT_RAW   = Path("data/census/census_acs5_raw.csv")
 
 CENSUS_KEY = (os.getenv("CENSUS_API_KEY") or "").strip()
+if not CENSUS_KEY:
+    raise SystemExit("[census][fatal] CENSUS_API_KEY not set")
 
 
 def build_census_geo_params(level: str, code: str) -> Optional[dict]:
@@ -154,7 +156,7 @@ def main():
         return
 
     vintage = int(plan["vintage"].iloc[0])
-    years_back = 25
+    years_back = 10
     years = list(range(vintage - years_back + 1, vintage + 1))
 
     rows = []
