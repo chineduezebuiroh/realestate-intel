@@ -47,31 +47,7 @@ def build_census_geo_params(level: str, code: str) -> Optional[dict]:
         return None
 
     return None
-    
-"""
-def census_request(year: int, dataset: str, var_codes: List[str], for_param: str, in_param: Optional[str] = None):
-    base = f"https://api.census.gov/data/{year}/{dataset}"
-    params: Dict[str, str] = {"get": "NAME," + ",".join(var_codes), "for": for_param}
-    if in_param:
-        params["in"] = in_param
-    if CENSUS_KEY:
-        params["key"] = CENSUS_KEY
 
-    r = requests.get(base, params=params, timeout=30)
-    if r.status_code in (429, 500, 502, 503, 504):
-        return None
-
-    if r.status_code == 404:
-        # Treat as "geo not available for this year/dataset" or bad geo mapping; skip.
-        return None
-    r.raise_for_status()
-    data = r.json()
-
-    if not data or len(data) < 2:
-        return None
-    headers, row = data[0], data[1]
-    return dict(zip(headers, row))
-"""
 
 def census_request(
     year: int,
@@ -117,7 +93,16 @@ def census_request(
                 return None
 
             r.raise_for_status()
-            data = r.json()
+            
+            try:
+                data = r.json()
+            except ValueError:
+                print(
+                    f"[census:req][warn] non-JSON response; "
+                    f"year={year} dataset={dataset} for={for_param} in={in_param}; "
+                    f"status={r.status_code}; body={r.text[:200]!r}"
+                )
+                return None
 
             if not data or len(data) < 2:
                 return None
@@ -169,7 +154,7 @@ def main():
         return
 
     vintage = int(plan["vintage"].iloc[0])
-    years_back = 16
+    years_back = 25
     years = list(range(vintage - years_back + 1, vintage + 1))
 
     rows = []
