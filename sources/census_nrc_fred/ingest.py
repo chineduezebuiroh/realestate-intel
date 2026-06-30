@@ -22,21 +22,18 @@ FREDGRAPH_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
 # Series are monthly SAAR totals (as published via FRED).
 SERIES = [
     # Housing starts (total units, SAAR)
-    ("us_nation", "census_housing_starts_total_saar", "HOUST"),
-    ("us_region_northeast", "census_housing_starts_total_saar", "HOUSTNE"),
-    ("us_region_midwest", "census_housing_starts_total_saar", "HOUSTMW"),
-    ("us_region_south", "census_housing_starts_total_saar", "HOUSTS"),
-    ("us_region_west", "census_housing_starts_total_saar", "HOUSTW"),
+    ("united_states__nation",       "census_housing_starts_total_saar", "HOUST"),
+    ("northeast_region__region",    "census_housing_starts_total_saar", "HOUSTNE"),
+    ("midwest_region__region",      "census_housing_starts_total_saar", "HOUSTMW"),
+    ("south_region__region",        "census_housing_starts_total_saar", "HOUSTS"),
+    ("west_region__region",         "census_housing_starts_total_saar", "HOUSTW"),
 
     # Housing completions (total units, SAAR)
-    # NOTE: FRED has region completions too, but IDs are not as universally remembered as starts.
-    # We start with national completions now, then we can add region completions once you confirm the IDs.
-    ("us_nation", "census_housing_completions_total_saar", "COMPUTSA"),
-    # --- completions (SAAR) ---
-    ("us_region_northeast", "census_housing_completions_total_saar", "COMPUNETSA"),
-    ("us_region_midwest",   "census_housing_completions_total_saar", "COMPUMWTSA"),
-    ("us_region_south",     "census_housing_completions_total_saar", "COMPUSTSA"),
-    ("us_region_west",      "census_housing_completions_total_saar", "COMPUWTSA"),
+    ("united_states__nation",       "census_housing_completions_total_saar", "COMPUTSA"),
+    ("northeast_region__region",    "census_housing_completions_total_saar", "COMPUNETSA"),
+    ("midwest_region__region",      "census_housing_completions_total_saar", "COMPUMWTSA"),
+    ("south_region__region",        "census_housing_completions_total_saar", "COMPUSTSA"),
+    ("west_region__region",         "census_housing_completions_total_saar", "COMPUWTSA"),
 ]
 
 
