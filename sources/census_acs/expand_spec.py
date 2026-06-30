@@ -1,11 +1,13 @@
-# sources/census/expand_spec.py
+from __future__ import annotations
+# sources/census_acs/expand_spec.py
+
 import os
 import csv
 from pathlib import Path
 import datetime as _dt
 import pandas as pd
 
-GEO_MANIFEST = Path("config/geo_manifest.csv")
+GEO_MANIFEST = Path("config/geo_manifest.generated.csv")
 
 OUT_PLAN = Path("data/census/census_acs5_query_plan.generated.csv")
 
@@ -29,7 +31,9 @@ def main():
 
     gm = pd.read_csv(GEO_MANIFEST, dtype=str)
 
-    needed = {"geo_id", "census_code", "include_census"}
+    geo_col = "geo_slug" if "geo_slug" in gm.columns else "geo_id"
+    needed = {geo_col, "census_code", "include_census"}
+    
     missing = needed - set(gm.columns)
     if missing:
         raise SystemExit(f"[census:gen] geo_manifest.csv missing columns: {sorted(missing)}")
@@ -42,7 +46,7 @@ def main():
     else:
         raise SystemExit("[census:gen] geo_manifest.csv must have 'level' or 'geo_kind'")
 
-    for col in ["geo_id", "census_code", "include_census", level_col]:
+    for col in [geo_col, "census_code", "include_census", level_col]:
         gm[col] = gm[col].fillna("").astype(str).str.strip()
 
     # default vintage = last full year (stable enough for now)
@@ -53,7 +57,7 @@ def main():
 
     rows = []
     for r in gm.itertuples(index=False):
-        geo_id = getattr(r, "geo_id")
+        geo_id = getattr(r, geo_col)
         census_code = getattr(r, "census_code")
         include = _normalize_include_flag(getattr(r, "include_census"))
         level = getattr(r, level_col).strip().lower()
