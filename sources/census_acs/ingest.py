@@ -1,15 +1,19 @@
-# sources/census/ingest.py
+from __future__ import annotations
+# sources/census_acs/ingest.py
+
 import os
 import csv
 import time
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
+from dotenv import load_dotenv
 import requests
 from requests.exceptions import ReadTimeout, ConnectionError, RequestException
 
 import pandas as pd
 
+load_dotenv()
 
 PLAN_PATH = Path("data/census/census_acs5_query_plan.generated.csv")
 OUT_RAW   = Path("data/census/census_acs5_raw.csv")
