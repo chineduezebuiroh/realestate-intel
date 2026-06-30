@@ -22,6 +22,10 @@ CENSUS_KEY = (os.getenv("CENSUS_API_KEY") or "").strip()
 if not CENSUS_KEY:
     raise SystemExit("[census][fatal] CENSUS_API_KEY not set")
 
+CENSUS_REFRESH_MODE = os.getenv("CENSUS_REFRESH_MODE", "incremental").strip().lower()
+if CENSUS_REFRESH_MODE not in {"incremental", "full"}:
+    raise SystemExit(f"[census][fatal] invalid CENSUS_REFRESH_MODE={CENSUS_REFRESH_MODE}")
+
 
 def build_census_geo_params(level: str, code: str) -> Optional[dict]:
     level = (level or "").strip().lower()
@@ -168,7 +172,7 @@ def main():
         return
 
     vintage = int(plan["vintage"].iloc[0])
-    years_back = 10
+    years_back = 20 if CENSUS_REFRESH_MODE == "full" else 10
     years = list(range(vintage - years_back + 1, vintage + 1))
 
     rows = []
