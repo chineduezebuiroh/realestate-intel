@@ -14,8 +14,10 @@ RAW_PATH = Path("data/census/census_acs5_raw.csv")
 SOURCE_IDS = ["census_acs5", "census_acs1"]
 
 VAR_TO_METRIC = {
-    "B01003_001E": "census_pop_total",
-    "B19013_001E": "census_median_household_income",
+    ("census_acs5", "B01003_001E"): "census_acs5_pop_total",
+    ("census_acs5", "B19013_001E"): "census_acs5_median_household_income",
+    ("census_acs1", "B01003_001E"): "census_acs1_pop_total",
+    ("census_acs1", "B19013_001E"): "census_acs1_median_household_income",
 }
 
 
@@ -34,15 +36,20 @@ def main():
         return
 
     df["date"] = pd.to_datetime(df["date"]).dt.date
-    df["metric_id"] = df["variable_code"].map(VAR_TO_METRIC)
+
+    if "source_id" not in df.columns:
+        df["source_id"] = "census_acs5"
+    df["source_id"] = df["source_id"].fillna("census_acs5").astype(str).str.strip()
+    
+    df["metric_id"] = [
+        VAR_TO_METRIC.get((sid, var))
+        for sid, var in zip(df["source_id"], df["variable_code"])
+    ]
 
     unknown = sorted(set(df.loc[df["metric_id"].isna(), "variable_code"].dropna().astype(str)))
     if unknown:
         raise SystemExit(f"[census:transform] unknown variable_code(s): {unknown}")
 
-    if "source_id" not in df.columns:
-        df["source_id"] = "census_acs5"
-    df["source_id"] = df["source_id"].fillna("census_acs5").astype(str).str.strip()
     df["property_type_id"] = "all"
     df["property_type"] = None
 
@@ -71,10 +78,17 @@ def main():
     CREATE TABLE IF NOT EXISTS dim_source(
       source_id TEXT PRIMARY KEY, name TEXT, url TEXT, cadence TEXT, license TEXT
     );
-    INSERT INTO dim_source(source_id, name, url, cadence, license)
-    SELECT ?, 'Census ACS 5-year', 'https://www.census.gov/programs-surveys/acs', 'annual', 'public'
-    WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id=?);
-    """, [SOURCE_ID, SOURCE_ID])
+    """)
+
+    for source_id, name in [
+        ("census_acs5", "Census ACS 5-year"),
+        ("census_acs1", "Census ACS 1-year"),
+    ]:
+        con.execute("""
+        INSERT INTO dim_source(source_id, name, url, cadence, license)
+        SELECT ?, ?, 'https://www.census.gov/programs-surveys/acs', 'annual', 'public'
+        WHERE NOT EXISTS (SELECT 1 FROM dim_source WHERE source_id=?);
+        """, [source_id, name, source_id])
 
     con.execute("""
     CREATE TABLE IF NOT EXISTS dim_metric(
@@ -83,8 +97,10 @@ def main():
     """)
 
     meta = {
-        "census_pop_total": ("Total population (ACS)", "annual", "persons", "census"),
-        "census_median_household_income": ("Median household income (ACS)", "annual", "usd", "census"),
+        "census_acs5_pop_total": ("Total population (ACS 5-year)", "annual", "persons", "census"),
+        "census_acs5_median_household_income": ("Median household income (ACS 5-year)", "annual", "usd", "census"),
+        "census_acs1_pop_total": ("Total population (ACS 1-year)", "annual", "persons", "census"),
+        "census_acs1_median_household_income": ("Median household income (ACS 1-year)", "annual", "usd", "census"),
     }
     for mid in sorted(df["metric_id"].unique()):
         name, freq, unit, cat = meta.get(mid, (mid, "annual", "value", "census"))
