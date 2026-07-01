@@ -184,8 +184,6 @@ def main():
         return
 
     vintage = int(plan["vintage"].iloc[0])
-    start_year = 2005 if CENSUS_REFRESH_MODE == "full" else vintage - 10 + 1
-    years = list(range(start_year, vintage + 1))
 
     rows = []
     skipped = 0
@@ -197,6 +195,15 @@ def main():
         level = (rec["geo_level"] or "").strip().lower()
         code  = (rec["census_code"] or "").strip()
         dataset = rec["dataset"]
+
+        source_id = (rec.get("source_id") or "census_acs5").strip()
+        start_year = int(rec.get("start_year") or (2009 if source_id == "census_acs5" else 2005))
+        
+        if CENSUS_REFRESH_MODE == "full":
+            years = list(range(start_year, vintage + 1))
+        else:
+            years = list(range(max(start_year, vintage - 10 + 1), vintage + 1))
+
         var_codes = [v for v in (rec["variables_csv"] or "").split(",") if v.strip()]
 
         geo_params = build_census_geo_params(level, code)
@@ -231,6 +238,7 @@ def main():
                 rows.append({
                     "geo_id": geo_id,
                     "geo_level": level,
+                    "source_id": source_id,
                     "census_code": code,
                     "dataset": dataset,
                     "vintage": vintage,
