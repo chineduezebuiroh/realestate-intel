@@ -11,7 +11,7 @@ if not DB_PATH:
 
 RAW_PATH = Path("data/census/census_acs5_raw.csv")
 
-SOURCE_ID = "census_acs5"
+SOURCE_IDS = ["census_acs5", "census_acs1"]
 
 VAR_TO_METRIC = {
     "B01003_001E": "census_pop_total",
@@ -40,7 +40,9 @@ def main():
     if unknown:
         raise SystemExit(f"[census:transform] unknown variable_code(s): {unknown}")
 
-    df["source_id"] = SOURCE_ID
+    if "source_id" not in df.columns:
+        df["source_id"] = "census_acs5"
+    df["source_id"] = df["source_id"].fillna("census_acs5").astype(str).str.strip()
     df["property_type_id"] = "all"
     df["property_type"] = None
 
@@ -187,7 +189,7 @@ def main():
     print(con.execute("""
       SELECT geo_id, metric_id, MIN(date) AS first, MAX(date) AS last, COUNT(*) AS n
       FROM fact_timeseries
-      WHERE source_id = 'census_acs5'
+      WHERE source_id IN ('census_acs5','census_acs1')
       GROUP BY 1,2
       ORDER BY 1,2
     """).fetchdf())
