@@ -110,6 +110,13 @@ def census_request(
                 # Treat as "geo not available for this year/dataset" or bad geo mapping; skip.
                 return None
 
+            if r.status_code == 204:
+                print(
+                    f"[census:req][warn] no content; "
+                    f"year={year} dataset={dataset} for={for_param} in={in_param}"
+                )
+                return None
+
             r.raise_for_status()
             
             try:
@@ -123,6 +130,11 @@ def census_request(
                 return None
 
             if not data or len(data) < 2:
+                print(
+                    f"[census:req][warn] empty JSON payload; "
+                    f"year={year} dataset={dataset} for={for_param} in={in_param}; "
+                    f"data={data!r}"
+                )
                 return None
 
             headers, row = data[0], data[1]
