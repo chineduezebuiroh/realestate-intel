@@ -65,15 +65,21 @@ def main():
         if not include or not census_code:
             continue
 
-        rows.append({
-            "geo_id": geo_id,
-            "geo_level": level,
-            "census_code": census_code,
-            "dataset": CENSUS_DATASET,
-            "vintage": vintage,
-            "variables_csv": variables_csv,
-            "metric_ids_csv": metric_ids_csv,
-        })
+        for dataset, source_id, start_year in [
+            ("acs/acs5", "census_acs5", 2009),
+            ("acs/acs1", "census_acs1", 2005),
+        ]:
+            rows.append({
+                "geo_id": geo_id,
+                "geo_level": level,
+                "census_code": census_code,
+                "dataset": dataset,
+                "source_id": source_id,
+                "start_year": start_year,
+                "vintage": vintage,
+                "variables_csv": variables_csv,
+                "metric_ids_csv": metric_ids_csv,
+            })
 
     if not rows:
         print("[census:gen] no Census geos enabled (include_census=1).")
@@ -83,7 +89,7 @@ def main():
     with OUT_PLAN.open("w", newline="", encoding="utf-8") as f:
         wr = csv.DictWriter(
             f,
-            fieldnames=["geo_id","geo_level","census_code","dataset","vintage","variables_csv","metric_ids_csv"]
+            fieldnames=["geo_id","geo_level","census_code","dataset","vintage","variables_csv","metric_ids_csv","source_id", "start_year"]
         )
         wr.writeheader()
         wr.writerows(sorted(rows, key=lambda d: d["geo_id"]))
