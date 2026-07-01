@@ -8,16 +8,34 @@ import os
 # Config
 # -------------------------------------------------------------------
 RAW_REDFIN_DIR = Path("data/redfin/raw")
-RAW_REDFIN_PATHS = sorted(RAW_REDFIN_DIR.glob("*.tsv*"))
+RAW_REDFIN_PATHS = sorted(
+    list(RAW_REDFIN_DIR.glob("*.csv")) +
+    list(RAW_REDFIN_DIR.glob("*.tsv")) +
+    list(RAW_REDFIN_DIR.glob("*.tsv.gz"))
+)
 
-GEO_MANIFEST_PATH = "config/geo_manifest.csv"
+GEO_MANIFEST_PATH = "config/geo_manifest.generated.csv"
 OUTPUT_PATH = "data/redfin/redfin_timeseries.csv"
 
+ACCEPTED_METRICS = {
+    "median_sale_price",
+    "median_ppsf",
+    "homes_sold",
+    "pending_sales",
+    "new_listings",
+    "inventory",
+    "active_listings",
+    "months_of_supply",
+    "median_dom",
+    "avg_sale_to_list",
+    "sold_above_list",
+    "price_drops",
+    "off_market_in_two_weeks",
+}
 
 # -------------------------------------------------------------------
 # Main
 # -------------------------------------------------------------------
-
 def main():
     if not os.path.exists(RAW_REDFIN_DIR):
         raise FileNotFoundError(f"Redfin raw file not found at: {RAW_REDFIN_DIR}")
@@ -30,7 +48,8 @@ def main():
     
     for path in RAW_REDFIN_PATHS:
         print(f"[redfin] loading {path}")
-        tmp = pd.read_csv(path, sep="\t")
+        sep = "\t" if path.suffix.startswith(".tsv") or ".tsv" in path.name else ","
+        tmp = pd.read_csv(path, sep=sep)
         tmp.columns = tmp.columns.str.lower()
     
         # Choose date column: prefer period_end, else period_begin
@@ -65,6 +84,7 @@ def main():
 
     # --- 2) Load geo_manifest with redfin_code ------------------------------------
     geo = pd.read_csv(GEO_MANIFEST_PATH)
+    geo_col = "geo_slug" if "geo_slug" in geo.columns else "geo_id"
 
     if "redfin_code" not in geo.columns:
         raise ValueError(
@@ -72,8 +92,8 @@ def main():
             "to join with Redfin's 'table_id'."
         )
 
-    if "geo_id" not in geo.columns:
-        raise ValueError("geo_manifest.csv must contain a 'geo_id' column.")
+    if geo_col not in geo.columns:
+        raise ValueError("geo_manifest must contain 'geo_slug' or 'geo_id'.")
 
     # Optional include flag, if you've added one
     if "include_redfin" in geo.columns:
@@ -84,7 +104,7 @@ def main():
     
 
     # --- 3) Join Redfin rows to geo_manifest on (table_id, region_type) ↔ (redfin_code, level)
-    required_geo_cols = {"geo_id", "redfin_code", "level"}
+    required_geo_cols = {geo_col, "redfin_code", "level"}
     missing_geo = required_geo_cols - set(geo.columns)
     if missing_geo:
         raise ValueError(f"geo_manifest is missing columns: {sorted(missing_geo)}")
@@ -141,7 +161,7 @@ def main():
 
     # Now join on (table_id, region_type_norm) ↔ (redfin_code, region_type_norm)
     merged = df.merge(
-        geo[["geo_id", "redfin_code", "region_type_norm"]],
+        geo[[geo_col, "redfin_code", "region_type_norm"]].rename(columns={geo_col: "geo_id"})
         left_on=["table_id", "region_type_norm"],
         right_on=["redfin_code", "region_type_norm"],
         how="inner",
@@ -167,21 +187,6 @@ def main():
         .head(10)
     )
 
-
-    """
-    # --- 4) Optional: filter to non-seasonally adjusted -----
-    if "is_seasonally_adjusted" in merged.columns:
-        before = len(merged)
-        # 0 = not seasonally adjusted in most Redfin extracts
-        merged = merged[merged["is_seasonally_adjusted"] == 0]
-        after = len(merged)
-        print(f"[redfin] filtered to is_seasonally_adjusted=false: {before} → {after} rows")
-
-    if merged.empty:
-        raise ValueError("No rows remain after seasonality filter.")
-    """
-
-
     # --- 4) Optional: filter to non-seasonally adjusted -----
     if "is_seasonally_adjusted" in merged.columns:
         before = len(merged)
@@ -205,6 +210,14 @@ def main():
     
     if merged.empty:
         raise ValueError("No rows remain after seasonality filter.")
+
+    # --- add inventory fallback normalization ---
+    if "inventory" not in merged.columns:
+        if "active_listings" in merged.columns:
+            print("[redfin] inventory missing; using active_listings as canonical inventory.")
+            merged["inventory"] = merged["active_listings"]
+        else:
+            raise SystemExit("[redfin] missing both inventory and active_listings")
 
     
     # --- 5) Prepare for melt: id_vars vs value columns ----------------------------
@@ -247,6 +260,14 @@ def main():
             "No metric columns detected to melt. "
             "Check Redfin schema and exclude_cols list."
         )
+
+    unknown_metric_cols = sorted(set(value_cols) - ACCEPTED_METRICS)
+    if unknown_metric_cols:
+        print(f"[redfin] ignoring non-whitelisted metric columns: {unknown_metric_cols[:50]}")
+    
+    value_cols = [c for c in value_cols if c in ACCEPTED_METRICS]
+    if not value_cols:
+        raise ValueError("[redfin] no accepted Redfin metric columns found after whitelist filter")
 
     print(f"[redfin] metric columns (sample): {value_cols[:15]}")
 
