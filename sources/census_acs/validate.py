@@ -6,7 +6,7 @@ DB_PATH = os.getenv("DUCKDB_PATH")
 if not DB_PATH:
     raise SystemExit("[census:validate] DUCKDB_PATH not set (refusing to run against default db)")
 
-SOURCE_ID = "census_acs5"
+SOURCE_IDS = ["census_acs5", "census_acs1"]
 
 
 def main():
