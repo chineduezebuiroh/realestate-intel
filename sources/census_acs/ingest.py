@@ -172,8 +172,8 @@ def main():
         return
 
     vintage = int(plan["vintage"].iloc[0])
-    years_back = 20 if CENSUS_REFRESH_MODE == "full" else 10
-    years = list(range(vintage - years_back + 1, vintage + 1))
+    start_year = 2005 if CENSUS_REFRESH_MODE == "full" else vintage - 10 + 1
+    years = list(range(start_year, vintage + 1))
 
     rows = []
     skipped = 0
