@@ -26,7 +26,11 @@ LAUS (Local Area Unemployment Statistics) Full Refresh
 
 
 
-### Census BPS (Building Permits Survey) Full Refresh
+### Census
+ACS (American Community Survey) Full Refresh
+- PYTHONPATH=. python -m jobs.full_refresh.run_refresh_census_acs
+
+BPS (Building Permits Survey) Full Refresh
 - PYTHONPATH=. python -m jobs.full_refresh.run_refresh_census_bps
 
 
