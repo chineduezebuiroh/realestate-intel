@@ -161,7 +161,7 @@ def main():
 
     # Now join on (table_id, region_type_norm) ↔ (redfin_code, region_type_norm)
     merged = df.merge(
-        geo[[geo_col, "redfin_code", "region_type_norm"]].rename(columns={geo_col: "geo_id"})
+        geo[[geo_col, "redfin_code", "region_type_norm"]].rename(columns={geo_col: "geo_id"}),
         left_on=["table_id", "region_type_norm"],
         right_on=["redfin_code", "region_type_norm"],
         how="inner",
