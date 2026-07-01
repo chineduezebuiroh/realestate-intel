@@ -28,6 +28,18 @@ LEGACY_GEO_IDS = [
     "baltimore_msa",
 ]
 
+SOURCE_SERVING_START_DATES = {
+    "redfin": "2012-01-01",
+    "census_acs5": "2005-12-31",
+    "bea_gdp_ann": "2001-12-31",
+    "bea_gdp_qtr": "2005-03-31",
+    "ces": "2015-01-01",
+    "laus": "2015-01-01",
+    "fred_macro": "2015-01-01",
+    "fred_unemp": "2015-01-01",
+    "census_bps": "2015-01-01",
+    "census_nrc_fred": "2015-01-01",
+}
 
 def table_exists(con: duckdb.DuckDBPyConnection, table_name: str) -> bool:
     return bool(
