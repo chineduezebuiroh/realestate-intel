@@ -258,6 +258,21 @@ def main():
     if merged.empty:
         raise ValueError("No rows remain after seasonality filter.")
 
+    # --- canonicalize production Redfin to all-residential only ---
+    # Current production pipeline uses only the all-residential market.
+    # Property-type-specific Redfin series are intentionally excluded
+    # until the local engine is introduced.
+    if "property_type_id" in merged.columns:
+        ptid = merged["property_type_id"].astype(str).str.strip().str.lower()
+        keep_all = ptid.isin(["all", "-1", "-1.0"]) | merged["property_type_id"].isna()
+
+        before = len(merged)
+        merged = merged.loc[keep_all].copy()
+        print(f"[redfin] filtered to all-residential property type: {before:,} → {len(merged):,}")
+
+    merged["property_type"] = "all"
+    merged["property_type_id"] = "all"
+    
     # --- add inventory fallback normalization ---
     if "inventory" not in merged.columns:
         if "active_listings" in merged.columns:
@@ -305,6 +320,15 @@ def main():
         ]
     )
 
+    RENAME_METRICS = {
+        "median_sale_price": "median_sale_price_nsa",
+        "median_ppsf": "median_sale_price_per_sqft",
+        "median_dom": "median_days_on_market_days",
+        "avg_sale_to_list": "average_sale_to_list_ratio",
+        "sold_above_list": "share_sold_above_original_list",
+        "off_market_in_two_weeks": "percent_off_market_in_two_weeks",
+    }
+    
     value_cols = [c for c in merged.columns if c not in exclude_cols]
 
     if not value_cols:
@@ -326,15 +350,6 @@ def main():
         raise ValueError("[redfin] no accepted Redfin metric columns found after whitelist filter")
 
     print(f"[redfin] metric columns (sample): {value_cols[:15]}")
-
-    RENAME_METRICS = {
-        "median_sale_price": "median_sale_price_nsa",
-        "median_ppsf": "median_sale_price_per_sqft",
-        "median_dom": "median_days_on_market_days",
-        "avg_sale_to_list": "average_sale_to_list_ratio",
-        "sold_above_list": "share_sold_above_original_list",
-        "off_market_in_two_weeks": "percent_off_market_in_two_weeks",
-    }
     
     for old, new in RENAME_METRICS.items():
         if old in merged.columns and new not in merged.columns:
