@@ -142,8 +142,17 @@ def main():
     if missing_geo:
         raise ValueError(f"geo_manifest is missing columns: {sorted(missing_geo)}")
 
-    redfin_id_col = "table_id" if "table_id" in df.columns else "region_id"
-    required_df_cols = {redfin_id_col, "region_type"}
+    if "table_id" in df.columns and "region_id" in df.columns:
+        df["redfin_join_id"] = df["region_id"].where(df["region_id"].notna(), df["table_id"])
+    elif "region_id" in df.columns:
+        df["redfin_join_id"] = df["region_id"]
+    elif "table_id" in df.columns:
+        df["redfin_join_id"] = df["table_id"]
+    else:
+        raise ValueError("Redfin data missing both region_id and table_id")
+    
+    redfin_id_col = "redfin_join_id"
+    required_df_cols = {"redfin_join_id", "region_type"}
     
     missing_df = required_df_cols - set(df.columns)
     if missing_df:
@@ -317,6 +326,19 @@ def main():
         raise ValueError("[redfin] no accepted Redfin metric columns found after whitelist filter")
 
     print(f"[redfin] metric columns (sample): {value_cols[:15]}")
+
+    RENAME_METRICS = {
+        "median_sale_price": "median_sale_price_nsa",
+        "median_ppsf": "median_sale_price_per_sqft",
+        "median_dom": "median_days_on_market_days",
+        "avg_sale_to_list": "average_sale_to_list_ratio",
+        "sold_above_list": "share_sold_above_original_list",
+        "off_market_in_two_weeks": "percent_off_market_in_two_weeks",
+    }
+    
+    for old, new in RENAME_METRICS.items():
+        if old in merged.columns and new not in merged.columns:
+            merged[new] = merged[old]
 
     # --- 6) Melt to long format ---------------------------------------------------
     long_df = merged[id_vars + value_cols].melt(
