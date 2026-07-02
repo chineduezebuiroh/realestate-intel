@@ -25,7 +25,8 @@ def discover_redfin_files() -> list[tuple[Path, int, str]]:
         paths = sorted(
             list(folder.glob("*.csv")) +
             list(folder.glob("*.tsv")) +
-            list(folder.glob("*.tsv.gz"))
+            list(folder.glob("*.tsv.gz")) +
+            list(folder.glob("*.tsv000"))
         )
 
         for path in paths:
