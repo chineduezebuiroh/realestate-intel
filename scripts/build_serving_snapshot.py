@@ -28,6 +28,7 @@ LEGACY_GEO_IDS = [
     "baltimore_msa",
 ]
 
+"""
 SOURCE_SERVING_START_DATES = {
     "redfin": "2012-01-01",
     "census_acs5": "2005-12-31",
@@ -40,6 +41,26 @@ SOURCE_SERVING_START_DATES = {
     "census_bps": "2015-01-01",
     "census_nrc_fred": "2015-01-01",
 }
+"""
+SOURCE_HISTORY_POLICY = {
+    # keep all available history
+    "redfin": None,
+    "census_acs1": None,
+    "census_acs5": None,
+    "bea_gdp_ann": None,
+    "bea_gdp_qtr": None,
+    "census_nrc_fred": None,
+
+    # cap long monthly / routine macro series
+    "ces": {"years": 20},
+    "laus": {"years": 20},
+    "fred_macro": {"years": 20},
+    "fred_unemp": {"years": 20},
+    "census_bps": {"years": 20},
+    "census_bps_provisional": {"years": 20},
+}
+
+DEFAULT_HISTORY_POLICY = None
 
 def table_exists(con: duckdb.DuckDBPyConnection, table_name: str) -> bool:
     return bool(
@@ -97,35 +118,57 @@ def copy_table_if_exists(
 
 
 def create_fact_timeseries(serving: duckdb.DuckDBPyConnection, full_alias: str) -> None:
-    exists = bool(
-        serving.execute(
-            """
-            SELECT COUNT(*)
-            FROM duckdb_tables()
-            WHERE database_name = ?
-              AND schema_name = 'main'
-              AND table_name = 'fact_timeseries'
-            """,
-            [full_alias],
-        ).fetchone()[0]
-    )
-
-    if not exists:
+    if not table_exists(serving, full_alias, "fact_timeseries"):
         raise SystemExit(f"[snapshot][fatal] fact_timeseries missing in {FULL_DB_PATH}")
 
-    serving.execute(
-        f"""
+    serving.execute("""
         CREATE TABLE fact_timeseries AS
         SELECT *
-        FROM {full_alias}.fact_timeseries
-        WHERE date >= CAST(? AS DATE)
-        """,
-        [SERVING_START_DATE],
-    )
+        FROM full_db.fact_timeseries
+        WHERE 1 = 0
+    """)
 
-    rows = serving.execute("SELECT COUNT(*) FROM fact_timeseries").fetchone()[0]
-    first, last = serving.execute("SELECT MIN(date), MAX(date) FROM fact_timeseries").fetchone()
-    print(f"[snapshot] copied fact_timeseries: {rows:,} rows ({first} → {last})")
+    source_ids = [
+        r[0]
+        for r in serving.execute(f"""
+            SELECT DISTINCT source_id
+            FROM {full_alias}.fact_timeseries
+            WHERE source_id IS NOT NULL
+            ORDER BY source_id
+        """).fetchall()
+    ]
+
+    for source_id in source_ids:
+        policy = SOURCE_HISTORY_POLICY.get(source_id, DEFAULT_HISTORY_POLICY)
+
+        if policy is None:
+            serving.execute(f"""
+                INSERT INTO fact_timeseries
+                SELECT *
+                FROM {full_alias}.fact_timeseries
+                WHERE source_id = ?
+            """, [source_id])
+        else:
+            years = int(policy["years"])
+            serving.execute(f"""
+                INSERT INTO fact_timeseries
+                SELECT *
+                FROM {full_alias}.fact_timeseries
+                WHERE source_id = ?
+                  AND date >= (
+                      SELECT MAX(date) - INTERVAL '{years} years'
+                      FROM {full_alias}.fact_timeseries
+                      WHERE source_id = ?
+                  )
+            """, [source_id, source_id])
+
+        rows, first, last = serving.execute("""
+            SELECT COUNT(*), MIN(date), MAX(date)
+            FROM fact_timeseries
+            WHERE source_id = ?
+        """, [source_id]).fetchone()
+
+        print(f"[snapshot] copied {source_id}: {rows:,} rows ({first} → {last}) policy={policy}")
 
 
 def create_bps_view(serving: duckdb.DuckDBPyConnection) -> None:
