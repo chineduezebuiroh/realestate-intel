@@ -350,10 +350,13 @@ def main():
         raise ValueError("[redfin] no accepted Redfin metric columns found after whitelist filter")
 
     print(f"[redfin] metric columns (sample): {value_cols[:15]}")
-    
+
     for old, new in RENAME_METRICS.items():
-        if old in merged.columns and new not in merged.columns:
-            merged[new] = merged[old]
+        if old in merged.columns:
+            if new not in merged.columns:
+                merged[new] = merged[old]
+            else:
+                merged[new] = merged[new].where(merged[new].notna(), merged[old])
 
     # --- 6) Melt to long format ---------------------------------------------------
     long_df = merged[id_vars + value_cols].melt(
