@@ -230,10 +230,6 @@ def main():
             merged["inventory"] = merged["active_listings"]
         else:
             raise SystemExit("[redfin] missing both inventory and active_listings")
-
-    if "inventory" in merged.columns and "active_listings" in value_cols:
-        value_cols = [c for c in value_cols if c != "active_listings"]
-
     
     # --- 5) Prepare for melt: id_vars vs value columns ----------------------------
     # Core identifiers we want to keep (NOT melted)
@@ -255,7 +251,6 @@ def main():
             id_vars.append(col)
 
     print("[redfin] id_vars:", id_vars)
-
 
     # Columns that are NOT metrics (to exclude from melt)
     exclude_cols = set(
@@ -288,6 +283,10 @@ def main():
         print(f"[redfin] ignoring non-whitelisted metric columns: {unknown_metric_cols[:50]}")
     
     value_cols = [c for c in value_cols if c in ACCEPTED_METRICS]
+
+    if "inventory" in merged.columns and "active_listings" in value_cols:
+        value_cols = [c for c in value_cols if c != "active_listings"]
+        
     if not value_cols:
         raise ValueError("[redfin] no accepted Redfin metric columns found after whitelist filter")
 
