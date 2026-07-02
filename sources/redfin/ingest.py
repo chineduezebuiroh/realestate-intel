@@ -145,8 +145,8 @@ def main():
         "city": "place",
         "place": "place",
         "neighborhood": "neighborhood",
-        "zip_code": "zip code",
-        "zip": "zip code",
+        "zip_code": "zip",
+        "zip": "zip",
     }
 
     # Normalize levels and map to region_type
