@@ -228,6 +228,9 @@ def main():
         else:
             raise SystemExit("[redfin] missing both inventory and active_listings")
 
+    if "inventory" in merged.columns and "active_listings" in value_cols:
+        value_cols = [c for c in value_cols if c != "active_listings"]
+
     
     # --- 5) Prepare for melt: id_vars vs value columns ----------------------------
     # Core identifiers we want to keep (NOT melted)
