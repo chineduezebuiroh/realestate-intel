@@ -28,20 +28,6 @@ LEGACY_GEO_IDS = [
     "baltimore_msa",
 ]
 
-"""
-SOURCE_SERVING_START_DATES = {
-    "redfin": "2012-01-01",
-    "census_acs5": "2005-12-31",
-    "bea_gdp_ann": "2001-12-31",
-    "bea_gdp_qtr": "2005-03-31",
-    "ces": "2015-01-01",
-    "laus": "2015-01-01",
-    "fred_macro": "2015-01-01",
-    "fred_unemp": "2015-01-01",
-    "census_bps": "2015-01-01",
-    "census_nrc_fred": "2015-01-01",
-}
-"""
 SOURCE_HISTORY_POLICY = {
     # keep all available history
     "redfin": None,
@@ -72,6 +58,25 @@ def table_exists(con: duckdb.DuckDBPyConnection, table_name: str) -> bool:
               AND table_name = ?
             """,
             [table_name],
+        ).fetchone()[0]
+    )
+
+
+def attached_table_exists(
+    con: duckdb.DuckDBPyConnection,
+    database_name: str,
+    table_name: str,
+) -> bool:
+    return bool(
+        con.execute(
+            """
+            SELECT COUNT(*)
+            FROM duckdb_tables()
+            WHERE database_name = ?
+              AND schema_name = 'main'
+              AND table_name = ?
+            """,
+            [database_name, table_name],
         ).fetchone()[0]
     )
 
@@ -118,7 +123,7 @@ def copy_table_if_exists(
 
 
 def create_fact_timeseries(serving: duckdb.DuckDBPyConnection, full_alias: str) -> None:
-    if not table_exists(serving, full_alias, "fact_timeseries"):
+    if not attached_table_exists(serving, full_alias, "fact_timeseries"):
         raise SystemExit(f"[snapshot][fatal] fact_timeseries missing in {FULL_DB_PATH}")
 
     serving.execute("""
