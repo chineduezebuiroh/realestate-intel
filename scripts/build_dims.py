@@ -10,7 +10,7 @@ DB = os.getenv("DUCKDB_PATH", "data/market.duckdb")
 
 
 def ensure_v_dim_geo(con: duckdb.DuckDBPyConnection) -> None:
-    manifest_path = Path("config/geo_manifest.csv").as_posix()
+    manifest_path = Path("config/geo_manifest.generated.csv").as_posix()
 
     tables_and_views = {r[0] for r in con.execute("PRAGMA show_tables").fetchall()}
     if "v_dim_geo" in tables_and_views:
