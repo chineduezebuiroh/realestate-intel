@@ -31,6 +31,10 @@ def main() -> int:
 
     # Materialize dims from views (fast, deterministic snapshot)
     con.execute("CREATE OR REPLACE TABLE dim_geo AS SELECT * FROM v_dim_geo;")
+    
+    cols = [r[1] for r in con.execute("PRAGMA table_info('dim_geo')").fetchall()]
+    if "geo_id" not in cols and "geo_slug" in cols:
+        con.execute("ALTER TABLE dim_geo RENAME COLUMN geo_slug TO geo_id")
 
     # sanity
     cols = [r[1] for r in con.execute("PRAGMA table_info('dim_geo')").fetchall()]
