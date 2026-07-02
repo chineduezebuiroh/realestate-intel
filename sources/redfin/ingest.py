@@ -140,10 +140,13 @@ def main():
         "nation": "national",
         "state": "state",
         "metro_area": "metro",
+        "cbsa_metro": "metro",
         "county": "county",
         "city": "place",
+        "place": "place",
         "neighborhood": "neighborhood",
         "zip_code": "zip code",
+        "zip": "zip code",
     }
 
     # Normalize levels and map to region_type
