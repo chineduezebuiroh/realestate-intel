@@ -8,11 +8,30 @@ import os
 # Config
 # -------------------------------------------------------------------
 RAW_REDFIN_DIR = Path("data/redfin/raw")
-RAW_REDFIN_PATHS = sorted(
-    list(RAW_REDFIN_DIR.glob("*.csv")) +
-    list(RAW_REDFIN_DIR.glob("*.tsv")) +
-    list(RAW_REDFIN_DIR.glob("*.tsv.gz"))
-)
+RAW_CURRENT_DIR = RAW_REDFIN_DIR / "current"
+RAW_ARCHIVE_DIR = RAW_REDFIN_DIR / "archive"
+
+
+def discover_redfin_files() -> list[tuple[Path, int, str]]:
+    files: list[tuple[Path, int, str]] = []
+
+    for label, priority, folder in [
+        ("archive", 1, RAW_ARCHIVE_DIR),
+        ("current", 2, RAW_CURRENT_DIR),
+    ]:
+        if not folder.exists():
+            continue
+
+        paths = sorted(
+            list(folder.glob("*.csv")) +
+            list(folder.glob("*.tsv")) +
+            list(folder.glob("*.tsv.gz"))
+        )
+
+        for path in paths:
+            files.append((path, priority, label))
+
+    return files
 
 GEO_MANIFEST_PATH = "config/geo_manifest.generated.csv"
 OUTPUT_PATH = "data/redfin/redfin_timeseries.csv"
@@ -37,8 +56,11 @@ ACCEPTED_METRICS = {
 # Main
 # -------------------------------------------------------------------
 def main():
-    if not os.path.exists(RAW_REDFIN_DIR):
-        raise FileNotFoundError(f"Redfin raw file not found at: {RAW_REDFIN_DIR}")
+    raw_files = discover_redfin_files()
+    if not raw_files:
+        raise FileNotFoundError(
+            f"No Redfin raw files found under {RAW_CURRENT_DIR} or {RAW_ARCHIVE_DIR}"
+        )
 
     if not os.path.exists(GEO_MANIFEST_PATH):
         raise FileNotFoundError(f"geo_manifest not found at: {GEO_MANIFEST_PATH}")
@@ -46,8 +68,8 @@ def main():
     # --- 1) Load ALL Redfin TSVs and normalize columns ---------------------------
     frames = []
     
-    for path in RAW_REDFIN_PATHS:
-        print(f"[redfin] loading {path}")
+    for path, raw_priority, raw_bucket in raw_files:
+        print(f"[redfin] loading {raw_bucket} priority={raw_priority}: {path}")
         sep = "\t" if path.suffix.startswith(".tsv") or ".tsv" in path.name else ","
         tmp = pd.read_csv(path, sep=sep, low_memory=False)
         tmp.columns = (
@@ -72,6 +94,9 @@ def main():
     
         # Standardize to a single 'date' column
         tmp["date"] = pd.to_datetime(tmp[date_col]).dt.to_period("M").dt.to_timestamp("M")
+        tmp["_raw_priority"] = raw_priority
+        tmp["_raw_bucket"] = raw_bucket
+        tmp["_raw_file"] = path.name
 
         # Optional: drop original period_* columns now that we have 'date'
         for c in ["period_begin", "period_end"]:
@@ -243,7 +268,7 @@ def main():
     if "property_type_id" not in merged.columns:
         merged["property_type_id"] = "all"
     
-    id_vars = ["geo_id", "date", "property_type", "property_type_id"]
+    id_vars = ["geo_id", "date", "property_type", "property_type_id", "_raw_priority", "_raw_bucket", "_raw_file"]
 
     # Optionally keep some descriptive columns around in the long_df phase
     for col in ["region", "city", "state", "state_code"]:
@@ -311,11 +336,29 @@ def main():
     print("[redfin] long_df columns:", long_df.columns.tolist())
 
     # Final tidy frame — KEEP property_type + property_type_id
-    ts = long_df[["geo_id", "date", "property_type", "property_type_id", "metric_id", "value"]].copy()
-    ts = ts.sort_values(["geo_id", "property_type", "metric_id", "date"])
+    ts = long_df[
+        ["geo_id", "date", "property_type", "property_type_id", "metric_id", "value", "_raw_priority", "_raw_bucket", "_raw_file"]
+    ].copy()
+
+
+    before = len(ts)
+    ts = (
+        ts.sort_values(
+            ["geo_id", "property_type_id", "metric_id", "date", "_raw_priority", "_raw_file"],
+            ascending=[True, True, True, True, False, False],
+        )
+        .drop_duplicates(
+            subset=["geo_id", "date", "property_type_id", "metric_id"],
+            keep="first",
+        )
+    )
+    dropped = before - len(ts)
+    if dropped:
+        print(f"[redfin] archive/current dedupe dropped {dropped:,} lower-priority duplicate rows")
 
     # --- 7) Write to CSV ----------------------------------------------------------
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+    ts = ts.drop(columns=["_raw_priority", "_raw_bucket", "_raw_file"])
     ts.to_csv(OUTPUT_PATH, index=False)
 
     # --- 8) Log summary -----------------------------------------------------------
