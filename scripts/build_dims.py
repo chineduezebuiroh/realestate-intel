@@ -12,11 +12,7 @@ DB = os.getenv("DUCKDB_PATH", "data/market.duckdb")
 def ensure_v_dim_geo(con: duckdb.DuckDBPyConnection) -> None:
     manifest_path = Path("config/geo_manifest.generated.csv").as_posix()
 
-    tables_and_views = {r[0] for r in con.execute("PRAGMA show_tables").fetchall()}
-    if "v_dim_geo" in tables_and_views:
-        print("[dims] v_dim_geo already exists")
-        return
-
+    con.execute("DROP VIEW IF EXISTS v_dim_geo")
     con.execute(
         f"""
         CREATE VIEW v_dim_geo AS
@@ -24,7 +20,7 @@ def ensure_v_dim_geo(con: duckdb.DuckDBPyConnection) -> None:
         FROM read_csv_auto('{manifest_path}', header=true)
         """
     )
-    print(f"[dims] created v_dim_geo from {manifest_path}")
+    print(f"[dims] recreated v_dim_geo from {manifest_path}")
 
 
 def main() -> int:
