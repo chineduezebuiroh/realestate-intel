@@ -34,5 +34,9 @@ BPS (Building Permits Survey) Full Refresh
 - PYTHONPATH=. python -m jobs.full_refresh.run_refresh_census_bps
 
 
+
+### Redfin Full Refresh
+- PYTHONPATH=. python -m jobs.full_refresh.run_refresh_redfin
+
 ---
 
