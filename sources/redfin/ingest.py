@@ -18,19 +18,19 @@ GEO_MANIFEST_PATH = "config/geo_manifest.generated.csv"
 OUTPUT_PATH = "data/redfin/redfin_timeseries.csv"
 
 ACCEPTED_METRICS = {
-    "median_sale_price",
-    "median_ppsf",
     "homes_sold",
-    "pending_sales",
+    "median_sale_price_nsa",
+    "median_days_on_market_days",
+    "average_sale_to_list_ratio",
+    "share_sold_above_original_list",
     "new_listings",
-    "inventory",
     "active_listings",
+    "inventory",
+    "pending_sales",
+    "median_new_listing_price",
+    "median_sale_price_per_sqft",
     "months_of_supply",
-    "median_dom",
-    "avg_sale_to_list",
-    "sold_above_list",
-    "price_drops",
-    "off_market_in_two_weeks",
+    "percent_off_market_in_two_weeks",
 }
 
 # -------------------------------------------------------------------
@@ -50,7 +50,14 @@ def main():
         print(f"[redfin] loading {path}")
         sep = "\t" if path.suffix.startswith(".tsv") or ".tsv" in path.name else ","
         tmp = pd.read_csv(path, sep=sep)
-        tmp.columns = tmp.columns.str.lower()
+        tmp.columns = (
+            tmp.columns
+            .str.strip()
+            .str.lower()
+            .str.replace(r"\s+", "_", regex=True)
+            .str.replace(r"[^a-z0-9_]+", "", regex=True)
+            .str.strip("_")
+        )
     
         # Choose date column: prefer period_end, else period_begin
         if "period_end" in tmp.columns:
