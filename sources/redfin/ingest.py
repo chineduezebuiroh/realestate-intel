@@ -49,7 +49,7 @@ def main():
     for path in RAW_REDFIN_PATHS:
         print(f"[redfin] loading {path}")
         sep = "\t" if path.suffix.startswith(".tsv") or ".tsv" in path.name else ","
-        tmp = pd.read_csv(path, sep=sep)
+        tmp = pd.read_csv(path, sep=sep, low_memory=False)
         tmp.columns = (
             tmp.columns
             .str.strip()
@@ -116,7 +116,9 @@ def main():
     if missing_geo:
         raise ValueError(f"geo_manifest is missing columns: {sorted(missing_geo)}")
 
-    required_df_cols = {"table_id", "region_type"}
+    redfin_id_col = "table_id" if "table_id" in df.columns else "region_id"
+    required_df_cols = {redfin_id_col, "region_type"}
+    
     missing_df = required_df_cols - set(df.columns)
     if missing_df:
         raise ValueError(
@@ -169,7 +171,7 @@ def main():
     # Now join on (table_id, region_type_norm) ↔ (redfin_code, region_type_norm)
     merged = df.merge(
         geo[[geo_col, "redfin_code", "region_type_norm"]].rename(columns={geo_col: "geo_id"}),
-        left_on=["table_id", "region_type_norm"],
+        left_on=[redfin_id_col, "region_type_norm"],
         right_on=["redfin_code", "region_type_norm"],
         how="inner",
     )
@@ -187,7 +189,7 @@ def main():
 
     print(f"[redfin] matched {merged['geo_id'].nunique()} geos from geo_manifest.")
     print("[redfin] example matches:")
-    cols_to_show = [c for c in ["geo_id", "region", "state", "region_type", "table_id"] if c in merged.columns]
+    cols_to_show = [c for c in ["geo_id", "region", "state", "region_type", redfin_id_col] if c in merged.columns]
     print(
         merged[cols_to_show]
         .drop_duplicates()
@@ -247,7 +249,8 @@ def main():
     exclude_cols = set(
         id_vars
         + [
-            "table_id",
+            #"table_id",
+            redfin_id_col,
             "redfin_code",
             "period_duration",
             "is_seasonally_adjusted",
