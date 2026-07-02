@@ -79,18 +79,9 @@ def main():
         "geo_id", "metric_id", "date", "property_type_id", "value", "source_id", "property_type"
     ]])
 
-    # Upsert
-    con.execute("""
-    DELETE FROM fact_timeseries AS f
-    WHERE EXISTS (
-      SELECT 1 FROM rf_stage s
-      WHERE s.geo_id = f.geo_id
-        AND s.metric_id = f.metric_id
-        AND s.date = f.date
-        AND s.property_type_id = f.property_type_id
-        AND f.source_id = 'redfin'
-    );
-    """)
+    # Delete then Insert
+    con.execute("DELETE FROM fact_timeseries WHERE source_id = 'redfin'")
+    print("[redfin:transform] cleared existing redfin rows")
 
     con.execute("""
     INSERT INTO fact_timeseries(geo_id, metric_id, date, property_type_id, value, source_id, property_type)
@@ -111,4 +102,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
