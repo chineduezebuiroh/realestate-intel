@@ -40,7 +40,7 @@ def main() -> int:
     dupes = con.execute("""
         SELECT COUNT(*)
         FROM (
-          SELECT geo_id, metric_id, date, property_type_id, COUNT(*) n
+          SELECT geo_id, metric_id, date, property_type_id, COUNT(*) as n
           FROM fact_timeseries
           WHERE source_id='redfin'
           GROUP BY 1,2,3,4
@@ -67,7 +67,7 @@ def main() -> int:
         raise SystemExit(f"[redfin:validate] FAIL missing expected metrics: {missing}")
 
     print(con.execute("""
-        SELECT metric_id, COUNT(*) rows, MIN(date) first, MAX(date) last
+        SELECT metric_id, COUNT(*) as rows, MIN(date) as first, MAX(date) as last
         FROM fact_timeseries
         WHERE source_id='redfin'
         GROUP BY 1
@@ -75,7 +75,7 @@ def main() -> int:
     """).fetchdf())
 
     print(con.execute("""
-        SELECT COUNT(DISTINCT geo_id) geos
+        SELECT COUNT(DISTINCT geo_id) as geos
         FROM fact_timeseries
         WHERE source_id='redfin'
     """).fetchdf())
