@@ -21,7 +21,7 @@ def main() -> int:
 
     print_context("refresh_redfin_full", env_overrides=env)
 
-    #run_module("scripts.build_dims")
+    run_module("scripts.build_dims")
 
     run_module("sources.redfin.ingest", env_overrides=env)
     run_module("sources.redfin.transform", env_overrides=env)
