@@ -235,6 +235,12 @@ def main():
     if "date" not in merged.columns:
         raise ValueError("[redfin] Expected a normalized 'date' column before melt.")
 
+    if "property_type" not in merged.columns:
+        merged["property_type"] = "all"
+    
+    if "property_type_id" not in merged.columns:
+        merged["property_type_id"] = "all"
+    
     id_vars = ["geo_id", "date", "property_type", "property_type_id"]
 
     # Optionally keep some descriptive columns around in the long_df phase
