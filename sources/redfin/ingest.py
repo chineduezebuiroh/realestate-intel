@@ -302,15 +302,16 @@ def main():
         # Normalize to a boolean-ish flag:
         # handle bool, numeric, and string representations
         if col.dtype == bool:
-            mask_nsa = ~col  # False = not seasonally adjusted
+            mask_nsa = col.isna() | (~col)
         elif pd.api.types.is_numeric_dtype(col):
-            mask_nsa = (col == 0)
+            mask_nsa = col.isna() | (col == 0)
         else:
             # string-like: "true"/"false", "1"/"0", etc.
             col_norm = col.astype(str).str.strip().str.lower()
-            mask_nsa = col_norm.isin(["false", "0", "no", "n"])
+            mask_nsa = col.isna() | col_norm.isin(["false", "0", "no", "n", "nan", "none", ""])
     
         merged = merged[mask_nsa]
+        
         after = len(merged)
         print(f"[redfin] filtered to is_seasonally_adjusted = false/0: {before} → {after} rows")
     
