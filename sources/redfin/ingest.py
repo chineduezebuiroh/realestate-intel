@@ -110,7 +110,6 @@ ACCEPTED_METRICS = {
     "active_listings",
     "inventory",
     "pending_sales",
-    "median_new_listing_price",
     "median_sale_price_per_sqft",
     "months_of_supply",
     "percent_off_market_in_two_weeks",
