@@ -13,15 +13,15 @@ RAW_ARCHIVE_DIR = RAW_REDFIN_DIR / "archive"
 
 LEVEL_TO_FILE_HINTS = {
     "nation": ["country", "national", "us_national"],
-    "state": ["state"],
+    "state": ["state", "states"],
     "cbsa_metro": ["metro"],
     "metro_area": ["metro"],
-    "county": ["county"],
-    "city": ["city"],
-    "place": ["city"],
-    "neighborhood": ["neighborhood"],
-    "zip": ["zip", "zip_code"],
-    "zip_code": ["zip", "zip_code"],
+    "county": ["county", "counties"],
+    "city": ["city", "cities"],
+    "place": ["city", "cities"],
+    "neighborhood": ["neighborhood", "neighborhoods"],
+    "zip": ["zip", "zips", "zip_code"],
+    "zip_code": ["zip", "zips", "zip_code"],
 }
 
 
