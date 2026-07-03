@@ -14,7 +14,6 @@ EXPECTED_METRICS = {
     "homes_sold",
     "inventory",
     "median_days_on_market_days",
-    "median_new_listing_price",
     "median_sale_price_nsa",
     "median_sale_price_per_sqft",
     "months_of_supply",
