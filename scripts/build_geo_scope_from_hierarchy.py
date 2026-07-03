@@ -35,7 +35,7 @@ def build_macro_scope(df: pd.DataFrame) -> pd.DataFrame:
         {
             "geo_name": "United States",
             "geo_level": "nation",
-            "redfin_code": "",
+            "redfin_code": "0",
             "state_code": "",
             "include": 1,
             "notes": "Generated default nation scope",
