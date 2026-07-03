@@ -11,9 +11,63 @@ RAW_REDFIN_DIR = Path("data/redfin/raw")
 RAW_CURRENT_DIR = RAW_REDFIN_DIR / "current"
 RAW_ARCHIVE_DIR = RAW_REDFIN_DIR / "archive"
 
+LEVEL_TO_FILE_HINTS = {
+    "nation": ["country", "national", "us_national"],
+    "state": ["state"],
+    "cbsa_metro": ["metro"],
+    "metro_area": ["metro"],
+    "county": ["county"],
+    "city": ["city"],
+    "place": ["city"],
+    "neighborhood": ["neighborhood"],
+    "zip": ["zip", "zip_code"],
+    "zip_code": ["zip", "zip_code"],
+}
+
+
+def get_needed_redfin_levels() -> set[str]:
+    if not Path(GEO_MANIFEST_PATH).exists():
+        raise FileNotFoundError(f"geo_manifest not found at: {GEO_MANIFEST_PATH}")
+
+    manifest = pd.read_csv(GEO_MANIFEST_PATH)
+
+    if "include_redfin" in manifest.columns:
+        manifest = manifest[manifest["include_redfin"].fillna(0).astype(int) == 1]
+
+    if "level" not in manifest.columns:
+        raise ValueError("geo_manifest must contain 'level'")
+
+    levels = {
+        str(x).strip().lower()
+        for x in manifest["level"].dropna().unique()
+    }
+
+    if not levels:
+        raise ValueError("[redfin] no include_redfin geos found in geo_manifest")
+
+    return levels
+
+
+def should_load_redfin_file(path: Path, needed_levels: set[str]) -> bool:
+    name = path.name.lower()
+
+    needed_hints = set()
+    for level in needed_levels:
+        needed_hints.update(LEVEL_TO_FILE_HINTS.get(level, []))
+
+    if not needed_hints:
+        return True
+
+    return any(hint in name for hint in needed_hints)
+
 
 def discover_redfin_files() -> list[tuple[Path, int, str]]:
+    needed_levels = get_needed_redfin_levels()
+
+    print(f"[redfin] needed manifest levels: {sorted(needed_levels)}")
+
     files: list[tuple[Path, int, str]] = []
+    skipped: list[str] = []
 
     for label, priority, folder in [
         ("archive", 1, RAW_ARCHIVE_DIR),
@@ -30,9 +84,18 @@ def discover_redfin_files() -> list[tuple[Path, int, str]]:
         )
 
         for path in paths:
-            files.append((path, priority, label))
+            if should_load_redfin_file(path, needed_levels):
+                files.append((path, priority, label))
+            else:
+                skipped.append(f"{label}: {path.name}")
+
+    if skipped:
+        print("[redfin] skipped raw files not requested by geo_manifest:")
+        for item in skipped:
+            print(f"  - {item}")
 
     return files
+
 
 GEO_MANIFEST_PATH = "config/geo_manifest.generated.csv"
 OUTPUT_PATH = "data/redfin/redfin_timeseries.csv"
@@ -62,9 +125,6 @@ def main():
         raise FileNotFoundError(
             f"No Redfin raw files found under {RAW_CURRENT_DIR} or {RAW_ARCHIVE_DIR}"
         )
-
-    if not os.path.exists(GEO_MANIFEST_PATH):
-        raise FileNotFoundError(f"geo_manifest not found at: {GEO_MANIFEST_PATH}")
 
     # --- 1) Load ALL Redfin TSVs and normalize columns ---------------------------
     frames = []
@@ -359,6 +419,10 @@ def main():
                 merged[new] = merged[new].where(merged[new].notna(), merged[old])
 
     # --- 6) Melt to long format ---------------------------------------------------
+    print(
+        merged["median_new_listing_price"]
+            .describe()
+    )
     long_df = merged[id_vars + value_cols].melt(
         id_vars=id_vars,
         value_vars=value_cols,
