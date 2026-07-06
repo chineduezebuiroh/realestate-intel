@@ -134,10 +134,10 @@ Lending / debt-market access contributes directly to Demand Axis construction.
 
 | Component                 | Weight |
 | ------------------------- | ------ |
-| Demand Dimension          | 75%    |
+| Demand Dimension          | 65%    |
 | Price Dimension           | 15%    |
 | Affordability Dimension   | 10%    |
-| Capital Markets Dimension | TBD%   |
+| Capital Markets Dimension | 10%    |
 
 Initial weights are intentionally conservative.
 
@@ -167,13 +167,13 @@ Step 2:
 Apply weighted combination.
 
 Demand Axis Score =
-(0.75 × Demand Score)
+(0.65 × Demand Score)
 +
 (0.15 × Price Score)
 +
 (0.10 × Affordability Score)
 +
-(___TBD___ × Capital Markets Score)
+(0.10 × Capital Markets Score)
 
 The resulting Demand Axis Score represents the Y-coordinate used within the Regime Geometry framework.
 
