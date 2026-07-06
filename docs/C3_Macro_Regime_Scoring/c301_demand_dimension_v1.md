@@ -26,7 +26,8 @@ The Demand Dimension is constructed from five candidate subcomponents:
 2. Labor Force
 3. Unemployment
 4. Population
-5. GDP
+5. Income
+6. GDP
 
 ---
 
@@ -121,6 +122,26 @@ Higher population strength is supportive of demand.
 
 ---
 
+## Income
+
+Measures long-term demographic demand.
+
+Primary Source:
+
+* Census ACS
+
+Candidate Features:
+
+* income_level
+* income_short_term_change
+* income_long_term_change
+
+Interpretation:
+
+Higher income strength is supportive of demand.
+
+---
+
 ## GDP
 
 Measures economic output and market productivity.
@@ -161,13 +182,14 @@ The v1 Demand Dimension uses equal-weighted subcomponents where available.
 
 Default weights:
 
-| Subcomponent | Weight |
-| ------------ | -----: |
-| Employment   |    20% |
-| Labor Force  |    20% |
-| Unemployment |    20% |
-| Population   |    20% |
-| GDP          |    20% |
+| Subcomponent | Weight   |
+| ------------ | -------: |
+| Employment   | (100/6)% |
+| Labor Force  | (100/6)% |
+| Unemployment | (100/6)% |
+| Population   | (100/6)% |
+| Income       | (100/6)% |
+| GDP          | (100/6)% |
 
 If a subcomponent is unavailable, remaining weights are renormalized.
 
