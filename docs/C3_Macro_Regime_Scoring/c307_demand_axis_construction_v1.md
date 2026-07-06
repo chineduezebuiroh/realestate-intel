@@ -35,6 +35,7 @@ The Demand Axis consists of:
 1. Demand Dimension
 2. Price Dimension
 3. Affordability Dimension
+4. Capital Markets Dimension
 
 Each component contributes independently.
 
@@ -106,13 +107,37 @@ Affordability contributes directly to Demand Axis construction.
 
 ---
 
+## Capital Markets Dimension
+
+Role:
+
+Demand participation signal.
+
+Measures:
+
+- lending availablity
+- tbd...
+
+Answers:
+
+> Can households realistically participate in the market?
+
+Higher access to lending and debt markets supports demand.
+
+Lower access to lending and debt markets constrains demand.
+
+Lending / debt-market access contributes directly to Demand Axis construction.
+
+---
+
 # Initial Weighting Framework
 
-| Component               | Weight |
-| ----------------------- | ------ |
-| Demand Dimension        | 75%    |
-| Price Dimension         | 15%    |
-| Affordability Dimension | 10%    |
+| Component                 | Weight |
+| ------------------------- | ------ |
+| Demand Dimension          | 75%    |
+| Price Dimension           | 15%    |
+| Affordability Dimension   | 10%    |
+| Capital Markets Dimension | TBD%   |
 
 Initial weights are intentionally conservative.
 
@@ -135,6 +160,7 @@ Inputs:
 - Demand Score
 - Price Score
 - Affordability Score
+- Capital Markets Score
 
 Step 2:
 
@@ -146,6 +172,8 @@ Demand Axis Score =
 (0.15 × Price Score)
 +
 (0.10 × Affordability Score)
++
+(___TBD___ × Capital Markets Score)
 
 The resulting Demand Axis Score represents the Y-coordinate used within the Regime Geometry framework.
 
