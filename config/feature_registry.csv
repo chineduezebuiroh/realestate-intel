@@ -29,6 +29,9 @@ redfin_sold_above_list_long,redfin_sold_above_list,long_term_change,yoy_zscore,0
 redfin_off_market_two_weeks_level,redfin_off_market_two_weeks,level,level_zscore,0.25,,liquidity,
 redfin_off_market_two_weeks_short,redfin_off_market_two_weeks,short_term_change,mom_zscore,0.35,1m,liquidity,
 redfin_off_market_two_weeks_long,redfin_off_market_two_weeks,long_term_change,yoy_zscore,0.40,12m,liquidity,
+redfin_dom_level,redfin_dom,level,level_zscore,0.25,,liquidity,
+redfin_dom_short,redfin_dom,short_term_change,mom_zscore,0.35,1m,liquidity,
+redfin_dom_long,redfin_dom,long_term_change,yoy_zscore,0.40,12m,liquidity,
 
 acs1_population_level,acs1_population,level,level_zscore,0.25,,demand,
 acs1_population_short,acs1_population,short_term_change,yoy_zscore,0.35,1y,demand,Annual data uses YoY as short-term change
