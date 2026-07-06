@@ -10,11 +10,11 @@ redfin_months_supply,redfin,months_of_supply,Months of Supply,Inventory relative
 redfin_sale_to_list,redfin,average_sale_to_list_ratio,Average Sale-to-List Ratio,Average sale price relative to list price,nation|state|cbsa_metro|county|zip,monthly,Percent,NSA,true,
 redfin_sold_above_list,redfin,share_sold_above_original_list,Share Sold Above Original List,Share of homes sold above original list price,nation|state|cbsa_metro|county|zip,monthly,Percent,NSA,true,
 redfin_off_market_two_weeks,redfin,percent_off_market_in_two_weeks,Percent Off Market in Two Weeks,Share of listings off market within two weeks,nation|state|cbsa_metro|county|zip,monthly,Percent,NSA,true,
-acs1_population,census_acs1,census_acs1_pop_total,ACS 1-Year Population,Population estimate,nation|state|county|cbsa_metro,annual,People,NSA,false,Large geographies only
-acs1_median_household_income,census_acs1,census_acs1_median_household_income,ACS 1-Year Median Household Income,Median household income,nation|state|county|cbsa_metro,annual,USD,NSA,false,Large geographies only
-acs5_population,census_acs5,census_acs5_pop_total,ACS 5-Year Population,Population estimate,nation|state|county|cbsa_metro,annual,People,NSA,false,
-acs5_median_household_income,census_acs5,census_acs5_median_household_income,ACS 5-Year Median Household Income,Median household income,nation|state|county|cbsa_metro,annual,USD,NSA,false,
-bea_annual_gdp,bea_gdp_ann,bea_agdp_real_total_chained2017,Annual Real GDP,Annual real GDP in chained 2017 dollars,nation|state|county,annual,Chained 2017 dollars,SA,false,
+acs1_population,census_acs1,census_acs1_pop_total,ACS 1-Year Population,Population estimate,nation|state|county|cbsa_metro,annual,People,NSA,true,Large geographies only
+acs1_median_household_income,census_acs1,census_acs1_median_household_income,ACS 1-Year Median Household Income,Median household income,nation|state|county|cbsa_metro,annual,USD,NSA,true,Large geographies only
+acs5_population,census_acs5,census_acs5_pop_total,ACS 5-Year Population,Population estimate,nation|state|county|cbsa_metro,annual,People,NSA,true,
+acs5_median_household_income,census_acs5,census_acs5_median_household_income,ACS 5-Year Median Household Income,Median household income,nation|state|county|cbsa_metro,annual,USD,NSA,true,
+bea_annual_gdp,bea_gdp_ann,bea_agdp_real_total_chained2017,Annual Real GDP,Annual real GDP in chained 2017 dollars,nation|state|county,annual,Chained 2017 dollars,SA,true,
 bea_quarterly_gdp,bea_gdp_qtr,bea_qgdp_real_total_chained2017_saar,Quarterly Real GDP SAAR,Quarterly real GDP at seasonally adjusted annual rate,nation|state,quarterly,Chained 2017 dollars SAAR,SA,true,
 laus_labor_force,laus,laus_labor_force_sa,LAUS Labor Force,Seasonally adjusted labor force,nation|state|cbsa_metro|county,monthly,People,SA,true,
 laus_employment,laus,laus_employment_sa,LAUS Employment,Seasonally adjusted employment,nation|state|cbsa_metro|county,monthly,People,SA,true,
