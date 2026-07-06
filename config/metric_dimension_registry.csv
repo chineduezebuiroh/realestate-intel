@@ -1,0 +1,39 @@
+metric_key,dimension,subcomponent,metric_weight,required,macro_enabled,local_enabled,notes
+ces_total_nonfarm,demand,employment,0.50,true,true,false,
+laus_employment,demand,employment,0.50,true,true,false,
+laus_labor_force,demand,labor_force,1.00,true,true,false,
+laus_unemployment_rate,demand,unemployment,0.70,true,true,false,
+fred_unemployment_rate,demand,unemployment,0.30,false,true,false,
+acs5_population,demand,population,0.70,true,true,true,
+acs1_population,demand,population,0.30,false,true,false,Use where ACS1 exists
+bea_quarterly_gdp,demand,gdp,0.70,true,true,false,
+bea_annual_gdp,demand,gdp,0.30,false,true,true,
+acs5_median_household_income,demand,income,0.70,true,true,true,
+acs1_median_household_income,demand,income,0.30,false,true,false,Use where ACS1 exists
+redfin_inventory,supply,active_inventory,1.00,true,true,true,
+bps_total_units,supply,permit_activity,0.60,true,true,true,
+bps_1_unit,supply,permit_activity,0.15,false,true,true,
+bps_5plus_units,supply,permit_activity,0.25,false,true,true,
+bps_total_buildings,supply,permit_activity,0.00,false,false,false,Diagnostic only in v1
+bps_total_value,supply,permit_activity,0.00,false,false,false,Diagnostic only in v1
+ces_construction,supply,construction_activity,0.50,false,true,false,
+nrc_housing_starts,supply,construction_activity,0.25,true,true,false,
+nrc_housing_completions,supply,construction_activity,0.25,true,true,false,
+redfin_median_sale_price,price,sale_price_pressure,0.50,true,true,true,
+redfin_median_ppsf,price,ppsf_pressure,0.50,true,true,true,
+redfin_homes_sold,transaction_activity,closed_transaction_activity,0.50,true,true,true,
+redfin_pending_sales,transaction_activity,pending_transaction_activity,0.50,false,true,true,
+redfin_sale_to_list,liquidity,sale_to_list_pressure,0.35,true,true,true,
+redfin_sold_above_list,liquidity,competitive_pressure,0.25,false,true,true,
+redfin_off_market_two_weeks,liquidity,speed_pressure,0.25,false,true,true,
+redfin_dom,liquidity,market_speed,0.15,true,true,true,
+redfin_months_supply,liquidity,market_balance,0.00,false,false,false,Diagnostic only in v1 because supply axis already uses inventory/supply pressure
+fred_mortgage_30y,capital_markets,cost_of_capital,0.35,true,true,false,
+fred_mortgage_15y,capital_markets,cost_of_capital,0.10,false,true,false,
+fred_fedfunds,capital_markets,cost_of_capital,0.20,true,true,false,
+fred_10y,capital_markets,cost_of_capital,0.20,true,true,false,
+fred_2y,capital_markets,cost_of_capital,0.15,false,true,false,
+fred_2y10y_spread,capital_markets,yield_curve_conditions,0.60,true,true,false,
+fred_10y_fedfunds_spread,capital_markets,yield_curve_conditions,0.40,false,true,false,
+fred_cpi,affordability,inflation_pressure,1.00,false,true,false,Temporary proxy until derived affordability metrics are implemented
+redfin_new_listings,supply,new_listing_flow,0.00,false,false,false,Diagnostic only in v1
