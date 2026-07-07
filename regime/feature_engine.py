@@ -8,6 +8,7 @@ import pandas as pd
 
 from regime.config_loader import RegimeConfig, load_regime_config
 from regime.derived_metrics import build_derived_metrics
+from regime.canonical_metrics import resolve_canonical_metrics
 
 
 SERVING_DB = Path("data/market_serving.duckdb")
@@ -95,21 +96,30 @@ def build_feature_matrix(config: RegimeConfig | None = None) -> pd.DataFrame:
     if config is None:
         config = load_regime_config(validate=True)
 
-    raw = load_raw_metric_series(config)
+    raw_source = load_raw_metric_series(config)
+    raw = resolve_canonical_metrics(raw_source, config)
     derived = build_derived_metrics(raw)
 
     if not derived.empty:
         raw = pd.concat([raw, derived], ignore_index=True)
 
-    feature_defs = config.features.copy()
+    feature_defs = (
+        config.features
+        .merge(
+            config.metric_dimensions[["metric_key", "canonical_metric_key"]],
+            on="metric_key",
+            how="left",
+        )
+        .drop_duplicates(subset=["feature_key", "canonical_metric_key"])
+    )
 
     rows = []
     for _, f in feature_defs.iterrows():
-        metric_key = f["metric_key"]
+        metric_key = f["canonical_metric_key"]
         feature_key = f["feature_key"]
         transform = f["transform"]
 
-        metric_df = raw[raw["metric_key"] == metric_key].copy()
+        metric_df = raw[raw["canonical_metric_key"] == metric_key].copy()
         if metric_df.empty:
             continue
 
@@ -122,7 +132,7 @@ def build_feature_matrix(config: RegimeConfig | None = None) -> pd.DataFrame:
         
         metric_df["raw_feature_value"] = (
             metric_df
-            .groupby(["geo_id", "metric_key"], group_keys=False)["value"]
+            .groupby(["geo_id", "canonical_metric_key"], group_keys=False)["value"]
             .transform(
                 lambda s: _compute_feature(
                     pd.DataFrame({
@@ -136,12 +146,12 @@ def build_feature_matrix(config: RegimeConfig | None = None) -> pd.DataFrame:
         )
 
         rows.append(
-            metric_df[["geo_id", "date", "metric_key", "feature_key", "raw_feature_value"]]
+            metric_df[["geo_id", "date", "canonical_metric_key", "feature_key", "raw_feature_value"]]
         )
 
     if not rows:
         return pd.DataFrame(
-            columns=["geo_id", "date", "metric_key", "feature_key", "raw_feature_value"]
+            columns=["geo_id", "date", "canonical_metric_key", "feature_key", "raw_feature_value"]
         )
 
     out = pd.concat(rows, ignore_index=True)
