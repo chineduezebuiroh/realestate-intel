@@ -33,18 +33,12 @@ redfin_dom_level,redfin_dom,level,level_zscore,0.25,,liquidity,
 redfin_dom_short,redfin_dom,short_term_change,mom_zscore,0.35,1m,liquidity,
 redfin_dom_long,redfin_dom,long_term_change,yoy_zscore,0.40,12m,liquidity,
 
-acs1_population_level,acs1_population,level,level_zscore,0.25,,demand,
-acs1_population_short,acs1_population,short_term_change,yoy_zscore,0.35,1y,demand,Annual data uses YoY as short-term change
-acs1_population_long,acs1_population,long_term_change,rolling_yoy_zscore,0.40,3y,demand,
-acs1_median_household_income_level,acs1_median_household_income,level,level_zscore,0.25,,demand,
-acs1_median_household_income_short,acs1_median_household_income,short_term_change,yoy_zscore,0.35,1y,demand,Annual data uses YoY as short-term change
-acs1_median_household_income_long,acs1_median_household_income,long_term_change,rolling_yoy_zscore,0.40,3y,demand,
-acs5_population_level,acs5_population,level,level_zscore,0.25,,demand,
-acs5_population_short,acs5_population,short_term_change,yoy_zscore,0.35,1y,demand,Annual data uses YoY as short-term change
-acs5_population_long,acs5_population,long_term_change,rolling_yoy_zscore,0.40,3y,demand,
-acs5_median_household_income_level,acs5_median_household_income,level,level_zscore,0.25,,demand,
-acs5_median_household_income_short,acs5_median_household_income,short_term_change,yoy_zscore,0.35,1y,demand,Income added to demand architecture
-acs5_median_household_income_long,acs5_median_household_income,long_term_change,rolling_yoy_zscore,0.40,3y,demand,
+population_level,acs1_population,level,level_zscore,0.25,,demand,
+population_short,acs1_population,short_term_change,yoy_zscore,0.35,1y,demand,Annual data uses YoY as short-term change
+population_long,acs1_population,long_term_change,rolling_yoy_zscore,0.40,3y,demand,
+median_household_income_level,acs1_median_household_income,level,level_zscore,0.25,,demand,
+median_household_income_short,acs1_median_household_income,short_term_change,yoy_zscore,0.35,1y,demand,Annual data uses YoY as short-term change
+median_household_income_long,acs1_median_household_income,long_term_change,rolling_yoy_zscore,0.40,3y,demand,
 
 bea_annual_gdp_level,bea_annual_gdp,level,level_zscore,0.25,,demand,
 bea_annual_gdp_short,bea_annual_gdp,short_term_change,yoy_zscore,0.35,1y,demand,
