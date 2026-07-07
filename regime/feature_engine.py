@@ -91,10 +91,12 @@ def build_feature_matrix(config: RegimeConfig | None = None) -> pd.DataFrame:
         metric_df["feature_key"] = feature_key
         metric_df["transform"] = transform
 
+        metric_df = metric_df.sort_values(["geo_id", "metric_key", "date"]).copy()
+        
         metric_df["feature_value"] = (
             metric_df
-            .groupby(["geo_id", "metric_key"], group_keys=False)
-            .apply(lambda g: _compute_feature(g, transform))
+            .groupby(["geo_id", "metric_key"], group_keys=False)["value"]
+            .transform(lambda s: _compute_feature(pd.DataFrame({"date": metric_df.loc[s.index, "date"], "value": s}), transform))
         )
 
         rows.append(
