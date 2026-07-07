@@ -126,7 +126,7 @@ def build_feature_matrix(config: RegimeConfig | None = None) -> pd.DataFrame:
         metric_df["feature_key"] = feature_key
         metric_df["transform"] = transform
 
-        metric_df = metric_df.sort_values(["geo_id", "metric_key", "date"]).copy()
+        metric_df = metric_df.sort_values(["geo_id", "canonical_metric_key", "date"]).copy()
 
         feature_window = f.get("feature_window", "")
         
