@@ -47,3 +47,7 @@ fred_2y,treasury_2y,capital_markets,cost_of_capital,0.0,1,diagnostic_only,false,
 fred_2y10y_spread,spread_2y10y,capital_markets,yield_curve_conditions,0.2,1,direct,true,false,true,true,false,
 fred_10y_fedfunds_spread,spread_10y_fedfunds,capital_markets,yield_curve_conditions,0.1,1,direct,true,false,false,true,false,Secondary yield-curve signal.
 fred_cpi,cpi,affordability,inflation_pressure,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only; affordability v1 should use derived price-to-income and payment-burden metrics.
+
+derived_price_to_income,price_to_income,affordability,price_to_income,0.40,1,direct,true,false,true,true,true,Derived affordability metric
+derived_payment_burden,payment_burden,affordability,payment_burden,0.50,1,direct,true,false,true,true,true,Derived affordability metric
+derived_permit_intensity,permit_intensity,supply,permit_intensity,0.20,1,direct,true,false,false,true,true,Derived supply metric
