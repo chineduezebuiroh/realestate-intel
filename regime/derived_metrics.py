@@ -7,7 +7,7 @@ import pandas as pd
 MONTHLY_KEYS = {
     "median_sale_price",
     "mortgage_30y",
-    "bps_total_units",
+    "permit_activity",
 }
 
 ANNUAL_FFILL_KEYS = {
@@ -46,7 +46,17 @@ def _monthly_panel(raw: pd.DataFrame) -> pd.DataFrame:
     for col in ANNUAL_FFILL_KEYS:
         if col in panel.columns:
             panel[col] = panel.groupby("geo_id")[col].ffill()
-
+    
+    # Broadcast national mortgage rate to local geo/date rows.
+    if "mortgage_30y" in wide.columns:
+        mortgage = (
+            wide[["date", "mortgage_30y"]]
+            .dropna(subset=["mortgage_30y"])
+            .drop_duplicates(subset=["date"])
+        )
+        panel = panel.drop(columns=["mortgage_30y"], errors="ignore")
+        panel = panel.merge(mortgage, on="date", how="left")
+    
     return panel
 
 
@@ -91,9 +101,9 @@ def build_derived_metrics(raw: pd.DataFrame) -> pd.DataFrame:
         tmp["payment_burden"] = payment / tmp["median_household_income"]
         outputs.append(_long(tmp, "payment_burden", "payment_burden"))
 
-    if {"bps_total_units", "population"}.issubset(w.columns):
+    if {"permit_activity", "population"}.issubset(w.columns):
         tmp = w.copy()
-        tmp["permit_intensity"] = (tmp["bps_total_units"] / tmp["population"]) * 1000.0
+        tmp["permit_intensity"] = (tmp["permit_activity"] / tmp["population"]) * 1000.0
         outputs.append(_long(tmp, "permit_intensity", "permit_intensity"))
 
     if not outputs:
