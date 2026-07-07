@@ -98,7 +98,8 @@ def build_derived_metrics(raw: pd.DataFrame) -> pd.DataFrame:
             monthly_rate * (1 + monthly_rate) ** n
         ) / ((1 + monthly_rate) ** n - 1)
 
-        tmp["payment_burden"] = payment / tmp["median_household_income"]
+        monthly_income = tmp["median_household_income"] / 12.0
+        tmp["payment_burden"] = payment / monthly_income
         outputs.append(_long(tmp, "payment_burden", "payment_burden"))
 
     if {"permit_activity", "population"}.issubset(w.columns):
