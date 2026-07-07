@@ -138,9 +138,30 @@ def validate_regime_config(config: RegimeConfig) -> None:
     if missing_dim_refs:
         raise ValueError(f"Metric dimension registry references unknown metric_key(s): {missing_dim_refs}")
 
-    missing_feature_coverage = sorted(source_keys - feature_keys)
+
+    # Feature coverage is required at the canonical metric level, not the physical
+    # source metric level. Example: acs1_population and acs5_population both resolve
+    # to canonical_metric_key=population, so only one population_* feature family is needed.
+    feature_dim = config.features.merge(
+        config.metric_dimensions[["metric_key", "canonical_metric_key"]],
+        on="metric_key",
+        how="left",
+    )
+    
+    feature_canon_keys = set(feature_dim["canonical_metric_key"].dropna())
+    enabled_dim = config.metric_dimensions[
+        _truthy(config.metric_dimensions["enabled"])
+        & ~_truthy(config.metric_dimensions["diagnostic_only"])
+    ]
+    required_canon_keys = set(enabled_dim["canonical_metric_key"].dropna())
+    
+    missing_feature_coverage = sorted(required_canon_keys - feature_canon_keys)
     if missing_feature_coverage:
-        raise ValueError(f"Source metrics missing feature rows: {missing_feature_coverage}")
+        raise ValueError(
+            "Canonical metrics missing feature rows: "
+            f"{missing_feature_coverage}"
+        )
+
 
     missing_dimension_coverage = sorted(source_keys - dim_keys)
     if missing_dimension_coverage:
