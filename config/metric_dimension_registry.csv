@@ -10,27 +10,35 @@ redfin_months_supply,months_supply,liquidity,market_balance,0.0,1,diagnostic_onl
 redfin_sale_to_list,sale_to_list_ratio,liquidity,sale_to_list_pressure,0.35,1,direct,true,false,true,true,true,
 redfin_sold_above_list,sold_above_list_share,liquidity,competitive_pressure,0.25,1,direct,true,false,false,true,true,
 redfin_off_market_two_weeks,off_market_two_weeks_share,liquidity,speed_pressure,0.25,1,direct,true,false,false,true,true,
+
 acs1_population,population,demand,population,0.1667,1,primary_else_fallback,true,false,false,true,false,ACS1 preferred where available; ACS5 backfills missing geographies/history.
 acs1_median_household_income,median_household_income,demand,income,0.1667,1,primary_else_fallback,true,false,false,true,false,ACS1 preferred where available; ACS5 backfills missing geographies/history.
 acs5_population,population,demand,population,0.1667,2,primary_else_fallback,true,false,true,true,true,Fallback / broad coverage ACS population source.
 acs5_median_household_income,median_household_income,demand,income,0.1667,2,primary_else_fallback,true,false,true,true,true,Fallback / broad coverage ACS income source.
-bea_annual_gdp,gdp,demand,gdp,0.1667,2,primary_else_fallback,true,false,false,true,true,Annual GDP backfills where quarterly GDP is unavailable.
-bea_quarterly_gdp,gdp,demand,gdp,0.1667,1,primary_else_fallback,true,false,true,true,false,Quarterly GDP preferred where available.
+
+bea_annual_gdp,gdp_annual,demand,gdp,0.1667,2,primary_else_fallback,true,false,false,true,true,Annual GDP backfills where quarterly GDP is unavailable.
+bea_quarterly_gdp,gdp_quarterly,demand,gdp,0.1667,1,primary_else_fallback,true,false,true,true,false,Quarterly GDP preferred where available.
+
 laus_labor_force,labor_force,demand,labor_force,0.1667,1,direct,true,false,true,true,false,
 laus_employment,employment,demand,employment,0.1667,2,primary_else_fallback,true,false,false,true,true,LAUS employment backfills where CES employment is unavailable.
 laus_unemployment,unemployment_count,demand,unemployment,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only; unemployment rate is the v1 scoring metric.
-laus_unemployment_rate,unemployment_rate,demand,unemployment,0.1667,1,primary_else_fallback,true,false,true,true,true,Preferred unemployment rate where available.
-fred_unemployment_rate,unemployment_rate,demand,unemployment,0.1667,2,primary_else_fallback,true,false,false,true,false,Fallback national/state unemployment rate.
+laus_unemployment_rate,laus_unemployment_rate,demand,unemployment,0.1667,1,primary_else_fallback,true,false,true,true,true,Preferred unemployment rate where available.
+
+fred_unemployment_rate,fred_unemployment_rate,demand,unemployment,0.1667,2,primary_else_fallback,true,false,false,true,false,Fallback national/state unemployment rate.
+
 ces_total_nonfarm,employment,demand,employment,0.1667,1,primary_else_fallback,true,false,true,true,false,CES total nonfarm preferred where available.
 ces_total_private,total_private_employment,demand,employment,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only in v1; total nonfarm is preferred CES employment signal.
 ces_construction,construction_employment,supply,construction_activity,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only until C3.02 Supply Dimension is updated to include construction activity.
+
 bps_total_units,permit_activity,supply,permit_activity,0.3333,1,direct,true,false,true,true,true,
 bps_total_buildings,permit_buildings,supply,permit_activity,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only in v1.
 bps_total_value,permit_value,supply,permit_activity,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only in v1.
 bps_1_unit,single_family_permit_activity,supply,permit_activity,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only in v1; total units is the scoring signal.
 bps_5plus_units,multifamily_permit_activity,supply,permit_activity,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only in v1; total units is the scoring signal.
+
 nrc_housing_starts,housing_starts,supply,construction_activity,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only until C3.02 Supply Dimension is updated to include starts.
 nrc_housing_completions,housing_completions,supply,construction_activity,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only until C3.02 Supply Dimension is updated to include completions.
+
 fred_mortgage_30y,mortgage_30y,capital_markets,cost_of_capital,0.35,1,direct,true,false,true,true,false,
 fred_mortgage_15y,mortgage_15y,capital_markets,cost_of_capital,0.05,1,direct,true,false,false,true,false,Secondary cost-of-capital signal.
 fred_fedfunds,fedfunds,capital_markets,cost_of_capital,0.15,1,direct,true,false,true,true,false,
