@@ -123,8 +123,8 @@ fred_unemployment_rate_short,fred_unemployment_rate,short_term_change,mom_zscore
 fred_unemployment_rate_long,fred_unemployment_rate,long_term_change,yoy_zscore,0.40,12m,demand,
 
 price_to_income_level,derived_price_to_income,level,level_zscore,0.50,,affordability,
-price_to_income_short,derived_price_to_income,short_term_change,yoy_zscore,0.20,1y,affordability,
-price_to_income_long,derived_price_to_income,long_term_change,rolling_yoy_zscore,0.30,3y,affordability,
+price_to_income_short,derived_price_to_income,short_term_change,mom_zscore,0.20,1m,affordability,
+price_to_income_long,derived_price_to_income,long_term_change,yoy_zscore,0.30,12m,affordability,
 payment_burden_level,derived_payment_burden,level,level_zscore,0.50,,affordability,
 payment_burden_short,derived_payment_burden,short_term_change,mom_zscore,0.20,1m,affordability,
 payment_burden_long,derived_payment_burden,long_term_change,yoy_zscore,0.30,12m,affordability,
