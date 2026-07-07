@@ -14,6 +14,12 @@ SAMPLES = [
     "population_long",
     "median_household_income_short",
     "median_household_income_long",
+    "price_to_income_level",
+    "price_to_income_short",
+    "payment_burden_level",
+    "payment_burden_short",
+    "permit_intensity_level",
+    "permit_intensity_short",
 ]
 
 
