@@ -46,7 +46,6 @@ bea_annual_gdp_long,bea_annual_gdp,long_term_change,rolling_yoy_zscore,0.40,3y,d
 bea_quarterly_gdp_level,bea_quarterly_gdp,level,level_zscore,0.25,,demand,
 bea_quarterly_gdp_short,bea_quarterly_gdp,short_term_change,qoq_zscore,0.35,1q,demand,
 bea_quarterly_gdp_long,bea_quarterly_gdp,long_term_change,yoy_zscore,0.40,4q,demand,
-
 laus_unemployment_level,laus_unemployment,level,level_zscore,0.25,,demand,
 laus_unemployment_short,laus_unemployment,short_term_change,mom_zscore,0.35,1m,demand,
 laus_unemployment_long,laus_unemployment,long_term_change,yoy_zscore,0.40,12m,demand,
@@ -59,7 +58,6 @@ laus_employment_long,laus_employment,long_term_change,yoy_zscore,0.40,12m,demand
 laus_unemployment_rate_level,laus_unemployment_rate,level,level_zscore,0.25,,demand,
 laus_unemployment_rate_short,laus_unemployment_rate,short_term_change,mom_zscore,0.35,1m,demand,
 laus_unemployment_rate_long,laus_unemployment_rate,long_term_change,yoy_zscore,0.40,12m,demand,
-
 ces_total_nonfarm_level,ces_total_nonfarm,level,level_zscore,0.25,,demand,
 ces_total_nonfarm_short,ces_total_nonfarm,short_term_change,mom_zscore,0.35,1m,demand,
 ces_total_nonfarm_long,ces_total_nonfarm,long_term_change,yoy_zscore,0.40,12m,demand,
@@ -69,7 +67,6 @@ ces_construction_long,ces_construction,long_term_change,yoy_zscore,0.40,12m,supp
 ces_total_private_level,ces_total_private,level,level_zscore,0.25,,demand,
 ces_total_private_short,ces_total_private,short_term_change,mom_zscore,0.35,1m,demand,
 ces_total_private_long,ces_total_private,long_term_change,yoy_zscore,0.40,12m,demand,
-
 bps_total_units_level,bps_total_units,level,level_zscore,0.25,,supply,
 bps_total_units_short,bps_total_units,short_term_change,mom_zscore,0.35,1m,supply,
 bps_total_units_long,bps_total_units,long_term_change,yoy_zscore,0.40,12m,supply,
@@ -85,14 +82,12 @@ bps_1_unit_long,bps_1_unit,long_term_change,yoy_zscore,0.40,12m,supply,
 bps_5plus_units_level,bps_5plus_units,level,level_zscore,0.25,,supply,
 bps_5plus_units_short,bps_5plus_units,short_term_change,mom_zscore,0.35,1m,supply,
 bps_5plus_units_long,bps_5plus_units,long_term_change,yoy_zscore,0.40,12m,supply,
-
 nrc_housing_starts_level,nrc_housing_starts,level,level_zscore,0.25,,supply,
 nrc_housing_starts_short,nrc_housing_starts,short_term_change,mom_zscore,0.35,1m,supply,
 nrc_housing_starts_long,nrc_housing_starts,long_term_change,yoy_zscore,0.40,12m,supply,
 nrc_housing_completions_level,nrc_housing_completions,level,level_zscore,0.25,,supply,
 nrc_housing_completions_short,nrc_housing_completions,short_term_change,mom_zscore,0.35,1m,supply,
 nrc_housing_completions_long,nrc_housing_completions,long_term_change,yoy_zscore,0.40,12m,supply,
-
 fred_mortgage_15y_level,fred_mortgage_15y,level,level_zscore,0.40,,capital_markets,
 fred_mortgage_15y_short,fred_mortgage_15y,short_term_change,mom_zscore,0.30,1m,capital_markets,
 fred_mortgage_15y_long,fred_mortgage_15y,long_term_change,yoy_zscore,0.30,12m,capital_markets,
@@ -117,7 +112,6 @@ fred_2y10y_spread_long,fred_2y10y_spread,long_term_change,yoy_zscore,0.30,12m,ca
 fred_cpi_level,fred_cpi,level,level_zscore,0.50,,affordability,
 fred_cpi_short,fred_cpi,short_term_change,mom_zscore,0.20,1m,affordability,
 fred_cpi_long,fred_cpi,long_term_change,yoy_zscore,0.30,12m,affordability,
-
 fred_unemployment_rate_level,fred_unemployment_rate,level,level_zscore,0.25,,demand,
 fred_unemployment_rate_short,fred_unemployment_rate,short_term_change,mom_zscore,0.35,1m,demand,
 fred_unemployment_rate_long,fred_unemployment_rate,long_term_change,yoy_zscore,0.40,12m,demand,
