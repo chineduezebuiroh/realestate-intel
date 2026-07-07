@@ -110,7 +110,15 @@ def build_feature_matrix(config: RegimeConfig | None = None) -> pd.DataFrame:
             on="metric_key",
             how="left",
         )
-        .drop_duplicates(subset=["feature_key", "canonical_metric_key"])
+        .drop_duplicates(
+            subset=[
+                "canonical_metric_key",
+                "feature_type",
+                "transform",
+                "feature_window",
+                "dimension_context",
+            ]
+        )
     )
 
     rows = []
