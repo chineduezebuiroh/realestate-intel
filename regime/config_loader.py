@@ -160,24 +160,13 @@ def validate_regime_config(config: RegimeConfig) -> None:
             bad = df[parsed < 0]
             raise ValueError(f"Negative {name} values:\n{bad}")
 
-    enabled_dims = set(
-        config.metric_dimensions.loc[
-            _truthy(config.metric_dimensions["enabled"]),
-            "dimension",
-        ]
-    )
-    enabled_axis_dims = set(
-        config.axes.loc[
-            _truthy(config.axes["enabled"]),
-            "dimension",
-        ]
-    )
-
-    missing_axis_dims = sorted(enabled_dims - enabled_axis_dims)
-    if missing_axis_dims:
+    axis_dims = set(config.axes["dimension"])
+    
+    unknown_axis_dims = sorted(axis_dims - set(config.metric_dimensions["dimension"]))
+    if unknown_axis_dims:
         raise ValueError(
-            "Enabled metric dimensions not represented in axis registry: "
-            f"{missing_axis_dims}"
+            "Axis registry references dimensions not present in metric_dimension_registry: "
+            f"{unknown_axis_dims}"
         )
 
     if SERVING_DB.exists():
