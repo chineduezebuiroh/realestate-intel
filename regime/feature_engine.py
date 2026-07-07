@@ -19,24 +19,49 @@ def _zscore(s: pd.Series, min_obs: int = 12) -> pd.Series:
     return ((s - expanding_mean) / expanding_std).clip(-3, 3) / 3
 
 
-def _compute_feature(group: pd.DataFrame, transform: str) -> pd.Series:
+def _window_to_periods(feature_window: str, default: int) -> int:
+    value = str(feature_window or "").strip().lower()
+
+    if not value:
+        return default
+
+    if value.endswith(("m", "q", "y")):
+        value = value[:-1]
+
+    try:
+        periods = int(value)
+    except ValueError:
+        return default
+
+    return max(periods, 1)
+
+
+def _compute_feature(
+    group: pd.DataFrame,
+    transform: str,
+    feature_window: str = "",
+) -> pd.Series:
     group = group.sort_values("date")
     value = group["value"].astype(float)
 
     if transform == "level_zscore":
-        return _zscore(value)
+        return value
 
     if transform == "mom_zscore":
-        return _zscore(value.pct_change(1))
+        periods = _window_to_periods(feature_window, default=1)
+        return value.pct_change(periods)
 
     if transform == "qoq_zscore":
-        return _zscore(value.pct_change(1))
+        periods = _window_to_periods(feature_window, default=1)
+        return value.pct_change(periods)
 
     if transform == "yoy_zscore":
-        return _zscore(value.pct_change(12))
+        periods = _window_to_periods(feature_window, default=12)
+        return value.pct_change(periods)
 
     if transform == "rolling_yoy_zscore":
-        return _zscore(value.pct_change(3))
+        periods = _window_to_periods(feature_window, default=3)
+        return value.pct_change(periods)
 
     if transform == "none":
         return value
@@ -92,23 +117,34 @@ def build_feature_matrix(config: RegimeConfig | None = None) -> pd.DataFrame:
         metric_df["transform"] = transform
 
         metric_df = metric_df.sort_values(["geo_id", "metric_key", "date"]).copy()
+
+        feature_window = f.get("feature_window", "")
         
-        metric_df["feature_value"] = (
+        metric_df["raw_feature_value"] = (
             metric_df
             .groupby(["geo_id", "metric_key"], group_keys=False)["value"]
-            .transform(lambda s: _compute_feature(pd.DataFrame({"date": metric_df.loc[s.index, "date"], "value": s}), transform))
+            .transform(
+                lambda s: _compute_feature(
+                    pd.DataFrame({
+                        "date": metric_df.loc[s.index, "date"],
+                        "value": s,
+                    }),
+                    transform,
+                    feature_window,
+                )
+            )
         )
 
         rows.append(
-            metric_df[["geo_id", "date", "metric_key", "feature_key", "feature_value"]]
+            metric_df[["geo_id", "date", "metric_key", "feature_key", "raw_feature_value"]]
         )
 
     if not rows:
         return pd.DataFrame(
-            columns=["geo_id", "date", "metric_key", "feature_key", "feature_value"]
+            columns=["geo_id", "date", "metric_key", "feature_key", "raw_feature_value"]
         )
 
     out = pd.concat(rows, ignore_index=True)
-    out = out.dropna(subset=["feature_value"])
+    out = out.dropna(subset=["raw_feature_value"])
 
     return out
