@@ -10,8 +10,10 @@ SAMPLES = [
     "redfin_median_sale_price_long",
     "bea_quarterly_gdp_short",
     "bea_quarterly_gdp_long",
-    "acs5_population_short",
-    "acs5_population_long",
+    "population_short",
+    "population_long",
+    "median_household_income_short",
+    "median_household_income_long",
 ]
 
 
