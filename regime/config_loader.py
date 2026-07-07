@@ -198,7 +198,11 @@ def validate_regime_config(config: RegimeConfig) -> None:
         """).fetchdf()
         con.close()
 
-        merged = config.source_metrics.merge(
+        check_source_metrics = config.source_metrics[
+            config.source_metrics["source_id"] != "derived"
+        ].copy()
+        
+        merged = check_source_metrics.merge(
             facts,
             on=["source_id", "metric_id"],
             how="left",
