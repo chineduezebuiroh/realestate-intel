@@ -4,8 +4,23 @@ from __future__ import annotations
 import pandas as pd
 
 
-def _wide(raw: pd.DataFrame) -> pd.DataFrame:
-    return (
+MONTHLY_KEYS = {
+    "median_sale_price",
+    "mortgage_30y",
+    "bps_total_units",
+}
+
+ANNUAL_FFILL_KEYS = {
+    "median_household_income",
+    "population",
+}
+
+
+def _monthly_panel(raw: pd.DataFrame) -> pd.DataFrame:
+    raw = raw.copy()
+    raw["date"] = pd.to_datetime(raw["date"])
+
+    wide = (
         raw.pivot_table(
             index=["geo_id", "date"],
             columns="canonical_metric_key",
@@ -13,7 +28,26 @@ def _wide(raw: pd.DataFrame) -> pd.DataFrame:
             aggfunc="first",
         )
         .reset_index()
+        .sort_values(["geo_id", "date"])
     )
+
+    # Build one monthly calendar per geo from observed monthly metric dates.
+    monthly_dates = (
+        raw[raw["canonical_metric_key"].isin(MONTHLY_KEYS)]
+        [["geo_id", "date"]]
+        .drop_duplicates()
+        .copy()
+    )
+
+    panel = monthly_dates.merge(wide, on=["geo_id", "date"], how="left")
+    panel = panel.sort_values(["geo_id", "date"])
+
+    # Bring annual values forward onto monthly observations by geo.
+    for col in ANNUAL_FFILL_KEYS:
+        if col in panel.columns:
+            panel[col] = panel.groupby("geo_id")[col].ffill()
+
+    return panel
 
 
 def _long(df: pd.DataFrame, metric_key: str, value_col: str) -> pd.DataFrame:
@@ -34,7 +68,7 @@ def build_derived_metrics(raw: pd.DataFrame) -> pd.DataFrame:
     if raw.empty:
         return pd.DataFrame(columns=["geo_id", "date", "canonical_metric_key", "value"])
 
-    w = _wide(raw)
+    w = _monthly_panel(raw)
     outputs = []
 
     if {"median_sale_price", "median_household_income"}.issubset(w.columns):
@@ -49,18 +83,17 @@ def build_derived_metrics(raw: pd.DataFrame) -> pd.DataFrame:
         n = 360
 
         principal = tmp["median_sale_price"] * 0.80
-        monthly_income = tmp["median_household_income"] / 12.0
 
         payment = principal * (
             monthly_rate * (1 + monthly_rate) ** n
         ) / ((1 + monthly_rate) ** n - 1)
 
-        tmp["payment_burden"] = payment / monthly_income
+        tmp["payment_burden"] = payment / tmp["median_household_income"]
         outputs.append(_long(tmp, "payment_burden", "payment_burden"))
 
     if {"bps_total_units", "population"}.issubset(w.columns):
         tmp = w.copy()
-        tmp["permit_intensity"] = tmp["bps_total_units"] / tmp["population"]
+        tmp["permit_intensity"] = (tmp["bps_total_units"] / tmp["population"]) * 1000.0
         outputs.append(_long(tmp, "permit_intensity", "permit_intensity"))
 
     if not outputs:
