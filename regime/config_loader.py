@@ -1,0 +1,218 @@
+from __future__ import annotations
+# regime/config_loader.py
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import duckdb
+import pandas as pd
+
+
+SOURCE_REGISTRY = Path("config/source_metric_registry.csv")
+FEATURE_REGISTRY = Path("config/feature_registry.csv")
+METRIC_DIMENSION_REGISTRY = Path("config/metric_dimension_registry.csv")
+AXIS_REGISTRY = Path("config/axis_registry.csv")
+SERVING_DB = Path("data/market_serving.duckdb")
+
+
+@dataclass(frozen=True)
+class RegimeConfig:
+    source_metrics: pd.DataFrame
+    features: pd.DataFrame
+    metric_dimensions: pd.DataFrame
+    axes: pd.DataFrame
+
+
+def _read_csv(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(f"Missing config file: {path}")
+    return pd.read_csv(path, dtype=str).fillna("")
+
+
+def _truthy(series: pd.Series) -> pd.Series:
+    return series.astype(str).str.strip().str.lower().isin({"true", "1", "yes", "y"})
+
+
+def _require_columns(df: pd.DataFrame, path: Path, required: set[str]) -> None:
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"{path} missing required columns: {sorted(missing)}")
+
+
+def load_regime_config(validate: bool = True) -> RegimeConfig:
+    source_metrics = _read_csv(SOURCE_REGISTRY)
+    features = _read_csv(FEATURE_REGISTRY)
+    metric_dimensions = _read_csv(METRIC_DIMENSION_REGISTRY)
+    axes = _read_csv(AXIS_REGISTRY)
+
+    config = RegimeConfig(
+        source_metrics=source_metrics,
+        features=features,
+        metric_dimensions=metric_dimensions,
+        axes=axes,
+    )
+
+    if validate:
+        validate_regime_config(config)
+
+    return config
+
+
+def validate_regime_config(config: RegimeConfig) -> None:
+    _require_columns(
+        config.source_metrics,
+        SOURCE_REGISTRY,
+        {
+            "metric_key",
+            "source_id",
+            "metric_id",
+            "metric_name",
+            "geo_levels",
+            "frequency",
+            "native_units",
+            "seasonality",
+            "forecastable",
+        },
+    )
+
+    _require_columns(
+        config.features,
+        FEATURE_REGISTRY,
+        {
+            "feature_key",
+            "metric_key",
+            "feature_type",
+            "transform",
+            "feature_weight",
+            "feature_window",
+            "dimension_context",
+        },
+    )
+
+    _require_columns(
+        config.metric_dimensions,
+        METRIC_DIMENSION_REGISTRY,
+        {
+            "metric_key",
+            "canonical_metric_key",
+            "dimension",
+            "subcomponent",
+            "metric_weight",
+            "source_priority",
+            "merge_strategy",
+            "enabled",
+            "diagnostic_only",
+            "required",
+            "macro_enabled",
+            "local_enabled",
+        },
+    )
+
+    _require_columns(
+        config.axes,
+        AXIS_REGISTRY,
+        {"axis", "dimension", "dimension_weight", "enabled"},
+    )
+
+    if config.source_metrics["metric_key"].duplicated().any():
+        dupes = config.source_metrics[
+            config.source_metrics["metric_key"].duplicated(keep=False)
+        ]
+        raise ValueError(f"Duplicate metric_key in source registry:\n{dupes}")
+
+    if config.features["feature_key"].duplicated().any():
+        dupes = config.features[
+            config.features["feature_key"].duplicated(keep=False)
+        ]
+        raise ValueError(f"Duplicate feature_key in feature registry:\n{dupes}")
+
+    source_keys = set(config.source_metrics["metric_key"])
+    feature_keys = set(config.features["metric_key"])
+    dim_keys = set(config.metric_dimensions["metric_key"])
+
+    missing_feature_refs = sorted(feature_keys - source_keys)
+    if missing_feature_refs:
+        raise ValueError(f"Feature registry references unknown metric_key(s): {missing_feature_refs}")
+
+    missing_dim_refs = sorted(dim_keys - source_keys)
+    if missing_dim_refs:
+        raise ValueError(f"Metric dimension registry references unknown metric_key(s): {missing_dim_refs}")
+
+    missing_feature_coverage = sorted(source_keys - feature_keys)
+    if missing_feature_coverage:
+        raise ValueError(f"Source metrics missing feature rows: {missing_feature_coverage}")
+
+    missing_dimension_coverage = sorted(source_keys - dim_keys)
+    if missing_dimension_coverage:
+        raise ValueError(f"Source metrics missing dimension rows: {missing_dimension_coverage}")
+
+    for name, df, col in [
+        ("feature_weight", config.features, "feature_weight"),
+        ("metric_weight", config.metric_dimensions, "metric_weight"),
+        ("source_priority", config.metric_dimensions, "source_priority"),
+        ("dimension_weight", config.axes, "dimension_weight"),
+    ]:
+        parsed = pd.to_numeric(df[col], errors="coerce")
+        if parsed.isna().any():
+            bad = df[parsed.isna()]
+            raise ValueError(f"Non-numeric {name} values:\n{bad}")
+        if name != "source_priority" and (parsed < 0).any():
+            bad = df[parsed < 0]
+            raise ValueError(f"Negative {name} values:\n{bad}")
+
+    enabled_dims = set(
+        config.metric_dimensions.loc[
+            _truthy(config.metric_dimensions["enabled"]),
+            "dimension",
+        ]
+    )
+    enabled_axis_dims = set(
+        config.axes.loc[
+            _truthy(config.axes["enabled"]),
+            "dimension",
+        ]
+    )
+
+    missing_axis_dims = sorted(enabled_dims - enabled_axis_dims)
+    if missing_axis_dims:
+        raise ValueError(
+            "Enabled metric dimensions not represented in axis registry: "
+            f"{missing_axis_dims}"
+        )
+
+    if SERVING_DB.exists():
+        con = duckdb.connect(str(SERVING_DB))
+        facts = con.execute("""
+            SELECT DISTINCT source_id, metric_id
+            FROM fact_timeseries
+        """).fetchdf()
+        con.close()
+
+        merged = config.source_metrics.merge(
+            facts,
+            on=["source_id", "metric_id"],
+            how="left",
+            indicator=True,
+        )
+
+        missing_facts = merged[merged["_merge"] == "left_only"]
+        if not missing_facts.empty:
+            raise ValueError(
+                "Source registry metrics missing from serving DB:\n"
+                + missing_facts[["metric_key", "source_id", "metric_id"]]
+                    .to_string(index=False)
+            )
+
+
+def build_registry_resolution(config: RegimeConfig | None = None) -> pd.DataFrame:
+    if config is None:
+        config = load_regime_config(validate=True)
+
+    df = (
+        config.features
+        .merge(config.source_metrics, on="metric_key", how="left")
+        .merge(config.metric_dimensions, on="metric_key", how="left")
+        .merge(config.axes, on="dimension", how="left", suffixes=("", "_axis"))
+    )
+
+    return df
