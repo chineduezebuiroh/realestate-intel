@@ -4,6 +4,17 @@ from __future__ import annotations
 from regime.feature_engine import build_feature_matrix
 
 
+SAMPLES = [
+    "redfin_median_sale_price_level",
+    "redfin_median_sale_price_short",
+    "redfin_median_sale_price_long",
+    "bea_quarterly_gdp_short",
+    "bea_quarterly_gdp_long",
+    "acs5_population_short",
+    "acs5_population_long",
+]
+
+
 def main() -> int:
     features = build_feature_matrix()
 
@@ -12,10 +23,29 @@ def main() -> int:
     print("[feature_engine] feature_keys:", features["feature_key"].nunique())
     print("[feature_engine] date range:", features["date"].min(), "→", features["date"].max())
 
-    print("[feature_engine] sample:")
-    print(features.head(20).to_string(index=False))
+    print("\n[feature_engine] feature counts:")
+    print(
+        features.groupby("feature_key")
+        .size()
+        .reset_index(name="rows")
+        .sort_values("feature_key")
+        .to_string(index=False)
+    )
 
-    print("[feature_engine] OK")
+    for feature_key in SAMPLES:
+        sample = (
+            features[features["feature_key"] == feature_key]
+            .sort_values(["geo_id", "date"])
+            .head(12)
+        )
+
+        print(f"\n[feature_engine] sample: {feature_key}")
+        if sample.empty:
+            print("  MISSING")
+        else:
+            print(sample.to_string(index=False))
+
+    print("\n[feature_engine] OK")
     return 0
 
 
