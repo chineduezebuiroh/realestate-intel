@@ -227,6 +227,15 @@ def main():
         .astype(str)
         .str.strip()
         .str.lower()
+        .replace({
+            "zip code": "zip",
+            "zipcode": "zip",
+            "postal code": "zip",
+            "national": "national",
+            "country": "national",
+            "metro area": "metro",
+            "metro_area": "metro",
+        })
     )
 
     # Map geo.level -> expected Redfin region_type
