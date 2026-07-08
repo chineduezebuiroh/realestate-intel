@@ -217,7 +217,19 @@ def normalize_features(features: pd.DataFrame | None = None) -> pd.DataFrame:
     policy = _policy_for_features(features, registry)
 
     df = features.merge(policy, on="feature_key", how="left")
-
+    
+    missing_policy = df[df["normalization_method"].isna() | (df["normalization_method"].astype(str) == "")]
+    if not missing_policy.empty:
+        missing = (
+            missing_policy[["feature_key", "canonical_metric_key"]]
+            .drop_duplicates()
+            .sort_values(["feature_key", "canonical_metric_key"])
+        )
+        raise ValueError(
+            "Features missing normalization policy:\n"
+            + missing.to_string(index=False)
+        )
+    
     out = (
         df.groupby(["geo_id", "feature_key"], group_keys=False)
         .apply(_normalize_group)
