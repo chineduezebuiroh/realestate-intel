@@ -35,6 +35,24 @@ def main() -> int:
     )
 
     print("\n[metric_scorer] sample metric summaries:")
+
+    print("\n[metric_scorer] recent feature coverage:")
+    recent = metrics[metrics["date"] >= metrics["date"].max() - __import__("pandas").Timedelta(days=730)].copy()
+    
+    print(
+        recent.groupby("canonical_metric_key")
+        .agg(
+            rows=("metric_score", "size"),
+            avg_feature_count=("feature_count", "mean"),
+            pct_full_3_feature=("feature_count", lambda s: (s >= 3).mean()),
+            min_feature_count=("feature_count", "min"),
+            max_feature_count=("feature_count", "max"),
+        )
+        .reset_index()
+        .sort_values("canonical_metric_key")
+        .to_string(index=False)
+    )
+    
     print(
         metrics[metrics["canonical_metric_key"].isin(SAMPLES)]
         .groupby("canonical_metric_key")
