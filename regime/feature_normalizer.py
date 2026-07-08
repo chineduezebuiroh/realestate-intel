@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from regime.config_loader import load_regime_config
 from regime.feature_engine import build_feature_matrix
 
 
@@ -22,7 +23,8 @@ def _load_normalization_registry() -> pd.DataFrame:
     df = pd.read_csv(NORMALIZATION_REGISTRY, dtype=str).fillna("")
 
     required = {
-        "feature_key",
+        "policy_scope",
+        "policy_key",
         "normalization_method",
         "lookback_periods",
         "min_periods",
@@ -37,27 +39,82 @@ def _load_normalization_registry() -> pd.DataFrame:
 
     df = df[_truthy(df["enabled"])].copy()
 
-    if "*" not in set(df["feature_key"]):
-        raise ValueError("normalization_registry.csv must include a '*' default row")
+    if not ((df["policy_scope"] == "global") & (df["policy_key"] == "*")).any():
+        raise ValueError("normalization_registry.csv must include global,* default row")
 
     return df
 
 
-def _policy_for_features(features: pd.DataFrame, registry: pd.DataFrame) -> pd.DataFrame:
-    default = registry[registry["feature_key"] == "*"].iloc[0].to_dict()
-    specific = registry[registry["feature_key"] != "*"].copy()
+def _source_family_from_metric_key(metric_key: str) -> str:
+    value = str(metric_key).strip()
 
+    if value.startswith("redfin_"):
+        return "redfin"
+    if value.startswith("acs1_") or value.startswith("acs5_"):
+        return "acs"
+    if value.startswith("ces_"):
+        return "ces"
+    if value.startswith("laus_"):
+        return "laus"
+    if value.startswith("fred_unemployment"):
+        return "fred_unemp"
+    if value.startswith("fred_"):
+        return "fred_macro"
+    if value.startswith("derived_"):
+        return "derived"
+    if value.startswith("bea_"):
+        return "bea"
+    if value.startswith("bps_"):
+        return "bps"
+    if value.startswith("nrc_"):
+        return "nrc"
+
+    return "unknown"
+
+
+def _feature_source_family_map() -> pd.DataFrame:
+    config = load_regime_config(validate=True)
+
+    feature_map = (
+        config.features[["feature_key", "metric_key"]]
+        .drop_duplicates()
+        .copy()
+    )
+    feature_map["source_family"] = feature_map["metric_key"].map(_source_family_from_metric_key)
+
+    # One feature_key should resolve to one source family after canonical collapse.
+    feature_map = feature_map.drop_duplicates(subset=["feature_key"], keep="first")
+
+    return feature_map[["feature_key", "source_family"]]
+
+
+def _policy_for_features(features: pd.DataFrame, registry: pd.DataFrame) -> pd.DataFrame:
     base = features[["feature_key"]].drop_duplicates().copy()
-    for col, val in default.items():
-        if col != "feature_key":
+    base = base.merge(_feature_source_family_map(), on="feature_key", how="left")
+    base["source_family"] = base["source_family"].fillna("unknown")
+
+    global_policy = (
+        registry[
+            (registry["policy_scope"] == "global")
+            & (registry["policy_key"] == "*")
+        ]
+        .iloc[0]
+        .to_dict()
+    )
+
+    for col, val in global_policy.items():
+        if col not in {"policy_scope", "policy_key"}:
             base[col] = val
 
-    overrides = specific.drop_duplicates(subset=["feature_key"], keep="last")
+    source_policies = registry[registry["policy_scope"] == "source_family"].copy()
+    source_policies = source_policies.rename(columns={"policy_key": "source_family"})
+    source_policies = source_policies.drop(columns=["policy_scope"])
+
     out = base.merge(
-        overrides,
-        on="feature_key",
+        source_policies,
+        on="source_family",
         how="left",
-        suffixes=("", "_override"),
+        suffixes=("", "_source"),
     )
 
     for col in [
@@ -70,10 +127,36 @@ def _policy_for_features(features: pd.DataFrame, registry: pd.DataFrame) -> pd.D
         "enabled",
         "notes",
     ]:
-        override_col = f"{col}_override"
-        if override_col in out.columns:
-            out[col] = out[override_col].where(out[override_col].astype(str) != "", out[col])
-            out = out.drop(columns=[override_col])
+        source_col = f"{col}_source"
+        if source_col in out.columns:
+            out[col] = out[source_col].where(out[source_col].astype(str) != "", out[col])
+            out = out.drop(columns=[source_col])
+
+    feature_policies = registry[registry["policy_scope"] == "feature_key"].copy()
+    feature_policies = feature_policies.rename(columns={"policy_key": "feature_key"})
+    feature_policies = feature_policies.drop(columns=["policy_scope"])
+
+    out = out.merge(
+        feature_policies,
+        on="feature_key",
+        how="left",
+        suffixes=("", "_feature"),
+    )
+
+    for col in [
+        "normalization_method",
+        "lookback_periods",
+        "min_periods",
+        "score_direction",
+        "clip_low",
+        "clip_high",
+        "enabled",
+        "notes",
+    ]:
+        feature_col = f"{col}_feature"
+        if feature_col in out.columns:
+            out[col] = out[feature_col].where(out[feature_col].astype(str) != "", out[col])
+            out = out.drop(columns=[feature_col])
 
     return out
 
@@ -82,6 +165,7 @@ def _rolling_percentile(values: pd.Series, lookback_periods: int, min_periods: i
     def percentile_last(window: pd.Series) -> float:
         current = window.iloc[-1]
         hist = window.dropna()
+
         if len(hist) < min_periods or pd.isna(current):
             return float("nan")
 
@@ -146,10 +230,13 @@ def normalize_features(features: pd.DataFrame | None = None) -> pd.DataFrame:
             "date",
             "canonical_metric_key",
             "feature_key",
+            "source_family",
             "raw_feature_value",
             "percentile",
             "feature_score",
             "normalization_method",
             "score_direction",
+            "lookback_periods",
+            "min_periods",
         ]
     ].dropna(subset=["feature_score"])
