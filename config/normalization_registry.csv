@@ -1,20 +1,18 @@
-feature_key,normalization_method,lookback_periods,min_periods,score_direction,clip_low,clip_high,enabled,notes
-*,expanding_percentile,240,36,positive,0.01,0.99,true,"Default percentile mapped to [-1,+1]"
-payment_burden_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher burden is worse
-payment_burden_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising burden is worse
-payment_burden_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising burden is worse
-price_to_income_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher price-to-income is worse
-price_to_income_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising price-to-income is worse
-price_to_income_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising price-to-income is worse
-redfin_dom_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher DOM is weaker liquidity
-redfin_dom_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising DOM is weaker liquidity
-redfin_dom_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising DOM is weaker liquidity
-fred_mortgage_30y_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher rates are tighter capital conditions
-fred_mortgage_30y_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
-fred_mortgage_30y_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
-fred_mortgage_15y_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher rates are tighter capital conditions
-fred_mortgage_15y_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
-fred_mortgage_15y_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
-fred_fedfunds_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher rates are tighter capital conditions
-fred_fedfunds_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
-fred_fedfunds_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
+policy_scope,policy_key,normalization_method,lookback_periods,min_periods,score_direction,clip_low,clip_high,enabled,notes
+global,*,expanding_percentile,240,36,positive,0.01,0.99,true,Fallback policy
+source_family,redfin,expanding_percentile,120,36,positive,0.01,0.99,true,Redfin monthly market metrics
+source_family,acs,expanding_percentile,25,8,positive,0.01,0.99,true,ACS annual metrics
+source_family,ces,expanding_percentile,120,36,positive,0.01,0.99,true,CES monthly labor metrics
+source_family,laus,expanding_percentile,120,36,positive,0.01,0.99,true,LAUS monthly labor metrics
+source_family,fred_macro,expanding_percentile,240,36,negative,0.01,0.99,true,FRED capital market conditions; high rates generally tighter
+source_family,fred_unemp,expanding_percentile,120,36,negative,0.01,0.99,true,FRED unemployment; higher is worse
+source_family,derived,expanding_percentile,120,36,negative,0.01,0.99,true,Derived affordability metrics default negative
+feature_key,permit_intensity_level,expanding_percentile,120,36,positive,0.01,0.99,true,Higher permit intensity means more supply pressure
+feature_key,permit_intensity_short,expanding_percentile,120,36,positive,0.01,0.99,true,Rising permit intensity means more supply pressure
+feature_key,permit_intensity_long,expanding_percentile,120,36,positive,0.01,0.99,true,Rising permit intensity means more supply pressure
+feature_key,laus_unemployment_rate_level,expanding_percentile,120,36,negative,0.01,0.99,true,Higher unemployment rate is worse
+feature_key,laus_unemployment_rate_short,expanding_percentile,120,36,negative,0.01,0.99,true,Rising unemployment rate is worse
+feature_key,laus_unemployment_rate_long,expanding_percentile,120,36,negative,0.01,0.99,true,Rising unemployment rate is worse
+feature_key,redfin_dom_level,expanding_percentile,120,36,negative,0.01,0.99,true,Higher DOM is weaker liquidity
+feature_key,redfin_dom_short,expanding_percentile,120,36,negative,0.01,0.99,true,Rising DOM is weaker liquidity
+feature_key,redfin_dom_long,expanding_percentile,120,36,negative,0.01,0.99,true,Rising DOM is weaker liquidity
