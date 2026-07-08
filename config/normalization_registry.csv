@@ -1,1 +1,20 @@
-
+feature_key,normalization_method,lookback_periods,min_periods,score_direction,clip_low,clip_high,enabled,notes
+*,expanding_percentile,240,36,positive,0.01,0.99,true,Default percentile mapped to [-1,+1]
+payment_burden_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher burden is worse
+payment_burden_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising burden is worse
+payment_burden_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising burden is worse
+price_to_income_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher price-to-income is worse
+price_to_income_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising price-to-income is worse
+price_to_income_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising price-to-income is worse
+redfin_dom_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher DOM is weaker liquidity
+redfin_dom_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising DOM is weaker liquidity
+redfin_dom_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising DOM is weaker liquidity
+fred_mortgage_30y_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher rates are tighter capital conditions
+fred_mortgage_30y_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
+fred_mortgage_30y_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
+fred_mortgage_15y_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher rates are tighter capital conditions
+fred_mortgage_15y_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
+fred_mortgage_15y_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
+fred_fedfunds_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher rates are tighter capital conditions
+fred_fedfunds_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
+fred_fedfunds_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising rates are tighter capital conditions
