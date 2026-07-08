@@ -1,5 +1,5 @@
 feature_key,normalization_method,lookback_periods,min_periods,score_direction,clip_low,clip_high,enabled,notes
-*,expanding_percentile,240,36,positive,0.01,0.99,true,Default percentile mapped to [-1,+1]
+*,expanding_percentile,240,36,positive,0.01,0.99,true,"Default percentile mapped to [-1,+1]"
 payment_burden_level,expanding_percentile,240,36,negative,0.01,0.99,true,Higher burden is worse
 payment_burden_short,expanding_percentile,240,36,negative,0.01,0.99,true,Rising burden is worse
 payment_burden_long,expanding_percentile,240,36,negative,0.01,0.99,true,Rising burden is worse
