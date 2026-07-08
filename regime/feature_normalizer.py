@@ -129,7 +129,8 @@ def _policy_for_features(features: pd.DataFrame, registry: pd.DataFrame) -> pd.D
     ]:
         source_col = f"{col}_source"
         if source_col in out.columns:
-            out[col] = out[source_col].where(out[source_col].astype(str) != "", out[col])
+            mask = out[source_col].notna() & (out[source_col].astype(str).str.strip() != "")
+            out[col] = out[source_col].where(mask, out[col])
             out = out.drop(columns=[source_col])
 
     feature_policies = registry[registry["policy_scope"] == "feature_key"].copy()
@@ -155,7 +156,8 @@ def _policy_for_features(features: pd.DataFrame, registry: pd.DataFrame) -> pd.D
     ]:
         feature_col = f"{col}_feature"
         if feature_col in out.columns:
-            out[col] = out[feature_col].where(out[feature_col].astype(str) != "", out[col])
+            mask = out[feature_col].notna() & (out[feature_col].astype(str).str.strip() != "")
+            out[col] = out[feature_col].where(mask, out[col])
             out = out.drop(columns=[feature_col])
 
     return out
