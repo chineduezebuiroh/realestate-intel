@@ -1,4 +1,5 @@
 from __future__ import annotations
+# scripts/smoke_test_feature_normalizer.py
 
 from regime.feature_normalizer import normalize_features
 
