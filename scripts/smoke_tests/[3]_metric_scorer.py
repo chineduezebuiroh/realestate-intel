@@ -9,7 +9,7 @@ SAMPLES = [
     "price_to_income",
     "payment_burden",
     "permit_intensity",
-    "days_on_market"
+    "days_on_market",
     "mortgage_30y",
 ]
 
