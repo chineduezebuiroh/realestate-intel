@@ -96,7 +96,9 @@ def align_metric_scores_asof(metrics: pd.DataFrame | None = None) -> pd.DataFram
         grid_g["geo_id"] = geo_id
         grid_g["canonical_metric_key"] = metric_key
         grid_g = grid_g.sort_values("evaluation_date")
-    
+
+        source_g = source_g.drop(columns=["geo_id", "canonical_metric_key"])
+        
         aligned_g = pd.merge_asof(
             grid_g,
             source_g,
