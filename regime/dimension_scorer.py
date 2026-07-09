@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from regime.config_loader import load_regime_config
-from regime.metric_scorer import score_metrics
+from regime.asof_aligner import align_metric_scores_asof
 
 
 def _truthy(series: pd.Series) -> pd.Series:
@@ -70,12 +70,7 @@ def _build_dimension_weights() -> pd.DataFrame:
 
 def score_dimensions(metrics: pd.DataFrame | None = None) -> pd.DataFrame:
     if metrics is None:
-        metrics = score_metrics()
-
-    metrics = metrics[
-        metrics["geo_id"].astype(str).str.endswith("__county")
-        | metrics["geo_id"].astype(str).str.endswith("__cbsa_metro")
-    ].copy()
+        metrics = align_metric_scores_asof()
 
     dimension_weights = _build_dimension_weights()
 
@@ -100,7 +95,7 @@ def score_dimensions(metrics: pd.DataFrame | None = None) -> pd.DataFrame:
     df = df.dropna(subset=["metric_score"]).copy()
 
     grouped = []
-    for keys, g in df.groupby(["geo_id", "date", "dimension"], dropna=False):
+    for keys, g in df.groupby(["geo_id", "evaluation_date", "dimension"], dropna=False):
         total_weight = g["metric_weight"].sum()
         if total_weight <= 0:
             continue
@@ -117,6 +112,7 @@ def score_dimensions(metrics: pd.DataFrame | None = None) -> pd.DataFrame:
                 "metric_weight_sum": total_weight,
                 "min_metric_score": g["metric_score"].min(),
                 "max_metric_score": g["metric_score"].max(),
+                "max_metric_age_days": g["metric_age_days"].max(),
             }
         )
 
@@ -133,6 +129,7 @@ def score_dimensions(metrics: pd.DataFrame | None = None) -> pd.DataFrame:
                 "metric_weight_sum",
                 "min_metric_score",
                 "max_metric_score",
+                "max_metric_age_days",
             ]
         )
 
