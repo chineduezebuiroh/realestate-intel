@@ -82,25 +82,39 @@ def align_metric_scores_asof(metrics: pd.DataFrame | None = None) -> pd.DataFram
 
     grid = pairs.merge(calendar, how="cross")
 
-    source = metrics.rename(columns={"date": "metric_date"}).sort_values(
-        ["geo_id", "canonical_metric_key", "metric_date"]
-    )
-
-    grid = grid.sort_values(
-        ["geo_id", "canonical_metric_key", "evaluation_date"]
-    )
-
-    out = pd.merge_asof(
-        grid,
-        source,
-        by=["geo_id", "canonical_metric_key"],
-        left_on="evaluation_date",
-        right_on="metric_date",
-        direction="backward",
-        allow_exact_matches=True,
-    )
-
+    source = metrics.rename(columns={"date": "metric_date"}).copy()
+    
+    aligned_parts = []
+    
+    for (geo_id, metric_key), source_g in source.groupby(
+        ["geo_id", "canonical_metric_key"],
+        dropna=False,
+    ):
+        source_g = source_g.sort_values("metric_date").copy()
+    
+        grid_g = calendar.copy()
+        grid_g["geo_id"] = geo_id
+        grid_g["canonical_metric_key"] = metric_key
+        grid_g = grid_g.sort_values("evaluation_date")
+    
+        aligned_g = pd.merge_asof(
+            grid_g,
+            source_g,
+            left_on="evaluation_date",
+            right_on="metric_date",
+            direction="backward",
+            allow_exact_matches=True,
+        )
+    
+        aligned_parts.append(aligned_g)
+    
+    if aligned_parts:
+        out = pd.concat(aligned_parts, ignore_index=True)
+    else:
+        out = pd.DataFrame()
+    
     out = out.dropna(subset=["metric_score"]).copy()
+
     out["metric_age_days"] = (
         out["evaluation_date"] - out["metric_date"]
     ).dt.days
