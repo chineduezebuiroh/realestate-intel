@@ -72,6 +72,11 @@ def score_dimensions(metrics: pd.DataFrame | None = None) -> pd.DataFrame:
     if metrics is None:
         metrics = score_metrics()
 
+    metrics = metrics[
+        metrics["geo_id"].astype(str).str.endswith("__county")
+        | metrics["geo_id"].astype(str).str.endswith("__cbsa_metro")
+    ].copy()
+
     dimension_weights = _build_dimension_weights()
 
     df = metrics.merge(
