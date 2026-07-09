@@ -1,0 +1,237 @@
+geo_name,geo_level,redfin_code,state_code,include,notes
+"Anaheim, CA metro area",cbsa_metro,11244,CA,1,Generated from Redfin macro hierarchy; metro_code=11244
+"Atlantic City, NJ metro area",cbsa_metro,12100,NJ,1,Generated from Redfin macro hierarchy; metro_code=12100
+"Bakersfield, CA metro area",cbsa_metro,12540,CA,1,Generated from Redfin macro hierarchy; metro_code=12540
+"Baltimore, MD metro area",cbsa_metro,12580,MD,1,Generated from Redfin macro hierarchy; metro_code=12580
+"Big Stone Gap, VA metro area",cbsa_metro,13720,VA,1,Generated from Redfin macro hierarchy; metro_code=13720
+"Blacksburg, VA metro area",cbsa_metro,13980,VA,1,Generated from Redfin macro hierarchy; metro_code=13980
+"California, MD metro area",cbsa_metro,15680,MD,1,Generated from Redfin macro hierarchy; metro_code=15680
+"Cambridge, MD metro area",cbsa_metro,15700,MD,1,Generated from Redfin macro hierarchy; metro_code=15700
+"Camden, NJ metro area",cbsa_metro,15804,NJ,1,Generated from Redfin macro hierarchy; metro_code=15804
+"Charlottesville, VA metro area",cbsa_metro,16820,VA,1,Generated from Redfin macro hierarchy; metro_code=16820
+"Chico, CA metro area",cbsa_metro,17020,CA,1,Generated from Redfin macro hierarchy; metro_code=17020
+"Clearlake, CA metro area",cbsa_metro,17340,CA,1,Generated from Redfin macro hierarchy; metro_code=17340
+"Crescent City, CA metro area",cbsa_metro,18860,CA,1,Generated from Redfin macro hierarchy; metro_code=18860
+"Cumberland, MD metro area",cbsa_metro,19060,MD,1,Generated from Redfin macro hierarchy; metro_code=19060
+"Danville, VA metro area",cbsa_metro,19260,VA,1,Generated from Redfin macro hierarchy; metro_code=19260
+"Easton, MD metro area",cbsa_metro,20660,MD,1,Generated from Redfin macro hierarchy; metro_code=20660
+"El Centro, CA metro area",cbsa_metro,20940,CA,1,Generated from Redfin macro hierarchy; metro_code=20940
+"Eureka, CA metro area",cbsa_metro,21700,CA,1,Generated from Redfin macro hierarchy; metro_code=21700
+"Frederick, MD metro area",cbsa_metro,23224,MD,1,Generated from Redfin macro hierarchy; metro_code=23224
+"Fresno, CA metro area",cbsa_metro,23420,CA,1,Generated from Redfin macro hierarchy; metro_code=23420
+"Hagerstown, MD metro area",cbsa_metro,25180,MD,1,Generated from Redfin macro hierarchy; metro_code=25180
+"Hanford, CA metro area",cbsa_metro,25260,CA,1,Generated from Redfin macro hierarchy; metro_code=25260
+"Harrisonburg, VA metro area",cbsa_metro,25500,VA,1,Generated from Redfin macro hierarchy; metro_code=25500
+"Los Angeles, CA metro area",cbsa_metro,31084,CA,1,Generated from Redfin macro hierarchy; metro_code=31084
+"Lynchburg, VA metro area",cbsa_metro,31340,VA,1,Generated from Redfin macro hierarchy; metro_code=31340
+"Madera, CA metro area",cbsa_metro,31460,CA,1,Generated from Redfin macro hierarchy; metro_code=31460
+"Martinsville, VA metro area",cbsa_metro,32300,VA,1,Generated from Redfin macro hierarchy; metro_code=32300
+"Merced, CA metro area",cbsa_metro,32900,CA,1,Generated from Redfin macro hierarchy; metro_code=32900
+"Modesto, CA metro area",cbsa_metro,33700,CA,1,Generated from Redfin macro hierarchy; metro_code=33700
+"Napa, CA metro area",cbsa_metro,34900,CA,1,Generated from Redfin macro hierarchy; metro_code=34900
+"New Brunswick, NJ metro area",cbsa_metro,35154,NJ,1,Generated from Redfin macro hierarchy; metro_code=35154
+"Newark, NJ metro area",cbsa_metro,35084,NJ,1,Generated from Redfin macro hierarchy; metro_code=35084
+"Oakland, CA metro area",cbsa_metro,36084,CA,1,Generated from Redfin macro hierarchy; metro_code=36084
+"Ocean City, NJ metro area",cbsa_metro,36140,NJ,1,Generated from Redfin macro hierarchy; metro_code=36140
+"Oxnard, CA metro area",cbsa_metro,37100,CA,1,Generated from Redfin macro hierarchy; metro_code=37100
+"Red Bluff, CA metro area",cbsa_metro,39780,CA,1,Generated from Redfin macro hierarchy; metro_code=39780
+"Redding, CA metro area",cbsa_metro,39820,CA,1,Generated from Redfin macro hierarchy; metro_code=39820
+"Richmond, VA metro area",cbsa_metro,40060,VA,1,Generated from Redfin macro hierarchy; metro_code=40060
+"Riverside, CA metro area",cbsa_metro,40140,CA,1,Generated from Redfin macro hierarchy; metro_code=40140
+"Roanoke, VA metro area",cbsa_metro,40220,VA,1,Generated from Redfin macro hierarchy; metro_code=40220
+"Sacramento, CA metro area",cbsa_metro,40900,CA,1,Generated from Redfin macro hierarchy; metro_code=40900
+"Salinas, CA metro area",cbsa_metro,41500,CA,1,Generated from Redfin macro hierarchy; metro_code=41500
+"San Diego, CA metro area",cbsa_metro,41740,CA,1,Generated from Redfin macro hierarchy; metro_code=41740
+"San Francisco, CA metro area",cbsa_metro,41884,CA,1,Generated from Redfin macro hierarchy; metro_code=41884
+"San Jose, CA metro area",cbsa_metro,41940,CA,1,Generated from Redfin macro hierarchy; metro_code=41940
+"San Luis Obispo, CA metro area",cbsa_metro,42020,CA,1,Generated from Redfin macro hierarchy; metro_code=42020
+"San Rafael, CA metro area",cbsa_metro,42034,CA,1,Generated from Redfin macro hierarchy; metro_code=42034
+"Santa Cruz, CA metro area",cbsa_metro,42100,CA,1,Generated from Redfin macro hierarchy; metro_code=42100
+"Santa Maria, CA metro area",cbsa_metro,42200,CA,1,Generated from Redfin macro hierarchy; metro_code=42200
+"Santa Rosa, CA metro area",cbsa_metro,42220,CA,1,Generated from Redfin macro hierarchy; metro_code=42220
+"Sonora, CA metro area",cbsa_metro,43760,CA,1,Generated from Redfin macro hierarchy; metro_code=43760
+"Staunton, VA metro area",cbsa_metro,44420,VA,1,Generated from Redfin macro hierarchy; metro_code=44420
+"Stockton, CA metro area",cbsa_metro,44700,CA,1,Generated from Redfin macro hierarchy; metro_code=44700
+"Susanville, CA metro area",cbsa_metro,45000,CA,1,Generated from Redfin macro hierarchy; metro_code=45000
+"Trenton, NJ metro area",cbsa_metro,45940,NJ,1,Generated from Redfin macro hierarchy; metro_code=45940
+"Truckee, CA metro area",cbsa_metro,46020,CA,1,Generated from Redfin macro hierarchy; metro_code=46020
+"Ukiah, CA metro area",cbsa_metro,46380,CA,1,Generated from Redfin macro hierarchy; metro_code=46380
+"Vallejo, CA metro area",cbsa_metro,46700,CA,1,Generated from Redfin macro hierarchy; metro_code=46700
+"Vineland, NJ metro area",cbsa_metro,47220,NJ,1,Generated from Redfin macro hierarchy; metro_code=47220
+"Virginia Beach, VA metro area",cbsa_metro,47260,VA,1,Generated from Redfin macro hierarchy; metro_code=47260
+"Visalia, CA metro area",cbsa_metro,47300,CA,1,Generated from Redfin macro hierarchy; metro_code=47300
+"Washington, DC metro area",cbsa_metro,47894,DC,1,Generated from Redfin macro hierarchy; metro_code=47894
+"Winchester, VA metro area",cbsa_metro,49020,VA,1,Generated from Redfin macro hierarchy; metro_code=49020
+"Yuba City, CA metro area",cbsa_metro,49700,CA,1,Generated from Redfin macro hierarchy; metro_code=49700
+"Alameda County, CA",county,303,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=303
+"Albemarle County, VA",county,2938,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2938
+"Alexandria, VA",county,3032,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3032
+"Allegany County, MD",county,1310,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1310
+"Amelia County, VA",county,2940,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2940
+"Amherst County, VA",county,2941,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2941
+"Anne Arundel County, MD",county,1311,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1311
+"Appomattox County, VA",county,2942,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2942
+"Arlington County, VA",county,2943,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2943
+"Atlantic County, NJ",county,1891,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1891
+"Augusta County, VA",county,2944,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2944
+"Baltimore City County, MD",county,1333,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1333
+"Baltimore County, MD",county,1312,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1312
+"Bedford County, VA",county,2946,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2946
+"Botetourt County, VA",county,2948,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2948
+"Burlington County, NJ",county,1893,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1893
+"Butte County, CA",county,306,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=306
+"Calvert County, MD",county,1313,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1313
+"Camden County, NJ",county,1894,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1894
+"Campbell County, VA",county,2952,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2952
+"Cape May County, NJ",county,1895,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1895
+"Carroll County, MD",county,1315,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1315
+"Charles City County, VA",county,2955,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2955
+"Charles County, MD",county,1317,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1317
+"Charlottesville, VA",county,3036,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3036
+"Chesapeake, VA",county,3037,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3037
+"Chesterfield County, VA",county,2957,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2957
+"Clarke County, VA",county,2958,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2958
+"Colonial Heights, VA",county,3038,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3038
+"Contra Costa County, CA",county,309,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=309
+"Craig County, VA",county,2959,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2959
+"Culpeper County, VA",county,2960,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2960
+"Cumberland County, NJ",county,1896,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1896
+"Danville, VA",county,3040,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3040
+"Del Norte County, CA",county,310,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=310
+"Dinwiddie County, VA",county,2963,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2963
+"District of Columbia, DC",county,436,DC,1,Generated from Redfin macro hierarchy; state_code=DC; redfin_table_id=436
+"Dorchester County, MD",county,1318,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1318
+"El Dorado County, CA",county,311,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=311
+"Essex County, NJ",county,1897,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1897
+"Fairfax City County, VA",county,3042,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3042
+"Fairfax County, VA",county,2965,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2965
+"Falls Church, VA",county,3043,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3043
+"Fauquier County, VA",county,2966,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2966
+"Fluvanna County, VA",county,2968,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2968
+"Franklin City County, VA",county,3044,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3044
+"Franklin County, VA",county,2969,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2969
+"Frederick County, MD",county,1319,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1319
+"Frederick County, VA",county,2970,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2970
+"Fredericksburg, VA",county,3045,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3045
+"Fresno County, CA",county,312,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=312
+"Giles County, VA",county,2971,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2971
+"Gloucester County, NJ",county,1898,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1898
+"Gloucester County, VA",county,2972,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2972
+"Goochland County, VA",county,2973,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2973
+"Greene County, VA",county,2975,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2975
+"Hampton, VA",county,3047,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3047
+"Hanover County, VA",county,2978,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2978
+"Harford County, MD",county,1321,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1321
+"Harrisonburg, VA",county,3048,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3048
+"Henrico County, VA",county,2979,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2979
+"Henry County, VA",county,2980,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2980
+"Hopewell, VA",county,3049,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3049
+"Howard County, MD",county,1322,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1322
+"Humboldt County, CA",county,314,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=314
+"Hunterdon County, NJ",county,1900,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1900
+"Imperial County, CA",county,315,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=315
+"Isle of Wight County, VA",county,2982,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2982
+"James City County, VA",county,2983,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2983
+"Kern County, CA",county,317,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=317
+"King & Queen County, VA",county,2984,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2984
+"King William County, VA",county,2986,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2986
+"Kings County, CA",county,318,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=318
+"Lake County, CA",county,319,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=319
+"Lassen County, CA",county,320,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=320
+"Los Angeles County, CA",county,321,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=321
+"Loudoun County, VA",county,2989,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2989
+"Lynchburg, VA",county,3051,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3051
+"Madera County, CA",county,322,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=322
+"Madison County, VA",county,2992,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2992
+"Manassas Park, VA",county,3053,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3053
+"Manassas, VA",county,3052,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3052
+"Marin County, CA",county,323,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=323
+"Martinsville, VA",county,3054,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3054
+"Mathews County, VA",county,2993,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2993
+"Mendocino County, CA",county,325,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=325
+"Merced County, CA",county,326,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=326
+"Mercer County, NJ",county,1901,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1901
+"Middlesex County, NJ",county,1902,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1902
+"Monmouth County, NJ",county,1903,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1903
+"Monterey County, CA",county,329,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=329
+"Montgomery County, MD",county,1324,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1324
+"Montgomery County, VA",county,2996,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2996
+"Morris County, NJ",county,1904,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1904
+"Napa County, CA",county,330,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=330
+"Nelson County, VA",county,2997,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2997
+"Nevada County, CA",county,331,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=331
+"New Kent County, VA",county,2998,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=2998
+"Newport News, VA",county,3055,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3055
+"Norfolk, VA",county,3056,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3056
+"Norton, VA",county,3057,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3057
+"Ocean County, NJ",county,1905,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1905
+"Orange County, CA",county,332,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=332
+"Petersburg, VA",county,3058,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3058
+"Pittsylvania County, VA",county,3005,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3005
+"Placer County, CA",county,333,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=333
+"Poquoson, VA",county,3059,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3059
+"Portsmouth, VA",county,3060,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3060
+"Powhatan County, VA",county,3006,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3006
+"Prince George County, VA",county,3008,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3008
+"Prince George's County, MD",county,1325,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1325
+"Prince William County, VA",county,3009,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3009
+"Pulaski County, VA",county,3010,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3010
+"Queen Anne's County, MD",county,1326,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1326
+"Radford, VA",county,3061,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3061
+"Rappahannock County, VA",county,3011,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3011
+"Richmond City County, VA",county,3062,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3062
+"Riverside County, CA",county,335,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=335
+"Roanoke City County, VA",county,3063,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3063
+"Roanoke County, VA",county,3013,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3013
+"Rockingham County, VA",county,3015,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3015
+"Sacramento County, CA",county,336,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=336
+"Salem, VA",county,3064,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3064
+"San Benito County, CA",county,337,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=337
+"San Bernardino County, CA",county,338,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=338
+"San Diego County, CA",county,339,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=339
+"San Francisco County, CA",county,340,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=340
+"San Joaquin County, CA",county,341,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=341
+"San Luis Obispo County, CA",county,342,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=342
+"San Mateo County, CA",county,343,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=343
+"Santa Barbara County, CA",county,344,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=344
+"Santa Clara County, CA",county,345,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=345
+"Santa Cruz County, CA",county,346,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=346
+"Shasta County, CA",county,347,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=347
+"Solano County, CA",county,350,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=350
+"Somerset County, NJ",county,1908,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1908
+"Sonoma County, CA",county,351,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=351
+"Southampton County, VA",county,3020,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3020
+"Spotsylvania County, VA",county,3021,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3021
+"St. Mary's County, MD",county,1327,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1327
+"Stafford County, VA",county,3022,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3022
+"Stanislaus County, CA",county,352,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=352
+"Staunton, VA",county,3065,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3065
+"Suffolk, VA",county,3066,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3066
+"Sussex County, NJ",county,1909,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1909
+"Sussex County, VA",county,3024,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3024
+"Sutter County, CA",county,353,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=353
+"Talbot County, MD",county,1329,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1329
+"Tehama County, CA",county,354,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=354
+"Tulare County, CA",county,356,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=356
+"Tuolumne County, CA",county,357,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=357
+"Union County, NJ",county,1910,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ; redfin_table_id=1910
+"Ventura County, CA",county,358,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=358
+"Virginia Beach, VA",county,3067,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3067
+"Warren County, VA",county,3026,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3026
+"Washington County, MD",county,1330,MD,1,Generated from Redfin macro hierarchy; state_code=MD; redfin_table_id=1330
+"Waynesboro, VA",county,3068,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3068
+"Williamsburg, VA",county,3069,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3069
+"Winchester, VA",county,3070,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3070
+"Wise County, VA",county,3029,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3029
+"Yolo County, CA",county,359,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=359
+"York County, VA",county,3031,VA,1,Generated from Redfin macro hierarchy; state_code=VA; redfin_table_id=3031
+"Yuba County, CA",county,360,CA,1,Generated from Redfin macro hierarchy; state_code=CA; redfin_table_id=360
+United States,nation,0,,1,Generated default nation scope
+Northeast Region,region,,,1,Generated from Redfin state parent/census region metadata
+South Region,region,,,1,Generated from Redfin state parent/census region metadata
+West Region,region,,,1,Generated from Redfin state parent/census region metadata
+California,state,9,CA,1,Generated from Redfin macro hierarchy; state_code=CA
+Columbia,state,17,DC,1,Generated from Redfin macro hierarchy; state_code=DC
+Maryland,state,43,MD,1,Generated from Redfin macro hierarchy; state_code=MD
+New Jersey,state,12,NJ,1,Generated from Redfin macro hierarchy; state_code=NJ
+Virginia,state,42,VA,1,Generated from Redfin macro hierarchy; state_code=VA

@@ -226,7 +226,7 @@ wise_county_va__county,"Wise County, VA",county,,0,CN5119500000000,1,3029,1,5119
 yolo_county_ca__county,"Yolo County, CA",county,,0,CN0611300000000,1,359,1,06113,1,1,06113,0,1,,0,,0
 york_county_va__county,"York County, VA",county,,0,CN5119900000000,1,3031,1,51199,1,1,51199,0,1,,0,,0
 yuba_county_ca__county,"Yuba County, CA",county,,0,CN0611500000000,1,360,1,06115,1,1,06115,0,1,,0,,0
-united_states__nation,United States,nation,0000000,1,,0,,0,00,1,1,00000,1,1,UNRATE,1,US,1
+united_states__nation,United States,nation,0000000,1,,0,0,1,00,1,1,00000,1,1,UNRATE,1,US,1
 northeast_region__region,Northeast Region,region,,0,,0,,0,,0,0,,0,0,,0,,0
 south_region__region,South Region,region,,0,,0,,0,,0,0,,0,0,,0,,0
 west_region__region,West Region,region,,0,,0,,0,,0,0,,0,0,,0,,0
