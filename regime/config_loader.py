@@ -218,19 +218,45 @@ def validate_regime_config(config: RegimeConfig) -> None:
             )
 
 
-    
-    active_dims = config.metric_dimensions[
-        _truthy(config.metric_dimensions["enabled"])
-        & ~_truthy(config.metric_dimensions["diagnostic_only"])
-    ].copy()
+    active_dims = (
+        config.metric_dimensions[
+            _truthy(config.metric_dimensions["enabled"])
+            & ~_truthy(config.metric_dimensions["diagnostic_only"])
+            & _truthy(config.metric_dimensions["macro_enabled"])
+        ]
+        .copy()
+    )
 
     active_dims["metric_weight"] = pd.to_numeric(
         active_dims["metric_weight"],
         errors="coerce",
     )
 
+    active_canonical_dims = active_dims[
+        ["dimension", "canonical_metric_key", "metric_weight"]
+    ].drop_duplicates()
+
+    conflicts = (
+        active_canonical_dims
+        .groupby(["dimension", "canonical_metric_key"])["metric_weight"]
+        .nunique()
+        .reset_index(name="weight_count")
+    )
+
+    conflicts = conflicts[conflicts["weight_count"] > 1]
+    if not conflicts.empty:
+        raise ValueError(
+            "Conflicting metric weights for canonical metric/dimension pairs:\n"
+            + conflicts.to_string(index=False)
+        )
+
+    active_canonical_dims = active_canonical_dims.drop_duplicates(
+        subset=["dimension", "canonical_metric_key"],
+        keep="first",
+    )
+
     dim_weight_sums = (
-        active_dims
+        active_canonical_dims
         .groupby("dimension")["metric_weight"]
         .sum()
         .reset_index(name="metric_weight_sum")
@@ -242,7 +268,7 @@ def validate_regime_config(config: RegimeConfig) -> None:
 
     if not bad_dim_weights.empty:
         raise ValueError(
-            "Active metric weights must sum to 1.0 by dimension:\n"
+            "Active canonical metric weights must sum to 1.0 by dimension:\n"
             + bad_dim_weights.to_string(index=False)
         )
 
