@@ -8,6 +8,17 @@ from regime.metric_scorer import score_metrics
 
 MACRO_GEO_SUFFIXES = ("__county", "__cbsa_metro")
 
+NATIONAL_GEO_ID = "united_states__nation"
+
+CAPITAL_MARKET_METRICS = {
+    "fedfunds",
+    "mortgage_15y",
+    "mortgage_30y",
+    "spread_10y_fedfunds",
+    "spread_2y10y",
+    "treasury_10y",
+}
+
 
 def _is_macro_geo_id(series: pd.Series) -> pd.Series:
     value = series.astype(str)
@@ -54,7 +65,26 @@ def align_metric_scores_asof(metrics: pd.DataFrame | None = None) -> pd.DataFram
     metrics = metrics.copy()
     metrics["date"] = pd.to_datetime(metrics["date"])
 
-    metrics = metrics[_is_macro_geo_id(metrics["geo_id"])].copy()
+    macro_metrics = metrics[_is_macro_geo_id(metrics["geo_id"])].copy()
+    
+    capital_metrics = metrics[
+        (metrics["geo_id"] == NATIONAL_GEO_ID)
+        & (metrics["canonical_metric_key"].isin(CAPITAL_MARKET_METRICS))
+    ].copy()
+    
+    if not capital_metrics.empty:
+        macro_geos = macro_metrics[["geo_id"]].drop_duplicates()
+    
+        broadcast_parts = []
+        for geo_id in macro_geos["geo_id"]:
+            tmp = capital_metrics.copy()
+            tmp["geo_id"] = geo_id
+            broadcast_parts.append(tmp)
+    
+        broadcast = pd.concat(broadcast_parts, ignore_index=True)
+        metrics = pd.concat([macro_metrics, broadcast], ignore_index=True)
+    else:
+        metrics = macro_metrics
 
     if metrics.empty:
         return pd.DataFrame(
