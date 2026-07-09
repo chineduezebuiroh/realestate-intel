@@ -9,7 +9,7 @@ redfin_homes_sold,homes_sold,transaction_activity,closed_transaction_activity,0.
 redfin_pending_sales,pending_sales,transaction_activity,pending_transaction_activity,0.5,1,direct,true,false,false,true,true,
 
 redfin_dom,days_on_market,liquidity,market_speed,0.3333,1,direct,true,false,true,true,true,Higher DOM is directionally negative during scoring.
-redfin_months_supply,months_supply,liquidity,market_balance,0.3333,1,direct,true,true,false,false,false,Diagnostic only in v1; market balance handled separately.
+redfin_months_supply,months_supply,liquidity,market_balance,0.3333,1,direct,true,false,true,true,false,Diagnostic only in v1; market balance handled separately.
 redfin_sale_to_list,sale_to_list_ratio,liquidity,sale_to_list_pressure,0.3334,1,direct,true,false,true,true,true,
 redfin_sold_above_list,sold_above_list_share,liquidity,competitive_pressure,0.25,1,diagnostic_only,false,true,false,true,true,
 redfin_off_market_two_weeks,off_market_two_weeks_share,liquidity,speed_pressure,0.25,1,diagnostic_only,false,true,false,true,true,
@@ -53,4 +53,4 @@ fred_cpi,cpi,affordability,inflation_pressure,0.0,1,diagnostic_only,false,true,f
 
 derived_price_to_income,price_to_income,affordability,price_to_income,0.40,1,direct,true,false,true,true,true,Derived affordability metric
 derived_payment_burden,payment_burden,affordability,payment_burden,0.50,1,direct,true,false,true,true,true,Derived affordability metric
-derived_permit_intensity,permit_intensity,supply,permit_intensity,0.3333,1,direct,true,false,false,true,true,Derived supply metric
+derived_permit_intensity,permit_intensity,supply,permit_intensity,0.3333,1,direct,true,false,true,true,true,Derived supply metric
