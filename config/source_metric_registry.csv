@@ -19,10 +19,10 @@ acs5_median_household_income,census_acs5,census_acs5_median_household_income,ACS
 bea_annual_gdp,bea_gdp_ann,bea_agdp_real_total_chained2017,Annual Real GDP,Annual real GDP in chained 2017 dollars,nation|state|county,annual,Chained 2017 dollars,SA,true,
 bea_quarterly_gdp,bea_gdp_qtr,bea_qgdp_real_total_chained2017_saar,Quarterly Real GDP SAAR,Quarterly real GDP at seasonally adjusted annual rate,nation|state,quarterly,Chained 2017 dollars SAAR,SA,true,
 
-laus_labor_force,laus,laus_labor_force_sa,LAUS Labor Force,Seasonally adjusted labor force,nation|state|cbsa_metro|county,monthly,People,SA,true,
-laus_employment,laus,laus_employment_sa,LAUS Employment,Seasonally adjusted employment,nation|state|cbsa_metro|county,monthly,People,SA,true,
-laus_unemployment,laus,laus_unemployment_sa,LAUS Unemployment,Seasonally adjusted unemployment,nation|state|cbsa_metro|county,monthly,People,SA,true,
-laus_unemployment_rate,laus,laus_unemployment_rate_sa,LAUS Unemployment Rate,Seasonally adjusted unemployment rate,nation|state|cbsa_metro|county,monthly,Percent,SA,true,
+laus_labor_force,laus,laus_labor_force_nsa,LAUS Labor Force,Seasonally adjusted labor force,nation|state|cbsa_metro|county,monthly,People,NSA,true,
+laus_employment,laus,laus_employment_nsa,LAUS Employment,Seasonally adjusted employment,nation|state|cbsa_metro|county,monthly,People,NSA,true,
+laus_unemployment,laus,laus_unemployment_nsa,LAUS Unemployment,Seasonally adjusted unemployment,nation|state|cbsa_metro|county,monthly,People,NSA,true,
+laus_unemployment_rate,laus,laus_unemployment_rate_nsa,LAUS Unemployment Rate,Seasonally adjusted unemployment rate,nation|state|cbsa_metro|county,monthly,Percent,NSA,true,
 
 fred_unemployment_rate,fred_unemp,fred_unemployment_rate_sa,FRED Unemployment Rate,Unemployment rate from FRED,nation|state,monthly,Percent,SA,true,
 
