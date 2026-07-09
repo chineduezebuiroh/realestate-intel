@@ -1,15 +1,18 @@
 metric_key,canonical_metric_key,dimension,subcomponent,metric_weight,source_priority,merge_strategy,enabled,diagnostic_only,required,macro_enabled,local_enabled,notes
 redfin_median_sale_price,median_sale_price,price,sale_price_pressure,0.5,1,direct,true,false,true,true,true,
 redfin_median_ppsf,median_ppsf,price,ppsf_pressure,0.5,1,direct,true,false,true,true,true,
-redfin_dom,days_on_market,liquidity,market_speed,0.15,1,direct,true,false,true,true,true,Higher DOM is directionally negative during scoring.
+
 redfin_inventory,active_inventory,supply,active_inventory,0.3334,1,direct,true,false,true,true,true,Supply docs use equal active inventory / permit activity / permit intensity subcomponents; weights renormalize until derived permit intensity exists.
-redfin_homes_sold,homes_sold,transaction_activity,closed_transaction_activity,0.5,1,direct,true,false,true,true,true,
 redfin_new_listings,new_listings,supply,new_listing_flow,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only in v1; not part of C3.02 Supply Dimension docs.
+
+redfin_homes_sold,homes_sold,transaction_activity,closed_transaction_activity,0.5,1,direct,true,false,true,true,true,
 redfin_pending_sales,pending_sales,transaction_activity,pending_transaction_activity,0.5,1,direct,true,false,false,true,true,
-redfin_months_supply,months_supply,liquidity,market_balance,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only in v1; market balance handled separately.
-redfin_sale_to_list,sale_to_list_ratio,liquidity,sale_to_list_pressure,0.35,1,direct,true,false,true,true,true,
-redfin_sold_above_list,sold_above_list_share,liquidity,competitive_pressure,0.25,1,direct,true,false,false,true,true,
-redfin_off_market_two_weeks,off_market_two_weeks_share,liquidity,speed_pressure,0.25,1,direct,true,false,false,true,true,
+
+redfin_dom,days_on_market,liquidity,market_speed,0.3333,1,direct,true,false,true,true,true,Higher DOM is directionally negative during scoring.
+redfin_months_supply,months_supply,liquidity,market_balance,0.3333,1,direct,true,true,false,false,false,Diagnostic only in v1; market balance handled separately.
+redfin_sale_to_list,sale_to_list_ratio,liquidity,sale_to_list_pressure,0.3334,1,direct,true,false,true,true,true,
+redfin_sold_above_list,sold_above_list_share,liquidity,competitive_pressure,0.25,1,diagnostic_only,false,false,false,true,true,
+redfin_off_market_two_weeks,off_market_two_weeks_share,liquidity,speed_pressure,0.25,1,diagnostic_only,false,false,false,true,true,
 
 acs1_population,population,demand,population,0.1667,1,primary_else_fallback,true,false,false,true,false,ACS1 preferred where available; ACS5 backfills missing geographies/history.
 acs1_median_household_income,median_household_income,demand,income,0.1667,1,primary_else_fallback,true,false,false,true,false,ACS1 preferred where available; ACS5 backfills missing geographies/history.
@@ -50,4 +53,4 @@ fred_cpi,cpi,affordability,inflation_pressure,0.0,1,diagnostic_only,false,true,f
 
 derived_price_to_income,price_to_income,affordability,price_to_income,0.40,1,direct,true,false,true,true,true,Derived affordability metric
 derived_payment_burden,payment_burden,affordability,payment_burden,0.50,1,direct,true,false,true,true,true,Derived affordability metric
-derived_permit_intensity,permit_intensity,supply,permit_intensity,0.20,1,direct,true,false,false,true,true,Derived supply metric
+derived_permit_intensity,permit_intensity,supply,permit_intensity,0.3333,1,direct,true,false,false,true,true,Derived supply metric
