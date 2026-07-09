@@ -218,6 +218,44 @@ def validate_regime_config(config: RegimeConfig) -> None:
             )
 
 
+    
+    active_dims = config.metric_dimensions[
+        _truthy(config.metric_dimensions["enabled"])
+        & ~_truthy(config.metric_dimensions["diagnostic_only"])
+    ].copy()
+
+    active_dims["metric_weight"] = pd.to_numeric(
+        active_dims["metric_weight"],
+        errors="coerce",
+    )
+
+    dim_weight_sums = (
+        active_dims
+        .groupby("dimension")["metric_weight"]
+        .sum()
+        .reset_index(name="metric_weight_sum")
+    )
+
+    bad_dim_weights = dim_weight_sums[
+        (dim_weight_sums["metric_weight_sum"] - 1.0).abs() > 0.001
+    ]
+
+    if not bad_dim_weights.empty:
+        raise ValueError(
+            "Active metric weights must sum to 1.0 by dimension:\n"
+            + bad_dim_weights.to_string(index=False)
+        )
+
+    bad_enabled_zero = active_dims[active_dims["metric_weight"] <= 0]
+    if not bad_enabled_zero.empty:
+        raise ValueError(
+            "Enabled non-diagnostic metric rows must have positive metric_weight:\n"
+            + bad_enabled_zero[
+                ["metric_key", "canonical_metric_key", "dimension", "metric_weight"]
+            ].to_string(index=False)
+        )
+
+
 def build_registry_resolution(config: RegimeConfig | None = None) -> pd.DataFrame:
     if config is None:
         config = load_regime_config(validate=True)
