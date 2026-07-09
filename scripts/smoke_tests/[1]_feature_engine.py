@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_test_feature_engine.py
+# scripts/smoke_tests/[1]_feature_engine.py
 
 from regime.feature_engine import build_feature_matrix
 
