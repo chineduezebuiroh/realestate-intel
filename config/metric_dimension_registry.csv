@@ -2,7 +2,7 @@ metric_key,canonical_metric_key,dimension,subcomponent,metric_weight,source_prio
 redfin_median_sale_price,median_sale_price,price,sale_price_pressure,0.5,1,direct,true,false,true,true,true,
 redfin_median_ppsf,median_ppsf,price,ppsf_pressure,0.5,1,direct,true,false,true,true,true,
 redfin_dom,days_on_market,liquidity,market_speed,0.15,1,direct,true,false,true,true,true,Higher DOM is directionally negative during scoring.
-redfin_inventory,active_inventory,supply,active_inventory,0.3333,1,direct,true,false,true,true,true,Supply docs use equal active inventory / permit activity / permit intensity subcomponents; weights renormalize until derived permit intensity exists.
+redfin_inventory,active_inventory,supply,active_inventory,0.3334,1,direct,true,false,true,true,true,Supply docs use equal active inventory / permit activity / permit intensity subcomponents; weights renormalize until derived permit intensity exists.
 redfin_homes_sold,homes_sold,transaction_activity,closed_transaction_activity,0.5,1,direct,true,false,true,true,true,
 redfin_new_listings,new_listings,supply,new_listing_flow,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only in v1; not part of C3.02 Supply Dimension docs.
 redfin_pending_sales,pending_sales,transaction_activity,pending_transaction_activity,0.5,1,direct,true,false,false,true,true,
