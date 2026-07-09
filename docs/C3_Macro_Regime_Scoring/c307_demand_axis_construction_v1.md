@@ -215,14 +215,6 @@ Transaction Activity measures participation rather than demand.
 
 It is evaluated separately.
 
-## Capital Markets
-
-Capital Markets influence both Demand and Supply indirectly.
-
-Its role is determined during later Axis Calibration.
-
-Capital Markets are excluded from v1 Demand Axis construction.
-
 ---
 
 # Missing Data Handling
