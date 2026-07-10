@@ -1,5 +1,5 @@
 from __future__ import annotations
-# regime/00_config_loader.py
+# regime/_00_config_loader.py
 
 from dataclasses import dataclass
 from pathlib import Path
