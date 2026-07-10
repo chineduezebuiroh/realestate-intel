@@ -1,12 +1,12 @@
 from __future__ import annotations
-# regime/feature_engine.py
+# regime/_01_feature_engine.py
 
 from pathlib import Path
 
 import duckdb
 import pandas as pd
 
-from regime.config_loader import RegimeConfig, load_regime_config
+from regime._00_config_loader import RegimeConfig, load_regime_config
 from regime.derived_metrics import build_derived_metrics
 from regime.canonical_metrics import resolve_canonical_metrics
 
