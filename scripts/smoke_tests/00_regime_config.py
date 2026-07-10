@@ -1,7 +1,7 @@
 from __future__ import annotations
 # scripts/smoke_tests/00_regime_config.py
 
-from regime.00_config_loader import build_registry_resolution, load_regime_config
+from regime._00_config_loader import build_registry_resolution, load_regime_config
 
 
 def main() -> int:
