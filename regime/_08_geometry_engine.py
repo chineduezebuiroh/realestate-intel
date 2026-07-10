@@ -1,9 +1,9 @@
 from __future__ import annotations
-# regime/geometry_engine.py
+# regime/_08_geometry_engine.py
 
 import pandas as pd
 
-from regime.coordinate_engine import build_coordinates
+from regime._07_coordinate_engine import build_coordinates
 
 
 def _major_regime(angle: float) -> str:
