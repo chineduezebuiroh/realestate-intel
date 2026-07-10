@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from regime.asof_aligner import align_metric_scores_asof
+from regime.config_loader import load_regime_config
 from regime.regime_assignment import assign_regimes
 
 
@@ -388,4 +390,195 @@ def build_seasonality_audit(
         "monthly_movement": monthly_movement,
         "monthly_diagnostics": monthly_diagnostics,
         "transition_events": transitions.sort_values(["geo_id", "date"]).reset_index(drop=True),
+    }
+
+# ==============================
+# Metric Contribution Audit
+# ==============================
+def build_metric_contribution_audit(
+    trajectory: pd.DataFrame | None = None,
+    geo_ids: list[str] | None = None,
+    axis: str = "supply",
+) -> dict[str, pd.DataFrame]:
+    if trajectory is None:
+        trajectory = build_historical_trajectory(geo_ids=geo_ids)
+
+    config = load_regime_config(validate=True)
+    aligned = align_metric_scores_asof()
+
+    axis = axis.lower().strip()
+
+    axis_dims = (
+        config.axes[
+            config.axes["axis"].astype(str).str.lower().eq(axis)
+            & config.axes["enabled"].astype(str).str.lower().isin(["true", "1", "yes", "y"])
+        ][["axis", "dimension", "dimension_weight"]]
+        .copy()
+    )
+
+    axis_dims["dimension_weight"] = pd.to_numeric(
+        axis_dims["dimension_weight"],
+        errors="coerce",
+    )
+
+    metric_dims = config.metric_dimensions.copy()
+    metric_dims = metric_dims[
+        metric_dims["enabled"].astype(str).str.lower().isin(["true", "1", "yes", "y"])
+        & ~metric_dims["diagnostic_only"].astype(str).str.lower().isin(["true", "1", "yes", "y"])
+        & metric_dims["macro_enabled"].astype(str).str.lower().isin(["true", "1", "yes", "y"])
+    ].copy()
+
+    metric_dims["metric_weight"] = pd.to_numeric(
+        metric_dims["metric_weight"],
+        errors="coerce",
+    )
+
+    weights = (
+        metric_dims[
+            ["dimension", "canonical_metric_key", "metric_weight"]
+        ]
+        .drop_duplicates()
+        .merge(axis_dims, on="dimension", how="inner")
+    )
+
+    weights = weights.drop_duplicates(
+        subset=["axis", "dimension", "canonical_metric_key"],
+        keep="first",
+    )
+
+    weights["axis_metric_weight"] = (
+        weights["dimension_weight"] * weights["metric_weight"]
+    )
+
+    scores = aligned.merge(
+        weights[
+            [
+                "axis",
+                "dimension",
+                "canonical_metric_key",
+                "metric_weight",
+                "dimension_weight",
+                "axis_metric_weight",
+            ]
+        ],
+        on="canonical_metric_key",
+        how="inner",
+    )
+
+    scores = scores.rename(columns={"evaluation_date": "date"})
+    scores["date"] = pd.to_datetime(scores["date"])
+
+    scores = scores.sort_values(
+        ["geo_id", "canonical_metric_key", "date"]
+    ).copy()
+
+    by_metric = scores.groupby(["geo_id", "canonical_metric_key"], group_keys=False)
+
+    scores["previous_metric_score"] = by_metric["metric_score"].shift(1)
+    scores["delta_metric_score"] = by_metric["metric_score"].diff()
+    scores["weighted_metric_contribution"] = (
+        scores["metric_score"] * scores["axis_metric_weight"]
+    )
+    scores["delta_weighted_metric_contribution"] = (
+        scores["delta_metric_score"] * scores["axis_metric_weight"]
+    )
+
+    traj = trajectory.copy()
+    traj["date"] = pd.to_datetime(traj["date"])
+    traj["any_transition"] = traj["major_changed"] | traj["minor_changed"]
+
+    transition_keys = traj[
+        traj["any_transition"]
+    ][
+        [
+            "geo_id",
+            "date",
+            "major_changed",
+            "minor_changed",
+            "previous_major_regime",
+            "major_regime",
+            "previous_minor_regime",
+            "minor_regime",
+            "supply_pressure_score",
+            "demand_strength_score",
+            "regime_strength",
+            "angle_degrees",
+            "distance_to_boundary_degrees",
+            "delta_supply_pressure_score",
+            "delta_demand_strength_score",
+            "delta_regime_strength",
+            "delta_angle_degrees",
+            "max_axis_age_days",
+        ]
+    ].copy()
+
+    events = scores.merge(
+        transition_keys,
+        on=["geo_id", "date"],
+        how="inner",
+    )
+
+    events["abs_delta_weighted_metric_contribution"] = (
+        events["delta_weighted_metric_contribution"].abs()
+    )
+
+    metric_summary = (
+        events.groupby(["axis", "dimension", "canonical_metric_key"])
+        .agg(
+            transition_rows=("date", "size"),
+            avg_metric_score=("metric_score", "mean"),
+            avg_abs_delta_metric_score=("delta_metric_score", lambda s: s.abs().mean()),
+            avg_delta_metric_score=("delta_metric_score", "mean"),
+            avg_abs_weighted_contribution=(
+                "delta_weighted_metric_contribution",
+                lambda s: s.abs().mean(),
+            ),
+            avg_weighted_contribution=("delta_weighted_metric_contribution", "mean"),
+            max_abs_weighted_contribution=(
+                "delta_weighted_metric_contribution",
+                lambda s: s.abs().max(),
+            ),
+            avg_axis_metric_weight=("axis_metric_weight", "mean"),
+            avg_metric_age_days=("metric_age_days", "mean"),
+            max_metric_age_days=("metric_age_days", "max"),
+        )
+        .reset_index()
+        .sort_values("avg_abs_weighted_contribution", ascending=False)
+    )
+
+    by_geo_metric = (
+        events.groupby(["geo_id", "axis", "dimension", "canonical_metric_key"])
+        .agg(
+            transition_rows=("date", "size"),
+            avg_abs_delta_metric_score=("delta_metric_score", lambda s: s.abs().mean()),
+            avg_abs_weighted_contribution=(
+                "delta_weighted_metric_contribution",
+                lambda s: s.abs().mean(),
+            ),
+            max_abs_weighted_contribution=(
+                "delta_weighted_metric_contribution",
+                lambda s: s.abs().max(),
+            ),
+            avg_metric_age_days=("metric_age_days", "mean"),
+            max_metric_age_days=("metric_age_days", "max"),
+        )
+        .reset_index()
+        .sort_values(["geo_id", "avg_abs_weighted_contribution"], ascending=[True, False])
+    )
+
+    top_events = (
+        events.sort_values(
+            ["geo_id", "abs_delta_weighted_metric_contribution"],
+            ascending=[True, False],
+        )
+        .reset_index(drop=True)
+    )
+
+    return {
+        "metric_summary": metric_summary,
+        "by_geo_metric": by_geo_metric,
+        "transition_metric_events": events.sort_values(
+            ["geo_id", "date", "canonical_metric_key"]
+        ).reset_index(drop=True),
+        "top_metric_events": top_events,
     }
