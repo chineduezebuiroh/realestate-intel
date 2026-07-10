@@ -1,10 +1,10 @@
 from __future__ import annotations
-# regime/axis_engine.py
+# regime/_06_axis_engine.py
 
 import pandas as pd
 
-from regime.config_loader import load_regime_config
-from regime.dimension_scorer import score_dimensions
+from regime._00_config_loader import load_regime_config
+from regime._05_dimension_scorer import score_dimensions
 
 
 def _truthy(series: pd.Series) -> pd.Series:
