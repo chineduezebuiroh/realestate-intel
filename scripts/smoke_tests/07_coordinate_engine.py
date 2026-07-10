@@ -1,7 +1,7 @@
 from __future__ import annotations
-# scripts/smoke_tests/7_coordinate_engine.py
+# scripts/smoke_tests/07_coordinate_engine.py
 
-from regime.coordinate_engine import build_coordinates
+from regime._07_coordinate_engine import build_coordinates
 
 
 SAMPLE_GEO = "alameda_county_ca__county"
