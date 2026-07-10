@@ -1,7 +1,7 @@
 from __future__ import annotations
-# scripts/smoke_tests/9_regime_assignment.py
+# scripts/smoke_tests/09_regime_assignment.py
 
-from regime.regime_assignment import assign_regimes
+from regime._09_regime_assignment import assign_regimes
 
 
 SAMPLE_GEO = "alameda_county_ca__county"
