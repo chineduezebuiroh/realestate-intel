@@ -20,14 +20,14 @@ acs5_population,population,demand,population,0.1667,2,primary_else_fallback,true
 acs5_median_household_income,median_household_income,demand,income,0.1667,2,primary_else_fallback,true,false,true,true,true,Fallback / broad coverage ACS income source.
 
 bea_annual_gdp,gdp_annual,demand,gdp,0.1667,2,primary_else_fallback,true,false,false,true,true,Annual GDP backfills where quarterly GDP is unavailable.
-bea_quarterly_gdp,gdp_quarterly,demand,gdp,0.1667,1,primary_else_fallback,true,false,true,true,false,Quarterly GDP preferred where available.
+bea_quarterly_gdp,gdp_quarterly,demand,gdp,0.0,1,primary_else_fallback,false,true,true,true,false,Quarterly GDP preferred where available.
 
 laus_labor_force,labor_force,demand,labor_force,0.1667,1,direct,true,false,true,true,false,
 laus_employment,employment,demand,employment,0.1667,2,primary_else_fallback,true,false,false,true,true,LAUS employment backfills where CES employment is unavailable.
 laus_unemployment,unemployment_count,demand,unemployment,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only; unemployment rate is the v1 scoring metric.
 laus_unemployment_rate,laus_unemployment_rate,demand,unemployment,0.1667,1,primary_else_fallback,true,false,true,true,true,Preferred unemployment rate where available.
 
-fred_unemployment_rate,fred_unemployment_rate,demand,unemployment,0.1667,2,primary_else_fallback,true,false,false,true,false,Fallback national/state unemployment rate.
+fred_unemployment_rate,fred_unemployment_rate,demand,unemployment,0.0,2,primary_else_fallback,false,true,false,true,false,Fallback national/state unemployment rate.
 
 ces_total_nonfarm,employment,demand,employment,0.1667,1,primary_else_fallback,true,false,true,true,false,CES total nonfarm preferred where available.
 ces_total_private,total_private_employment,demand,employment,0.0,1,diagnostic_only,false,true,false,false,false,Diagnostic only in v1; total nonfarm is preferred CES employment signal.
