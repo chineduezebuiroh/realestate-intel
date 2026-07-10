@@ -1,12 +1,12 @@
 from __future__ import annotations
-# regime/feature_normalizer.py
+# regime/_02_feature_normalizer.py
 
 from pathlib import Path
 
 import pandas as pd
 
-from regime.config_loader import load_regime_config
-from regime.feature_engine import build_feature_matrix
+from regime._00_config_loader import load_regime_config
+from regime._01_feature_engine import build_feature_matrix
 
 
 NORMALIZATION_REGISTRY = Path("config/normalization_registry.csv")
