@@ -400,6 +400,7 @@ def build_seasonality_audit(
 # ==============================
 def build_metric_contribution_audit(
     trajectory: pd.DataFrame | None = None,
+    aligned_metric_scores: pd.DataFrame | None = None,
     geo_ids: list[str] | None = None,
     axis: str = "supply",
 ) -> dict[str, pd.DataFrame]:
@@ -407,7 +408,10 @@ def build_metric_contribution_audit(
         trajectory = build_historical_trajectory(geo_ids=geo_ids)
 
     config = load_regime_config(validate=True)
-    aligned = align_metric_scores_asof()
+    if aligned_metric_scores is None:
+        aligned = align_metric_scores_asof()
+    else:
+        aligned = aligned_metric_scores.copy()
 
     axis = axis.lower().strip()
 
