@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from regime.feature_engine import build_feature_matrix
-from regime.feature_normalizer import normalize_features
-from regime.metric_scorer import score_metrics
-from regime.asof_aligner import align_metric_scores_asof
-from regime.config_loader import load_regime_config
-from regime.regime_assignment import assign_regimes
+from regime._00_config_loader import load_regime_config
+from regime._01_feature_engine import build_feature_matrix
+from regime._02_feature_normalizer import normalize_features
+from regime._03_metric_scorer import score_metrics
+from regime._04_asof_aligner import align_metric_scores_asof
+from regime._09_regime_assignment import assign_regimes
 
 
 DEFAULT_VALIDATION_GEOS = [
