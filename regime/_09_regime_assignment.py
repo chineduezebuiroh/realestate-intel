@@ -1,9 +1,9 @@
 from __future__ import annotations
-# regime/regime_assignment.py
+# regime/_09_regime_assignment.py
 
 import pandas as pd
 
-from regime.geometry_engine import assign_geometry
+from regime._08_geometry_engine import assign_geometry
 
 
 REGIME_ENGINE_VERSION = "C4.2e_v1"
