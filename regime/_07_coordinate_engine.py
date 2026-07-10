@@ -1,11 +1,11 @@
 from __future__ import annotations
-# regime/coordinate_engine.py
+# regime/_07_coordinate_engine.py
 
 import math
 
 import pandas as pd
 
-from regime.axis_engine import score_axes
+from regime._06_axis_engine import score_axes
 
 
 REQUIRED_AXES = {"demand", "supply"}
