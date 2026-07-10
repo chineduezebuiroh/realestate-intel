@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import pandas as pd
 
+from regime.feature_engine import build_feature_matrix
+from regime.feature_normalizer import normalize_features
+from regime.metric_scorer import score_metrics
 from regime.asof_aligner import align_metric_scores_asof
 from regime.config_loader import load_regime_config
 from regime.regime_assignment import assign_regimes
@@ -581,4 +584,84 @@ def build_metric_contribution_audit(
             ["geo_id", "date", "canonical_metric_key"]
         ).reset_index(drop=True),
         "top_metric_events": top_events,
+    }
+
+# ==============================
+# Trace Permit Feature Pipeline
+# ==============================
+def trace_permit_feature_pipeline(
+    geo_id: str = "district_of_columbia_dc__county",
+    start_date: str = "2025-09-01",
+    end_date: str = "2026-05-31",
+) -> dict[str, pd.DataFrame]:
+    metrics = score_metrics()
+    normalized = normalize_features()
+    raw_features = build_feature_matrix()
+
+    permit_metrics = ["permit_activity", "permit_intensity"]
+
+    start = pd.to_datetime(start_date)
+    end = pd.to_datetime(end_date)
+
+    def _filter(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame:
+        out = df.copy()
+        out[date_col] = pd.to_datetime(out[date_col])
+        return out[
+            (out["geo_id"].eq(geo_id))
+            & (out["canonical_metric_key"].isin(permit_metrics))
+            & (out[date_col] >= start)
+            & (out[date_col] <= end)
+        ].copy()
+
+    raw = _filter(raw_features)
+    norm = _filter(normalized)
+    scored = _filter(metrics)
+
+    raw_wide = (
+        raw.pivot_table(
+            index=["geo_id", "date", "canonical_metric_key"],
+            columns="feature_key",
+            values="raw_feature_value",
+            aggfunc="first",
+        )
+        .reset_index()
+        .sort_values(["canonical_metric_key", "date"])
+    )
+
+    norm_wide = (
+        norm.pivot_table(
+            index=["geo_id", "date", "canonical_metric_key"],
+            columns="feature_key",
+            values="feature_score",
+            aggfunc="first",
+        )
+        .reset_index()
+        .sort_values(["canonical_metric_key", "date"])
+    )
+
+    scored = scored.sort_values(["canonical_metric_key", "date"]).copy()
+    scored["previous_metric_score"] = (
+        scored.groupby("canonical_metric_key")["metric_score"].shift(1)
+    )
+    scored["delta_metric_score"] = (
+        scored.groupby("canonical_metric_key")["metric_score"].diff()
+    )
+
+    joined = scored.merge(
+        raw_wide,
+        on=["geo_id", "date", "canonical_metric_key"],
+        how="left",
+        suffixes=("", "_raw"),
+    ).merge(
+        norm_wide,
+        on=["geo_id", "date", "canonical_metric_key"],
+        how="left",
+        suffixes=("_raw", "_score"),
+    )
+
+    return {
+        "raw_features": raw.sort_values(["canonical_metric_key", "date", "feature_key"]).reset_index(drop=True),
+        "normalized_features": norm.sort_values(["canonical_metric_key", "date", "feature_key"]).reset_index(drop=True),
+        "metric_scores": scored.reset_index(drop=True),
+        "joined_trace": joined.sort_values(["canonical_metric_key", "date"]).reset_index(drop=True),
     }
