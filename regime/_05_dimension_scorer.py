@@ -1,10 +1,10 @@
 from __future__ import annotations
-# regime/dimension_scorer.py
+# regime/_05_dimension_scorer.py
 
 import pandas as pd
 
-from regime.config_loader import load_regime_config
-from regime.asof_aligner import align_metric_scores_asof
+from regime._00_config_loader import load_regime_config
+from regime._04_asof_aligner import align_metric_scores_asof
 
 
 def _truthy(series: pd.Series) -> pd.Series:
