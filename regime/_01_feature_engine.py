@@ -70,10 +70,19 @@ def _compute_feature(
     raise ValueError(f"Unsupported transform: {transform}")
 
 
-def load_raw_metric_series(config: RegimeConfig) -> pd.DataFrame:
+def load_raw_metric_series(
+    config: RegimeConfig,
+    db_path: str | Path = SERVING_DB,
+) -> pd.DataFrame:
     source_metrics = config.source_metrics[["metric_key", "source_id", "metric_id"]]
 
-    con = duckdb.connect(str(SERVING_DB))
+    db_path = Path(db_path)
+    
+    if not db_path.is_file():
+        raise FileNotFoundError(f"Serving database not found: {db_path}")
+    
+    con = duckdb.connect(str(db_path), read_only=True)
+
     facts = con.execute("""
         SELECT geo_id, date, source_id, metric_id, value
         FROM fact_timeseries
@@ -92,11 +101,17 @@ def load_raw_metric_series(config: RegimeConfig) -> pd.DataFrame:
     return raw[["geo_id", "date", "metric_key", "value"]]
 
 
-def build_feature_matrix(config: RegimeConfig | None = None) -> pd.DataFrame:
+def build_feature_matrix(
+    config: RegimeConfig | None = None,
+    db_path: str | Path = SERVING_DB,
+) -> pd.DataFrame:
     if config is None:
         config = load_regime_config(validate=True)
 
-    raw_source = load_raw_metric_series(config)
+    raw_source = load_raw_metric_series(
+        config,
+        db_path=db_path,
+    )
     raw = resolve_canonical_metrics(raw_source, config)
     derived = build_derived_metrics(raw)
 
