@@ -7,32 +7,39 @@ from regime.coordinate_engine import build_coordinates
 
 
 def _major_regime(angle: float) -> str:
-    if 0.0 <= angle < 90.0:
+    if angle <= 45.0 or angle > 315.0:
+        return "hypersupply"
+    if angle <= 135.0:
         return "expansion"
-    if 90.0 <= angle < 180.0:
-        return "tight_expansion"
-    if 180.0 <= angle < 270.0:
-        return "contraction"
-    return "oversupply"
+    if angle <= 225.0:
+        return "recovery"
+    return "recession"
 
 
 def _minor_regime(angle: float) -> str:
-    # 8-sector wheel, 45 degrees each.
-    if 0.0 <= angle < 45.0:
-        return "balanced_growth"
-    if 45.0 <= angle < 90.0:
-        return "demand_led_growth"
-    if 90.0 <= angle < 135.0:
-        return "supply_constrained_growth"
-    if 135.0 <= angle < 180.0:
-        return "overheated_tight_market"
-    if 180.0 <= angle < 225.0:
-        return "demand_cooling_tight_supply"
-    if 225.0 <= angle < 270.0:
-        return "broad_contraction"
-    if 270.0 <= angle < 315.0:
-        return "oversupplied_weak_demand"
-    return "supply_led_recovery"
+    if angle <= 15.0 or angle > 345.0:
+        return "mid_hypersupply"
+    if angle <= 45.0:
+        return "early_hypersupply"
+    if angle <= 75.0:
+        return "late_expansion"
+    if angle <= 105.0:
+        return "mid_expansion"
+    if angle <= 135.0:
+        return "early_expansion"
+    if angle <= 165.0:
+        return "late_recovery"
+    if angle <= 195.0:
+        return "mid_recovery"
+    if angle <= 225.0:
+        return "early_recovery"
+    if angle <= 255.0:
+        return "late_recession"
+    if angle <= 285.0:
+        return "mid_recession"
+    if angle <= 315.0:
+        return "early_recession"
+    return "late_hypersupply"
 
 
 def _quadrant(angle: float) -> int:
