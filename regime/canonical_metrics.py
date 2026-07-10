@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from regime.config_loader import RegimeConfig, load_regime_config
+from regime._00_config_loader import RegimeConfig, load_regime_config
 
 
 def _truthy(series: pd.Series) -> pd.Series:
