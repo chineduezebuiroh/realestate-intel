@@ -33,17 +33,19 @@ def main() -> int:
     if low_radius.empty:
         print("  NONE")
     else:
-        print(
+        total_by_geo = events.groupby("geo_id").size().rename("total")
+        low_by_geo = (
             low_radius.groupby("geo_id")
             .agg(
                 rows=("date", "size"),
-                share_of_transitions=("date", lambda s: len(s) / len(events[events["geo_id"].eq(s.name)])),
                 avg_boundary_distance=("distance_to_boundary_degrees", "mean"),
                 avg_abs_angle_delta=("delta_angle_degrees", lambda s: s.abs().mean()),
             )
+            .join(total_by_geo)
             .reset_index()
-            .to_string(index=False)
         )
+        low_by_geo["share_of_transitions"] = low_by_geo["rows"] / low_by_geo["total"]
+        print(low_by_geo.to_string(index=False))
 
     print("\n[transition_audit] near-boundary transitions:")
     near_boundary = events[events["distance_to_boundary_degrees"] < 5.0].copy()
