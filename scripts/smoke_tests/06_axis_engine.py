@@ -1,7 +1,7 @@
 from __future__ import annotations
-# scripts/smoke_tests/6_axis_engine.py
+# scripts/smoke_tests/06_axis_engine.py
 
-from regime.axis_engine import score_axes
+from regime._06_axis_engine import score_axes
 
 
 SAMPLE_GEO = "alameda_county_ca__county"
