@@ -1,7 +1,7 @@
 from __future__ import annotations
-# scripts/smoke_tests/8_geometry_engine.py
+# scripts/smoke_tests/08_geometry_engine.py
 
-from regime.geometry_engine import assign_geometry
+from regime._08_geometry_engine import assign_geometry
 
 
 SAMPLE_GEO = "alameda_county_ca__county"
