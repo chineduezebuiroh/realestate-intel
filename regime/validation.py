@@ -110,7 +110,9 @@ def build_historical_trajectory(
         ]
     ].reset_index(drop=True)
 
-
+# ==============================
+# Transition Audit
+# ==============================
 def build_transition_audit(
     trajectory: pd.DataFrame | None = None,
     geo_ids: list[str] | None = None,
@@ -267,3 +269,123 @@ def build_transition_events(
             "max_axis_age_days",
         ]
     ].sort_values(["geo_id", "date"]).reset_index(drop=True)
+
+# ==============================
+# Seasonality Audit
+# ==============================
+def build_seasonality_audit(
+    trajectory: pd.DataFrame | None = None,
+    geo_ids: list[str] | None = None,
+) -> dict[str, pd.DataFrame]:
+    if trajectory is None:
+        trajectory = build_historical_trajectory(geo_ids=geo_ids)
+
+    df = trajectory.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df["year"] = df["date"].dt.year
+    df["month"] = df["date"].dt.month
+    df["month_name"] = df["date"].dt.month_name().str.slice(0, 3)
+
+    df["any_transition"] = df["major_changed"] | df["minor_changed"]
+    df["abs_supply_delta"] = df["delta_supply_pressure_score"].abs()
+    df["abs_demand_delta"] = df["delta_demand_strength_score"].abs()
+    df["abs_radius_delta"] = df["delta_regime_strength"].abs()
+    df["abs_angle_delta"] = df["delta_angle_degrees"].abs()
+
+    transitions = df[df["any_transition"]].copy()
+
+    transition_counts_by_month = (
+        transitions.groupby(["geo_id", "month", "month_name"])
+        .agg(
+            transitions=("date", "size"),
+            major_transitions=("major_changed", "sum"),
+            minor_transitions=("minor_changed", "sum"),
+            avg_regime_strength=("regime_strength", "mean"),
+            avg_boundary_distance=("distance_to_boundary_degrees", "mean"),
+            avg_abs_supply_delta=("abs_supply_delta", "mean"),
+            avg_abs_demand_delta=("abs_demand_delta", "mean"),
+            avg_abs_angle_delta=("abs_angle_delta", "mean"),
+            avg_axis_age_days=("max_axis_age_days", "mean"),
+        )
+        .reset_index()
+        .sort_values(["geo_id", "month"])
+    )
+
+    totals = (
+        transition_counts_by_month.groupby("geo_id")["transitions"]
+        .sum()
+        .rename("total_transitions")
+    )
+
+    transition_counts_by_month = transition_counts_by_month.merge(
+        totals,
+        on="geo_id",
+        how="left",
+    )
+    transition_counts_by_month["transition_share"] = (
+        transition_counts_by_month["transitions"]
+        / transition_counts_by_month["total_transitions"]
+    )
+
+    transition_calendar = (
+        transitions.groupby(["geo_id", "year", "month"])
+        .size()
+        .reset_index(name="transitions")
+        .pivot_table(
+            index=["geo_id", "year"],
+            columns="month",
+            values="transitions",
+            fill_value=0,
+            aggfunc="sum",
+        )
+        .reset_index()
+    )
+
+    for month in range(1, 13):
+        if month not in transition_calendar.columns:
+            transition_calendar[month] = 0
+
+    transition_calendar = transition_calendar[
+        ["geo_id", "year"] + list(range(1, 13))
+    ].sort_values(["geo_id", "year"])
+
+    monthly_movement = (
+        df.groupby(["geo_id", "month", "month_name"])
+        .agg(
+            observations=("date", "size"),
+            transition_rate=("any_transition", "mean"),
+            avg_abs_supply_delta=("abs_supply_delta", "mean"),
+            median_abs_supply_delta=("abs_supply_delta", "median"),
+            avg_abs_demand_delta=("abs_demand_delta", "mean"),
+            median_abs_demand_delta=("abs_demand_delta", "median"),
+            avg_abs_radius_delta=("abs_radius_delta", "mean"),
+            median_abs_radius_delta=("abs_radius_delta", "median"),
+            avg_abs_angle_delta=("abs_angle_delta", "mean"),
+            median_abs_angle_delta=("abs_angle_delta", "median"),
+        )
+        .reset_index()
+        .sort_values(["geo_id", "month"])
+    )
+
+    monthly_diagnostics = (
+        df.groupby(["geo_id", "month", "month_name"])
+        .agg(
+            avg_regime_strength=("regime_strength", "mean"),
+            median_regime_strength=("regime_strength", "median"),
+            avg_boundary_distance=("distance_to_boundary_degrees", "mean"),
+            median_boundary_distance=("distance_to_boundary_degrees", "median"),
+            avg_axis_age_days=("max_axis_age_days", "mean"),
+            median_axis_age_days=("max_axis_age_days", "median"),
+            max_axis_age_days=("max_axis_age_days", "max"),
+        )
+        .reset_index()
+        .sort_values(["geo_id", "month"])
+    )
+
+    return {
+        "transition_counts_by_month": transition_counts_by_month,
+        "transition_calendar": transition_calendar,
+        "monthly_movement": monthly_movement,
+        "monthly_diagnostics": monthly_diagnostics,
+        "transition_events": transitions.sort_values(["geo_id", "date"]).reset_index(drop=True),
+    }
