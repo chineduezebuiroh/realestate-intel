@@ -5,6 +5,7 @@ from pathlib import Path
 
 import duckdb
 import pandas as pd
+import numpy as np
 
 from regime._00_config_loader import RegimeConfig, load_regime_config
 from regime.derived_metrics import build_derived_metrics
@@ -63,6 +64,38 @@ def _compute_feature(
     if transform == "rolling_yoy_zscore":
         periods = _window_to_periods(feature_window, default=3)
         return value.pct_change(periods)
+
+    if transform == "ma12_level":
+        return value.rolling(
+            window=12,
+            min_periods=12,
+        ).mean()
+
+    if transform == "ma3_vs_ma12_pct":
+        fast_ma = value.rolling(
+            window=3,
+            min_periods=3,
+        ).mean()
+
+        slow_ma = value.rolling(
+            window=12,
+            min_periods=12,
+        ).mean()
+
+        denominator = slow_ma.replace(0.0, np.nan)
+
+        return (fast_ma / denominator) - 1.0
+
+    if transform == "ma12_yoy_pct":
+        slow_ma = value.rolling(
+            window=12,
+            min_periods=12,
+        ).mean()
+
+        prior_slow_ma = slow_ma.shift(12)
+        denominator = prior_slow_ma.replace(0.0, np.nan)
+
+        return (slow_ma / denominator) - 1.0
 
     if transform == "none":
         return value
