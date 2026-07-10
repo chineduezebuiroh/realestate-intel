@@ -1,9 +1,9 @@
 from __future__ import annotations
-# regime/asof_aligner.py
+# regime/_04_asof_aligner.py
 
 import pandas as pd
 
-from regime.metric_scorer import score_metrics
+from regime._03_metric_scorer import score_metrics
 
 
 MACRO_GEO_SUFFIXES = ("__county", "__cbsa_metro")
