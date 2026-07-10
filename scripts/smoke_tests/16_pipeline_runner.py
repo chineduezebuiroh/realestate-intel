@@ -1,10 +1,24 @@
 from __future__ import annotations
 # scripts/smoke_tests/16_pipeline_runner.py
 
+import argparse
+
 from regime.artifacts import RegimeArtifactStore
 
 
-RUN_ID = "baseline_raw_pct_equal_supply_weights"
+DEFAULT_RUN_ID = "baseline_raw_pct_equal_supply_weights"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Verify a persisted regime pipeline run."
+    )
+    parser.add_argument(
+        "--run-id",
+        default=DEFAULT_RUN_ID,
+        help="Persisted regime run to verify.",
+    )
+    return parser.parse_args()
 
 
 REQUIRED_PIPELINE_ARTIFACTS = [
@@ -36,9 +50,12 @@ REQUIRED_VALIDATION_ARTIFACTS = [
 
 
 def main() -> int:
+    args = parse_args()
+    run_id = args.run_id
+
     store = RegimeArtifactStore()
 
-    manifest = store.read_manifest(RUN_ID)
+    manifest = store.read_manifest(run_id)
 
     print("[pipeline_runner] run_id:", manifest["run_id"])
     print("[pipeline_runner] experiment_id:", manifest["experiment_id"])
@@ -51,14 +68,14 @@ def main() -> int:
         )
 
     for artifact_name in REQUIRED_PIPELINE_ARTIFACTS:
-        if not store.artifact_exists(RUN_ID, artifact_name):
+        if not store.artifact_exists(run_id, artifact_name):
             raise AssertionError(
                 f"Missing pipeline artifact: {artifact_name}"
             )
 
     for artifact_name in REQUIRED_VALIDATION_ARTIFACTS:
         if not store.artifact_exists(
-            RUN_ID,
+            run_id,
             artifact_name,
             validation=True,
         ):
@@ -66,7 +83,7 @@ def main() -> int:
                 f"Missing validation artifact: {artifact_name}"
             )
 
-    verification = store.verify_run(RUN_ID)
+    verification = store.verify_run(run_id)
 
     print("\n[pipeline_runner] verification:")
     print(verification.to_string(index=False))
@@ -78,12 +95,12 @@ def main() -> int:
         raise AssertionError("One or more artifact hashes failed")
 
     regimes = store.read_dataframe(
-        RUN_ID,
+        run_id,
         "regime_assignments",
     )
 
     trajectory = store.read_dataframe(
-        RUN_ID,
+        run_id,
         "historical_trajectory",
         validation=True,
     )
