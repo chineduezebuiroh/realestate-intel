@@ -1,7 +1,7 @@
 from __future__ import annotations
-# scripts/smoke_tests/5_dimension_scorer.py
+# scripts/smoke_tests/05_dimension_scorer.py
 
-from regime.dimension_scorer import score_dimensions
+from regime._05_dimension_scorer import score_dimensions
 
 
 SAMPLES = [
