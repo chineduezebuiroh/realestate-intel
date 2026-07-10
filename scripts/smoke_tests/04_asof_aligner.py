@@ -1,7 +1,7 @@
 from __future__ import annotations
-# scripts/smoke_tests/4_asof_aligner.py
+# scripts/smoke_tests/04_asof_aligner.py
 
-from regime.asof_aligner import align_metric_scores_asof
+from regime._04_asof_aligner import align_metric_scores_asof
 
 
 SAMPLE_GEO = "alameda_county_ca__county"
