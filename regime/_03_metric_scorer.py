@@ -1,10 +1,10 @@
 from __future__ import annotations
-# regime/metric_scorer.py
+# regime/_03_metric_scorer.py
 
 import pandas as pd
 
-from regime.config_loader import load_regime_config
-from regime.feature_normalizer import normalize_features
+from regime._00_config_loader import load_regime_config
+from regime._02_feature_normalizer import normalize_features
 
 
 def score_metrics(scores: pd.DataFrame | None = None) -> pd.DataFrame:
