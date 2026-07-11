@@ -1,0 +1,8 @@
+derived_metric_key,component_metric_key,warning_days,hard_days,policy_action,enabled,notes
+price_to_income,median_sale_price,31,62,confidence_only,true,Monthly numerator must remain current; current implementation uses exact-date matching.
+price_to_income,median_household_income,548,730,confidence_only,true,Annual ACS income; warning after approximately 18 months and hard breach after approximately 24 months.
+payment_burden,median_sale_price,31,62,confidence_only,true,Monthly numerator must remain current; current implementation uses exact-date matching.
+payment_burden,median_household_income,548,730,confidence_only,true,Annual ACS income; warning after approximately 18 months and hard breach after approximately 24 months.
+payment_burden,mortgage_30y,31,62,confidence_only,true,National monthly mortgage rate; current implementation uses exact-date matching.
+permit_intensity,permit_activity,62,124,confidence_only,true,Monthly permit numerator; current implementation uses exact-date matching.
+permit_intensity,population,548,730,confidence_only,true,Annual population denominator; warning after approximately 18 months and hard breach after approximately 24 months.

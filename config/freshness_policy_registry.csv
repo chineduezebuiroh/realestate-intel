@@ -1,9 +1,0 @@
-| canonical_metric_key    | warning_days | hard_days | policy     | notes                        |
-| ----------------------- | -----------: | --------: | ---------- | ---------------------------- |
-| population              |          548 |       730 | confidence | annual Census estimates      |
-| median_household_income |          548 |       730 | confidence | annual ACS                   |
-| mortgage_30y            |           31 |        62 | confidence | monthly Freddie Mac          |
-| permit_activity         |           62 |       124 | confidence | monthly BPS                  |
-| permit_intensity        |          548 |       730 | confidence | governed by oldest component |
-| payment_burden          |          548 |       730 | confidence | governed by oldest component |
-| price_to_income         |          548 |       730 | confidence | governed by oldest component |
