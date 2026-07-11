@@ -907,6 +907,29 @@ def build_history_maturity_audit(
         "source_geo_id",
     ] = NATIONAL_GEO_ID
 
+    invalid_national_source = aligned_for_maturity[
+        national_mask
+        & ~aligned_for_maturity["source_geo_id"].eq(
+            NATIONAL_GEO_ID
+        )
+    ]
+
+    if not invalid_national_source.empty:
+        raise AssertionError(
+            "Capital-market rows were not mapped to the national "
+            "source geography:\n"
+            + invalid_national_source[
+                [
+                    "evaluation_geo_id",
+                    "source_geo_id",
+                    "canonical_metric_key",
+                ]
+            ]
+            .drop_duplicates()
+            .head(20)
+            .to_string(index=False)
+        )
+
     metric_date_maturity_for_join = (
         metric_date_maturity.rename(
             columns={"geo_id": "source_geo_id"}
@@ -936,6 +959,35 @@ def build_history_maturity_audit(
         how="inner",
         validate="many_to_many",
     )
+
+    local_capital_rows = evaluation_metric_maturity[
+        evaluation_metric_maturity["canonical_metric_key"].isin(
+            capital_market_metrics
+        )
+    ]
+
+    if not local_capital_rows.empty:
+        invalid = local_capital_rows[
+            ~local_capital_rows["source_geo_id"].eq(
+                NATIONAL_GEO_ID
+            )
+        ]
+
+        if not invalid.empty:
+            raise AssertionError(
+                "Broadcast capital-market rows have an invalid "
+                "source geography:\n"
+                + invalid[
+                    [
+                        "geo_id",
+                        "source_geo_id",
+                        "canonical_metric_key",
+                    ]
+                ]
+                .drop_duplicates()
+                .head(20)
+                .to_string(index=False)
+            )
     
     missing_maturity = evaluation_metric_maturity[
         evaluation_metric_maturity["avg_lookback_ratio"].isna()
