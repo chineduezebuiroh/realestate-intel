@@ -218,6 +218,29 @@ def _maturity_status(row: pd.Series) -> str:
     return "full_window"
 
 
+def _weighted_mean(
+    values: pd.Series,
+    weights: pd.Series,
+) -> float:
+    valid = values.notna() & weights.notna()
+
+    if not valid.any():
+        return float("nan")
+
+    valid_values = values[valid].astype(float)
+    valid_weights = weights[valid].astype(float)
+
+    weight_sum = valid_weights.sum()
+
+    if weight_sum <= 0:
+        return float(valid_values.mean())
+
+    return float(
+        (valid_values * valid_weights).sum()
+        / weight_sum
+    )
+    
+
 def build_history_maturity_audit(
     run_id: str = "macro_regime_v1",
     *,
@@ -656,26 +679,3 @@ def build_history_maturity_audit(
         "annual_metric_summary": annual_metric_summary,
         "latest_feature_summary": latest_feature_summary,
     }
-
-
-def _weighted_mean(
-    values: pd.Series,
-    weights: pd.Series,
-) -> float:
-    valid = values.notna() & weights.notna()
-
-    if not valid.any():
-        return float("nan")
-
-    valid_values = values[valid].astype(float)
-    valid_weights = weights[valid].astype(float)
-
-    weight_sum = valid_weights.sum()
-
-    if weight_sum <= 0:
-        return float(valid_values.mean())
-
-    return float(
-        (valid_values * valid_weights).sum()
-        / weight_sum
-    )
