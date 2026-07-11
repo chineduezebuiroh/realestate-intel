@@ -865,15 +865,69 @@ def build_history_maturity_audit(
     # D. Evaluation-calendar maturity
     # ------------------------------------------------------------------
 
-    evaluation_metric_maturity = aligned.merge(
-        metric_date_maturity,
+    # Capital-market metric scores are sourced nationally and then
+    # broadcast onto local macro geographies by the as-of aligner.
+    #
+    # The aligned artifact therefore contains:
+    #
+    #   geo_id = local evaluation geography
+    #
+    # while the source feature history contains:
+    #
+    #   geo_id = united_states__nation
+    #
+    # Preserve the local geography as evaluation_geo_id and resolve the
+    # correct source geography before joining maturity metadata.
+
+    capital_market_metrics = set(
+        axis_metric_metadata.loc[
+            axis_metric_metadata["dimension"].eq("capital_markets"),
+            "canonical_metric_key",
+        ]
+        .dropna()
+        .astype(str)
+    )
+
+    aligned_for_maturity = aligned.copy()
+
+    aligned_for_maturity = aligned_for_maturity.rename(
+        columns={"geo_id": "evaluation_geo_id"}
+    )
+
+    aligned_for_maturity["source_geo_id"] = (
+        aligned_for_maturity["evaluation_geo_id"]
+    )
+
+    national_mask = aligned_for_maturity[
+        "canonical_metric_key"
+    ].isin(capital_market_metrics)
+
+    aligned_for_maturity.loc[
+        national_mask,
+        "source_geo_id",
+    ] = NATIONAL_GEO_ID
+
+    metric_date_maturity_for_join = (
+        metric_date_maturity.rename(
+            columns={"geo_id": "source_geo_id"}
+        )
+    )
+
+    evaluation_metric_maturity = aligned_for_maturity.merge(
+        metric_date_maturity_for_join,
         on=[
-            "geo_id",
+            "source_geo_id",
             "metric_date",
             "canonical_metric_key",
         ],
         how="left",
         validate="many_to_one",
+    )
+
+    evaluation_metric_maturity = (
+        evaluation_metric_maturity.rename(
+            columns={"evaluation_geo_id": "geo_id"}
+        )
     )
 
     evaluation_metric_maturity = evaluation_metric_maturity.merge(
@@ -882,7 +936,7 @@ def build_history_maturity_audit(
         how="inner",
         validate="many_to_many",
     )
-
+    
     missing_maturity = evaluation_metric_maturity[
         evaluation_metric_maturity["avg_lookback_ratio"].isna()
     ]
@@ -892,6 +946,7 @@ def build_history_maturity_audit(
             missing_maturity[
                 [
                     "geo_id",
+                    "source_geo_id",
                     "evaluation_date",
                     "metric_date",
                     "canonical_metric_key",
