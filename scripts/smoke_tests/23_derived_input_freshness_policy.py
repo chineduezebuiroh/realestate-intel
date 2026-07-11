@@ -61,13 +61,6 @@ def main() -> int:
             [
                 "derived_metric_key",
                 "component_metric_key",
-                "freshness_severity",
-            ]
-            if "freshness_severity"
-            in component.columns
-            else [
-                "derived_metric_key",
-                "component_metric_key",
                 "freshness_status",
             ]
         )
@@ -96,12 +89,6 @@ def main() -> int:
         .reset_index()
         .sort_values(
             [
-                "derived_metric_key",
-                "derived_freshness_severity",
-            ]
-            if "derived_freshness_severity"
-            in derived.columns
-            else [
                 "derived_metric_key",
                 "derived_freshness_status",
             ]
