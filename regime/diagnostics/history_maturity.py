@@ -473,6 +473,15 @@ def build_history_maturity_audit(
         "aligned_metric_scores",
     )
 
+    if "feature_count" in aligned.columns:
+        aligned = aligned.rename(
+            columns={
+                "feature_count": (
+                    "scored_feature_count_at_metric_date"
+                )
+            }
+        )
+
     features["date"] = pd.to_datetime(features["date"])
     normalized_policy_source["date"] = pd.to_datetime(
         normalized_policy_source["date"]
