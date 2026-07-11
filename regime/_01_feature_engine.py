@@ -8,7 +8,10 @@ import pandas as pd
 import numpy as np
 
 from regime._00_config_loader import RegimeConfig, load_regime_config
-from regime.derived_metrics import build_derived_metrics
+from regime.derived_metrics import (
+    build_derived_metrics,
+    build_derived_metrics_with_lineage,
+)
 from regime.canonical_metrics import resolve_canonical_metrics
 
 
@@ -134,10 +137,10 @@ def load_raw_metric_series(
     return raw[["geo_id", "date", "metric_key", "value"]]
 
 
-def build_feature_matrix(
+def build_feature_matrix_with_lineage(
     config: RegimeConfig | None = None,
     db_path: str | Path = SERVING_DB,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     if config is None:
         config = load_regime_config(validate=True)
 
@@ -146,7 +149,9 @@ def build_feature_matrix(
         db_path=db_path,
     )
     raw = resolve_canonical_metrics(raw_source, config)
-    derived = build_derived_metrics(raw)
+    derived, derived_lineage = (
+        build_derived_metrics_with_lineage(raw)
+    )
 
     if not derived.empty:
         raw = pd.concat([raw, derived], ignore_index=True)
@@ -213,4 +218,16 @@ def build_feature_matrix(
     out = pd.concat(rows, ignore_index=True)
     out = out.dropna(subset=["raw_feature_value"])
 
-    return out
+    return out, derived_lineage
+
+
+def build_feature_matrix(
+    config: RegimeConfig | None = None,
+    db_path: str | Path = SERVING_DB,
+) -> pd.DataFrame:
+    features, _ = build_feature_matrix_with_lineage(
+        config=config,
+        db_path=db_path,
+    )
+
+    return features
