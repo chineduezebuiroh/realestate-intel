@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 
 from regime.artifacts import DEFAULT_ARTIFACT_ROOT, RegimeArtifactStore
-from regime._01_feature_engine import build_feature_matrix
+from regime._01_feature_engine import build_feature_matrix_with_lineage
 from regime._02_feature_normalizer import normalize_features
 from regime._03_metric_scorer import score_metrics
 from regime._04_asof_aligner import align_metric_scores_asof
@@ -173,9 +173,17 @@ def run_regime_pipeline(
 
     try:
         print("[regime_pipeline] 1/9 building features")
-        features = build_feature_matrix(db_path=serving_db_path)
+        features, derived_metric_lineage = (
+            build_feature_matrix_with_lineage(
+                config=config,
+                db_path=serving_db_path,
+            )
+        )
         stage_summaries["features"] = _frame_summary(features)
         _write_pipeline_artifact(store, run_id, "features", features)
+
+        stage_summaries["derived_metric_lineage"] = _frame_summary(derived_metric_lineage)
+        _write_pipeline_artifact(store, run_id, "derived_metric_lineage", derived_metric_lineage)
 
         print("[regime_pipeline] 2/9 normalizing features")
         normalized_features = normalize_features(features)
