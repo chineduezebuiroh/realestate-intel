@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from regime.diagnostics.history_maturity import (
     DEFAULT_VALIDATION_GEOS,
-    NATIONAL_GEO_ID,
     build_history_maturity_audit,
 )
 
@@ -28,122 +27,132 @@ def main() -> int:
         run_id=RUN_ID,
     )
 
-    feature_summary = audit["feature_summary"]
-    annual_geo = audit["annual_geo_summary"]
-    annual_axis = audit["annual_axis_summary"]
-    annual_metric = audit["annual_metric_summary"]
-    latest = audit["latest_feature_summary"]
+    source_geo = audit["annual_source_history_summary"]
+    source_axis = audit[
+        "annual_axis_source_history_summary"
+    ]
+    source_metric = audit[
+        "annual_metric_source_history_summary"
+    ]
+    evaluation_axis = audit[
+        "annual_evaluation_axis_snapshot"
+    ]
+    evaluation_metric = audit[
+        "annual_evaluation_metric_snapshot"
+    ]
+    latest = audit["latest_source_feature_summary"]
 
-    print("[history_maturity] run:", RUN_ID)
-    print("[history_maturity] feature summaries:", len(feature_summary))
+    print("[history_maturity_v2] run:", RUN_ID)
+
     print(
-        "[history_maturity] source geographies:",
-        feature_summary["geo_id"].nunique(),
+        "\n[history_maturity_v2] source-history geography "
+        "checkpoints:"
     )
-
-    print("\n[history_maturity] annual geography checkpoints:")
     print(
-        annual_geo[
-            annual_geo["year"].isin(CHECKPOINT_YEARS)
+        source_geo[
+            source_geo["source_year"].isin(CHECKPOINT_YEARS)
         ]
-        .sort_values(["geo_id", "year"])
+        .sort_values(["geo_id", "source_year"])
         .to_string(index=False)
     )
 
-    print("\n[history_maturity] annual axis checkpoints:")
     print(
-        annual_axis[
-            annual_axis["year"].isin(CHECKPOINT_YEARS)
+        "\n[history_maturity_v2] source-history axis "
+        "checkpoints:"
+    )
+    print(
+        source_axis[
+            source_axis["source_year"].isin(CHECKPOINT_YEARS)
         ]
-        .sort_values(["geo_id", "year", "axis"])
+        .sort_values(
+            ["geo_id", "source_year", "axis"]
+        )
+        .to_string(index=False)
+    )
+
+    print(
+        "\n[history_maturity_v2] evaluation-calendar axis "
+        "checkpoints:"
+    )
+    print(
+        evaluation_axis[
+            evaluation_axis["evaluation_year"].isin(
+                CHECKPOINT_YEARS
+            )
+        ][
+            [
+                "geo_id",
+                "evaluation_year",
+                "evaluation_date",
+                "axis",
+                "metric_count",
+                "avg_metric_age_days",
+                "weighted_avg_metric_age_days",
+                "max_metric_age_days",
+                "avg_minimum_ratio",
+                "avg_lookback_ratio",
+                "weighted_avg_lookback_ratio",
+                "minimum_met_metric_share",
+                "full_window_metric_share",
+            ]
+        ]
+        .sort_values(
+            [
+                "geo_id",
+                "evaluation_year",
+                "axis",
+            ]
+        )
         .to_string(index=False)
     )
 
     for geo_id in DEFAULT_VALIDATION_GEOS:
         print(
-            f"\n[history_maturity] Demand metric checkpoints: {geo_id}"
+            "\n[history_maturity_v2] Demand evaluation "
+            f"metrics: {geo_id}"
         )
 
-        sample = annual_metric[
-            annual_metric["geo_id"].eq(geo_id)
-            & annual_metric["axis"].eq("demand")
-            & annual_metric["year"].isin(CHECKPOINT_YEARS)
-        ].copy()
-
-        if sample.empty:
-            print("  NONE")
-        else:
-            print(
-                sample[
-                    [
-                        "geo_id",
-                        "year",
-                        "dimension",
-                        "canonical_metric_key",
-                        "feature_count",
-                        "scored_feature_share",
-                        "minimum_met_share",
-                        "full_window_share",
-                        "avg_minimum_ratio",
-                        "avg_lookback_ratio",
-                        "min_observation_count",
-                        "max_observation_count",
-                    ]
-                ]
-                .sort_values(
-                    [
-                        "year",
-                        "dimension",
-                        "canonical_metric_key",
-                    ]
-                )
-                .to_string(index=False)
+        sample = evaluation_metric[
+            evaluation_metric["geo_id"].eq(geo_id)
+            & evaluation_metric["axis"].eq("demand")
+            & evaluation_metric["evaluation_year"].isin(
+                CHECKPOINT_YEARS
             )
+        ]
 
-    print(
-        f"\n[history_maturity] National capital-market checkpoints: "
-        f"{NATIONAL_GEO_ID}"
-    )
-
-    national = annual_metric[
-        annual_metric["geo_id"].eq(NATIONAL_GEO_ID)
-        & annual_metric["year"].isin(CHECKPOINT_YEARS)
-    ].copy()
-
-    if national.empty:
-        print("  NONE")
-    else:
         print(
-            national[
+            sample[
                 [
                     "geo_id",
-                    "year",
-                    "axis",
+                    "evaluation_year",
+                    "evaluation_date",
                     "dimension",
                     "canonical_metric_key",
+                    "metric_date",
+                    "metric_age_days",
                     "feature_count",
-                    "scored_feature_share",
+                    "avg_minimum_ratio",
+                    "avg_lookback_ratio",
                     "minimum_met_share",
                     "full_window_share",
-                    "avg_lookback_ratio",
-                    "min_observation_count",
-                    "max_observation_count",
                 ]
             ]
             .sort_values(
                 [
-                    "year",
-                    "axis",
+                    "evaluation_year",
+                    "dimension",
                     "canonical_metric_key",
                 ]
             )
             .to_string(index=False)
         )
 
-    print("\n[history_maturity] latest immature features:")
-    immature = latest[
-        ~latest["full_window"]
-    ].copy()
+    print(
+        "\n[history_maturity_v2] latest source-history "
+        "features below full window:"
+    )
+
+    immature = latest[~latest["full_window"]]
 
     if immature.empty:
         print("  NONE")
@@ -152,7 +161,6 @@ def main() -> int:
             immature[
                 [
                     "geo_id",
-                    "axis",
                     "dimension",
                     "canonical_metric_key",
                     "feature_key",
@@ -172,7 +180,6 @@ def main() -> int:
             .sort_values(
                 [
                     "geo_id",
-                    "axis",
                     "lookback_ratio",
                     "canonical_metric_key",
                     "feature_key",
@@ -181,17 +188,23 @@ def main() -> int:
             .to_string(index=False)
         )
 
-    if feature_summary.empty:
-        raise AssertionError(
-            "Feature maturity summary is empty"
-        )
+    required = [
+        "annual_source_history_summary",
+        "annual_axis_source_history_summary",
+        "annual_metric_source_history_summary",
+        "evaluation_metric_maturity",
+        "evaluation_axis_maturity",
+        "annual_evaluation_axis_snapshot",
+        "annual_evaluation_metric_snapshot",
+    ]
 
-    if annual_axis.empty:
-        raise AssertionError(
-            "Annual axis maturity summary is empty"
-        )
+    for key in required:
+        if audit[key].empty:
+            raise AssertionError(
+                f"Expected non-empty audit output: {key}"
+            )
 
-    print("\n[history_maturity] OK")
+    print("\n[history_maturity_v2] OK")
     return 0
 
 
