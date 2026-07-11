@@ -28,6 +28,7 @@ from regime.validation import (
     build_transition_audit,
     build_transition_events,
 )
+from regime.freshness import evaluate_derived_input_freshness
 
 
 DEFAULT_CONFIG_PATHS = [
@@ -36,6 +37,7 @@ DEFAULT_CONFIG_PATHS = [
     Path("config/metric_dimension_registry.csv"),
     Path("config/axis_registry.csv"),
     Path("config/normalization_registry.csv"),
+    Path("config/derived_input_freshness_registry.csv"),
 ]
 
 
@@ -189,93 +191,60 @@ def run_regime_pipeline(
         stage_summaries["derived_metric_lineage"] = _frame_summary(derived_metric_lineage)
         _write_pipeline_artifact(store, run_id, "derived_metric_lineage", derived_metric_lineage)
 
+        print("[regime_pipeline] evaluating derived input freshness")
+        freshness_outputs = evaluate_derived_input_freshness(derived_metric_lineage)
+
+        derived_input_component_freshness = (freshness_outputs["component_status"])
+
+        derived_input_freshness = (freshness_outputs["derived_status"])
+
+        stage_summaries["derived_input_component_freshness"] = _frame_summary(derived_input_component_freshness)
+        _write_pipeline_artifact(store, run_id, "derived_input_component_freshness", derived_input_component_freshness)
+
+        stage_summaries["derived_input_freshness"] = _frame_summary(derived_input_freshness)
+        _write_pipeline_artifact(store, run_id, "derived_input_freshness", derived_input_freshness)
+        
         print("[regime_pipeline] 2/9 normalizing features")
         normalized_features = normalize_features(features)
         stage_summaries["normalized_features"] = _frame_summary(
             normalized_features
         )
-        _write_pipeline_artifact(
-            store,
-            run_id,
-            "normalized_features",
-            normalized_features,
-        )
+        _write_pipeline_artifact(store, run_id, "normalized_features", normalized_features)
 
         print("[regime_pipeline] 3/9 scoring metrics")
         metric_scores = score_metrics(normalized_features)
         stage_summaries["metric_scores"] = _frame_summary(metric_scores)
-        _write_pipeline_artifact(
-            store,
-            run_id,
-            "metric_scores",
-            metric_scores,
-        )
+        _write_pipeline_artifact(store, run_id, "metric_scores", metric_scores)
 
         print("[regime_pipeline] 4/9 aligning metric scores")
         aligned_metric_scores = align_metric_scores_asof(metric_scores)
-        stage_summaries["aligned_metric_scores"] = _frame_summary(
-            aligned_metric_scores
-        )
-        _write_pipeline_artifact(
-            store,
-            run_id,
-            "aligned_metric_scores",
-            aligned_metric_scores,
-        )
+        stage_summaries["aligned_metric_scores"] = _frame_summary(aligned_metric_scores)
+        _write_pipeline_artifact(store, run_id, "aligned_metric_scores", aligned_metric_scores)
 
         print("[regime_pipeline] 5/9 scoring dimensions")
         dimension_scores = score_dimensions(aligned_metric_scores)
-        stage_summaries["dimension_scores"] = _frame_summary(
-            dimension_scores
-        )
-        _write_pipeline_artifact(
-            store,
-            run_id,
-            "dimension_scores",
-            dimension_scores,
-        )
+        stage_summaries["dimension_scores"] = _frame_summary(dimension_scores)
+        _write_pipeline_artifact(store, run_id, "dimension_scores", dimension_scores)
 
         print("[regime_pipeline] 6/9 scoring axes")
         axis_scores = score_axes(dimension_scores)
         stage_summaries["axis_scores"] = _frame_summary(axis_scores)
-        _write_pipeline_artifact(
-            store,
-            run_id,
-            "axis_scores",
-            axis_scores,
-        )
+        _write_pipeline_artifact(store, run_id, "axis_scores", axis_scores)
 
         print("[regime_pipeline] 7/9 building coordinates")
         coordinates = build_coordinates(axis_scores)
         stage_summaries["coordinates"] = _frame_summary(coordinates)
-        _write_pipeline_artifact(
-            store,
-            run_id,
-            "coordinates",
-            coordinates,
-        )
+        _write_pipeline_artifact(store, run_id, "coordinates", coordinates)
 
         print("[regime_pipeline] 8/9 assigning geometry")
         geometry = assign_geometry(coordinates)
         stage_summaries["geometry"] = _frame_summary(geometry)
-        _write_pipeline_artifact(
-            store,
-            run_id,
-            "geometry",
-            geometry,
-        )
+        _write_pipeline_artifact(store, run_id, "geometry", geometry)
 
         print("[regime_pipeline] 9/9 assigning regimes")
         regime_assignments = assign_regimes(geometry)
-        stage_summaries["regime_assignments"] = _frame_summary(
-            regime_assignments
-        )
-        _write_pipeline_artifact(
-            store,
-            run_id,
-            "regime_assignments",
-            regime_assignments,
-        )
+        stage_summaries["regime_assignments"] = _frame_summary(regime_assignments)
+        _write_pipeline_artifact(store, run_id, "regime_assignments", regime_assignments)
 
         print("[regime_pipeline] building validation artifacts")
 
@@ -283,34 +252,19 @@ def run_regime_pipeline(
             regimes=regime_assignments,
             geo_ids=validation_geo_ids,
         )
-        _write_validation_artifact(
-            store,
-            run_id,
-            "historical_trajectory",
-            trajectory,
-        )
+        _write_validation_artifact(store, run_id, "historical_trajectory", trajectory)
 
         transition_events = build_transition_events(
             trajectory=trajectory,
             geo_ids=validation_geo_ids,
         )
-        _write_validation_artifact(
-            store,
-            run_id,
-            "transition_events",
-            transition_events,
-        )
+        _write_validation_artifact(store, run_id, "transition_events", transition_events)
 
         transition_audit = build_transition_audit(
             trajectory=trajectory,
             geo_ids=validation_geo_ids,
         )
-        _write_validation_artifact(
-            store,
-            run_id,
-            "transition_audit",
-            transition_audit,
-        )
+        _write_validation_artifact(store, run_id, "transition_audit", transition_audit)
 
         seasonality = build_seasonality_audit(
             trajectory=trajectory,
