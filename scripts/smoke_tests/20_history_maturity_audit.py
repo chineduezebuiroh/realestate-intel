@@ -124,6 +124,7 @@ def main() -> int:
             sample[
                 [
                     "geo_id",
+                    "source_geo_id",
                     "evaluation_year",
                     "evaluation_date",
                     "dimension",
