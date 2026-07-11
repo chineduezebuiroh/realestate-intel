@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from regime.artifacts import DEFAULT_ARTIFACT_ROOT, RegimeArtifactStore
-from regime.config_loader import load_regime_config
+from regime._00_config_loader import load_regime_config
 
 
 DEFAULT_VALIDATION_GEOS = [
