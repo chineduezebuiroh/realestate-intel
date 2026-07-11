@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 
 from regime.artifacts import DEFAULT_ARTIFACT_ROOT, RegimeArtifactStore
+from regime._00_config_loader import load_regime_config
 from regime._01_feature_engine import build_feature_matrix_with_lineage
 from regime._02_feature_normalizer import normalize_features
 from regime._03_metric_scorer import score_metrics
@@ -172,6 +173,9 @@ def run_regime_pipeline(
     stage_summaries: dict[str, dict[str, Any]] = {}
 
     try:
+        print("[regime_pipeline] loading config")
+        config = load_regime_config(validate=True)
+
         print("[regime_pipeline] 1/9 building features")
         features, derived_metric_lineage = (
             build_feature_matrix_with_lineage(
