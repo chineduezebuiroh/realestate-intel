@@ -241,6 +241,164 @@ def _weighted_mean(
     )
     
 
+def _safe_share(
+    numerator: pd.Series,
+    denominator: pd.Series,
+) -> pd.Series:
+    denominator = denominator.replace(0, pd.NA)
+
+    result = (
+        pd.to_numeric(numerator, errors="coerce")
+        / pd.to_numeric(denominator, errors="coerce")
+    )
+
+    return result.astype(float)
+
+
+def _assert_valid_summary_counts(
+    df: pd.DataFrame,
+    *,
+    label: str,
+) -> None:
+    count_pairs = [
+        ("scored_feature_count", "feature_count"),
+        ("minimum_met_count", "feature_count"),
+        ("full_window_count", "feature_count"),
+    ]
+
+    for numerator, denominator in count_pairs:
+        if numerator not in df.columns or denominator not in df.columns:
+            continue
+
+        invalid = df[
+            pd.to_numeric(df[numerator], errors="coerce")
+            > pd.to_numeric(df[denominator], errors="coerce")
+        ]
+
+        if not invalid.empty:
+            raise AssertionError(
+                f"{label}: {numerator} exceeds {denominator}:\n"
+                + invalid.head(20).to_string(index=False)
+            )
+
+    if {
+        "full_window_count",
+        "minimum_met_count",
+    }.issubset(df.columns):
+        invalid = df[
+            df["full_window_count"] > df["minimum_met_count"]
+        ]
+
+        if not invalid.empty:
+            raise AssertionError(
+                f"{label}: full_window_count exceeds "
+                "minimum_met_count:\n"
+                + invalid.head(20).to_string(index=False)
+            )
+
+    share_columns = [
+        column
+        for column in df.columns
+        if column.endswith("_share")
+    ]
+
+    for column in share_columns:
+        values = pd.to_numeric(df[column], errors="coerce")
+        invalid = df[
+            values.notna()
+            & ((values < -1e-12) | (values > 1.0 + 1e-12))
+        ]
+
+        if not invalid.empty:
+            raise AssertionError(
+                f"{label}: {column} lies outside [0, 1]:\n"
+                + invalid.head(20).to_string(index=False)
+            )
+
+
+def _add_feature_shares(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    out["scored_feature_share"] = _safe_share(
+        out["scored_feature_count"],
+        out["feature_count"],
+    )
+
+    out["minimum_met_share"] = _safe_share(
+        out["minimum_met_count"],
+        out["feature_count"],
+    )
+
+    out["full_window_share"] = _safe_share(
+        out["full_window_count"],
+        out["feature_count"],
+    )
+
+    return out
+
+
+def _build_axis_metric_metadata(
+    feature_metadata: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Produce exactly one row per axis × dimension × canonical metric.
+
+    Feature rows must not leak into metric-level or axis-level counts.
+    """
+    columns = [
+        "axis",
+        "dimension",
+        "canonical_metric_key",
+        "metric_weight",
+        "dimension_weight",
+    ]
+
+    out = (
+        feature_metadata[columns]
+        .dropna(subset=["axis", "canonical_metric_key"])
+        .drop_duplicates()
+        .copy()
+    )
+
+    out["axis_metric_weight"] = (
+        pd.to_numeric(out["metric_weight"], errors="coerce")
+        * pd.to_numeric(out["dimension_weight"], errors="coerce")
+    )
+
+    duplicates = out.duplicated(
+        subset=["axis", "canonical_metric_key"],
+        keep=False,
+    )
+
+    if duplicates.any():
+        raise ValueError(
+            "Conflicting axis metric metadata:\n"
+            + out[duplicates]
+            .sort_values(["axis", "canonical_metric_key"])
+            .to_string(index=False)
+        )
+
+    return out
+
+
+def _last_row_per_group(
+    df: pd.DataFrame,
+    group_columns: list[str],
+    *,
+    date_column: str,
+) -> pd.DataFrame:
+    return (
+        df.sort_values(group_columns + [date_column])
+        .groupby(
+            group_columns,
+            dropna=False,
+            as_index=False,
+        )
+        .tail(1)
+        .reset_index(drop=True)
+    )
+
+
 def build_history_maturity_audit(
     run_id: str = "macro_regime_v1",
     *,
@@ -249,27 +407,21 @@ def build_history_maturity_audit(
     include_national: bool = True,
 ) -> dict[str, pd.DataFrame]:
     """
-    Measure feature-history maturity using persisted production artifacts.
+    History Maturity Audit v2.
 
-    Maturity is measured in valid feature observations:
+    This audit intentionally exposes two calendars:
 
-      pre_minimum:
-          observation_count < normalization min_periods
+    1. Source-history calendar
+       Uses feature observation dates and answers:
+       "How much history existed when this feature was calculated?"
 
-      minimum_met:
-          min_periods <= observation_count < lookback_periods
+    2. Evaluation calendar
+       Uses aligned monthly regime evaluation dates and answers:
+       "How mature and how old were the metric scores actually consumed
+       by the regime engine on this date?"
 
-      full_window:
-          observation_count >= lookback_periods
-
-    Returns:
-      feature_history
-      feature_summary
-      year_end_feature_snapshot
-      annual_geo_summary
-      annual_axis_summary
-      annual_metric_summary
-      latest_feature_summary
+    This audit does not yet measure the ages of individual inputs used
+    inside derived metrics. That requires derived-input lineage.
     """
     if geo_ids is None:
         geo_ids = DEFAULT_VALIDATION_GEOS.copy()
@@ -300,46 +452,73 @@ def build_history_maturity_audit(
         ],
     )
 
-    normalized = store.read_dataframe(
+    normalized_policy_source = store.read_dataframe(
         run_id,
         "normalized_features",
+        columns=[
+            "geo_id",
+            "date",
+            "canonical_metric_key",
+            "feature_key",
+            "source_family",
+            "normalization_method",
+            "lookback_periods",
+            "min_periods",
+            "score_direction",
+        ],
+    )
+
+    aligned = store.read_dataframe(
+        run_id,
+        "aligned_metric_scores",
     )
 
     features["date"] = pd.to_datetime(features["date"])
-    normalized["date"] = pd.to_datetime(normalized["date"])
+    normalized_policy_source["date"] = pd.to_datetime(
+        normalized_policy_source["date"]
+    )
+    aligned["evaluation_date"] = pd.to_datetime(
+        aligned["evaluation_date"]
+    )
+    aligned["metric_date"] = pd.to_datetime(
+        aligned["metric_date"]
+    )
 
     features = features[
         features["geo_id"].isin(selected_geos)
     ].copy()
 
-    normalized = normalized[
-        normalized["geo_id"].isin(selected_geos)
+    normalized = normalized_policy_source[
+        normalized_policy_source["geo_id"].isin(selected_geos)
+    ].copy()
+
+    aligned = aligned[
+        aligned["geo_id"].isin(geo_ids)
     ].copy()
 
     if features.empty:
         raise ValueError(
-            f"No persisted feature rows found for selected geographies: "
+            "No feature rows found for selected geographies: "
             f"{selected_geos}"
         )
 
-    policy = _build_policy_table(
-        store.read_dataframe(
-            run_id,
-            "normalized_features",
-            columns=[
-                "feature_key",
-                "source_family",
-                "normalization_method",
-                "lookback_periods",
-                "min_periods",
-                "score_direction",
-            ],
+    if aligned.empty:
+        raise ValueError(
+            "No aligned metric rows found for local validation "
+            f"geographies: {geo_ids}"
         )
+
+    policy = _build_policy_table(normalized_policy_source)
+    feature_metadata = _build_feature_metadata()
+    axis_metric_metadata = _build_axis_metric_metadata(
+        feature_metadata
     )
 
-    metadata = _build_feature_metadata()
+    # ------------------------------------------------------------------
+    # A. Source-history maturity at the unique feature grain
+    # ------------------------------------------------------------------
 
-    history = features.sort_values(
+    source_history = features.sort_values(
         [
             "geo_id",
             "canonical_metric_key",
@@ -348,31 +527,35 @@ def build_history_maturity_audit(
         ]
     ).copy()
 
-    group_cols = [
+    feature_group = [
         "geo_id",
         "canonical_metric_key",
         "feature_key",
     ]
 
-    grouped = history.groupby(
-        group_cols,
+    grouped = source_history.groupby(
+        feature_group,
         group_keys=False,
     )
 
-    history["observation_count"] = grouped.cumcount() + 1
-    history["first_feature_date"] = grouped["date"].transform("min")
-    history["latest_feature_date"] = grouped["date"].transform("max")
+    source_history["observation_count"] = grouped.cumcount() + 1
+    source_history["first_feature_date"] = grouped["date"].transform(
+        "min"
+    )
+    source_history["latest_feature_date"] = grouped["date"].transform(
+        "max"
+    )
 
-    history = history.merge(
+    source_history = source_history.merge(
         policy,
         on="feature_key",
         how="left",
         validate="many_to_one",
     )
 
-    missing_policy = history[
-        history["min_periods"].isna()
-        | history["lookback_periods"].isna()
+    missing_policy = source_history[
+        source_history["min_periods"].isna()
+        | source_history["lookback_periods"].isna()
     ]
 
     if not missing_policy.empty:
@@ -384,9 +567,11 @@ def build_history_maturity_audit(
             f"{missing_keys}"
         )
 
-    history["min_periods"] = history["min_periods"].astype(int)
-    history["lookback_periods"] = (
-        history["lookback_periods"].astype(int)
+    source_history["min_periods"] = (
+        source_history["min_periods"].astype(int)
+    )
+    source_history["lookback_periods"] = (
+        source_history["lookback_periods"].astype(int)
     )
 
     score_keys = normalized[
@@ -400,7 +585,7 @@ def build_history_maturity_audit(
 
     score_keys["score_available"] = True
 
-    history = history.merge(
+    source_history = source_history.merge(
         score_keys,
         on=[
             "geo_id",
@@ -409,135 +594,113 @@ def build_history_maturity_audit(
             "feature_key",
         ],
         how="left",
+        validate="one_to_one",
     )
 
-    history["score_available"] = (
-        history["score_available"]
+    source_history["score_available"] = (
+        source_history["score_available"]
         .fillna(False)
         .astype(bool)
     )
 
     first_score = (
-        normalized.groupby(group_cols)["date"]
+        normalized.groupby(feature_group)["date"]
         .min()
         .rename("first_score_date")
         .reset_index()
     )
 
-    history = history.merge(
+    source_history = source_history.merge(
         first_score,
-        on=group_cols,
+        on=feature_group,
         how="left",
+        validate="many_to_one",
     )
 
-    history["minimum_ratio"] = (
-        history["observation_count"]
-        / history["min_periods"].replace(0, pd.NA)
+    source_history["minimum_ratio"] = (
+        source_history["observation_count"]
+        / source_history["min_periods"].replace(0, pd.NA)
     ).clip(upper=1.0)
 
-    history["lookback_ratio"] = (
-        history["observation_count"]
-        / history["lookback_periods"].replace(0, pd.NA)
+    source_history["lookback_ratio"] = (
+        source_history["observation_count"]
+        / source_history["lookback_periods"].replace(0, pd.NA)
     ).clip(upper=1.0)
 
-    history["minimum_met"] = (
-        history["observation_count"]
-        >= history["min_periods"]
+    source_history["minimum_met"] = (
+        source_history["observation_count"]
+        >= source_history["min_periods"]
     )
 
-    history["full_window"] = (
-        history["observation_count"]
-        >= history["lookback_periods"]
+    source_history["full_window"] = (
+        source_history["observation_count"]
+        >= source_history["lookback_periods"]
     )
 
-    history["maturity_status"] = history.apply(
+    source_history["maturity_status"] = source_history.apply(
         _maturity_status,
         axis=1,
     )
 
-    history = history.merge(
-        metadata,
-        on=[
+    # Add non-axis metadata without multiplying rows.
+    unique_feature_metadata = (
+        feature_metadata[
+            [
+                "canonical_metric_key",
+                "feature_key",
+                "dimension",
+                "source_id",
+                "frequency",
+                "seasonality",
+                "feature_type",
+                "transform",
+                "feature_weight",
+                "metric_weight",
+            ]
+        ]
+        .drop_duplicates()
+    )
+
+    duplicate_feature_metadata = unique_feature_metadata.duplicated(
+        subset=["canonical_metric_key", "feature_key"],
+        keep=False,
+    )
+
+    if duplicate_feature_metadata.any():
+        raise ValueError(
+            "Feature metadata is not unique before axis expansion:\n"
+            + unique_feature_metadata[
+                duplicate_feature_metadata
+            ].to_string(index=False)
+        )
+
+    source_history = source_history.merge(
+        unique_feature_metadata,
+        on=["canonical_metric_key", "feature_key"],
+        how="left",
+        validate="many_to_one",
+    )
+
+    source_history["source_year"] = source_history["date"].dt.year
+
+    source_year_end = _last_row_per_group(
+        source_history,
+        [
+            "geo_id",
             "canonical_metric_key",
             "feature_key",
+            "source_year",
         ],
-        how="left",
+        date_column="date",
     )
 
-    feature_summary = (
-        history.groupby(
-            [
-                "geo_id",
-                "axis",
-                "dimension",
-                "canonical_metric_key",
-                "feature_key",
-                "source_id",
-                "source_family",
-                "frequency",
-                "normalization_method",
-                "min_periods",
-                "lookback_periods",
-            ],
+    annual_source_history_summary = (
+        source_year_end.groupby(
+            ["geo_id", "source_year"],
             dropna=False,
         )
         .agg(
-            feature_rows=("date", "size"),
-            first_feature_date=("date", "min"),
-            first_score_date=("first_score_date", "min"),
-            latest_feature_date=("date", "max"),
-            latest_observation_count=("observation_count", "max"),
-            latest_minimum_ratio=("minimum_ratio", "max"),
-            latest_lookback_ratio=("lookback_ratio", "max"),
-            score_rows=("score_available", "sum"),
-        )
-        .reset_index()
-    )
-
-    feature_summary["latest_minimum_met"] = (
-        feature_summary["latest_observation_count"]
-        >= feature_summary["min_periods"]
-    )
-
-    feature_summary["latest_full_window"] = (
-        feature_summary["latest_observation_count"]
-        >= feature_summary["lookback_periods"]
-    )
-
-    history["year"] = history["date"].dt.year
-
-    year_end_snapshot = (
-        history.sort_values(
-            [
-                "geo_id",
-                "axis",
-                "canonical_metric_key",
-                "feature_key",
-                "date",
-            ]
-        )
-        .groupby(
-            [
-                "geo_id",
-                "axis",
-                "canonical_metric_key",
-                "feature_key",
-                "year",
-            ],
-            dropna=False,
-            as_index=False,
-        )
-        .tail(1)
-        .reset_index(drop=True)
-    )
-
-    annual_geo_summary = (
-        year_end_snapshot.groupby(
-            ["geo_id", "year"],
-            dropna=False,
-        )
-        .agg(
-            feature_count=("feature_key", "nunique"),
+            feature_count=("feature_key", "size"),
             scored_feature_count=("score_available", "sum"),
             minimum_met_count=("minimum_met", "sum"),
             full_window_count=("full_window", "sum"),
@@ -547,29 +710,63 @@ def build_history_maturity_audit(
         .reset_index()
     )
 
-    annual_geo_summary["scored_feature_share"] = (
-        annual_geo_summary["scored_feature_count"]
-        / annual_geo_summary["feature_count"]
+    annual_source_history_summary = _add_feature_shares(
+        annual_source_history_summary
     )
 
-    annual_geo_summary["minimum_met_share"] = (
-        annual_geo_summary["minimum_met_count"]
-        / annual_geo_summary["feature_count"]
+    # ------------------------------------------------------------------
+    # B. Axis-expanded source-history maturity
+    # ------------------------------------------------------------------
+
+    axis_feature_metadata = (
+        feature_metadata[
+            [
+                "axis",
+                "dimension",
+                "canonical_metric_key",
+                "feature_key",
+                "dimension_weight",
+                "metric_weight",
+                "feature_weight",
+                "axis_metric_feature_weight",
+            ]
+        ]
+        .dropna(subset=["axis"])
+        .drop_duplicates()
     )
 
-    annual_geo_summary["full_window_share"] = (
-        annual_geo_summary["full_window_count"]
-        / annual_geo_summary["feature_count"]
+    axis_source_history = source_history.merge(
+        axis_feature_metadata,
+        on=[
+            "dimension",
+            "canonical_metric_key",
+            "feature_key",
+            "metric_weight",
+            "feature_weight",
+        ],
+        how="inner",
+        validate="many_to_many",
     )
 
-    annual_axis_summary = (
-        year_end_snapshot.dropna(subset=["axis"])
-        .groupby(
-            ["geo_id", "year", "axis"],
+    axis_source_year_end = _last_row_per_group(
+        axis_source_history,
+        [
+            "geo_id",
+            "axis",
+            "canonical_metric_key",
+            "feature_key",
+            "source_year",
+        ],
+        date_column="date",
+    )
+
+    annual_axis_source_history_summary = (
+        axis_source_year_end.groupby(
+            ["geo_id", "source_year", "axis"],
             dropna=False,
         )
         .agg(
-            feature_count=("feature_key", "nunique"),
+            feature_count=("feature_key", "size"),
             metric_count=("canonical_metric_key", "nunique"),
             scored_feature_count=("score_available", "sum"),
             minimum_met_count=("minimum_met", "sum"),
@@ -578,10 +775,10 @@ def build_history_maturity_audit(
             avg_lookback_ratio=("lookback_ratio", "mean"),
             weighted_avg_lookback_ratio=(
                 "lookback_ratio",
-                lambda s: _weighted_mean(
-                    s,
-                    year_end_snapshot.loc[
-                        s.index,
+                lambda values: _weighted_mean(
+                    values,
+                    axis_source_year_end.loc[
+                        values.index,
                         "axis_metric_feature_weight",
                     ],
                 ),
@@ -590,26 +787,15 @@ def build_history_maturity_audit(
         .reset_index()
     )
 
-    annual_axis_summary["scored_feature_share"] = (
-        annual_axis_summary["scored_feature_count"]
-        / annual_axis_summary["feature_count"]
+    annual_axis_source_history_summary = _add_feature_shares(
+        annual_axis_source_history_summary
     )
 
-    annual_axis_summary["minimum_met_share"] = (
-        annual_axis_summary["minimum_met_count"]
-        / annual_axis_summary["feature_count"]
-    )
-
-    annual_axis_summary["full_window_share"] = (
-        annual_axis_summary["full_window_count"]
-        / annual_axis_summary["feature_count"]
-    )
-
-    annual_metric_summary = (
-        year_end_snapshot.groupby(
+    annual_metric_source_history_summary = (
+        axis_source_year_end.groupby(
             [
                 "geo_id",
-                "year",
+                "source_year",
                 "axis",
                 "dimension",
                 "canonical_metric_key",
@@ -617,7 +803,7 @@ def build_history_maturity_audit(
             dropna=False,
         )
         .agg(
-            feature_count=("feature_key", "nunique"),
+            feature_count=("feature_key", "size"),
             scored_feature_count=("score_available", "sum"),
             minimum_met_count=("minimum_met", "sum"),
             full_window_count=("full_window", "sum"),
@@ -629,53 +815,268 @@ def build_history_maturity_audit(
         .reset_index()
     )
 
-    annual_metric_summary["scored_feature_share"] = (
-        annual_metric_summary["scored_feature_count"]
-        / annual_metric_summary["feature_count"]
+    annual_metric_source_history_summary = _add_feature_shares(
+        annual_metric_source_history_summary
     )
 
-    annual_metric_summary["minimum_met_share"] = (
-        annual_metric_summary["minimum_met_count"]
-        / annual_metric_summary["feature_count"]
-    )
+    # ------------------------------------------------------------------
+    # C. Metric-date maturity
+    # ------------------------------------------------------------------
 
-    annual_metric_summary["full_window_share"] = (
-        annual_metric_summary["full_window_count"]
-        / annual_metric_summary["feature_count"]
-    )
-
-    latest_feature_summary = (
-        history.sort_values(
+    metric_date_maturity = (
+        source_history.groupby(
             [
                 "geo_id",
-                "canonical_metric_key",
-                "feature_key",
                 "date",
-            ]
-        )
-        .groupby(
-            group_cols,
-            as_index=False,
-        )
-        .tail(1)
-        .sort_values(
-            [
-                "geo_id",
-                "axis",
-                "dimension",
                 "canonical_metric_key",
-                "feature_key",
-            ]
+            ],
+            dropna=False,
         )
-        .reset_index(drop=True)
+        .agg(
+            source_feature_count=("feature_key", "size"),
+            scored_feature_count=("score_available", "sum"),
+            minimum_met_count=("minimum_met", "sum"),
+            full_window_count=("full_window", "sum"),
+            avg_minimum_ratio=("minimum_ratio", "mean"),
+            avg_lookback_ratio=("lookback_ratio", "mean"),
+            min_observation_count=("observation_count", "min"),
+            max_observation_count=("observation_count", "max"),
+        )
+        .reset_index()
+        .rename(columns={"date": "metric_date"})
     )
+
+    metric_date_maturity["scored_feature_share"] = _safe_share(
+        metric_date_maturity["scored_feature_count"],
+        metric_date_maturity["source_feature_count"],
+    )
+
+    metric_date_maturity["minimum_met_share"] = _safe_share(
+        metric_date_maturity["minimum_met_count"],
+        metric_date_maturity["source_feature_count"],
+    )
+
+    metric_date_maturity["full_window_share"] = _safe_share(
+        metric_date_maturity["full_window_count"],
+        metric_date_maturity["source_feature_count"],
+    )
+
+    # ------------------------------------------------------------------
+    # D. Evaluation-calendar maturity
+    # ------------------------------------------------------------------
+
+    evaluation_metric_maturity = aligned.merge(
+        metric_date_maturity,
+        on=[
+            "geo_id",
+            "metric_date",
+            "canonical_metric_key",
+        ],
+        how="left",
+        validate="many_to_one",
+    )
+
+    evaluation_metric_maturity = evaluation_metric_maturity.merge(
+        axis_metric_metadata,
+        on="canonical_metric_key",
+        how="inner",
+        validate="many_to_many",
+    )
+
+    missing_maturity = evaluation_metric_maturity[
+        evaluation_metric_maturity["avg_lookback_ratio"].isna()
+    ]
+
+    if not missing_maturity.empty:
+        missing = (
+            missing_maturity[
+                [
+                    "geo_id",
+                    "evaluation_date",
+                    "metric_date",
+                    "canonical_metric_key",
+                ]
+            ]
+            .drop_duplicates()
+            .head(30)
+        )
+
+        raise ValueError(
+            "Aligned metric scores could not be matched to source "
+            "history maturity:\n"
+            + missing.to_string(index=False)
+        )
+
+    evaluation_metric_maturity["evaluation_year"] = (
+        evaluation_metric_maturity["evaluation_date"].dt.year
+    )
+
+    evaluation_axis_maturity = (
+        evaluation_metric_maturity.groupby(
+            ["geo_id", "evaluation_date", "axis"],
+            dropna=False,
+        )
+        .agg(
+            metric_count=("canonical_metric_key", "nunique"),
+            avg_metric_age_days=("metric_age_days", "mean"),
+            max_metric_age_days=("metric_age_days", "max"),
+            avg_minimum_ratio=("avg_minimum_ratio", "mean"),
+            avg_lookback_ratio=("avg_lookback_ratio", "mean"),
+            minimum_met_metric_share=(
+                "minimum_met_share",
+                "mean",
+            ),
+            full_window_metric_share=(
+                "full_window_share",
+                "mean",
+            ),
+            weighted_avg_lookback_ratio=(
+                "avg_lookback_ratio",
+                lambda values: _weighted_mean(
+                    values,
+                    evaluation_metric_maturity.loc[
+                        values.index,
+                        "axis_metric_weight",
+                    ],
+                ),
+            ),
+            weighted_avg_metric_age_days=(
+                "metric_age_days",
+                lambda values: _weighted_mean(
+                    values,
+                    evaluation_metric_maturity.loc[
+                        values.index,
+                        "axis_metric_weight",
+                    ],
+                ),
+            ),
+        )
+        .reset_index()
+    )
+
+    evaluation_axis_maturity["evaluation_year"] = (
+        evaluation_axis_maturity["evaluation_date"].dt.year
+    )
+
+    annual_evaluation_axis_snapshot = _last_row_per_group(
+        evaluation_axis_maturity,
+        [
+            "geo_id",
+            "axis",
+            "evaluation_year",
+        ],
+        date_column="evaluation_date",
+    )
+
+    annual_evaluation_metric_snapshot = _last_row_per_group(
+        evaluation_metric_maturity,
+        [
+            "geo_id",
+            "axis",
+            "canonical_metric_key",
+            "evaluation_year",
+        ],
+        date_column="evaluation_date",
+    )
+
+    latest_source_feature_summary = _last_row_per_group(
+        source_history,
+        feature_group,
+        date_column="date",
+    ).sort_values(
+        [
+            "geo_id",
+            "dimension",
+            "canonical_metric_key",
+            "feature_key",
+        ]
+    )
+
+    # ------------------------------------------------------------------
+    # E. Assertions
+    # ------------------------------------------------------------------
+
+    _assert_valid_summary_counts(
+        annual_source_history_summary,
+        label="annual_source_history_summary",
+    )
+
+    _assert_valid_summary_counts(
+        annual_axis_source_history_summary,
+        label="annual_axis_source_history_summary",
+    )
+
+    _assert_valid_summary_counts(
+        annual_metric_source_history_summary,
+        label="annual_metric_source_history_summary",
+    )
+
+    for label, frame in {
+        "metric_date_maturity": metric_date_maturity,
+        "evaluation_metric_maturity": evaluation_metric_maturity,
+        "evaluation_axis_maturity": evaluation_axis_maturity,
+    }.items():
+        share_columns = [
+            column
+            for column in frame.columns
+            if column.endswith("_share")
+        ]
+
+        for column in share_columns:
+            values = pd.to_numeric(
+                frame[column],
+                errors="coerce",
+            )
+
+            invalid = frame[
+                values.notna()
+                & (
+                    (values < -1e-12)
+                    | (values > 1.0 + 1e-12)
+                )
+            ]
+
+            if not invalid.empty:
+                raise AssertionError(
+                    f"{label}: {column} outside [0,1]:\n"
+                    + invalid.head(20).to_string(index=False)
+                )
 
     return {
-        "feature_history": history.reset_index(drop=True),
-        "feature_summary": feature_summary,
-        "year_end_feature_snapshot": year_end_snapshot,
-        "annual_geo_summary": annual_geo_summary,
-        "annual_axis_summary": annual_axis_summary,
-        "annual_metric_summary": annual_metric_summary,
-        "latest_feature_summary": latest_feature_summary,
+        "source_feature_history": (
+            source_history.reset_index(drop=True)
+        ),
+        "source_feature_summary": (
+            latest_source_feature_summary.reset_index(drop=True)
+        ),
+        "source_year_end_feature_snapshot": (
+            source_year_end.reset_index(drop=True)
+        ),
+        "annual_source_history_summary": (
+            annual_source_history_summary.reset_index(drop=True)
+        ),
+        "annual_axis_source_history_summary": (
+            annual_axis_source_history_summary.reset_index(drop=True)
+        ),
+        "annual_metric_source_history_summary": (
+            annual_metric_source_history_summary.reset_index(drop=True)
+        ),
+        "metric_date_maturity": (
+            metric_date_maturity.reset_index(drop=True)
+        ),
+        "evaluation_metric_maturity": (
+            evaluation_metric_maturity.reset_index(drop=True)
+        ),
+        "evaluation_axis_maturity": (
+            evaluation_axis_maturity.reset_index(drop=True)
+        ),
+        "annual_evaluation_axis_snapshot": (
+            annual_evaluation_axis_snapshot.reset_index(drop=True)
+        ),
+        "annual_evaluation_metric_snapshot": (
+            annual_evaluation_metric_snapshot.reset_index(drop=True)
+        ),
+        "latest_source_feature_summary": (
+            latest_source_feature_summary.reset_index(drop=True)
+        ),
     }
