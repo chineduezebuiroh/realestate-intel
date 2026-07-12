@@ -80,6 +80,10 @@ def _resolve_assignment_adapter() -> AssignmentAdapter:
             "regime.regime_classifier",
             "assign_regimes",
         ),
+        (
+            "regime._09_regime_assignment",
+            "assign_regimes",
+        ),
     ]
 
     errors: list[str] = []
