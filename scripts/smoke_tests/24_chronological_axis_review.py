@@ -4,6 +4,7 @@ from __future__ import annotations
 from regime.diagnostics.chronological_axis_review import (
     DEFAULT_REVIEW_GEOS,
     DEFAULT_RUN_ID,
+    PRODUCTION_DIMENSIONS,
     build_chronological_axis_review,
 )
 
@@ -21,6 +22,16 @@ def main() -> int:
         "transition_timeline"
     ]
     axis_summary = review["axis_summary"]
+    dimension_summary = review[
+        "dimension_summary"
+    ]
+    dimension_events = review[
+        "dimension_events"
+    ]
+    transition_dimension_context = review[
+        "transition_dimension_context"
+    ]
+    latest = review["latest_snapshot"]
 
     actual_axes = set(
         axis_summary["axis"]
@@ -49,8 +60,6 @@ def main() -> int:
             "Axis events contain non-production axes: "
             f"{sorted(event_axes - expected_axes)}"
         )
-    
-    latest = review["latest_snapshot"]
 
     print(
         "[chronological_axis_review] run:",
@@ -80,6 +89,15 @@ def main() -> int:
     )
     print(
         axis_summary.to_string(
+            index=False
+        )
+    )
+    print(
+        "\n[chronological_axis_review] "
+        "dimension summary:"
+    )
+    print(
+        dimension_summary.to_string(
             index=False
         )
     )
@@ -122,6 +140,47 @@ def main() -> int:
 
     print(
         "\n[chronological_axis_review] "
+        "largest dimension moves:"
+    )
+    print(
+        dimension_events[
+            [
+                "geo_id",
+                "date",
+                "dimension",
+                "dimension_score",
+                "dimension_score_change_1m",
+                (
+                    "dimension_score_"
+                    "absolute_change_1m"
+                ),
+                "demand_axis_score_change_1m",
+                "supply_axis_score_change_1m",
+                "major_regime",
+                "minor_regime",
+                "major_changed",
+                "minor_changed",
+            ]
+            + [
+                column
+                for column in [
+                    "regime_strength",
+                    (
+                        "distance_to_"
+                        "boundary_degrees"
+                    ),
+                    "derived_freshness_status",
+                ]
+                if column
+                in dimension_events.columns
+            ]
+        ]
+        .head(100)
+        .to_string(index=False)
+    )
+
+    print(
+        "\n[chronological_axis_review] "
         "regime transitions:"
     )
     print(
@@ -155,6 +214,42 @@ def main() -> int:
                 ]
                 if column
                 in transitions.columns
+            ]
+        ]
+        .tail(100)
+        .to_string(index=False)
+    )
+
+    print(
+        "\n[chronological_axis_review] "
+        "transition dimension context:"
+    )
+    print(
+        transition_dimension_context[
+            [
+                "geo_id",
+                "date",
+                "previous_major_regime",
+                "major_regime",
+                "previous_minor_regime",
+                "minor_regime",
+                "demand_axis_score_change_1m",
+                "supply_axis_score_change_1m",
+                "primary_moving_dimension",
+                "primary_dimension_score",
+                "primary_dimension_change_1m",
+                (
+                    "primary_dimension_"
+                    "absolute_change_1m"
+                ),
+                (
+                    "primary_dimension_share_"
+                    "of_total_absolute_change"
+                ),
+                "secondary_moving_dimension",
+                "secondary_dimension_change_1m",
+                "regime_strength",
+                "distance_to_boundary_degrees",
             ]
         ]
         .tail(100)
@@ -207,8 +302,11 @@ def main() -> int:
     required_outputs = [
         "monthly_timeline",
         "axis_events",
-        "transition_timeline",
         "axis_summary",
+        "dimension_events",
+        "dimension_summary",
+        "transition_timeline",
+        "transition_dimension_context",
         "latest_snapshot",
     ]
 
@@ -263,6 +361,79 @@ def main() -> int:
     print(
         "\n[chronological_axis_review] OK"
     )
+
+
+
+
+    expected_dimensions = set(
+        PRODUCTION_DIMENSIONS
+    )
+
+    actual_dimensions = set(
+        dimension_summary["dimension"]
+    )
+
+    if actual_dimensions != expected_dimensions:
+        raise AssertionError(
+            "Dimension summary mismatch. "
+            f"Expected "
+            f"{sorted(expected_dimensions)}, "
+            f"found "
+            f"{sorted(actual_dimensions)}"
+        )
+
+    event_dimensions = set(
+        dimension_events["dimension"]
+    )
+
+    if not event_dimensions.issubset(
+        expected_dimensions
+    ):
+        raise AssertionError(
+            "Dimension events contain "
+            "unexpected dimensions: "
+            f"{sorted(
+                event_dimensions
+                - expected_dimensions
+            )}"
+        )
+
+    if (
+        transition_dimension_context[
+            "primary_moving_dimension"
+        ].isna().any()
+    ):
+        raise AssertionError(
+            "Transition dimension context "
+            "contains missing primary dimensions"
+        )
+
+    invalid_primary_share = (
+        transition_dimension_context[
+            (
+                "primary_dimension_share_"
+                "of_total_absolute_change"
+            )
+        ]
+        .dropna()
+        .between(
+            0.0,
+            1.0,
+            inclusive="both",
+        )
+        .eq(False)
+    )
+
+    if invalid_primary_share.any():
+        raise AssertionError(
+            "Primary dimension shares must "
+            "be between zero and one"
+        )
+
+
+
+
+    
 
     return 0
 
