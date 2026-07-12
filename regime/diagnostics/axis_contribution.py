@@ -939,12 +939,16 @@ def _build_axis_contributions(
         [
             "geo_id",
             "axis",
-            "dimension",
             "date",
+            "dimension",
         ]
     ).reset_index(drop=True)
 
-    contribution_group = (
+    # Dimension-score change remains defined only where the
+    # dimension exists in consecutive observations.
+    contributions[
+        "dimension_score_change_1m"
+    ] = (
         contributions.groupby(
             [
                 "geo_id",
@@ -952,20 +956,154 @@ def _build_axis_contributions(
                 "dimension",
             ],
             group_keys=False,
+        )["dimension_score"]
+        .diff()
+    )
+
+    # Contribution-change attribution requires a dense panel.
+    #
+    # When a dimension first becomes available, its prior axis
+    # contribution was zero—not unknown. The axis also reweights
+    # all previously available dimensions at that date. Their
+    # contribution changes are already captured by differencing
+    # the effective weighted contributions.
+    contribution_wide = (
+        contributions.pivot(
+            index=[
+                "geo_id",
+                "axis",
+                "date",
+            ],
+            columns="dimension",
+            values="dimension_axis_contribution",
+        )
+        .sort_index()
+    )
+
+    contribution_present = (
+        contribution_wide.notna()
+    )
+
+    presence_int = (
+        contribution_present.astype(int)
+    )
+
+    presence_change = (
+        presence_int.groupby(
+            level=[
+                "geo_id",
+                "axis",
+            ],
+            group_keys=False,
+        )
+        .diff()
+    )
+
+    disappearing_dimensions = (
+        presence_change.eq(-1)
+    )
+
+    if disappearing_dimensions.any().any():
+        disappearing = (
+            disappearing_dimensions
+            .stack()
+            .rename(
+                "dimension_disappeared"
+            )
+            .reset_index()
+        )
+
+        disappearing = disappearing[
+            disappearing[
+                "dimension_disappeared"
+            ]
+        ]
+
+        raise AssertionError(
+            "A previously available dimension disappeared. "
+            "Axis change attribution requires explicit exit "
+            "contribution rows:\n"
+            + disappearing.head(30).to_string(
+                index=False
+            )
+        )
+
+    # Missing dimensions contributed zero to the axis at that date.
+    contribution_wide = (
+        contribution_wide.fillna(0.0)
+    )
+
+    contribution_change_wide = (
+        contribution_wide.groupby(
+            level=[
+                "geo_id",
+                "axis",
+            ],
+            group_keys=False,
+        )
+        .diff()
+    )
+
+    contribution_change_long = (
+        contribution_change_wide
+        .stack(
+            dropna=False
+        )
+        .rename(
+            "dimension_axis_contribution_change_1m"
+        )
+        .reset_index()
+    )
+
+    # Keep only rows where the dimension exists at the current
+    # date. A disappearing dimension would require a separate
+    # exit row; production dimensions currently enter and then
+    # remain available.
+    contribution_change_long = (
+        contribution_change_long.merge(
+            contribution_present
+            .stack(
+                dropna=False
+            )
+            .rename(
+                "dimension_present"
+            )
+            .reset_index(),
+            on=[
+                "geo_id",
+                "axis",
+                "date",
+                "dimension",
+            ],
+            how="left",
+            validate="one_to_one",
         )
     )
 
-    contributions[
-        "dimension_score_change_1m"
-    ] = contribution_group[
-        "dimension_score"
-    ].diff()
+    contribution_change_long = (
+        contribution_change_long[
+            contribution_change_long[
+                "dimension_present"
+            ]
+        ]
+        .drop(
+            columns=[
+                "dimension_present",
+            ]
+        )
+    )
 
-    contributions[
-        "dimension_axis_contribution_change_1m"
-    ] = contribution_group[
-        "dimension_axis_contribution"
-    ].diff()
+    contributions = contributions.merge(
+        contribution_change_long,
+        on=[
+            "geo_id",
+            "axis",
+            "date",
+            "dimension",
+        ],
+        how="left",
+        validate="one_to_one",
+    )
 
     contributions[
         "dimension_axis_contribution_absolute_change_1m"
@@ -987,12 +1125,33 @@ def _build_axis_change_attribution(
 
     work = axis_contributions.copy()
 
-    work["axis_score_change_1m"] = (
-        work.groupby(
+    axis_history = (
+        work[
+            [
+                "geo_id",
+                "date",
+                "axis",
+                "axis_score",
+            ]
+        ]
+        .drop_duplicates()
+        .sort_values(
             [
                 "geo_id",
                 "axis",
-                "dimension",
+                "date",
+            ]
+        )
+        .reset_index(drop=True)
+    )
+
+    axis_history[
+        "axis_score_change_1m"
+    ] = (
+        axis_history.groupby(
+            [
+                "geo_id",
+                "axis",
             ],
             group_keys=False,
         )["axis_score"]
@@ -1005,14 +1164,6 @@ def _build_axis_change_attribution(
             dropna=False,
         )
         .agg(
-            axis_score=(
-                "axis_score",
-                "first",
-            ),
-            axis_score_change_1m=(
-                "axis_score_change_1m",
-                "first",
-            ),
             reconstructed_axis_change_1m=(
                 "dimension_axis_contribution_change_1m",
                 "sum",
