@@ -1117,16 +1117,47 @@ def _build_axis_contributions(
 def _build_axis_change_attribution(
     axis_contributions: pd.DataFrame,
 ) -> pd.DataFrame:
+    """
+    Reconcile month-over-month axis movements to changes in weighted
+    dimension contributions.
+
+    Axis changes are calculated once at the axis grain. Dimension
+    contribution changes are aggregated independently and then joined.
+    """
     group_keys = [
         "geo_id",
         "date",
         "axis",
     ]
 
-    work = axis_contributions.copy()
+    required_columns = {
+        "geo_id",
+        "date",
+        "axis",
+        "dimension",
+        "axis_score",
+        "dimension_axis_contribution_change_1m",
+        (
+            "dimension_axis_contribution_"
+            "absolute_change_1m"
+        ),
+    }
 
+    missing = (
+        required_columns
+        - set(axis_contributions.columns)
+    )
+
+    if missing:
+        raise ValueError(
+            "Axis contributions are missing columns "
+            "required for change attribution: "
+            f"{sorted(missing)}"
+        )
+
+    # Build the actual persisted axis history at one row per axis date.
     axis_history = (
-        work[
+        axis_contributions[
             [
                 "geo_id",
                 "date",
@@ -1145,6 +1176,23 @@ def _build_axis_change_attribution(
         .reset_index(drop=True)
     )
 
+    duplicate_axis_rows = axis_history.duplicated(
+        subset=[
+            "geo_id",
+            "date",
+            "axis",
+        ],
+        keep=False,
+    )
+
+    if duplicate_axis_rows.any():
+        raise AssertionError(
+            "Axis history contains duplicate axis-date rows:\n"
+            + axis_history.loc[
+                duplicate_axis_rows
+            ].head(30).to_string(index=False)
+        )
+
     axis_history[
         "axis_score_change_1m"
     ] = (
@@ -1158,23 +1206,66 @@ def _build_axis_change_attribution(
         .diff()
     )
 
-    attribution = (
-        work.groupby(
+    # Sum all weighted dimension-contribution changes at the axis grain.
+    contribution_change = (
+        axis_contributions.groupby(
             group_keys,
             dropna=False,
         )
         .agg(
             reconstructed_axis_change_1m=(
-                "dimension_axis_contribution_change_1m",
-                "sum",
+                (
+                    "dimension_axis_"
+                    "contribution_change_1m"
+                ),
+                lambda values: values.sum(
+                    min_count=1
+                ),
             ),
             gross_dimension_contribution_change_1m=(
-                "dimension_axis_contribution_absolute_change_1m",
-                "sum",
+                (
+                    "dimension_axis_"
+                    "contribution_absolute_change_1m"
+                ),
+                lambda values: values.sum(
+                    min_count=1
+                ),
+            ),
+            contributing_dimension_count=(
+                "dimension",
+                "nunique",
             ),
         )
         .reset_index()
     )
+
+    attribution = contribution_change.merge(
+        axis_history,
+        on=group_keys,
+        how="left",
+        validate="one_to_one",
+    )
+
+    required_result_columns = {
+        "axis_score",
+        "axis_score_change_1m",
+        "reconstructed_axis_change_1m",
+        "gross_dimension_contribution_change_1m",
+    }
+
+    missing_result_columns = (
+        required_result_columns
+        - set(attribution.columns)
+    )
+
+    if missing_result_columns:
+        raise AssertionError(
+            "Axis change attribution merge did not "
+            "produce required columns: "
+            f"{sorted(missing_result_columns)}. "
+            f"Actual columns: "
+            f"{sorted(attribution.columns)}"
+        )
 
     attribution[
         "axis_change_reconciliation_error"
@@ -1187,13 +1278,19 @@ def _build_axis_change_attribution(
         ]
     )
 
-    gross = attribution[
-        "gross_dimension_contribution_change_1m"
-    ]
+    gross = pd.to_numeric(
+        attribution[
+            "gross_dimension_contribution_change_1m"
+        ],
+        errors="coerce",
+    )
 
-    net = attribution[
-        "axis_score_change_1m"
-    ].abs()
+    net = pd.to_numeric(
+        attribution[
+            "axis_score_change_1m"
+        ],
+        errors="coerce",
+    ).abs()
 
     attribution[
         "offsetting_dimension_change_1m"
@@ -1209,7 +1306,27 @@ def _build_axis_change_attribution(
         np.nan,
     )
 
-    return attribution
+    # Floating-point noise can put ratios infinitesimally outside
+    # the theoretical [0, 1] range.
+    attribution[
+        "dimension_cancellation_ratio"
+    ] = attribution[
+        "dimension_cancellation_ratio"
+    ].clip(
+        lower=0.0,
+        upper=1.0,
+    )
+
+    return (
+        attribution.sort_values(
+            [
+                "geo_id",
+                "axis",
+                "date",
+            ]
+        )
+        .reset_index(drop=True)
+    )
 
 
 def _build_dimension_contribution_summary(
