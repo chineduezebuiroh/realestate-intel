@@ -6,6 +6,7 @@ from regime.diagnostics.derived_input_freshness import build_derived_input_fresh
 from regime.diagnostics.chronological_axis_review import build_chronological_axis_review
 from regime.diagnostics.axis_contribution import build_axis_contribution_audit
 from regime.diagnostics.axis_volatility import build_axis_volatility_audit
+from regime.diagnostics.transition_sensitivity import build_transition_sensitivity_audit
 
 __all__ = [
     "build_history_maturity_audit",
@@ -13,4 +14,5 @@ __all__ = [
     "build_chronological_axis_review",
     "build_axis_contribution_audit",
     "build_axis_volatility_audit",
+    "build_transition_sensitivity_audit",
 ]
