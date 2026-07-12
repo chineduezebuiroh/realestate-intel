@@ -87,6 +87,30 @@ def _prepare_axis_scores(
         }
     )
 
+    production_axes = {
+        "demand",
+        "supply",
+    }
+
+    out = out[
+        out["axis"].isin(production_axes)
+    ].copy()
+
+    actual_axes = set(
+        out["axis"].dropna().astype(str)
+    )
+
+    missing_axes = (
+        production_axes - actual_axes
+    )
+
+    if missing_axes:
+        raise ValueError(
+            "axis_scores artifact is missing required "
+            "production axes: "
+            f"{sorted(missing_axes)}"
+        )
+
     out["date"] = pd.to_datetime(
         out["date"],
         errors="coerce",
@@ -282,68 +306,217 @@ def _prepare_regime_assignments(
 
 
 def _prepare_freshness(
-    dataframe: pd.DataFrame,
+    component_freshness: pd.DataFrame,
+    evaluation_calendar: pd.DataFrame,
 ) -> pd.DataFrame:
+    """
+    Align component-level derived freshness to regime evaluation dates.
+
+    The latest derived observation on or before each evaluation date is
+    selected, and component age/status is recalculated at the evaluation
+    date rather than copied unchanged from the derived observation date.
+    """
     required = {
         "geo_id",
         "date",
         "derived_metric_key",
-        "derived_freshness_status",
-        "stale_input_flag",
-        "exceeded_horizon_flag",
+        "component_metric_key",
+        "component_source_date",
+        "warning_days",
+        "hard_days",
     }
 
-    missing = required - set(dataframe.columns)
+    missing = required - set(
+        component_freshness.columns
+    )
 
     if missing:
         raise ValueError(
-            "derived_input_freshness artifact is missing columns: "
+            "derived_input_component_freshness artifact "
+            "is missing columns: "
             f"{sorted(missing)}"
         )
 
-    out = dataframe.copy()
+    components = component_freshness.copy()
 
-    out["date"] = pd.to_datetime(
-        out["date"],
+    components["date"] = pd.to_datetime(
+        components["date"],
         errors="coerce",
     )
 
-    if out["date"].isna().any():
-        raise ValueError(
-            "derived_input_freshness contains invalid dates"
+    components["component_source_date"] = (
+        pd.to_datetime(
+            components[
+                "component_source_date"
+            ],
+            errors="coerce",
         )
-
-    severity_map = {
-        "fresh": 0,
-        "stale_warning": 1,
-        "hard_horizon_exceeded": 2,
-    }
-
-    out["freshness_severity"] = (
-        out["derived_freshness_status"]
-        .map(severity_map)
     )
 
-    if out["freshness_severity"].isna().any():
-        bad = sorted(
-            out.loc[
-                out["freshness_severity"].isna(),
-                "derived_freshness_status",
-            ]
-            .dropna()
-            .unique()
-        )
+    components["warning_days"] = pd.to_numeric(
+        components["warning_days"],
+        errors="coerce",
+    )
 
+    components["hard_days"] = pd.to_numeric(
+        components["hard_days"],
+        errors="coerce",
+    )
+
+    invalid = components[
+        components["date"].isna()
+        | components[
+            "component_source_date"
+        ].isna()
+        | components["warning_days"].isna()
+        | components["hard_days"].isna()
+    ]
+
+    if not invalid.empty:
         raise ValueError(
-            "Unknown derived freshness statuses: "
-            f"{bad}"
+            "Component freshness contains invalid "
+            "dates or policy horizons:\n"
+            + invalid.head(30).to_string(
+                index=False
+            )
         )
 
-    summary = (
-        out.groupby(
+    calendar = (
+        evaluation_calendar[
             [
                 "geo_id",
                 "date",
+            ]
+        ]
+        .drop_duplicates()
+        .copy()
+    )
+
+    calendar["date"] = pd.to_datetime(
+        calendar["date"],
+        errors="coerce",
+    )
+
+    aligned_rows: list[pd.DataFrame] = []
+
+    component_groups = components.groupby(
+        [
+            "geo_id",
+            "derived_metric_key",
+            "component_metric_key",
+        ],
+        dropna=False,
+    )
+
+    for (
+        geo_id,
+        derived_metric_key,
+        component_metric_key,
+    ), group in component_groups:
+        geo_calendar = calendar[
+            calendar["geo_id"].eq(geo_id)
+        ].copy()
+
+        if geo_calendar.empty:
+            continue
+
+        left = (
+            geo_calendar[
+                ["geo_id", "date"]
+            ]
+            .rename(
+                columns={
+                    "date": "evaluation_date"
+                }
+            )
+            .sort_values("evaluation_date")
+        )
+
+        right = (
+            group.rename(
+                columns={
+                    "date": (
+                        "derived_observation_date"
+                    )
+                }
+            )
+            .sort_values(
+                "derived_observation_date"
+            )
+        )
+
+        aligned = pd.merge_asof(
+            left,
+            right,
+            left_on="evaluation_date",
+            right_on=(
+                "derived_observation_date"
+            ),
+            by="geo_id",
+            direction="backward",
+            allow_exact_matches=True,
+        )
+
+        aligned = aligned.dropna(
+            subset=[
+                "derived_observation_date",
+                "component_source_date",
+            ]
+        )
+
+        aligned["derived_metric_key"] = (
+            derived_metric_key
+        )
+        aligned["component_metric_key"] = (
+            component_metric_key
+        )
+
+        aligned_rows.append(aligned)
+
+    if not aligned_rows:
+        return pd.DataFrame()
+
+    aligned = pd.concat(
+        aligned_rows,
+        ignore_index=True,
+    )
+
+    aligned["evaluation_component_age_days"] = (
+        aligned["evaluation_date"]
+        - aligned["component_source_date"]
+    ).dt.days
+
+    aligned["stale_input_flag"] = (
+        aligned[
+            "evaluation_component_age_days"
+        ]
+        > aligned["warning_days"]
+    )
+
+    aligned["exceeded_horizon_flag"] = (
+        aligned[
+            "evaluation_component_age_days"
+        ]
+        > aligned["hard_days"]
+    )
+
+    aligned["freshness_severity"] = 0
+
+    aligned.loc[
+        aligned["stale_input_flag"],
+        "freshness_severity",
+    ] = 1
+
+    aligned.loc[
+        aligned["exceeded_horizon_flag"],
+        "freshness_severity",
+    ] = 2
+
+    summary = (
+        aligned.groupby(
+            [
+                "geo_id",
+                "evaluation_date",
             ],
             dropna=False,
         )
@@ -365,11 +538,16 @@ def _prepare_freshness(
                 "max",
             ),
             maximum_derived_component_age_days=(
-                "governing_component_age_days",
+                "evaluation_component_age_days",
                 "max",
             ),
         )
         .reset_index()
+        .rename(
+            columns={
+                "evaluation_date": "date"
+            }
+        )
     )
 
     reverse_status = {
@@ -381,16 +559,21 @@ def _prepare_freshness(
     summary["derived_freshness_status"] = (
         summary[
             "maximum_derived_freshness_severity"
-        ]
-        .map(reverse_status)
+        ].map(reverse_status)
     )
 
     summary["any_stale_derived_input"] = (
-        summary["stale_derived_metric_count"] > 0
+        summary[
+            "stale_derived_metric_count"
+        ] > 0
     )
 
-    summary["any_exceeded_derived_horizon"] = (
-        summary["exceeded_derived_metric_count"] > 0
+    summary[
+        "any_exceeded_derived_horizon"
+    ] = (
+        summary[
+            "exceeded_derived_metric_count"
+        ] > 0
     )
 
     return summary
@@ -925,13 +1108,6 @@ def build_chronological_axis_review(
         )
     )
 
-    freshness = _prepare_freshness(
-        store.read_dataframe(
-            run_id,
-            "derived_input_freshness",
-        )
-    )
-
     if geo_ids is None:
         geo_ids = DEFAULT_REVIEW_GEOS.copy()
 
@@ -952,6 +1128,19 @@ def build_chronological_axis_review(
             geo_ids
         )
     ].copy()
+
+    freshness = _prepare_freshness(
+        store.read_dataframe(
+            run_id,
+            "derived_input_component_freshness",
+        ),
+        regimes[
+            [
+                "geo_id",
+                "date",
+            ]
+        ],
+    )
 
     freshness = freshness[
         freshness["geo_id"].isin(
