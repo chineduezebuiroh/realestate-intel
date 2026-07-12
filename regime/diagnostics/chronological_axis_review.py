@@ -24,6 +24,14 @@ PRODUCTION_AXES = (
     "supply",
 )
 
+PRODUCTION_DIMENSIONS = (
+    "demand",
+    "supply",
+    "affordability",
+    "price",
+    "capital_markets",
+)
+
 
 def _resolve_column(
     dataframe: pd.DataFrame,
@@ -936,6 +944,135 @@ def _build_axis_event_table(
     )
 
 
+def _build_dimension_event_table(
+    timeline: pd.DataFrame,
+    *,
+    top_n_per_dimension: int,
+) -> pd.DataFrame:
+    """
+    Return the largest month-over-month dimension movements for each
+    selected geography and production dimension.
+    """
+    if top_n_per_dimension <= 0:
+        raise ValueError(
+            "top_n_per_dimension must be greater than zero"
+        )
+
+    rows: list[pd.DataFrame] = []
+
+    for dimension in PRODUCTION_DIMENSIONS:
+        score_column = (
+            f"{dimension}_dimension_score"
+        )
+
+        change_column = (
+            f"{score_column}_change_1m"
+        )
+
+        absolute_change_column = (
+            f"{score_column}_absolute_change_1m"
+        )
+
+        required_columns = {
+            score_column,
+            change_column,
+            absolute_change_column,
+        }
+
+        if not required_columns.issubset(
+            timeline.columns
+        ):
+            continue
+
+        selected_columns = [
+            "geo_id",
+            "date",
+            score_column,
+            change_column,
+            absolute_change_column,
+            "demand_axis_score",
+            "supply_axis_score",
+            "demand_axis_score_change_1m",
+            "supply_axis_score_change_1m",
+            "major_regime",
+            "minor_regime",
+            "major_changed",
+            "minor_changed",
+        ]
+
+        optional_columns = [
+            "angle_degrees",
+            "regime_strength",
+            "distance_to_boundary_degrees",
+            "derived_freshness_status",
+            "any_stale_derived_input",
+            "any_exceeded_derived_horizon",
+        ]
+
+        selected_columns.extend(
+            column
+            for column in optional_columns
+            if column in timeline.columns
+        )
+
+        events = (
+            timeline[selected_columns]
+            .dropna(
+                subset=[
+                    absolute_change_column
+                ]
+            )
+            .sort_values(
+                absolute_change_column,
+                ascending=False,
+            )
+            .groupby(
+                "geo_id",
+                as_index=False,
+                group_keys=False,
+            )
+            .head(top_n_per_dimension)
+            .copy()
+        )
+
+        events["dimension"] = dimension
+
+        events = events.rename(
+            columns={
+                score_column: "dimension_score",
+                change_column: (
+                    "dimension_score_change_1m"
+                ),
+                absolute_change_column: (
+                    "dimension_score_absolute_change_1m"
+                ),
+            }
+        )
+
+        rows.append(events)
+
+    if not rows:
+        return pd.DataFrame()
+
+    return (
+        pd.concat(
+            rows,
+            ignore_index=True,
+        )
+        .sort_values(
+            [
+                "dimension_score_absolute_change_1m",
+                "date",
+            ],
+            ascending=[
+                False,
+                False,
+            ],
+        )
+        .reset_index(drop=True)
+    )
+    
+    
 def _build_transition_timeline(
     timeline: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -1096,6 +1233,333 @@ def _build_axis_summary(
     )
 
 
+def _build_dimension_summary(
+    timeline: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Summarize level and month-over-month volatility for each production
+    dimension and geography.
+    """
+    rows: list[dict[str, object]] = []
+
+    for geo_id, geo_frame in timeline.groupby(
+        "geo_id"
+    ):
+        for dimension in PRODUCTION_DIMENSIONS:
+            score_column = (
+                f"{dimension}_dimension_score"
+            )
+
+            change_column = (
+                f"{score_column}_change_1m"
+            )
+
+            if (
+                score_column not in geo_frame.columns
+                or change_column
+                not in geo_frame.columns
+            ):
+                continue
+
+            values = pd.to_numeric(
+                geo_frame[score_column],
+                errors="coerce",
+            )
+
+            changes = pd.to_numeric(
+                geo_frame[change_column],
+                errors="coerce",
+            )
+
+            valid_values = values.dropna()
+            valid_changes = changes.dropna()
+
+            largest_positive_date = None
+            largest_negative_date = None
+
+            if not valid_changes.empty:
+                positive_index = (
+                    valid_changes.idxmax()
+                )
+                negative_index = (
+                    valid_changes.idxmin()
+                )
+
+                largest_positive_date = (
+                    geo_frame.loc[
+                        positive_index,
+                        "date",
+                    ]
+                )
+
+                largest_negative_date = (
+                    geo_frame.loc[
+                        negative_index,
+                        "date",
+                    ]
+                )
+
+            rows.append(
+                {
+                    "geo_id": geo_id,
+                    "dimension": dimension,
+                    "rows": int(
+                        valid_values.size
+                    ),
+                    "first_date": (
+                        geo_frame.loc[
+                            values.notna(),
+                            "date",
+                        ].min()
+                    ),
+                    "last_date": (
+                        geo_frame.loc[
+                            values.notna(),
+                            "date",
+                        ].max()
+                    ),
+                    "mean_dimension_score": (
+                        valid_values.mean()
+                    ),
+                    "median_dimension_score": (
+                        valid_values.median()
+                    ),
+                    "dimension_score_std": (
+                        valid_values.std()
+                    ),
+                    "minimum_dimension_score": (
+                        valid_values.min()
+                    ),
+                    "maximum_dimension_score": (
+                        valid_values.max()
+                    ),
+                    "mean_absolute_change_1m": (
+                        valid_changes.abs().mean()
+                    ),
+                    "median_absolute_change_1m": (
+                        valid_changes.abs().median()
+                    ),
+                    "p90_absolute_change_1m": (
+                        valid_changes.abs().quantile(
+                            0.90
+                        )
+                    ),
+                    "maximum_absolute_change_1m": (
+                        valid_changes.abs().max()
+                    ),
+                    "largest_positive_change_1m": (
+                        valid_changes.max()
+                    ),
+                    "largest_positive_change_date": (
+                        largest_positive_date
+                    ),
+                    "largest_negative_change_1m": (
+                        valid_changes.min()
+                    ),
+                    "largest_negative_change_date": (
+                        largest_negative_date
+                    ),
+                }
+            )
+
+    if not rows:
+        return pd.DataFrame()
+
+    return (
+        pd.DataFrame(rows)
+        .sort_values(
+            [
+                "geo_id",
+                "dimension",
+            ]
+        )
+        .reset_index(drop=True)
+    )
+    
+    
+def _build_transition_dimension_context(
+    transition_timeline: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Attach the largest dimension movement to every major or minor
+    regime-transition month.
+
+    This is descriptive attribution based on absolute month-over-month
+    movement. It is not yet weighted causal contribution.
+    """
+    if transition_timeline.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, object]] = []
+
+    for _, row in transition_timeline.iterrows():
+        dimension_changes: list[
+            tuple[str, float, float]
+        ] = []
+
+        for dimension in PRODUCTION_DIMENSIONS:
+            score_column = (
+                f"{dimension}_dimension_score"
+            )
+
+            change_column = (
+                f"{score_column}_change_1m"
+            )
+
+            if (
+                score_column not in row.index
+                or change_column not in row.index
+            ):
+                continue
+
+            score = pd.to_numeric(
+                pd.Series([row[score_column]]),
+                errors="coerce",
+            ).iloc[0]
+
+            change = pd.to_numeric(
+                pd.Series([row[change_column]]),
+                errors="coerce",
+            ).iloc[0]
+
+            if pd.isna(change):
+                continue
+
+            dimension_changes.append(
+                (
+                    dimension,
+                    float(score)
+                    if not pd.isna(score)
+                    else float("nan"),
+                    float(change),
+                )
+            )
+
+        if not dimension_changes:
+            continue
+
+        dimension_changes.sort(
+            key=lambda item: abs(item[2]),
+            reverse=True,
+        )
+
+        primary = dimension_changes[0]
+
+        secondary = (
+            dimension_changes[1]
+            if len(dimension_changes) > 1
+            else (
+                None,
+                float("nan"),
+                float("nan"),
+            )
+        )
+
+        sum_absolute_changes = sum(
+            abs(item[2])
+            for item in dimension_changes
+        )
+
+        primary_share = (
+            abs(primary[2])
+            / sum_absolute_changes
+            if sum_absolute_changes > 0
+            else float("nan")
+        )
+
+        output = {
+            "geo_id": row["geo_id"],
+            "date": row["date"],
+            "previous_major_regime": (
+                row["previous_major_regime"]
+            ),
+            "major_regime": row["major_regime"],
+            "previous_minor_regime": (
+                row["previous_minor_regime"]
+            ),
+            "minor_regime": row["minor_regime"],
+            "major_changed": row["major_changed"],
+            "minor_changed": row["minor_changed"],
+            "demand_axis_score": (
+                row["demand_axis_score"]
+            ),
+            "demand_axis_score_change_1m": (
+                row[
+                    "demand_axis_score_change_1m"
+                ]
+            ),
+            "supply_axis_score": (
+                row["supply_axis_score"]
+            ),
+            "supply_axis_score_change_1m": (
+                row[
+                    "supply_axis_score_change_1m"
+                ]
+            ),
+            "primary_moving_dimension": (
+                primary[0]
+            ),
+            "primary_dimension_score": (
+                primary[1]
+            ),
+            "primary_dimension_change_1m": (
+                primary[2]
+            ),
+            "primary_dimension_absolute_change_1m": (
+                abs(primary[2])
+            ),
+            "primary_dimension_share_of_total_absolute_change": (
+                primary_share
+            ),
+            "secondary_moving_dimension": (
+                secondary[0]
+            ),
+            "secondary_dimension_score": (
+                secondary[1]
+            ),
+            "secondary_dimension_change_1m": (
+                secondary[2]
+            ),
+            "secondary_dimension_absolute_change_1m": (
+                abs(secondary[2])
+                if secondary[0] is not None
+                else float("nan")
+            ),
+            "dimension_absolute_change_sum": (
+                sum_absolute_changes
+            ),
+        }
+
+        for optional_column in [
+            "angle_degrees",
+            "regime_strength",
+            "distance_to_boundary_degrees",
+            "derived_freshness_status",
+            "any_stale_derived_input",
+            "any_exceeded_derived_horizon",
+        ]:
+            if optional_column in row.index:
+                output[optional_column] = (
+                    row[optional_column]
+                )
+
+        rows.append(output)
+
+    if not rows:
+        return pd.DataFrame()
+
+    return (
+        pd.DataFrame(rows)
+        .sort_values(
+            [
+                "geo_id",
+                "date",
+            ]
+        )
+        .reset_index(drop=True)
+    )
+    
+    
 def build_chronological_axis_review(
     run_id: str = DEFAULT_RUN_ID,
     *,
@@ -1296,6 +1760,15 @@ def build_chronological_axis_review(
         top_n_per_axis=top_n_axis_events,
     )
 
+    dimension_events = (
+        _build_dimension_event_table(
+            timeline,
+            top_n_per_dimension=(
+                top_n_axis_events
+            ),
+        )
+    )
+
     transition_timeline = (
         _build_transition_timeline(
             timeline
@@ -1304,6 +1777,18 @@ def build_chronological_axis_review(
 
     axis_summary = _build_axis_summary(
         timeline
+    )
+
+    dimension_summary = (
+        _build_dimension_summary(
+            timeline
+        )
+    )
+
+    transition_dimension_context = (
+        _build_transition_dimension_context(
+            transition_timeline
+        )
     )
 
     latest_snapshot = (
@@ -1324,9 +1809,14 @@ def build_chronological_axis_review(
     return {
         "monthly_timeline": timeline,
         "axis_events": axis_events,
+        "axis_summary": axis_summary,
+        "dimension_events": dimension_events,
+        "dimension_summary": dimension_summary,
         "transition_timeline": (
             transition_timeline
         ),
-        "axis_summary": axis_summary,
+        "transition_dimension_context": (
+            transition_dimension_context
+        ),
         "latest_snapshot": latest_snapshot,
     }
