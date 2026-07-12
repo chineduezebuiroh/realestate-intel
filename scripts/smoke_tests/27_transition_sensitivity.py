@@ -236,6 +236,121 @@ def main() -> int:
             "counterfactuals are missing"
         )
 
+    impossible_major = persistence[
+        persistence["major_persists_1m"]
+        & persistence["major_reverses_1m"]
+    ]
+
+    if not impossible_major.empty:
+        raise AssertionError(
+            "A major transition cannot both persist "
+            "and reverse at the same horizon"
+        )
+
+    impossible_minor = persistence[
+        persistence["minor_persists_1m"]
+        & persistence["minor_reverses_1m"]
+    ]
+
+    if not impossible_minor.empty:
+        raise AssertionError(
+            "A minor transition cannot both persist "
+            "and reverse at the same horizon"
+        )
+
+    unavailable_effects = sensitivity[
+        ~sensitivity["target_available"]
+        & (
+            sensitivity[
+                "major_assignment_changed"
+            ]
+            | sensitivity[
+                "minor_assignment_changed"
+            ]
+        )
+    ]
+
+    if not unavailable_effects.empty:
+        raise AssertionError(
+            "Unavailable targets changed a "
+            "counterfactual assignment"
+        )
+
+    if not (
+        sensitivity[
+            "eligible_major_transition"
+        ]
+        <= sensitivity[
+            "target_available"
+        ]
+    ).all():
+        raise AssertionError(
+            "Major eligibility cannot be true when "
+            "the target is unavailable"
+        )
+
+    if not (
+        sensitivity[
+            "eligible_minor_transition"
+        ]
+        <= sensitivity[
+            "target_available"
+        ]
+    ).all():
+        raise AssertionError(
+            "Minor eligibility cannot be true when "
+            "the target is unavailable"
+        )
+
+    denominator_columns = {
+        "evaluated_transition_count",
+        "available_transition_count",
+        "eligible_major_transition_count",
+        "eligible_minor_transition_count",
+    }
+
+    missing_denominator_columns = (
+        denominator_columns
+        - set(summary.columns)
+    )
+
+    if missing_denominator_columns:
+        raise AssertionError(
+            "Sensitivity summary is missing corrected "
+            "denominator columns: "
+            f"{sorted(missing_denominator_columns)}"
+        )
+
+    invalid_major_counts = summary[
+        summary[
+            "major_transition_prevented_count"
+        ]
+        > summary[
+            "eligible_major_transition_count"
+        ]
+    ]
+
+    if not invalid_major_counts.empty:
+        raise AssertionError(
+            "Prevented major-transition count exceeds "
+            "eligible major-transition count"
+        )
+
+    invalid_minor_counts = summary[
+        summary[
+            "minor_transition_prevented_count"
+        ]
+        > summary[
+            "eligible_minor_transition_count"
+        ]
+    ]
+
+    if not invalid_minor_counts.empty:
+        raise AssertionError(
+            "Prevented minor-transition count exceeds "
+            "eligible minor-transition count"
+        )
+
     print(
         "\n[transition_sensitivity] OK"
     )
