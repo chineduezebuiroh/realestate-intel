@@ -1,11 +1,7 @@
 from __future__ import annotations
 # regime/diagnostics/transition_sensitivity.py
 
-from dataclasses import dataclass
-from importlib import import_module
-from inspect import signature
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -16,9 +12,10 @@ from regime.diagnostics.axis_contribution import (
     DEFAULT_RUN_ID,
     build_axis_contribution_audit,
 )
-from regime.diagnostics.chronological_axis_review import (
-    build_chronological_axis_review,
-)
+from regime.diagnostics.chronological_axis_review import build_chronological_axis_review
+from regime._07_coordinate_engine import build_coordinates
+from regime._08_geometry_engine import assign_geometry
+from regime._09_regime_assignment import assign_regimes
 
 
 TARGET_DIMENSIONS = (
@@ -45,99 +42,17 @@ AXES = (
 )
 
 
-@dataclass(frozen=True)
-class AssignmentAdapter:
-    module_name: str
-    function_name: str
-    function: Callable
-
-
-def _resolve_assignment_adapter() -> AssignmentAdapter:
-    """
-    Resolve the repository's canonical persisted-score regime assigner.
-
-    This deliberately refuses to approximate regime labels.
-
-    Add the actual module/function combination here if the current repo
-    uses a different name. The adapter must accept a DataFrame containing
-    geo_id, date, demand_axis_score, and supply_axis_score and return a
-    DataFrame containing major_regime and minor_regime.
-    """
-    candidates = [
-        (
-            "regime.regime_assigner",
-            "assign_regimes",
-        ),
-        (
-            "regime.regime_assignment",
-            "assign_regimes",
-        ),
-        (
-            "regime.regime_engine",
-            "assign_regimes",
-        ),
-        (
-            "regime.regime_classifier",
-            "assign_regimes",
-        ),
-        (
-            "regime._09_regime_assignment",
-            "assign_regimes",
-        ),
-    ]
-
-    errors: list[str] = []
-
-    for module_name, function_name in candidates:
-        try:
-            module = import_module(module_name)
-        except ModuleNotFoundError as exc:
-            errors.append(
-                f"{module_name}: {exc}"
-            )
-            continue
-
-        function = getattr(
-            module,
-            function_name,
-            None,
-        )
-
-        if function is None:
-            errors.append(
-                f"{module_name}.{function_name}: missing"
-            )
-            continue
-
-        return AssignmentAdapter(
-            module_name=module_name,
-            function_name=function_name,
-            function=function,
-        )
-
-    raise ImportError(
-        "Could not resolve the canonical regime assignment "
-        "function. Tried:\n- "
-        + "\n- ".join(errors)
-        + "\nUpdate _resolve_assignment_adapter() with the "
-        "module and function used by pipeline step 9."
-    )
-
-
 def _assign_counterfactual_regimes(
-    coordinates: pd.DataFrame,
+    counterfactual_axes: pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Execute the canonical regime assigner against counterfactual axes.
+    Pass counterfactual axis scores through the canonical downstream
+    regime pipeline:
 
-    Supported signatures:
-      assign_regimes(dataframe)
-      assign_regimes(coordinates=dataframe)
-      assign_regimes(axis_scores=dataframe)
+        axes -> coordinates -> geometry -> regime assignments
 
-    The function must return or append:
-      major_regime
-      minor_regime
+    The supplied geo_id values must already be unique per
+    counterfactual scenario and date.
     """
     required = {
         "geo_id",
@@ -146,63 +61,201 @@ def _assign_counterfactual_regimes(
         "supply_axis_score",
     }
 
-    missing = required - set(
-        coordinates.columns
+    missing = (
+        required
+        - set(counterfactual_axes.columns)
     )
 
     if missing:
         raise ValueError(
-            "Counterfactual coordinates are missing: "
-            f"{sorted(missing)}"
+            "Counterfactual axis frame is missing "
+            f"required columns: {sorted(missing)}"
         )
 
-    adapter = _resolve_assignment_adapter()
-    function = adapter.function
-    parameters = signature(
-        function
-    ).parameters
+    work = counterfactual_axes.copy()
 
-    work = coordinates.copy()
-
-    if "coordinates" in parameters:
-        result = function(
-            coordinates=work
-        )
-    elif "axis_scores" in parameters:
-        result = function(
-            axis_scores=work
-        )
-    else:
-        result = function(work)
-
-    if not isinstance(
-        result,
-        pd.DataFrame,
-    ):
-        raise TypeError(
-            "Canonical regime assigner must return a "
-            f"DataFrame; got {type(result)!r} from "
-            f"{adapter.module_name}.{adapter.function_name}"
-        )
-
-    required_output = {
-        "major_regime",
-        "minor_regime",
-    }
-
-    missing_output = (
-        required_output
-        - set(result.columns)
+    work["date"] = pd.to_datetime(
+        work["date"],
+        errors="coerce",
     )
 
-    if missing_output:
+    work["demand_axis_score"] = pd.to_numeric(
+        work["demand_axis_score"],
+        errors="coerce",
+    )
+
+    work["supply_axis_score"] = pd.to_numeric(
+        work["supply_axis_score"],
+        errors="coerce",
+    )
+
+    invalid = work[
+        work["date"].isna()
+        | work["demand_axis_score"].isna()
+        | work["supply_axis_score"].isna()
+    ]
+
+    if not invalid.empty:
         raise ValueError(
-            "Canonical regime assigner did not return "
-            f"{sorted(missing_output)}. Returned columns: "
-            f"{sorted(result.columns)}"
+            "Counterfactual axes contain invalid "
+            "dates or scores:\n"
+            + invalid.head(30).to_string(
+                index=False
+            )
         )
 
-    return result
+    duplicate_keys = work.duplicated(
+        subset=[
+            "geo_id",
+            "date",
+        ],
+        keep=False,
+    )
+
+    if duplicate_keys.any():
+        raise AssertionError(
+            "Counterfactual geo/date keys must be "
+            "unique before canonical assignment:\n"
+            + work.loc[
+                duplicate_keys
+            ].head(30).to_string(index=False)
+        )
+
+    axis_long = work.melt(
+        id_vars=[
+            "geo_id",
+            "date",
+        ],
+        value_vars=[
+            "demand_axis_score",
+            "supply_axis_score",
+        ],
+        var_name="axis",
+        value_name="axis_score",
+    )
+
+    axis_long["axis"] = (
+        axis_long["axis"]
+        .str.replace(
+            "_axis_score",
+            "",
+            regex=False,
+        )
+    )
+
+    # build_coordinates() uses this field when creating
+    # max_axis_age_days. Counterfactual sensitivity is testing
+    # classification geometry, not changing source freshness.
+    axis_long["max_dimension_age_days"] = 0
+
+    expected_axes = {
+        "demand",
+        "supply",
+    }
+
+    actual_axes = set(
+        axis_long["axis"]
+    )
+
+    if actual_axes != expected_axes:
+        raise AssertionError(
+            "Counterfactual axis contract mismatch. "
+            f"Expected {sorted(expected_axes)}, "
+            f"found {sorted(actual_axes)}"
+        )
+
+    coordinates = build_coordinates(
+        axes=axis_long
+    )
+
+    required_coordinate_columns = {
+        "geo_id",
+        "date",
+        "x_supply",
+        "y_demand",
+        "radius",
+        "angle_degrees",
+        "axis_count",
+        "min_axis_score",
+        "max_axis_score",
+        "max_axis_age_days",
+    }
+
+    missing_coordinates = (
+        required_coordinate_columns
+        - set(coordinates.columns)
+    )
+
+    if missing_coordinates:
+        raise AssertionError(
+            "Canonical coordinate engine did not "
+            "return required columns: "
+            f"{sorted(missing_coordinates)}"
+        )
+
+    geometry = assign_geometry(
+        coordinates=coordinates
+    )
+
+    required_geometry_columns = {
+        "geo_id",
+        "date",
+        "major_regime",
+        "minor_regime",
+        "quadrant",
+        "radius",
+        "angle_degrees",
+        "distance_to_boundary_degrees",
+        "x_supply",
+        "y_demand",
+    }
+
+    missing_geometry = (
+        required_geometry_columns
+        - set(geometry.columns)
+    )
+
+    if missing_geometry:
+        raise AssertionError(
+            "Canonical geometry engine did not "
+            "return required columns: "
+            f"{sorted(missing_geometry)}"
+        )
+
+    assignments = assign_regimes(
+        geometry=geometry
+    )
+
+    required_assignment_columns = {
+        "geo_id",
+        "date",
+        "major_regime",
+        "minor_regime",
+        "regime_strength",
+        "angle_degrees",
+        "distance_to_boundary_degrees",
+    }
+
+    missing_assignments = (
+        required_assignment_columns
+        - set(assignments.columns)
+    )
+
+    if missing_assignments:
+        raise AssertionError(
+            "Canonical regime assignment did not "
+            "return required columns: "
+            f"{sorted(missing_assignments)}"
+        )
+
+    if len(assignments) != len(work):
+        raise AssertionError(
+            "Counterfactual assignment row count changed. "
+            f"Input rows: {len(work)}, "
+            f"assignment rows: {len(assignments)}"
+        )
+
+    return assignments
 
 
 def _transition_events(
@@ -814,67 +867,56 @@ def _counterfactual_coordinates(
 def _assign_counterfactual_labels(
     coordinates: pd.DataFrame,
 ) -> pd.DataFrame:
-    assignments = (
-        _assign_counterfactual_regimes(
-            coordinates[
-                [
-                    "geo_id",
-                    "date",
-                    "demand_axis_score",
-                    "supply_axis_score",
-                ]
-            ].copy()
+    """
+    Assign regimes to repeated counterfactual scenarios.
+
+    Production engines require one row per geo/date, so each scenario
+    receives a synthetic geography identifier. The original geo_id and
+    full scenario metadata are restored after assignment.
+    """
+    work = (
+        coordinates
+        .reset_index(drop=True)
+        .reset_index(
+            names="counterfactual_row_id"
         )
     )
 
-    identity = [
-        "geo_id",
-        "date",
-    ]
-
-    labels = assignments[
-        identity
-        + [
-            "major_regime",
-            "minor_regime",
-        ]
-    ].copy()
-
-    labels = labels.rename(
-        columns={
-            "major_regime": (
-                "counterfactual_major_regime"
-            ),
-            "minor_regime": (
-                "counterfactual_minor_regime"
-            ),
-        }
+    duplicate_ids = work[
+        "counterfactual_row_id"
+    ].duplicated(
+        keep=False
     )
 
-    # A transition date has many scenarios with the same geo/date,
-    # so preserve row identity before calling the canonical assigner.
-    coordinates = (
-        coordinates.reset_index(
-            drop=False
+    if duplicate_ids.any():
+        raise AssertionError(
+            "counterfactual_row_id values are not unique"
         )
-        .rename(
-            columns={
-                "index": (
-                    "counterfactual_row_id"
-                )
-            }
-        )
+
+    work["actual_geo_id"] = (
+        work["geo_id"]
     )
 
-    assign_input = coordinates[
+    work["diagnostic_geo_id"] = (
+        work["actual_geo_id"].astype(str)
+        + "__counterfactual__"
+        + work[
+            "counterfactual_row_id"
+        ].astype(str)
+    )
+
+    assign_input = work[
         [
-            "counterfactual_row_id",
-            "geo_id",
+            "diagnostic_geo_id",
             "date",
             "demand_axis_score",
             "supply_axis_score",
         ]
-    ].copy()
+    ].rename(
+        columns={
+            "diagnostic_geo_id": "geo_id",
+        }
+    )
 
     assignments = (
         _assign_counterfactual_regimes(
@@ -882,36 +924,75 @@ def _assign_counterfactual_labels(
         )
     )
 
-    if (
-        "counterfactual_row_id"
-        not in assignments.columns
-    ):
-        raise ValueError(
-            "Canonical regime assigner must preserve "
-            "counterfactual_row_id for repeated geo/date "
-            "counterfactual scenarios."
-        )
+    assigned = assignments[
+        [
+            "geo_id",
+            "date",
+            "major_regime",
+            "minor_regime",
+            "regime_strength",
+            "angle_degrees",
+            "distance_to_boundary_degrees",
+        ]
+    ].rename(
+        columns={
+            "geo_id": "diagnostic_geo_id",
+            "major_regime": (
+                "counterfactual_major_regime"
+            ),
+            "minor_regime": (
+                "counterfactual_minor_regime"
+            ),
+            "regime_strength": (
+                "counterfactual_regime_strength"
+            ),
+            "angle_degrees": (
+                "counterfactual_angle_degrees"
+            ),
+            "distance_to_boundary_degrees": (
+                "counterfactual_distance_"
+                "to_boundary_degrees"
+            ),
+        }
+    )
 
-    return coordinates.merge(
-        assignments[
-            [
-                "counterfactual_row_id",
-                "major_regime",
-                "minor_regime",
-            ]
-        ].rename(
-            columns={
-                "major_regime": (
-                    "counterfactual_major_regime"
-                ),
-                "minor_regime": (
-                    "counterfactual_minor_regime"
-                ),
-            }
-        ),
-        on="counterfactual_row_id",
+    result = work.merge(
+        assigned,
+        on=[
+            "diagnostic_geo_id",
+            "date",
+        ],
         how="left",
         validate="one_to_one",
+    )
+
+    missing_labels = result[
+        result[
+            "counterfactual_major_regime"
+        ].isna()
+        | result[
+            "counterfactual_minor_regime"
+        ].isna()
+    ]
+
+    if not missing_labels.empty:
+        raise AssertionError(
+            "Some counterfactual scenarios did not "
+            "receive regime labels:\n"
+            + missing_labels.head(30).to_string(
+                index=False
+            )
+        )
+
+    # Restore the original geography name used by downstream joins.
+    result["geo_id"] = result[
+        "actual_geo_id"
+    ]
+
+    return result.drop(
+        columns=[
+            "actual_geo_id",
+        ]
     )
 
 
