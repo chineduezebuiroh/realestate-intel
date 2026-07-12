@@ -339,9 +339,12 @@ def _prepare_freshness(
 
     components = component_freshness.copy()
 
-    components["date"] = pd.to_datetime(
-        components["date"],
-        errors="coerce",
+    components["date"] = (
+        pd.to_datetime(
+            components["date"],
+            errors="coerce",
+        )
+        .astype("datetime64[ns]")
     )
 
     components["component_source_date"] = (
@@ -351,6 +354,7 @@ def _prepare_freshness(
             ],
             errors="coerce",
         )
+        .astype("datetime64[ns]")
     )
 
     components["warning_days"] = pd.to_numeric(
@@ -392,9 +396,12 @@ def _prepare_freshness(
         .copy()
     )
 
-    calendar["date"] = pd.to_datetime(
-        calendar["date"],
-        errors="coerce",
+    calendar["date"] = (
+        pd.to_datetime(
+            calendar["date"],
+            errors="coerce",
+        )
+        .astype("datetime64[ns]")
     )
 
     aligned_rows: list[pd.DataFrame] = []
@@ -443,6 +450,24 @@ def _prepare_freshness(
             .sort_values(
                 "derived_observation_date"
             )
+        )
+
+        left["evaluation_date"] = (
+            pd.to_datetime(
+                left["evaluation_date"],
+                errors="coerce",
+            )
+            .astype("datetime64[ns]")
+        )
+
+        right["derived_observation_date"] = (
+            pd.to_datetime(
+                right[
+                    "derived_observation_date"
+                ],
+                errors="coerce",
+            )
+            .astype("datetime64[ns]")
         )
 
         aligned = pd.merge_asof(
