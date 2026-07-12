@@ -739,11 +739,16 @@ def _build_axis_summary(
         for column in timeline.columns
         if (
             column.endswith("_axis_score")
-            and not column.endswith(
-                "_previous_axis_score"
-            )
+            and f"{column}_change_1m"
+            in timeline.columns
         )
     ]
+
+    if not axis_columns:
+        raise ValueError(
+            "No valid axis-score columns with change fields "
+            "were found in the chronological timeline"
+        )
 
     rows: list[dict[str, object]] = []
 
