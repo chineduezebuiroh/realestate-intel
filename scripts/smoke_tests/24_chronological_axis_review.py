@@ -21,6 +21,35 @@ def main() -> int:
         "transition_timeline"
     ]
     axis_summary = review["axis_summary"]
+
+    actual_axes = set(
+        axis_summary["axis"]
+    )
+
+    expected_axes = {
+        "demand",
+        "supply",
+    }
+
+    if actual_axes != expected_axes:
+        raise AssertionError(
+            "Axis summary contains unexpected axes. "
+            f"Expected {sorted(expected_axes)}, "
+            f"found {sorted(actual_axes)}"
+        )
+
+    event_axes = set(
+        axis_events["axis"]
+    )
+
+    if not event_axes.issubset(
+        expected_axes
+    ):
+        raise AssertionError(
+            "Axis events contain non-production axes: "
+            f"{sorted(event_axes - expected_axes)}"
+        )
+    
     latest = review["latest_snapshot"]
 
     print(
