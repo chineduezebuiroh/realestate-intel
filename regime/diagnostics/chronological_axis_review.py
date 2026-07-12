@@ -19,6 +19,11 @@ DEFAULT_REVIEW_GEOS = [
     "alameda_county_ca__county",
 ]
 
+PRODUCTION_AXES = (
+    "demand",
+    "supply",
+)
+
 
 def _resolve_column(
     dataframe: pd.DataFrame,
@@ -87,10 +92,9 @@ def _prepare_axis_scores(
         }
     )
 
-    production_axes = {
-        "demand",
-        "supply",
-    }
+    production_axes = set(
+        PRODUCTION_AXES
+    )
 
     out = out[
         out["axis"].isin(production_axes)
@@ -677,16 +681,25 @@ def _add_change_columns(
         group_keys=False,
     )
 
-    score_columns = [
+    axis_score_columns = [
+        f"{axis}_axis_score"
+        for axis in PRODUCTION_AXES
+        if f"{axis}_axis_score"
+        in out.columns
+    ]
+
+    dimension_score_columns = [
         column
         for column in out.columns
-        if (
-            column.endswith("_axis_score")
-            or column.endswith(
-                "_dimension_score"
-            )
+        if column.endswith(
+            "_dimension_score"
         )
     ]
+
+    score_columns = (
+        axis_score_columns
+        + dimension_score_columns
+    )
 
     for column in score_columns:
         out[f"{column}_change_1m"] = (
@@ -810,13 +823,15 @@ def _build_axis_event_table(
     top_n_per_axis: int,
 ) -> pd.DataFrame:
     axis_columns = [
-        column
-        for column in timeline.columns
-        if (
-            column.endswith(
-                "_axis_score_absolute_change_1m"
-            )
+        (
+            f"{axis}_axis_score"
+            "_absolute_change_1m"
         )
+        for axis in PRODUCTION_AXES
+        if (
+            f"{axis}_axis_score"
+            "_absolute_change_1m"
+        ) in timeline.columns
     ]
 
     rows: list[pd.DataFrame] = []
@@ -943,12 +958,15 @@ def _build_axis_summary(
     timeline: pd.DataFrame,
 ) -> pd.DataFrame:
     axis_columns = [
-        column
-        for column in timeline.columns
+        f"{axis}_axis_score"
+        for axis in PRODUCTION_AXES
         if (
-            column.endswith("_axis_score")
-            and f"{column}_change_1m"
+            f"{axis}_axis_score"
             in timeline.columns
+            and (
+                f"{axis}_axis_score"
+                "_change_1m"
+            ) in timeline.columns
         )
     ]
 
@@ -1225,19 +1243,29 @@ def build_chronological_axis_review(
         .reset_index(drop=True)
     )
 
+    required_axis_columns = [
+        f"{axis}_axis_score"
+        for axis in PRODUCTION_AXES
+    ]
+
+    missing_required_columns = (
+        set(required_axis_columns)
+        - set(timeline.columns)
+    )
+
+    if missing_required_columns:
+        raise AssertionError(
+            "Chronological timeline is missing "
+            "production axis columns: "
+            f"{sorted(missing_required_columns)}"
+        )
+
     missing_axes = timeline[
         timeline[
-            [
-                column
-                for column
-                in timeline.columns
-                if column.endswith(
-                    "_axis_score"
-                )
-            ]
+            required_axis_columns
         ]
         .isna()
-        .all(axis=1)
+        .any(axis=1)
     ]
 
     if not missing_axes.empty:
