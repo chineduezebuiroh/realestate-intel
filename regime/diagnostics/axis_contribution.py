@@ -411,29 +411,101 @@ def _prepare_metric_registry(
         registry["metric_weight"] > 0
     ].copy()
 
-    duplicate_keys = registry.duplicated(
-        subset=[
-            "dimension",
+    canonical_policy_check = (
+        registry.groupby(
             "canonical_metric_key",
-        ],
-        keep=False,
+            dropna=False,
+        )
+        .agg(
+            dimension_count=(
+                "dimension",
+                "nunique",
+            ),
+            metric_weight_count=(
+                "metric_weight",
+                "nunique",
+            ),
+            dimensions=(
+                "dimension",
+                lambda values: sorted(
+                    set(values.dropna())
+                ),
+            ),
+            metric_weights=(
+                "metric_weight",
+                lambda values: sorted(
+                    set(values.dropna())
+                ),
+            ),
+            source_row_count=(
+                "canonical_metric_key",
+                "size",
+            ),
+        )
+        .reset_index()
     )
 
-    if duplicate_keys.any():
+    conflicting_policies = (
+        canonical_policy_check[
+            (
+                canonical_policy_check[
+                    "dimension_count"
+                ] != 1
+            )
+            | (
+                canonical_policy_check[
+                    "metric_weight_count"
+                ] != 1
+            )
+        ]
+    )
+
+    if not conflicting_policies.empty:
         raise ValueError(
-            "Duplicate metric-to-dimension policies:\n"
-            + registry.loc[
-                duplicate_keys
+            "Source rows resolving to the same canonical "
+            "metric disagree on dimension or metric weight:\n"
+            + conflicting_policies.to_string(
+                index=False
+            )
+        )
+
+    canonical_registry = (
+        registry[
+            [
+                "dimension",
+                "canonical_metric_key",
+                "metric_weight",
+            ]
+        ]
+        .drop_duplicates()
+        .sort_values(
+            [
+                "dimension",
+                "canonical_metric_key",
+            ]
+        )
+        .reset_index(drop=True)
+    )
+
+    duplicate_canonical_keys = (
+        canonical_registry.duplicated(
+            subset=[
+                "canonical_metric_key",
+            ],
+            keep=False,
+        )
+    )
+
+    if duplicate_canonical_keys.any():
+        raise ValueError(
+            "Canonical metrics remain duplicated after "
+            "source-policy consolidation:\n"
+            + canonical_registry.loc[
+                duplicate_canonical_keys
             ].to_string(index=False)
         )
 
-    return registry[
-        [
-            "dimension",
-            "canonical_metric_key",
-            "metric_weight",
-        ]
-    ].copy()
+    return canonical_registry
 
 
 def _prepare_axis_registry(
@@ -546,8 +618,31 @@ def _build_metric_contributions(
         metric_registry,
         on="canonical_metric_key",
         how="inner",
-        validate="many_to_many",
+        validate="many_to_one",
     )
+
+    scored_metrics = set(
+        metric_scores[
+            "canonical_metric_key"
+        ].unique()
+    )
+
+    governed_metrics = set(
+        metric_registry[
+            "canonical_metric_key"
+        ].unique()
+    )
+
+    missing_registry_metrics = (
+        scored_metrics - governed_metrics
+    )
+
+    if missing_registry_metrics:
+        raise ValueError(
+            "Aligned metric scores contain canonical metrics "
+            "without active contribution policies: "
+            f"{sorted(missing_registry_metrics)}"
+        )
 
     group_keys = [
         "geo_id",
