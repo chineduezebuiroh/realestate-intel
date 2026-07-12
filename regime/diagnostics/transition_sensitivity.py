@@ -743,6 +743,14 @@ def _counterfactual_coordinates(
         )
 
         for target_dimension in TARGET_DIMENSIONS:
+            target_available = (
+                current_dimensions[
+                    "dimension"
+                ]
+                .eq(target_dimension)
+                .any()
+            )
+
             for scenario in scenarios:
                 modified = (
                     _apply_dimension_counterfactual(
@@ -780,7 +788,10 @@ def _counterfactual_coordinates(
                         "target_key": (
                             target_dimension
                         ),
-                        "scenario": scenario,
+                        "target_available": (
+                            target_available
+                        ),
+                        "scenario": scenario,                        
                         "weight_multiplier": (
                             weight_multiplier
                             if scenario
@@ -792,6 +803,14 @@ def _counterfactual_coordinates(
                 )
 
         for target_metric in TARGET_METRICS:
+            target_available = (
+                current_metrics[
+                    "canonical_metric_key"
+                ]
+                .eq(target_metric)
+                .any()
+            )
+
             for scenario in scenarios:
                 (
                     dimension,
@@ -847,9 +866,12 @@ def _counterfactual_coordinates(
                         "target_key": (
                             target_metric
                         ),
+                        "target_available": (
+                            target_available
+                        ),
                         "affected_dimension": (
                             dimension
-                        ),
+                        ),                        
                         "scenario": scenario,
                         "weight_multiplier": (
                             weight_multiplier
@@ -1078,6 +1100,20 @@ def _evaluate_transition_sensitivity(
         "counterfactual_minor_matches_actual"
     ]
 
+    out[
+        "eligible_major_transition"
+    ] = (
+        out["target_available"]
+        & out["major_changed"]
+    )
+
+    out[
+        "eligible_minor_transition"
+    ] = (
+        out["target_available"]
+        & out["minor_changed"]
+    )
+
     return out
 
 
@@ -1198,53 +1234,132 @@ def _transition_persistence(
     return transitions
 
 
+def _conditional_rate(
+    frame: pd.DataFrame,
+    *,
+    result_column: str,
+    eligibility_column: str,
+) -> float:
+    eligible = frame[
+        frame[eligibility_column]
+    ]
+
+    if eligible.empty:
+        return np.nan
+
+    return float(
+        eligible[result_column].mean()
+    )
+
+
 def _sensitivity_summary(
     sensitivity: pd.DataFrame,
 ) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+
+    group_columns = [
+        "target_level",
+        "target_key",
+        "scenario",
+    ]
+
+    for keys, frame in sensitivity.groupby(
+        group_columns,
+        dropna=False,
+    ):
+        (
+            target_level,
+            target_key,
+            scenario,
+        ) = keys
+
+        available = frame[
+            frame["target_available"]
+        ]
+
+        rows.append(
+            {
+                "target_level": target_level,
+                "target_key": target_key,
+                "scenario": scenario,
+                "evaluated_transition_count": (
+                    frame[
+                        "transition_id"
+                    ].nunique()
+                ),
+                "available_transition_count": (
+                    available[
+                        "transition_id"
+                    ].nunique()
+                ),
+                "eligible_major_transition_count": int(
+                    frame[
+                        "eligible_major_transition"
+                    ].sum()
+                ),
+                "eligible_minor_transition_count": int(
+                    frame[
+                        "eligible_minor_transition"
+                    ].sum()
+                ),
+                "major_transition_prevented_count": int(
+                    frame[
+                        "major_transition_prevented"
+                    ].sum()
+                ),
+                "major_transition_prevented_rate": (
+                    _conditional_rate(
+                        frame,
+                        result_column=(
+                            "major_transition_prevented"
+                        ),
+                        eligibility_column=(
+                            "eligible_major_transition"
+                        ),
+                    )
+                ),
+                "minor_transition_prevented_count": int(
+                    frame[
+                        "minor_transition_prevented"
+                    ].sum()
+                ),
+                "minor_transition_prevented_rate": (
+                    _conditional_rate(
+                        frame,
+                        result_column=(
+                            "minor_transition_prevented"
+                        ),
+                        eligibility_column=(
+                            "eligible_minor_transition"
+                        ),
+                    )
+                ),
+                "major_assignment_changed_rate": (
+                    available[
+                        "major_assignment_changed"
+                    ].mean()
+                    if not available.empty
+                    else np.nan
+                ),
+                "minor_assignment_changed_rate": (
+                    available[
+                        "minor_assignment_changed"
+                    ].mean()
+                    if not available.empty
+                    else np.nan
+                ),
+                "mean_regime_strength": (
+                    available[
+                        "regime_strength"
+                    ].mean()
+                    if not available.empty
+                    else np.nan
+                ),
+            }
+        )
+
     return (
-        sensitivity.groupby(
-            [
-                "target_level",
-                "target_key",
-                "scenario",
-            ],
-            dropna=False,
-        )
-        .agg(
-            transition_rows=(
-                "transition_id",
-                "nunique",
-            ),
-            major_transition_prevented_count=(
-                "major_transition_prevented",
-                "sum",
-            ),
-            major_transition_prevented_rate=(
-                "major_transition_prevented",
-                "mean",
-            ),
-            minor_transition_prevented_count=(
-                "minor_transition_prevented",
-                "sum",
-            ),
-            minor_transition_prevented_rate=(
-                "minor_transition_prevented",
-                "mean",
-            ),
-            major_assignment_changed_rate=(
-                "major_assignment_changed",
-                "mean",
-            ),
-            minor_assignment_changed_rate=(
-                "minor_assignment_changed",
-                "mean",
-            ),
-            mean_regime_strength=(
-                "regime_strength",
-                "mean",
-            ),
-        )
-        .reset_index()
+        pd.DataFrame(rows)
         .sort_values(
             [
                 "major_transition_prevented_rate",
@@ -1254,6 +1369,7 @@ def _sensitivity_summary(
                 False,
                 False,
             ],
+            na_position="last",
         )
         .reset_index(drop=True)
     )
