@@ -1123,49 +1123,77 @@ def _transition_persistence(
         3,
         6,
     ):
+        major_future_available = transitions[
+            f"major_regime_lead_{horizon}"
+        ].notna()
+
+        minor_future_available = transitions[
+            f"minor_regime_lead_{horizon}"
+        ].notna()
+
         transitions[
             f"major_persists_{horizon}m"
         ] = (
-            transitions[
-                f"major_regime_lead_{horizon}"
-            ]
-            == transitions[
-                "major_regime"
-            ]
+            transitions["major_changed"]
+            & major_future_available
+            & (
+                transitions[
+                    f"major_regime_lead_{horizon}"
+                ]
+                == transitions["major_regime"]
+            )
         )
 
         transitions[
             f"minor_persists_{horizon}m"
         ] = (
-            transitions[
-                f"minor_regime_lead_{horizon}"
-            ]
-            == transitions[
-                "minor_regime"
-            ]
+            transitions["minor_changed"]
+            & minor_future_available
+            & (
+                transitions[
+                    f"minor_regime_lead_{horizon}"
+                ]
+                == transitions["minor_regime"]
+            )
         )
 
         transitions[
             f"major_reverses_{horizon}m"
         ] = (
-            transitions[
-                f"major_regime_lead_{horizon}"
-            ]
-            == transitions[
-                "previous_major_regime"
-            ]
+            transitions["major_changed"]
+            & major_future_available
+            & (
+                transitions[
+                    f"major_regime_lead_{horizon}"
+                ]
+                == transitions[
+                    "previous_major_regime"
+                ]
+            )
         )
 
         transitions[
             f"minor_reverses_{horizon}m"
         ] = (
-            transitions[
-                f"minor_regime_lead_{horizon}"
-            ]
-            == transitions[
-                "previous_minor_regime"
-            ]
+            transitions["minor_changed"]
+            & minor_future_available
+            & (
+                transitions[
+                    f"minor_regime_lead_{horizon}"
+                ]
+                == transitions[
+                    "previous_minor_regime"
+                ]
+            )
         )
+
+        transitions[
+            f"major_horizon_available_{horizon}m"
+        ] = major_future_available
+
+        transitions[
+            f"minor_horizon_available_{horizon}m"
+        ] = minor_future_available
 
     return transitions
 
