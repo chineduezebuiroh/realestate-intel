@@ -392,10 +392,7 @@ def main() -> int:
         raise AssertionError(
             "Dimension events contain "
             "unexpected dimensions: "
-            f"{sorted(
-                event_dimensions
-                - expected_dimensions
-            )}"
+            f"{sorted(event_dimensions - expected_dimensions)}"
         )
 
     if (
