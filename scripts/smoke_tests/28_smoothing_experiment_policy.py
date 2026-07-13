@@ -1,6 +1,8 @@
 from __future__ import annotations
 # scripts/smoke_tests/28_smoothing_experiment_policy.py
 
+import pandas as pd
+
 from regime.experiments.smoothing_policy import (
     BASELINE_EXPERIMENT_ID,
     EXPECTED_CHALLENGER_IDS,
@@ -28,14 +30,17 @@ def main() -> int:
         experiment_id,
         experiment,
     ) in experiments.items():
-        for policy in experiment.policies:
+        for policy in (
+            experiment.policies
+        ):
             rows.append(
                 {
                     "experiment_id": (
                         experiment_id
                     ),
                     "experiment_name": (
-                        experiment.experiment_name
+                        experiment
+                        .experiment_name
                     ),
                     "parent_run": (
                         experiment.parent_run
@@ -47,23 +52,25 @@ def main() -> int:
                         policy.policy_role
                     ),
                     "transform_strategy": (
-                        policy.transform_strategy
+                        policy
+                        .transform_strategy
                     ),
                     "level_window": (
                         policy.level_window
                     ),
-                    (
-                        "short_denominator_"
-                        "window"
-                    ): (
+                    "short_window": (
+                        policy.short_window
+                    ),
+                    "short_lag_periods": (
                         policy
-                        .short_denominator_window
+                        .short_lag_periods
                     ),
                     "long_window": (
                         policy.long_window
                     ),
                     "long_lag_periods": (
-                        policy.long_lag_periods
+                        policy
+                        .long_lag_periods
                     ),
                     "recompute_dependents": (
                         policy
@@ -72,14 +79,15 @@ def main() -> int:
                 }
             )
 
-    import pandas as pd
-
-    summary = pd.DataFrame(rows)
+    summary = pd.DataFrame(
+        rows
+    )
 
     print(
         "\n[smoothing_policy] "
         "resolved experiment matrix:"
     )
+
     print(
         summary.sort_values(
             [
@@ -102,9 +110,12 @@ def main() -> int:
 
     if actual_ids != expected_ids:
         raise AssertionError(
-            "Unexpected smoothing experiment IDs. "
-            f"Expected {sorted(expected_ids)}, "
-            f"found {sorted(actual_ids)}"
+            "Unexpected smoothing "
+            "experiment IDs. "
+            f"Expected "
+            f"{sorted(expected_ids)}, "
+            f"found "
+            f"{sorted(actual_ids)}"
         )
 
     baseline = experiments[
@@ -113,86 +124,156 @@ def main() -> int:
 
     if not baseline.is_baseline:
         raise AssertionError(
-            "Baseline experiment is not recognized "
-            "as baseline"
+            "Baseline experiment is not "
+            "recognized as baseline"
         )
 
-    inventory = experiments[
-        "inventory_ma3"
+    if set(
+        baseline.metric_keys
+    ) != {
+        "*",
+    }:
+        raise AssertionError(
+            "Baseline metric policy mismatch"
+        )
+
+    momentum = experiments[
+        "inventory_ma3_momentum"
     ]
 
     if set(
-        inventory.metric_keys
-    ) != {
-        "active_inventory"
-    }:
-        raise AssertionError(
-            "Inventory challenger policy mismatch"
-        )
-
-    price = experiments[
-        "price_family_ma3"
-    ]
-
-    if set(
-        price.metric_keys
-    ) != {
-        "median_sale_price",
-        "median_ppsf",
-    }:
-        raise AssertionError(
-            "Price-family challenger policy mismatch"
-        )
-
-    if set(
-        price.dependency_roots
-    ) != {
-        "median_sale_price"
-    }:
-        raise AssertionError(
-            "Price-family dependency root mismatch"
-        )
-
-    combined = experiments[
-        "inventory_price_ma3"
-    ]
-
-    if set(
-        combined.metric_keys
+        momentum.metric_keys
     ) != {
         "active_inventory",
-        "median_sale_price",
-        "median_ppsf",
     }:
         raise AssertionError(
-            "Combined challenger policy mismatch"
+            "Momentum challenger metric "
+            "policy mismatch"
         )
 
-    for experiment_id in (
-        "inventory_ma3",
-        "price_family_ma3",
-        "inventory_price_ma3",
+    momentum_policy = (
+        momentum.policy_for(
+            "active_inventory"
+        )
+    )
+
+    if momentum_policy is None:
+        raise AssertionError(
+            "Momentum challenger policy "
+            "could not be resolved"
+        )
+
+    if (
+        momentum_policy
+        .transform_strategy
+        != "ma_momentum"
     ):
-        for policy in (
-            experiments[
-                experiment_id
-            ].policies
-        ):
-            if (
-                policy.level_window,
-                policy.short_denominator_window,
-                policy.long_window,
-                policy.long_lag_periods,
-            ) != (
-                3,
-                3,
-                3,
-                12,
-            ):
-                raise AssertionError(
-                    "Unexpected MA feature contract for "
-                    f"{experiment_id}/{policy.metric_key}"
-                )
+        raise AssertionError(
+            "Momentum challenger transform "
+            "strategy mismatch"
+        )
+
+    if (
+        momentum_policy.level_window,
+        momentum_policy.short_window,
+        momentum_policy.short_lag_periods,
+        momentum_policy.long_window,
+        momentum_policy.long_lag_periods,
+    ) != (
+        3,
+        3,
+        3,
+        3,
+        12,
+    ):
+        raise AssertionError(
+            "Momentum challenger feature "
+            "contract mismatch"
+        )
+
+    deviation = experiments[
+        "inventory_ma3_deviation"
+    ]
+
+    if set(
+        deviation.metric_keys
+    ) != {
+        "active_inventory",
+    }:
+        raise AssertionError(
+            "Deviation challenger metric "
+            "policy mismatch"
+        )
+
+    deviation_policy = (
+        deviation.policy_for(
+            "active_inventory"
+        )
+    )
+
+    if deviation_policy is None:
+        raise AssertionError(
+            "Deviation challenger policy "
+            "could not be resolved"
+        )
+
+    if (
+        deviation_policy
+        .transform_strategy
+        != "ma_deviation"
+    ):
+        raise AssertionError(
+            "Deviation challenger transform "
+            "strategy mismatch"
+        )
+
+    if (
+        deviation_policy.level_window,
+        deviation_policy.short_window,
+        deviation_policy.short_lag_periods,
+        deviation_policy.long_window,
+        deviation_policy.long_lag_periods,
+    ) != (
+        3,
+        3,
+        0,
+        3,
+        12,
+    ):
+        raise AssertionError(
+            "Deviation challenger feature "
+            "contract mismatch"
+        )
+
+    if (
+        momentum_policy
+        .recompute_dependents
+    ):
+        raise AssertionError(
+            "Inventory momentum challenger "
+            "must not recompute dependents"
+        )
+
+    if (
+        deviation_policy
+        .recompute_dependents
+    ):
+        raise AssertionError(
+            "Inventory deviation challenger "
+            "must not recompute dependents"
+        )
+
+    if (
+        momentum_policy
+        .short_lag_periods
+        == deviation_policy
+        .short_lag_periods
+    ):
+        raise AssertionError(
+            "Momentum and deviation "
+            "challengers must have distinct "
+            "short-feature definitions"
+        )
 
     print(
         "\n[smoothing_policy] OK"
