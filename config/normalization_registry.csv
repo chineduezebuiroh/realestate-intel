@@ -9,6 +9,7 @@ source_family,fred_macro,expanding_percentile,240,36,negative,0.01,0.99,true,FRE
 source_family,fred_unemp,expanding_percentile,120,36,negative,0.01,0.99,true,FRED unemployment; higher is worse
 source_family,derived,expanding_percentile,120,36,negative,0.01,0.99,true,Derived affordability metrics default negative
 source_family,bea,expanding_percentile,80,20,positive,0.01,0.99,true,BEA quarterly GDP default
+source_family,bps,expanding_percentile,120,36,positive,0.01,0.99,true,BPS monthly permit metrics use a 120-month normalization window
 
 feature_key,permit_intensity_level,expanding_percentile,120,36,positive,0.01,0.99,true,Higher permit intensity means more supply pressure
 feature_key,permit_intensity_short,expanding_percentile,120,36,positive,0.01,0.99,true,Rising permit intensity means more supply pressure
