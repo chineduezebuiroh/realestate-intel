@@ -87,21 +87,37 @@ def _validate_feature_frame(
         errors="coerce",
     )
 
-    invalid = work[
+    invalid_keys = work[
         work["geo_id"].isna()
         | work["date"].isna()
-        | work["canonical_metric_key"].isna()
+        | work[
+            "canonical_metric_key"
+        ].isna()
         | work["feature_key"].isna()
-        | work["raw_feature_value"].isna()
-        | ~np.isfinite(
-            work["raw_feature_value"]
-        )
     ]
 
-    if not invalid.empty:
+    if not invalid_keys.empty:
         raise ValueError(
-            "Feature frame contains invalid rows:\n"
-            + invalid.head(30).to_string(
+            "Feature frame contains invalid "
+            "keys or dates:\n"
+            + invalid_keys.head(
+                30
+            ).to_string(
+                index=False
+            )
+        )
+
+    non_numeric_values = work[
+        work["raw_feature_value"].isna()
+    ]
+
+    if not non_numeric_values.empty:
+        raise ValueError(
+            "Feature frame contains missing or "
+            "non-numeric feature values:\n"
+            + non_numeric_values.head(
+                30
+            ).to_string(
                 index=False
             )
         )
@@ -364,6 +380,25 @@ def _build_inventory_override(
             "raw_feature_value",
         ]
     )
+
+    non_finite_override = override[
+        ~np.isfinite(
+            override[
+                "raw_feature_value"
+            ]
+        )
+    ]
+
+    if not non_finite_override.empty:
+        raise ValueError(
+            "Inventory smoothing override "
+            "contains non-finite values:\n"
+            + non_finite_override.head(
+                30
+            ).to_string(
+                index=False
+            )
+        )
 
     override = override[
         FEATURE_COLUMNS
