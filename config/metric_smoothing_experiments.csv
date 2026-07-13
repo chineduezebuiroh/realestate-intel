@@ -1,0 +1,8 @@
+experiment_id,experiment_name,parent_run,metric_key,policy_role,transform_strategy,level_window,short_denominator_window,long_window,long_lag_periods,recompute_dependents,enabled,notes
+baseline_current,Current production baseline,macro_regime_v1_bps120,*,baseline,current,0,0,0,0,false,true,Immutable corrected BPS120 production-policy baseline.
+inventory_ma3,Active inventory MA3 challenger,macro_regime_v1_bps120,active_inventory,direct,ma_ratio,3,3,3,12,false,true,Smooth active inventory while preserving current metric and axis weights.
+price_family_ma3,Linked Redfin price-family MA3 challenger,macro_regime_v1_bps120,median_sale_price,dependency_root,ma_ratio,3,3,3,12,true,true,Smooth median sale price and rebuild dependent affordability metrics from the smoothed price input.
+price_family_ma3,Linked Redfin price-family MA3 challenger,macro_regime_v1_bps120,median_ppsf,direct,ma_ratio,3,3,3,12,false,true,Smooth median PPSF independently using the same MA3 feature contract.
+inventory_price_ma3,Combined inventory and price-family MA3 challenger,macro_regime_v1_bps120,active_inventory,direct,ma_ratio,3,3,3,12,false,true,Combined challenger inventory component.
+inventory_price_ma3,Combined inventory and price-family MA3 challenger,macro_regime_v1_bps120,median_sale_price,dependency_root,ma_ratio,3,3,3,12,true,true,Combined challenger linked-price root.
+inventory_price_ma3,Combined inventory and price-family MA3 challenger,macro_regime_v1_bps120,median_ppsf,direct,ma_ratio,3,3,3,12,false,true,Combined challenger PPSF component.
