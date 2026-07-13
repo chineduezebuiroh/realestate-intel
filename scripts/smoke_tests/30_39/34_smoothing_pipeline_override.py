@@ -1,6 +1,7 @@
 from __future__ import annotations
 # scripts/smoke_tests/30_39/34_smoothing_pipeline_override.py
 
+import numpy as np
 import pandas as pd
 
 from regime.artifacts import (
@@ -106,6 +107,31 @@ def main() -> int:
         check_dtype=True,
     )
 
+    baseline_non_target_inf = (
+        np.isinf(
+            baseline_non_target[
+                "raw_feature_value"
+            ]
+        ).sum()
+    )
+
+    challenger_non_target_inf = (
+        np.isinf(
+            challenger_non_target[
+                "raw_feature_value"
+            ]
+        ).sum()
+    )
+
+    if (
+        baseline_non_target_inf
+        != challenger_non_target_inf
+    ):
+        raise AssertionError(
+            "The smoothing override changed "
+            "non-target infinity preservation"
+        )
+
     baseline_target = baseline_features[
         baseline_features[
             "canonical_metric_key"
@@ -136,6 +162,16 @@ def main() -> int:
     if challenger_target.empty:
         raise AssertionError(
             "Challenger target features are empty"
+        )
+
+    if not np.isfinite(
+        challenger_target[
+            "raw_feature_value"
+        ]
+    ).all():
+        raise AssertionError(
+            "Challenger active-inventory "
+            "features contain non-finite values"
         )
 
     if smoothing_lineage.empty:
