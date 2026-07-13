@@ -11,6 +11,7 @@ from regime.experiments.smoothing_policy import (
 from regime.experiments.active_inventory_comparison import build_active_inventory_comparison
 from regime.experiments.metric_normalization_stability import build_metric_normalization_stability_audit
 from regime.experiments.smoothing_run import apply_smoothing_experiment
+from regime.experiments.inventory_finalist_comparison import build_inventory_finalist_comparison
 
 __all__ = [
     "DEFAULT_SMOOTHING_EXPERIMENT_REGISTRY",
@@ -22,4 +23,5 @@ __all__ = [
     "build_active_inventory_comparison",
     "build_metric_normalization_stability_audit",
     "apply_smoothing_experiment",
+    "build_inventory_finalist_comparison",
 ]
