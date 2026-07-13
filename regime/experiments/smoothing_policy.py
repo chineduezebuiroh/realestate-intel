@@ -687,12 +687,12 @@ def _validate_experiment_matrix(
     }
 
     if parent_runs != {
-        "macro_regime_v1_bps120"
+        "macro_regime_v1_bps120_sources"
     }:
         raise ValueError(
             "All initial smoothing "
             "experiments must use "
-            "macro_regime_v1_bps120 "
+            "macro_regime_v1_bps120_sources "
             "as parent_run. "
             f"Found {sorted(parent_runs)}"
         )
