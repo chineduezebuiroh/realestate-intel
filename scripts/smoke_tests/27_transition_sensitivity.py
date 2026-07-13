@@ -1,6 +1,8 @@
 from __future__ import annotations
 # scripts/smoke_tests/27_transition_sensitivity.py
 
+import pandas as pd
+
 from regime.diagnostics.transition_sensitivity import (
     DEFAULT_AUDIT_GEOS,
     DEFAULT_RUN_ID,
@@ -36,6 +38,10 @@ def main() -> int:
         "transition_persistence"
     ]
 
+    dwell_times = audit[
+        "regime_dwell_times"
+    ]
+
     price_affordability = audit[
         "price_affordability_sensitivity"
     ]
@@ -58,10 +64,15 @@ def main() -> int:
 
     print(
         "\n[transition_sensitivity] "
-        "sensitivity summary:"
+        "mature-history sensitivity summary:"
     )
     print(
-        summary.to_string(index=False)
+        summary[
+            summary[
+                "history_segment"
+            ].eq("mature_history")
+        ]
+        .to_string(index=False)
     )
 
     print(
@@ -125,6 +136,68 @@ def main() -> int:
         ]
         .tail(150)
         .to_string(index=False)
+    )
+
+    print(
+        "\n[transition_sensitivity] "
+        "continuous persistence rates:"
+    )
+
+    persistence_rows = []
+
+    for level in (
+        "major",
+        "minor",
+    ):
+        changed_column = (
+            f"{level}_changed"
+        )
+
+        for horizon in (
+            1,
+            3,
+            6,
+        ):
+            available_column = (
+                f"{level}_horizon_"
+                f"available_{horizon}m"
+            )
+
+            continuous_column = (
+                f"{level}_continuously_"
+                f"persists_{horizon}m"
+            )
+
+            eligible = persistence[
+                persistence[
+                    changed_column
+                ]
+                & persistence[
+                    available_column
+                ]
+            ]
+
+            persistence_rows.append(
+                {
+                    "regime_level": level,
+                    "horizon_months": horizon,
+                    "eligible_transitions": (
+                        len(eligible)
+                    ),
+                    "continuous_persistence_rate": (
+                        eligible[
+                            continuous_column
+                        ].mean()
+                        if not eligible.empty
+                        else float("nan")
+                    ),
+                }
+            )
+
+    print(
+        pd.DataFrame(
+            persistence_rows
+        ).to_string(index=False)
     )
 
     required_outputs = [
@@ -354,6 +427,75 @@ def main() -> int:
     print(
         "\n[transition_sensitivity] OK"
     )
+
+    for level in (
+        "major",
+        "minor",
+    ):
+        for horizon in (
+            1,
+            3,
+            6,
+        ):
+            point_column = (
+                f"{level}_persists_"
+                f"{horizon}m"
+            )
+
+            continuous_column = (
+                f"{level}_continuously_"
+                f"persists_{horizon}m"
+            )
+
+            impossible = persistence[
+                persistence[
+                    continuous_column
+                ]
+                & ~persistence[
+                    point_column
+                ]
+            ]
+
+            if not impossible.empty:
+                raise AssertionError(
+                    "Continuous persistence cannot be "
+                    "true when endpoint persistence is false"
+                )
+
+    expected_segments = {
+        "all_available_history",
+        "mature_history",
+    }
+
+    actual_segments = set(
+        summary["history_segment"]
+    )
+
+    if actual_segments != expected_segments:
+        raise AssertionError(
+            "Sensitivity summary history segments "
+            f"do not match: {actual_segments}"
+        )
+
+    if set(
+        dwell_times["regime_level"]
+    ) != {
+        "major",
+        "minor",
+    }:
+        raise AssertionError(
+            "Dwell-time output must contain both "
+            "major and minor regime episodes"
+        )
+
+    if (
+        dwell_times[
+            "duration_months"
+        ] <= 0
+    ).any():
+        raise AssertionError(
+            "Dwell durations must be positive"
+        )
 
     return 0
 
