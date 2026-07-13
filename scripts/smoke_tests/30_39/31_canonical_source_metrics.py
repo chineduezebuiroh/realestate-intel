@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/31_canonical_source_metrics.py
+# scripts/smoke_tests/30_39/31_canonical_source_metrics.py
 
 import pandas as pd
 
