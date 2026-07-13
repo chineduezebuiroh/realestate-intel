@@ -26,7 +26,7 @@ def _build_test_observations() -> pd.DataFrame:
     dates = pd.date_range(
         "2020-01-31",
         periods=30,
-        freq="ME",
+        freq="M",
     )
 
     steady_values = [
