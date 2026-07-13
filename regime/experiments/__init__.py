@@ -8,12 +8,9 @@ from regime.experiments.smoothing_policy import (
     SmoothingMetricPolicy,
     load_smoothing_experiments,
 )
-from regime.experiments.active_inventory_comparison import (
-    build_active_inventory_comparison,
-)
-from regime.experiments.metric_normalization_stability import (
-    build_metric_normalization_stability_audit,
-)
+from regime.experiments.active_inventory_comparison import build_active_inventory_comparison
+from regime.experiments.metric_normalization_stability import build_metric_normalization_stability_audit
+from regime.experiments.smoothing_run import apply_smoothing_experiment
 
 __all__ = [
     "DEFAULT_SMOOTHING_EXPERIMENT_REGISTRY",
@@ -24,4 +21,5 @@ __all__ = [
     "load_smoothing_experiments",
     "build_active_inventory_comparison",
     "build_metric_normalization_stability_audit",
+    "apply_smoothing_experiment",
 ]
