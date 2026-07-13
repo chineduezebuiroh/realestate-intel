@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/24_chronological_axis_review.py
+# scripts/smoke_tests/20_29/24_chronological_axis_review.py
 
 from regime.diagnostics.chronological_axis_review import (
     DEFAULT_REVIEW_GEOS,
