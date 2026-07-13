@@ -53,6 +53,15 @@ def parse_args() -> argparse.Namespace:
         help="Optional JSON object containing additional run metadata.",
     )
 
+    parser.add_argument(
+        "--smoothing-experiment-id",
+        default=None,
+        help=(
+            "Optional approved smoothing "
+            "experiment policy to apply."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -73,6 +82,7 @@ def main() -> int:
         validation_geo_ids=args.validation_geos,
         serving_db_path=Path(args.serving_db),
         run_metadata=metadata,
+        smoothing_experiment_id=args.smoothing_experiment_id,
     )
 
     print("\n[run_regime_pipeline] COMPLETE")
