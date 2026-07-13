@@ -11,7 +11,10 @@ import pandas as pd
 
 from regime.artifacts import DEFAULT_ARTIFACT_ROOT, RegimeArtifactStore
 from regime._00_config_loader import load_regime_config
-from regime._01_feature_engine import build_feature_matrix_with_lineage
+from regime._01_feature_engine import (
+    build_canonical_source_metrics_with_lineage,
+    build_feature_matrix_with_lineage,
+)
 from regime._02_feature_normalizer import normalize_features
 from regime._03_metric_scorer import score_metrics
 from regime._04_asof_aligner import align_metric_scores_asof
@@ -178,13 +181,44 @@ def run_regime_pipeline(
         print("[regime_pipeline] loading config")
         config = load_regime_config(validate=True)
 
-        print("[regime_pipeline] 1/9 building features")
-        features, derived_metric_lineage = (
-            build_feature_matrix_with_lineage(
+        print("[regime_pipeline] building canonical source metrics")
+
+        (
+            source_metrics,
+            derived_metric_lineage,
+        ) = (
+            build_canonical_source_metrics_with_lineage(
                 config=config,
                 db_path=serving_db_path,
             )
         )
+
+        stage_summaries["source_metrics"] = _frame_summary(source_metrics)
+        _write_pipeline_artifact(store, run_id, "source_metrics", source_metrics)
+
+        print("[regime_pipeline] 1/9 building features")
+
+        features, feature_lineage = (
+            build_feature_matrix_with_lineage(
+                config=config,
+                db_path=serving_db_path,
+                canonical_observations=(
+                    source_metrics
+                ),
+                derived_metric_lineage=(
+                    derived_metric_lineage
+                ),
+            )
+        )
+
+        if not feature_lineage.equals(
+            derived_metric_lineage
+        ):
+            raise AssertionError(
+                "Feature generation changed the supplied "
+                "derived-metric lineage"
+            )
+
         stage_summaries["features"] = _frame_summary(features)
         _write_pipeline_artifact(store, run_id, "features", features)
 
