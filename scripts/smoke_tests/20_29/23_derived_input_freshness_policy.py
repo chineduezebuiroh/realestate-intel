@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/23_derived_input_freshness_policy.py
+# scripts/smoke_tests/20_29/23_derived_input_freshness_policy.py
 
 from regime.artifacts import RegimeArtifactStore
 from regime.freshness import (
