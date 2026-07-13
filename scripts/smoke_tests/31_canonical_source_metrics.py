@@ -62,6 +62,34 @@ def main() -> int:
     ) = build_feature_matrix_with_lineage(
         config=config
     )
+
+    if list(
+        features_from_default_path.columns
+    ) != list(
+        features_from_persistable_input.columns
+    ):
+        raise AssertionError(
+            "Feature column order differs between "
+            "default and persisted-input paths"
+        )
+
+    try:
+        pd.testing.assert_frame_equal(
+            features_from_default_path.reset_index(
+                drop=True
+            ),
+            features_from_persistable_input.reset_index(
+                drop=True
+            ),
+            check_dtype=True,
+            check_exact=True,
+        )
+    except AssertionError as exc:
+        raise AssertionError(
+            "Feature row order or values differ between "
+            "the default loading path and persisted "
+            "canonical-input path"
+        ) from exc
   
     print(
         "[canonical_source_metrics] rows:",
@@ -310,8 +338,8 @@ def main() -> int:
         )
     
         pd.testing.assert_frame_equal(
-            lineage_from_default_path,
-            lineage_from_persistable_input,
+            lineage_from_default_path.reset_index(drop=True),
+            lineage_from_persistable_input.reset_index(drop=True),
             check_dtype=True,
             check_exact=True,
         )
