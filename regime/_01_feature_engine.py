@@ -560,14 +560,12 @@ def build_feature_matrix_with_lineage(
         ]
     )
 
-    output = output.sort_values(
-        [
-            "geo_id",
-            "canonical_metric_key",
-            "feature_key",
-            "date",
-        ]
-    ).reset_index(drop=True)
+    # Preserve the legacy feature-definition and observation ordering.
+    # Downstream stages must receive the same ordered frame as they did
+    # before canonical source-metric persistence was introduced.
+    output = output.reset_index(
+        drop=True
+    )
 
     return (
         output,
