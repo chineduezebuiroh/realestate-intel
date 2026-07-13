@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/30_active_inventory_source_contract.py
+# scripts/smoke_tests/30_39/30_active_inventory_source_contract.py
 
 from typing import Any
 
