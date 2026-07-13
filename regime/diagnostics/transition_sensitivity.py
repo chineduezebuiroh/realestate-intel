@@ -41,6 +41,16 @@ AXES = (
     "supply",
 )
 
+MATURE_HISTORY_START = pd.Timestamp(
+    "2015-12-31"
+)
+
+PERSISTENCE_HORIZONS = (
+    1,
+    3,
+    6,
+)
+
 
 def _assign_counterfactual_regimes(
     counterfactual_axes: pd.DataFrame,
@@ -1114,12 +1124,29 @@ def _evaluate_transition_sensitivity(
         & out["minor_changed"]
     )
 
+    out["mature_history_flag"] = (
+        pd.to_datetime(
+            out["date"]
+        )
+        >= MATURE_HISTORY_START
+    )
+
     return out
 
 
 def _transition_persistence(
     timeline: pd.DataFrame,
 ) -> pd.DataFrame:
+    """
+    Measure point-in-time and continuous regime persistence.
+
+    Point persistence:
+        Regime at exactly t+h equals the transition-month regime.
+
+    Continuous persistence:
+        Every observed month from t+1 through t+h remains in the
+        transition-month regime.
+    """
     work = timeline.sort_values(
         [
             "geo_id",
@@ -1127,111 +1154,267 @@ def _transition_persistence(
         ]
     ).copy()
 
-    grouped = work.groupby(
-        "geo_id",
-        group_keys=False,
-    )
-
-    for horizon in (
-        1,
-        3,
-        6,
-    ):
-        work[
-            f"major_regime_lead_{horizon}"
-        ] = grouped[
-            "major_regime"
-        ].shift(-horizon)
-
-        work[
-            f"minor_regime_lead_{horizon}"
-        ] = grouped[
-            "minor_regime"
-        ].shift(-horizon)
-
     transitions = work[
         work["major_changed"]
         | work["minor_changed"]
     ].copy()
 
-    for horizon in (
-        1,
-        3,
-        6,
+    rows: list[dict[str, object]] = []
+
+    for transition in transitions.itertuples(
+        index=False
     ):
-        major_future_available = transitions[
-            f"major_regime_lead_{horizon}"
-        ].notna()
-
-        minor_future_available = transitions[
-            f"minor_regime_lead_{horizon}"
-        ].notna()
-
-        transitions[
-            f"major_persists_{horizon}m"
-        ] = (
-            transitions["major_changed"]
-            & major_future_available
-            & (
-                transitions[
-                    f"major_regime_lead_{horizon}"
-                ]
-                == transitions["major_regime"]
-            )
+        geo_history = (
+            work[
+                work["geo_id"].eq(
+                    transition.geo_id
+                )
+                & work["date"].gt(
+                    transition.date
+                )
+            ]
+            .sort_values("date")
+            .reset_index(drop=True)
         )
 
-        transitions[
-            f"minor_persists_{horizon}m"
-        ] = (
-            transitions["minor_changed"]
-            & minor_future_available
-            & (
-                transitions[
-                    f"minor_regime_lead_{horizon}"
-                ]
-                == transitions["minor_regime"]
+        output = transition._asdict()
+        output["mature_history_flag"] = (
+            pd.Timestamp(
+                transition.date
             )
+            >= MATURE_HISTORY_START
         )
 
-        transitions[
-            f"major_reverses_{horizon}m"
-        ] = (
-            transitions["major_changed"]
-            & major_future_available
-            & (
-                transitions[
-                    f"major_regime_lead_{horizon}"
-                ]
-                == transitions[
-                    "previous_major_regime"
-                ]
+        for horizon in PERSISTENCE_HORIZONS:
+            future = geo_history.head(
+                horizon
             )
-        )
 
-        transitions[
-            f"minor_reverses_{horizon}m"
-        ] = (
-            transitions["minor_changed"]
-            & minor_future_available
-            & (
-                transitions[
-                    f"minor_regime_lead_{horizon}"
-                ]
-                == transitions[
-                    "previous_minor_regime"
-                ]
+            horizon_available = (
+                len(future) == horizon
             )
+
+            output[
+                f"major_horizon_available_{horizon}m"
+            ] = horizon_available
+
+            output[
+                f"minor_horizon_available_{horizon}m"
+            ] = horizon_available
+
+            if not horizon_available:
+                output[
+                    f"major_persists_{horizon}m"
+                ] = False
+                output[
+                    f"minor_persists_{horizon}m"
+                ] = False
+                output[
+                    f"major_reverses_{horizon}m"
+                ] = False
+                output[
+                    f"minor_reverses_{horizon}m"
+                ] = False
+                output[
+                    (
+                        "major_continuously_"
+                        f"persists_{horizon}m"
+                    )
+                ] = False
+                output[
+                    (
+                        "minor_continuously_"
+                        f"persists_{horizon}m"
+                    )
+                ] = False
+                continue
+
+            horizon_row = future.iloc[
+                horizon - 1
+            ]
+
+            output[
+                f"major_persists_{horizon}m"
+            ] = bool(
+                transition.major_changed
+                and (
+                    horizon_row["major_regime"]
+                    == transition.major_regime
+                )
+            )
+
+            output[
+                f"minor_persists_{horizon}m"
+            ] = bool(
+                transition.minor_changed
+                and (
+                    horizon_row["minor_regime"]
+                    == transition.minor_regime
+                )
+            )
+
+            output[
+                f"major_reverses_{horizon}m"
+            ] = bool(
+                transition.major_changed
+                and (
+                    horizon_row["major_regime"]
+                    == transition.previous_major_regime
+                )
+            )
+
+            output[
+                f"minor_reverses_{horizon}m"
+            ] = bool(
+                transition.minor_changed
+                and (
+                    horizon_row["minor_regime"]
+                    == transition.previous_minor_regime
+                )
+            )
+
+            output[
+                (
+                    "major_continuously_"
+                    f"persists_{horizon}m"
+                )
+            ] = bool(
+                transition.major_changed
+                and future[
+                    "major_regime"
+                ].eq(
+                    transition.major_regime
+                ).all()
+            )
+
+            output[
+                (
+                    "minor_continuously_"
+                    f"persists_{horizon}m"
+                )
+            ] = bool(
+                transition.minor_changed
+                and future[
+                    "minor_regime"
+                ].eq(
+                    transition.minor_regime
+                ).all()
+            )
+
+        rows.append(output)
+
+    return (
+        pd.DataFrame(rows)
+        .sort_values(
+            [
+                "geo_id",
+                "date",
+            ]
         )
+        .reset_index(drop=True)
+    )
 
-        transitions[
-            f"major_horizon_available_{horizon}m"
-        ] = major_future_available
 
-        transitions[
-            f"minor_horizon_available_{horizon}m"
-        ] = minor_future_available
+def _build_regime_dwell_times(
+    timeline: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Build contiguous major- and minor-regime episodes.
+    """
+    rows: list[dict[str, object]] = []
 
-    return transitions
+    for geo_id, geo_frame in timeline.groupby(
+        "geo_id"
+    ):
+        geo_frame = geo_frame.sort_values(
+            "date"
+        ).reset_index(drop=True)
+
+        for regime_level in (
+            "major",
+            "minor",
+        ):
+            regime_column = (
+                f"{regime_level}_regime"
+            )
+
+            episode_id = (
+                geo_frame[regime_column]
+                .ne(
+                    geo_frame[
+                        regime_column
+                    ].shift(1)
+                )
+                .cumsum()
+            )
+
+            episode_frame = (
+                geo_frame.assign(
+                    episode_id=episode_id
+                )
+                .groupby(
+                    "episode_id",
+                    as_index=False,
+                )
+                .agg(
+                    regime=(
+                        regime_column,
+                        "first",
+                    ),
+                    start_date=(
+                        "date",
+                        "min",
+                    ),
+                    end_date=(
+                        "date",
+                        "max",
+                    ),
+                    observation_count=(
+                        "date",
+                        "size",
+                    ),
+                    mean_regime_strength=(
+                        "regime_strength",
+                        "mean",
+                    ),
+                    minimum_regime_strength=(
+                        "regime_strength",
+                        "min",
+                    ),
+                )
+            )
+
+            episode_frame[
+                "geo_id"
+            ] = geo_id
+
+            episode_frame[
+                "regime_level"
+            ] = regime_level
+
+            episode_frame[
+                "duration_months"
+            ] = episode_frame[
+                "observation_count"
+            ]
+
+            rows.extend(
+                episode_frame.to_dict(
+                    orient="records"
+                )
+            )
+
+    return (
+        pd.DataFrame(rows)
+        .sort_values(
+            [
+                "geo_id",
+                "regime_level",
+                "start_date",
+            ]
+        )
+        .reset_index(drop=True)
+    )
 
 
 def _conditional_rate(
@@ -1375,6 +1558,100 @@ def _sensitivity_summary(
     )
 
 
+def _build_segmented_sensitivity_summary(
+    sensitivity: pd.DataFrame,
+) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+
+    full = sensitivity.copy()
+    full["history_segment"] = (
+        "all_available_history"
+    )
+    frames.append(full)
+
+    mature = sensitivity[
+        sensitivity[
+            "mature_history_flag"
+        ]
+    ].copy()
+
+    mature["history_segment"] = (
+        "mature_history"
+    )
+    frames.append(mature)
+
+    combined = pd.concat(
+        frames,
+        ignore_index=True,
+    )
+
+    summaries: list[pd.DataFrame] = []
+
+    for history_segment, frame in (
+        combined.groupby(
+            "history_segment"
+        )
+    ):
+        summary = _sensitivity_summary(
+            frame
+        )
+
+        summary[
+            "history_segment"
+        ] = history_segment
+
+        summaries.append(summary)
+
+        for geo_id, geo_frame in (
+            frame.groupby("geo_id")
+        ):
+            geo_summary = (
+                _sensitivity_summary(
+                    geo_frame
+                )
+            )
+
+            geo_summary[
+                "history_segment"
+            ] = history_segment
+
+            geo_summary["geo_id"] = (
+                geo_id
+            )
+
+            summaries.append(
+                geo_summary
+            )
+
+    result = pd.concat(
+        summaries,
+        ignore_index=True,
+    )
+
+    if "geo_id" not in result.columns:
+        result["geo_id"] = pd.NA
+
+    result["geo_id"] = result[
+        "geo_id"
+    ].fillna("all_geographies")
+
+    return result.sort_values(
+        [
+            "history_segment",
+            "geo_id",
+            "major_transition_prevented_rate",
+            "minor_transition_prevented_rate",
+        ],
+        ascending=[
+            True,
+            True,
+            False,
+            False,
+        ],
+        na_position="last",
+    ).reset_index(drop=True)
+
+
 def build_transition_sensitivity_audit(
     run_id: str = DEFAULT_RUN_ID,
     *,
@@ -1464,8 +1741,16 @@ def build_transition_sensitivity_audit(
         )
     )
 
-    summary = _sensitivity_summary(
-        sensitivity
+    summary = (
+        _build_segmented_sensitivity_summary(
+            sensitivity
+        )
+    )
+
+    dwell_times = (
+        _build_regime_dwell_times(
+            timeline
+        )
     )
 
     price_affordability = (
@@ -1509,5 +1794,8 @@ def build_transition_sensitivity_audit(
         ),
         "price_affordability_sensitivity": (
             price_affordability
+        ),
+        "regime_dwell_times": (
+            dwell_times
         ),
     }
