@@ -32,6 +32,7 @@ from regime.validation import (
     build_transition_events,
 )
 from regime.freshness import evaluate_derived_input_freshness
+from regime.experiments.smoothing_run import apply_smoothing_experiment
 
 
 DEFAULT_CONFIG_PATHS = [
@@ -41,6 +42,7 @@ DEFAULT_CONFIG_PATHS = [
     Path("config/axis_registry.csv"),
     Path("config/normalization_registry.csv"),
     Path("config/derived_input_freshness_registry.csv"),
+    Path("config/metric_smoothing_experiments.csv"),
 ]
 
 
@@ -136,6 +138,9 @@ def run_regime_pipeline(
     validation_geo_ids: list[str] | None = None,
     serving_db_path: str | Path = "data/market_serving.duckdb",
     run_metadata: dict[str, Any] | None = None,
+    smoothing_experiment_id: (
+        str | None
+    ) = None,
 ) -> dict[str, Any]:
     """
     Run the regime pipeline exactly once, persist each stage, and return
@@ -163,6 +168,7 @@ def run_regime_pipeline(
         "serving_db_path": str(serving_db_path),
         "validation_geo_ids": validation_geo_ids,
         "config_hashes": _config_hashes(),
+        "smoothing_experiment_id": smoothing_experiment_id,
     }
 
     if run_metadata:
@@ -211,6 +217,17 @@ def run_regime_pipeline(
             )
         )
 
+        (
+            features,
+            smoothing_lineage,
+        ) = apply_smoothing_experiment(
+            features=features,
+            source_metrics=source_metrics,
+            experiment_id=(
+                smoothing_experiment_id
+            ),
+        )
+
         if not feature_lineage.equals(
             derived_metric_lineage
         ):
@@ -237,6 +254,9 @@ def run_regime_pipeline(
 
         stage_summaries["derived_input_freshness"] = _frame_summary(derived_input_freshness)
         _write_pipeline_artifact(store, run_id, "derived_input_freshness", derived_input_freshness)
+
+        stage_summaries["smoothing_lineage"] = _frame_summary(smoothing_lineage)
+        _write_pipeline_artifact(store, run_id, "smoothing_lineage", smoothing_lineage)
         
         print("[regime_pipeline] 2/9 normalizing features")
         normalized_features = normalize_features(features)
