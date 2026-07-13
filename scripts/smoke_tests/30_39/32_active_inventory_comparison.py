@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/32_active_inventory_comparison.py
+# scripts/smoke_tests/30_39/32_active_inventory_comparison.py
 
 import numpy as np
 
