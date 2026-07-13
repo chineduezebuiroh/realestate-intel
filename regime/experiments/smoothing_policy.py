@@ -13,7 +13,8 @@ DEFAULT_SMOOTHING_EXPERIMENT_REGISTRY = Path(
 
 SUPPORTED_TRANSFORM_STRATEGIES = {
     "current",
-    "ma_ratio",
+    "ma_momentum",
+    "ma_deviation",
 }
 
 SUPPORTED_POLICY_ROLES = {
@@ -22,12 +23,13 @@ SUPPORTED_POLICY_ROLES = {
     "dependency_root",
 }
 
-BASELINE_EXPERIMENT_ID = "baseline_current"
+BASELINE_EXPERIMENT_ID = (
+    "baseline_current"
+)
 
 EXPECTED_CHALLENGER_IDS = {
-    "inventory_ma3",
-    "price_family_ma3",
-    "inventory_price_ma3",
+    "inventory_ma3_momentum",
+    "inventory_ma3_deviation",
 }
 
 
@@ -36,7 +38,11 @@ def _parse_bool(
     *,
     column: str,
 ) -> bool:
-    normalized = str(value).strip().lower()
+    normalized = (
+        str(value)
+        .strip()
+        .lower()
+    )
 
     if normalized in {
         "true",
@@ -55,7 +61,8 @@ def _parse_bool(
         return False
 
     raise ValueError(
-        f"Invalid boolean value for {column}: {value!r}"
+        f"Invalid boolean value for "
+        f"{column}: {value!r}"
     )
 
 
@@ -71,12 +78,14 @@ def _parse_nonnegative_int(
         ValueError,
     ) as exc:
         raise ValueError(
-            f"{column} must be an integer; received {value!r}"
+            f"{column} must be an integer; "
+            f"received {value!r}"
         ) from exc
 
     if parsed < 0:
         raise ValueError(
-            f"{column} must be non-negative; received {parsed}"
+            f"{column} must be non-negative; "
+            f"received {parsed}"
         )
 
     return parsed
@@ -89,7 +98,8 @@ class SmoothingMetricPolicy:
     policy_role: str
     transform_strategy: str
     level_window: int
-    short_denominator_window: int
+    short_window: int
+    short_lag_periods: int
     long_window: int
     long_lag_periods: int
     recompute_dependents: bool
@@ -105,7 +115,10 @@ class SmoothingMetricPolicy:
     def is_smoothed(self) -> bool:
         return (
             self.transform_strategy
-            == "ma_ratio"
+            in {
+                "ma_momentum",
+                "ma_deviation",
+            }
         )
 
     def validate(self) -> None:
@@ -116,7 +129,8 @@ class SmoothingMetricPolicy:
             raise ValueError(
                 "Unsupported smoothing policy role "
                 f"{self.policy_role!r} for "
-                f"{self.experiment_id}/{self.metric_key}"
+                f"{self.experiment_id}/"
+                f"{self.metric_key}"
             )
 
         if (
@@ -124,70 +138,109 @@ class SmoothingMetricPolicy:
             not in SUPPORTED_TRANSFORM_STRATEGIES
         ):
             raise ValueError(
-                "Unsupported smoothing transform strategy "
+                "Unsupported smoothing transform "
+                f"strategy "
                 f"{self.transform_strategy!r} for "
-                f"{self.experiment_id}/{self.metric_key}"
+                f"{self.experiment_id}/"
+                f"{self.metric_key}"
             )
 
         if self.is_baseline:
             if self.metric_key != "*":
                 raise ValueError(
-                    "The baseline policy must use metric_key='*'"
+                    "The baseline policy must use "
+                    "metric_key='*'"
                 )
 
             if any(
                 value != 0
                 for value in (
                     self.level_window,
-                    self.short_denominator_window,
+                    self.short_window,
+                    self.short_lag_periods,
                     self.long_window,
                     self.long_lag_periods,
                 )
             ):
                 raise ValueError(
-                    "Baseline smoothing windows must all equal zero"
+                    "Baseline smoothing windows "
+                    "and lags must all equal zero"
                 )
 
             if self.recompute_dependents:
                 raise ValueError(
-                    "Baseline policy cannot recompute dependents"
+                    "Baseline policy cannot "
+                    "recompute dependents"
                 )
 
             return
 
         if self.metric_key == "*":
             raise ValueError(
-                "Challenger policies must identify a metric_key"
+                "Challenger policies must "
+                "identify a metric_key"
             )
 
         if self.policy_role == "baseline":
             raise ValueError(
-                "A challenger metric cannot use policy_role='baseline'"
+                "A challenger metric cannot use "
+                "policy_role='baseline'"
             )
 
-        required_positive = {
-            "level_window": self.level_window,
-            "short_denominator_window": (
-                self.short_denominator_window
+        positive_fields = {
+            "level_window": (
+                self.level_window
             ),
-            "long_window": self.long_window,
+            "short_window": (
+                self.short_window
+            ),
+            "long_window": (
+                self.long_window
+            ),
             "long_lag_periods": (
                 self.long_lag_periods
             ),
         }
 
-        invalid = {
+        invalid_positive = {
             key: value
             for key, value
-            in required_positive.items()
+            in positive_fields.items()
             if value <= 0
         }
 
-        if invalid:
+        if invalid_positive:
             raise ValueError(
-                "Smoothed challenger windows must be positive: "
-                f"{invalid}"
+                "Smoothed challenger windows "
+                "must be positive: "
+                f"{invalid_positive}"
             )
+
+        if (
+            self.transform_strategy
+            == "ma_momentum"
+        ):
+            if (
+                self.short_lag_periods
+                <= 0
+            ):
+                raise ValueError(
+                    "ma_momentum requires "
+                    "short_lag_periods > 0"
+                )
+
+        if (
+            self.transform_strategy
+            == "ma_deviation"
+        ):
+            if (
+                self.short_lag_periods
+                != 0
+            ):
+                raise ValueError(
+                    "ma_deviation requires "
+                    "short_lag_periods = 0"
+                )
 
         if (
             self.recompute_dependents
@@ -195,7 +248,8 @@ class SmoothingMetricPolicy:
             != "dependency_root"
         ):
             raise ValueError(
-                "Only dependency_root policies may set "
+                "Only dependency_root policies "
+                "may set "
                 "recompute_dependents=true"
             )
 
@@ -205,8 +259,8 @@ class SmoothingMetricPolicy:
             and not self.recompute_dependents
         ):
             raise ValueError(
-                "dependency_root policies must set "
-                "recompute_dependents=true"
+                "dependency_root policies must "
+                "set recompute_dependents=true"
             )
 
 
@@ -232,7 +286,9 @@ class SmoothingExperiment:
         )
 
     @property
-    def metric_keys(self) -> tuple[str, ...]:
+    def metric_keys(
+        self,
+    ) -> tuple[str, ...]:
         return tuple(
             policy.metric_key
             for policy in self.policies
@@ -265,8 +321,10 @@ class SmoothingExperiment:
 
         if len(matches) != 1:
             raise AssertionError(
-                "Experiment contains duplicate metric policies: "
-                f"{self.experiment_id}/{metric_key}"
+                "Experiment contains duplicate "
+                "metric policies: "
+                f"{self.experiment_id}/"
+                f"{metric_key}"
             )
 
         return matches[0]
@@ -279,17 +337,20 @@ class SmoothingExperiment:
 
         if not self.experiment_name:
             raise ValueError(
-                f"{self.experiment_id}: experiment_name cannot be blank"
+                f"{self.experiment_id}: "
+                "experiment_name cannot be blank"
             )
 
         if not self.parent_run:
             raise ValueError(
-                f"{self.experiment_id}: parent_run cannot be blank"
+                f"{self.experiment_id}: "
+                "parent_run cannot be blank"
             )
 
         if not self.policies:
             raise ValueError(
-                f"{self.experiment_id}: no policies configured"
+                f"{self.experiment_id}: "
+                "no policies configured"
             )
 
         for policy in self.policies:
@@ -303,7 +364,8 @@ class SmoothingExperiment:
         duplicates = sorted(
             {
                 metric_key
-                for metric_key in metric_keys
+                for metric_key
+                in metric_keys
                 if metric_keys.count(
                     metric_key
                 ) > 1
@@ -312,29 +374,36 @@ class SmoothingExperiment:
 
         if duplicates:
             raise ValueError(
-                f"{self.experiment_id}: duplicate metric policies "
+                f"{self.experiment_id}: "
+                "duplicate metric policies "
                 f"{duplicates}"
             )
 
         if self.is_baseline:
             if len(self.policies) != 1:
                 raise ValueError(
-                    "Baseline experiment must contain exactly one policy"
+                    "Baseline experiment must "
+                    "contain exactly one policy"
                 )
 
-            if not self.policies[0].is_baseline:
+            if not self.policies[
+                0
+            ].is_baseline:
                 raise ValueError(
-                    "Baseline experiment must use current strategy"
+                    "Baseline experiment must "
+                    "use current strategy"
                 )
 
         else:
             if any(
                 policy.is_baseline
-                for policy in self.policies
+                for policy
+                in self.policies
             ):
                 raise ValueError(
-                    f"{self.experiment_id}: challenger contains "
-                    "a baseline policy"
+                    f"{self.experiment_id}: "
+                    "challenger contains a "
+                    "baseline policy"
                 )
 
 
@@ -352,7 +421,8 @@ def load_smoothing_experiments(
 
     if not registry_path.exists():
         raise FileNotFoundError(
-            "Smoothing experiment registry not found: "
+            "Smoothing experiment registry "
+            "not found: "
             f"{registry_path}"
         )
 
@@ -369,7 +439,8 @@ def load_smoothing_experiments(
         "policy_role",
         "transform_strategy",
         "level_window",
-        "short_denominator_window",
+        "short_window",
+        "short_lag_periods",
         "long_window",
         "long_lag_periods",
         "recompute_dependents",
@@ -384,8 +455,8 @@ def load_smoothing_experiments(
 
     if missing:
         raise ValueError(
-            "Smoothing registry is missing columns: "
-            f"{sorted(missing)}"
+            "Smoothing registry is missing "
+            f"columns: {sorted(missing)}"
         )
 
     frame["enabled_parsed"] = frame[
@@ -403,8 +474,8 @@ def load_smoothing_experiments(
 
     if frame.empty:
         raise ValueError(
-            "Smoothing experiment registry contains "
-            "no enabled rows"
+            "Smoothing experiment registry "
+            "contains no enabled rows"
         )
 
     duplicate_rows = frame.duplicated(
@@ -448,13 +519,15 @@ def load_smoothing_experiments(
 
         if len(experiment_names) != 1:
             raise ValueError(
-                f"{experiment_id}: conflicting experiment names "
+                f"{experiment_id}: "
+                "conflicting experiment names "
                 f"{experiment_names}"
             )
 
         if len(parent_runs) != 1:
             raise ValueError(
-                f"{experiment_id}: conflicting parent runs "
+                f"{experiment_id}: "
+                "conflicting parent runs "
                 f"{parent_runs}"
             )
 
@@ -465,78 +538,108 @@ def load_smoothing_experiments(
         for row in group.itertuples(
             index=False
         ):
-            policy = SmoothingMetricPolicy(
-                experiment_id=(
-                    experiment_id
-                ),
-                metric_key=(
-                    row.metric_key.strip()
-                ),
-                policy_role=(
-                    row.policy_role.strip()
-                ),
-                transform_strategy=(
-                    row.transform_strategy.strip()
-                ),
-                level_window=(
-                    _parse_nonnegative_int(
-                        row.level_window,
-                        column="level_window",
-                    )
-                ),
-                short_denominator_window=(
-                    _parse_nonnegative_int(
-                        row.short_denominator_window,
-                        column=(
-                            "short_denominator_window"
-                        ),
-                    )
-                ),
-                long_window=(
-                    _parse_nonnegative_int(
-                        row.long_window,
-                        column="long_window",
-                    )
-                ),
-                long_lag_periods=(
-                    _parse_nonnegative_int(
-                        row.long_lag_periods,
-                        column="long_lag_periods",
-                    )
-                ),
-                recompute_dependents=(
-                    _parse_bool(
-                        row.recompute_dependents,
-                        column=(
-                            "recompute_dependents"
-                        ),
-                    )
-                ),
+            policy = (
+                SmoothingMetricPolicy(
+                    experiment_id=(
+                        experiment_id
+                    ),
+                    metric_key=(
+                        row.metric_key.strip()
+                    ),
+                    policy_role=(
+                        row.policy_role.strip()
+                    ),
+                    transform_strategy=(
+                        row
+                        .transform_strategy
+                        .strip()
+                    ),
+                    level_window=(
+                        _parse_nonnegative_int(
+                            row.level_window,
+                            column=(
+                                "level_window"
+                            ),
+                        )
+                    ),
+                    short_window=(
+                        _parse_nonnegative_int(
+                            row.short_window,
+                            column=(
+                                "short_window"
+                            ),
+                        )
+                    ),
+                    short_lag_periods=(
+                        _parse_nonnegative_int(
+                            row
+                            .short_lag_periods,
+                            column=(
+                                "short_lag_periods"
+                            ),
+                        )
+                    ),
+                    long_window=(
+                        _parse_nonnegative_int(
+                            row.long_window,
+                            column=(
+                                "long_window"
+                            ),
+                        )
+                    ),
+                    long_lag_periods=(
+                        _parse_nonnegative_int(
+                            row
+                            .long_lag_periods,
+                            column=(
+                                "long_lag_periods"
+                            ),
+                        )
+                    ),
+                    recompute_dependents=(
+                        _parse_bool(
+                            row
+                            .recompute_dependents,
+                            column=(
+                                "recompute_"
+                                "dependents"
+                            ),
+                        )
+                    ),
+                )
             )
 
             policies.append(policy)
 
-        experiment = SmoothingExperiment(
-            experiment_id=(
-                experiment_id
-            ),
-            experiment_name=(
-                experiment_names[0].strip()
-            ),
-            parent_run=(
-                parent_runs[0].strip()
-            ),
-            policies=tuple(policies),
-            notes=tuple(
-                note
-                for note in (
-                    group["notes"]
-                    .astype(str)
-                    .str.strip()
-                    .tolist()
-                )
-                if note
-            ),
+        experiment = (
+            SmoothingExperiment(
+                experiment_id=(
+                    experiment_id
+                ),
+                experiment_name=(
+                    experiment_names[
+                        0
+                    ].strip()
+                ),
+                parent_run=(
+                    parent_runs[
+                        0
+                    ].strip()
+                ),
+                policies=tuple(
+                    policies
+                ),
+                notes=tuple(
+                    note
+                    for note in (
+                        group["notes"]
+                        .astype(str)
+                        .str.strip()
+                        .tolist()
+                    )
+                    if note
+                ),
+            )
         )
 
         if validate:
@@ -571,119 +674,130 @@ def _validate_experiment_matrix(
 
     if actual_ids != expected_ids:
         raise ValueError(
-            "Smoothing experiment matrix mismatch. "
+            "Smoothing experiment matrix "
+            "mismatch. "
             f"Expected {sorted(expected_ids)}, "
             f"found {sorted(actual_ids)}"
         )
 
     parent_runs = {
         experiment.parent_run
-        for experiment in (
-            experiments.values()
-        )
+        for experiment
+        in experiments.values()
     }
 
     if parent_runs != {
         "macro_regime_v1_bps120"
     }:
         raise ValueError(
-            "All initial smoothing experiments must use "
-            "macro_regime_v1_bps120 as parent_run. "
+            "All initial smoothing "
+            "experiments must use "
+            "macro_regime_v1_bps120 "
+            "as parent_run. "
             f"Found {sorted(parent_runs)}"
         )
 
-    expected_metrics = {
-        "inventory_ma3": {
-            "active_inventory",
+    baseline = experiments[
+        BASELINE_EXPERIMENT_ID
+    ]
+
+    if set(
+        baseline.metric_keys
+    ) != {
+        "*",
+    }:
+        raise ValueError(
+            "Baseline experiment must "
+            "contain only metric_key='*'"
+        )
+
+    expected_policies = {
+        "inventory_ma3_momentum": {
+            "metric_key": (
+                "active_inventory"
+            ),
+            "transform_strategy": (
+                "ma_momentum"
+            ),
+            "level_window": 3,
+            "short_window": 3,
+            "short_lag_periods": 3,
+            "long_window": 3,
+            "long_lag_periods": 12,
         },
-        "price_family_ma3": {
-            "median_sale_price",
-            "median_ppsf",
-        },
-        "inventory_price_ma3": {
-            "active_inventory",
-            "median_sale_price",
-            "median_ppsf",
+        "inventory_ma3_deviation": {
+            "metric_key": (
+                "active_inventory"
+            ),
+            "transform_strategy": (
+                "ma_deviation"
+            ),
+            "level_window": 3,
+            "short_window": 3,
+            "short_lag_periods": 0,
+            "long_window": 3,
+            "long_lag_periods": 12,
         },
     }
 
     for (
         experiment_id,
-        metric_keys,
-    ) in expected_metrics.items():
-        actual_metric_keys = set(
-            experiments[
-                experiment_id
-            ].metric_keys
-        )
-
-        if (
-            actual_metric_keys
-            != metric_keys
-        ):
-            raise ValueError(
-                f"{experiment_id}: expected metrics "
-                f"{sorted(metric_keys)}, found "
-                f"{sorted(actual_metric_keys)}"
-            )
-
-    for experiment_id in (
-        "price_family_ma3",
-        "inventory_price_ma3",
-    ):
-        dependency_roots = set(
-            experiments[
-                experiment_id
-            ].dependency_roots
-        )
-
-        if dependency_roots != {
-            "median_sale_price"
-        }:
-            raise ValueError(
-                f"{experiment_id}: median_sale_price must "
-                "be the sole dependency root"
-            )
-
-    for experiment_id in (
-        "inventory_ma3",
-        "price_family_ma3",
-        "inventory_price_ma3",
-    ):
+        expected,
+    ) in expected_policies.items():
         experiment = experiments[
             experiment_id
         ]
 
-        for policy in experiment.policies:
-            if (
+        if len(
+            experiment.policies
+        ) != 1:
+            raise ValueError(
+                f"{experiment_id}: "
+                "expected exactly one "
+                "metric policy"
+            )
+
+        policy = experiment.policies[
+            0
+        ]
+
+        actual = {
+            "metric_key": (
+                policy.metric_key
+            ),
+            "transform_strategy": (
                 policy.transform_strategy
-                != "ma_ratio"
-            ):
-                raise ValueError(
-                    f"{experiment_id}/{policy.metric_key}: "
-                    "initial challengers must use ma_ratio"
-                )
+            ),
+            "level_window": (
+                policy.level_window
+            ),
+            "short_window": (
+                policy.short_window
+            ),
+            "short_lag_periods": (
+                policy.short_lag_periods
+            ),
+            "long_window": (
+                policy.long_window
+            ),
+            "long_lag_periods": (
+                policy.long_lag_periods
+            ),
+        }
 
-            expected_windows = (
-                3,
-                3,
-                3,
-                12,
+        if actual != expected:
+            raise ValueError(
+                f"{experiment_id}: "
+                "experiment policy mismatch. "
+                f"Expected {expected}, "
+                f"found {actual}"
             )
 
-            actual_windows = (
-                policy.level_window,
-                policy.short_denominator_window,
-                policy.long_window,
-                policy.long_lag_periods,
+        if (
+            policy.recompute_dependents
+        ):
+            raise ValueError(
+                f"{experiment_id}: "
+                "active inventory must not "
+                "recompute dependents"
             )
-
-            if (
-                actual_windows
-                != expected_windows
-            ):
-                raise ValueError(
-                    f"{experiment_id}/{policy.metric_key}: "
-                    "expected MA3/MA3/MA3/lag12 contract, "
-                    f"found {actual_windows}"
-                )
