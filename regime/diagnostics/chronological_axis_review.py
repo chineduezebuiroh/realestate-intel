@@ -12,7 +12,7 @@ from regime.artifacts import (
 )
 
 
-DEFAULT_RUN_ID = "macro_regime_v1_freshness"
+DEFAULT_RUN_ID = "macro_regime_v1_bps120"
 
 DEFAULT_REVIEW_GEOS = [
     "district_of_columbia_dc__county",
