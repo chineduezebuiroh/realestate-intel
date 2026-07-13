@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/22_derived_input_freshness.py
+# scripts/smoke_tests/20_29/22_derived_input_freshness.py
 
 from regime.diagnostics.derived_input_freshness import (
     DEFAULT_RUN_ID,
