@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/29_generic_smoothing_features.py
+# scripts/smoke_tests/20_29/29_generic_smoothing_features.py
 
 import numpy as np
 import pandas as pd
