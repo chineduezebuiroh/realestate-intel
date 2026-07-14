@@ -14,23 +14,33 @@ from regime.experiments.smoothing_policy import load_smoothing_experiments
 
 
 DEFAULT_RUN_ID = "macro_regime_v1_bps120_sources"
+
 TARGET_METRIC = "active_inventory"
+
 POLICY_IDS = (
     "inventory_ma3_momentum",
     "inventory_ma3_deviation",
     "inventory_ma6_structural",
     "inventory_ma12_structural",
+    "inventory_ma6_momentum_lag1",
+    "inventory_ma6_momentum_lag3",
+    "inventory_ma12_momentum_lag1",
+    "inventory_ma12_momentum_lag3",
 )
+
 FOCUS_GEOS = (
     "district_of_columbia_dc__county",
     "alameda_county_ca__county",
 )
+
 FEATURE_COLUMNS = {
     "level": "smoothed_level_value",
     "short": "smoothed_short_value",
     "long": "smoothed_long_value",
 }
+
 TURNING_POINT_MIN_ABS_CHANGE = 0.02
+
 SHOCK_QUANTILE = 0.90
 
 
