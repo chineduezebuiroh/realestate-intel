@@ -23,7 +23,7 @@ def _build_source_fixture() -> pd.DataFrame:
     dates = pd.date_range(
         "2020-01-31",
         periods=18,
-        freq="ME",
+        freq="M",
     )
 
     rows: list[
@@ -378,7 +378,7 @@ def main() -> int:
         pd.date_range(
             "2020-12-31",
             periods=7,
-            freq="ME",
+            freq="M",
         )
     )
 
