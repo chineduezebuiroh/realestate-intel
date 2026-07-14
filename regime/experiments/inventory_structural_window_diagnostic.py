@@ -24,6 +24,7 @@ POLICY_IDS = (
     "inventory_ma12_structural",
     "inventory_ma6_momentum_lag1",
     "inventory_ma6_momentum_lag3",
+    "inventory_ma9_momentum_lag3",
     "inventory_ma12_momentum_lag1",
     "inventory_ma12_momentum_lag3",
 )
