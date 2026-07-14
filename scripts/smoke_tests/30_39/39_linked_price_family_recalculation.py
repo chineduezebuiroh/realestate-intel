@@ -240,7 +240,7 @@ def main() -> int:
             replacement_value_column=(
                 "smoothed_price"
             ),
-            missing_policy="drop",
+            missing_policy="null",
         )
     )
 
@@ -273,7 +273,7 @@ def main() -> int:
     ]
 
     expected_replaced = 2 * 7
-    expected_dropped = 2 * 11
+    expected_null = 2 * 11
 
     replaced_count = int(
         target_lineage[
@@ -281,10 +281,10 @@ def main() -> int:
         ].eq("replace").sum()
     )
 
-    dropped_count = int(
+    null_count = int(
         target_lineage[
             "row_action"
-        ].eq("drop").sum()
+        ].eq("null").sum()
     )
 
     if replaced_count != expected_replaced:
@@ -293,10 +293,10 @@ def main() -> int:
             f"{replaced_count}"
         )
 
-    if dropped_count != expected_dropped:
+    if null_count != expected_null:
         raise AssertionError(
-            "Unexpected dropped-row count: "
-            f"{dropped_count}"
+            "Unexpected null-row count: "
+            f"{null_count}"
         )
 
     unrelated_keys = {
