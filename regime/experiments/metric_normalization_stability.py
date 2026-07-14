@@ -42,6 +42,10 @@ CHALLENGER_IDS = (
     "inventory_ma3_momentum",
     "inventory_ma6_structural",
     "inventory_ma12_structural",
+    "inventory_ma6_momentum_lag1",
+    "inventory_ma6_momentum_lag3",
+    "inventory_ma12_momentum_lag1",
+    "inventory_ma12_momentum_lag3",
 )
 
 PRODUCTION_FEATURE_KEY_MAP = {
