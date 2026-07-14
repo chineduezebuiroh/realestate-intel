@@ -2,3 +2,6 @@ experiment_id,experiment_name,parent_run,metric_key,policy_role,transform_strate
 baseline_current,Current production baseline,macro_regime_v1_bps120_sources,*,baseline,current,0,0,0,0,0,false,true,Immutable corrected BPS120 production-policy baseline.
 inventory_ma3_momentum,Active inventory MA3 momentum challenger,macro_regime_v1_bps120_sources,active_inventory,direct,ma_momentum,3,3,3,3,12,false,true,Tests smoothed quarterly trend momentum for active inventory before expanding smoothing to the linked price family.
 inventory_ma3_deviation,Active inventory MA3 deviation challenger,macro_regime_v1_bps120_sources,active_inventory,direct,ma_deviation,3,3,0,3,12,false,true,Tests latest raw observation relative to its three-month moving average.
+
+inventory_ma6_structural,Inventory MA6 Structural,macro_regime_v1_bps120_sources,active_inventory,direct,ma_structural,6,3,0,6,12,false,true,"MA6 structural inventory (level=MA6, short=MA3/MA6-1, long=MA6/lag12(MA6)-1)"
+inventory_ma12_structural,Inventory MA12 Structural,macro_regime_v1_bps120_sources,active_inventory,direct,ma_structural,12,3,0,12,12,false,true,"MA12 structural inventory (level=MA12, short=MA3/MA12-1, long=MA12/lag12(MA12)-1)"
