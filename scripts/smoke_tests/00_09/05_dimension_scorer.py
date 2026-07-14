@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/05_dimension_scorer.py
+# scripts/smoke_tests/00_09/05_dimension_scorer.py
 
 from regime._05_dimension_scorer import score_dimensions
 
