@@ -288,34 +288,63 @@ def _build_group_features(
                 policy.short_lag_periods
             )
         )
-
+    
         short_feature = (
             _safe_ratio_minus_one(
                 short_ma,
                 short_reference,
             )
         )
-
+    
     elif (
         policy.transform_strategy
         == "ma_deviation"
     ):
         short_reference = short_ma
-
+    
         short_feature = (
             _safe_ratio_minus_one(
                 raw,
                 short_reference,
             )
         )
-
+    
+    elif (
+        policy.transform_strategy
+        == "ma_structural"
+    ):
+        #
+        # Structural inventory:
+        #
+        # level  = MA(level_window)
+        #
+        # short  = MA(short_window)
+        #          /
+        #          MA(level_window)
+        #          - 1
+        #
+        # long   = MA(level_window)
+        #          /
+        #          lag12(MA(level_window))
+        #          - 1
+        #
+    
+        short_reference = level_ma
+    
+        short_feature = (
+            _safe_ratio_minus_one(
+                short_ma,
+                short_reference,
+            )
+        )
+    
     else:
         raise ValueError(
             "Unsupported smoothing transform "
             f"strategy: "
             f"{policy.transform_strategy!r}"
         )
-
+    
     long_reference = long_ma.shift(
         policy.long_lag_periods
     )
