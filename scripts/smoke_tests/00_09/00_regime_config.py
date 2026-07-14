@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/00_regime_config.py
+# scripts/smoke_tests/00_09/00_regime_config.py
 
 from regime._00_config_loader import build_registry_resolution, load_regime_config
 
