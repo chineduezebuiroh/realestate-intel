@@ -40,6 +40,8 @@ BASELINE_POLICY_ID = "baseline_current"
 CHALLENGER_IDS = (
     "inventory_ma3_deviation",
     "inventory_ma3_momentum",
+    "inventory_ma6_structural",
+    "inventory_ma12_structural",
 )
 
 PRODUCTION_FEATURE_KEY_MAP = {
