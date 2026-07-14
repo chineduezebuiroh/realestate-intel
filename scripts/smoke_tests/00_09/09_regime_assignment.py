@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/09_regime_assignment.py
+# scripts/smoke_tests/00_09/09_regime_assignment.py
 
 from regime._09_regime_assignment import assign_regimes
 
