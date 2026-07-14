@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/04_asof_aligner.py
+# scripts/smoke_tests/00_09/04_asof_aligner.py
 
 from regime._04_asof_aligner import align_metric_scores_asof
 
