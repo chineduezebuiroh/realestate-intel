@@ -23,9 +23,8 @@ EXPECTED_COMPONENTS = {"level", "short", "long"}
 
 FOCUS_POLICIES = {
     "inventory_ma3_deviation",
-    "inventory_ma6_momentum_lag1",
-    "inventory_ma6_momentum_lag3",
-    "inventory_ma12_momentum_lag1",
+    "inventory_ma3_momentum",
+    "inventory_ma9_momentum_lag3",
     "inventory_ma12_momentum_lag3",
 }
 
@@ -128,9 +127,8 @@ def main() -> int:
         turning_points[
             turning_points["policy_id"].isin(
                 {
-                    "inventory_ma6_momentum_lag1",
-                    "inventory_ma6_momentum_lag3",
-                    "inventory_ma12_momentum_lag1",
+                    "inventory_ma3_momentum",
+                    "inventory_ma9_momentum_lag3",
                     "inventory_ma12_momentum_lag3",
                 }
             )
