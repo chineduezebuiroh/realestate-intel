@@ -318,6 +318,45 @@ def main() -> int:
         "\n[generic_smoothing] deviation coverage:"
     )
 
+    print(
+        deviation_long.groupby(
+            [
+                "geo_id",
+                "feature_component",
+            ],
+            as_index=False,
+        )
+        .agg(
+            rows=(
+                "raw_feature_value",
+                "size",
+            ),
+            valid_rows=(
+                "raw_feature_value",
+                "count",
+            ),
+            first_valid_date=(
+                "date",
+                lambda values: values[
+                    deviation_long.loc[
+                        values.index,
+                        "raw_feature_value",
+                    ].notna()
+                ].min(),
+            ),
+            last_valid_date=(
+                "date",
+                lambda values: values[
+                    deviation_long.loc[
+                        values.index,
+                        "raw_feature_value",
+                    ].notna()
+                ].max(),
+            ),
+        )
+        .to_string(index=False)
+    )
+
     for (
         label,
         structural_long,
@@ -375,44 +414,6 @@ def main() -> int:
             .to_string(index=False)
         )
 
-    print(
-        deviation_long.groupby(
-            [
-                "geo_id",
-                "feature_component",
-            ],
-            as_index=False,
-        )
-        .agg(
-            rows=(
-                "raw_feature_value",
-                "size",
-            ),
-            valid_rows=(
-                "raw_feature_value",
-                "count",
-            ),
-            first_valid_date=(
-                "date",
-                lambda values: values[
-                    deviation_long.loc[
-                        values.index,
-                        "raw_feature_value",
-                    ].notna()
-                ].min(),
-            ),
-            last_valid_date=(
-                "date",
-                lambda values: values[
-                    deviation_long.loc[
-                        values.index,
-                        "raw_feature_value",
-                    ].notna()
-                ].max(),
-            ),
-        )
-        .to_string(index=False)
-    )
 
     steady = observations[
         observations["geo_id"].eq(
@@ -688,47 +689,50 @@ def main() -> int:
                 "components mismatch"
             )
 
-    if (
-        momentum_long[
-            "raw_feature_value"
-        ]
-        .replace(
-            [
-                np.inf,
-                -np.inf,
-            ],
-            np.nan,
-        )
-        .notna()
-        .sum()
-        != momentum_long[
-            "raw_feature_value"
-        ].notna().sum()
+    for (
+        label,
+        feature_frame,
+    ) in (
+        (
+            "Momentum",
+            momentum_long,
+        ),
+        (
+            "Deviation",
+            deviation_long,
+        ),
+        (
+            "MA6 structural",
+            ma6_structural_long,
+        ),
+        (
+            "MA12 structural",
+            ma12_structural_long,
+        ),
     ):
-        raise AssertionError(
-            "Momentum output contains infinity"
+        finite_count = (
+            feature_frame[
+                "raw_feature_value"
+            ]
+            .replace(
+                [
+                    np.inf,
+                    -np.inf,
+                ],
+                np.nan,
+            )
+            .notna()
+            .sum()
         )
 
-    if (
-        deviation_long[
-            "raw_feature_value"
-        ]
-        .replace(
-            [
-                np.inf,
-                -np.inf,
-            ],
-            np.nan,
-        )
-        .notna()
-        .sum()
-        != deviation_long[
+        nonmissing_count = feature_frame[
             "raw_feature_value"
         ].notna().sum()
-    ):
-        raise AssertionError(
-            "Deviation output contains infinity"
-        )
+
+        if finite_count != nonmissing_count:
+            raise AssertionError(
+                f"{label} output contains infinity"
+            )
 
     if not pd.isna(
         ma6_structural_steady.loc[
@@ -812,35 +816,42 @@ def main() -> int:
         len(observations) * 3
     )
 
-    if (
-        len(momentum_long)
-        != expected_long_rows
+    for (
+        label,
+        feature_frame,
+    ) in (
+        (
+            "Momentum",
+            momentum_long,
+        ),
+        (
+            "Deviation",
+            deviation_long,
+        ),
+        (
+            "MA6 structural",
+            ma6_structural_long,
+        ),
+        (
+            "MA12 structural",
+            ma12_structural_long,
+        ),
     ):
-        raise AssertionError(
-            "Momentum long-form row count mismatch"
-        )
+        if (
+            len(feature_frame)
+            != expected_long_rows
+        ):
+            raise AssertionError(
+                f"{label} long-form "
+                "row count mismatch"
+            )
 
-    if (
-        len(deviation_long)
-        != expected_long_rows
-    ):
-        raise AssertionError(
-            "Deviation long-form row count mismatch"
-        )
-
-    if not momentum_long[
-        "source_observation_date"
-    ].notna().all():
-        raise AssertionError(
-            "Momentum lineage column was lost"
-        )
-
-    if not deviation_long[
-        "source_observation_date"
-    ].notna().all():
-        raise AssertionError(
-            "Deviation lineage column was lost"
-        )
+        if not feature_frame[
+            "source_observation_date"
+        ].notna().all():
+            raise AssertionError(
+                f"{label} lineage column was lost"
+            )
 
     momentum_short = (
         momentum_long[
@@ -1084,6 +1095,110 @@ def main() -> int:
 
     print(
         short_comparison.sort_values(
+            [
+                "geo_id",
+                "date",
+            ]
+        )
+        .groupby(
+            "geo_id",
+            as_index=False,
+        )
+        .tail(6)
+        .to_string(index=False)
+    )
+
+    ma6_short = (
+        ma6_structural_long[
+            ma6_structural_long[
+                "feature_component"
+            ].eq("short")
+        ][
+            [
+                "geo_id",
+                "date",
+                "raw_feature_value",
+            ]
+        ]
+        .rename(
+            columns={
+                "raw_feature_value": (
+                    "ma6_structural_short"
+                ),
+            }
+        )
+    )
+
+    ma12_short = (
+        ma12_structural_long[
+            ma12_structural_long[
+                "feature_component"
+            ].eq("short")
+        ][
+            [
+                "geo_id",
+                "date",
+                "raw_feature_value",
+            ]
+        ]
+        .rename(
+            columns={
+                "raw_feature_value": (
+                    "ma12_structural_short"
+                ),
+            }
+        )
+    )
+
+    structural_comparison = (
+        ma6_short.merge(
+            ma12_short,
+            on=[
+                "geo_id",
+                "date",
+            ],
+            how="inner",
+            validate="one_to_one",
+        )
+    )
+
+    structural_comparable = (
+        structural_comparison.dropna(
+            subset=[
+                "ma6_structural_short",
+                "ma12_structural_short",
+            ]
+        )
+    )
+
+    if structural_comparable.empty:
+        raise AssertionError(
+            "No comparable MA6 and MA12 "
+            "structural short-feature rows"
+        )
+
+    if np.allclose(
+        structural_comparable[
+            "ma6_structural_short"
+        ],
+        structural_comparable[
+            "ma12_structural_short"
+        ],
+        rtol=0.0,
+        atol=1e-12,
+    ):
+        raise AssertionError(
+            "MA6 and MA12 structural short "
+            "features are unexpectedly identical"
+        )
+
+    print(
+        "\n[generic_smoothing] "
+        "latest structural comparison:"
+    )
+
+    print(
+        structural_comparison.sort_values(
             [
                 "geo_id",
                 "date",
