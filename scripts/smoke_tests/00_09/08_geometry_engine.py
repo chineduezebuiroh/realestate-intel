@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/08_geometry_engine.py
+# scripts/smoke_tests/00_09/08_geometry_engine.py
 
 from regime._08_geometry_engine import assign_geometry
 
