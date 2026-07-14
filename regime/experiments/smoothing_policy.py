@@ -37,6 +37,7 @@ EXPECTED_CHALLENGER_IDS = {
     "inventory_ma6_momentum_lag3",
     "inventory_ma12_momentum_lag1",
     "inventory_ma12_momentum_lag3",
+    "inventory_ma9_momentum_lag3",,
 }
 
 
@@ -842,6 +843,20 @@ def _validate_experiment_matrix(
             "short_window": 12,
             "short_lag_periods": 3,
             "long_window": 12,
+            "long_lag_periods": 12,
+        },
+
+        "inventory_ma9_momentum_lag3": {
+            "metric_key": (
+                "active_inventory"
+            ),
+            "transform_strategy": (
+                "ma_momentum"
+            ),
+            "level_window": 9,
+            "short_window": 9,
+            "short_lag_periods": 3,
+            "long_window": 9,
             "long_lag_periods": 12,
         },
     }
