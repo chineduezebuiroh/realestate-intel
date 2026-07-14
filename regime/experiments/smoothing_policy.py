@@ -33,6 +33,10 @@ EXPECTED_CHALLENGER_IDS = {
     "inventory_ma3_deviation",
     "inventory_ma6_structural",
     "inventory_ma12_structural",
+    "inventory_ma6_momentum_lag1",
+    "inventory_ma6_momentum_lag3",
+    "inventory_ma12_momentum_lag1",
+    "inventory_ma12_momentum_lag3",
 }
 
 
@@ -781,6 +785,62 @@ def _validate_experiment_matrix(
             "level_window": 12,
             "short_window": 3,
             "short_lag_periods": 0,
+            "long_window": 12,
+            "long_lag_periods": 12,
+        },
+
+        "inventory_ma6_momentum_lag1": {
+            "metric_key": (
+                "active_inventory"
+            ),
+            "transform_strategy": (
+                "ma_momentum"
+            ),
+            "level_window": 6,
+            "short_window": 6,
+            "short_lag_periods": 1,
+            "long_window": 6,
+            "long_lag_periods": 12,
+        },
+        
+        "inventory_ma6_momentum_lag3": {
+            "metric_key": (
+                "active_inventory"
+            ),
+            "transform_strategy": (
+                "ma_momentum"
+            ),
+            "level_window": 6,
+            "short_window": 6,
+            "short_lag_periods": 3,
+            "long_window": 6,
+            "long_lag_periods": 12,
+        },
+        
+        "inventory_ma12_momentum_lag1": {
+            "metric_key": (
+                "active_inventory"
+            ),
+            "transform_strategy": (
+                "ma_momentum"
+            ),
+            "level_window": 12,
+            "short_window": 12,
+            "short_lag_periods": 1,
+            "long_window": 12,
+            "long_lag_periods": 12,
+        },
+        
+        "inventory_ma12_momentum_lag3": {
+            "metric_key": (
+                "active_inventory"
+            ),
+            "transform_strategy": (
+                "ma_momentum"
+            ),
+            "level_window": 12,
+            "short_window": 12,
+            "short_lag_periods": 3,
             "long_window": 12,
             "long_lag_periods": 12,
         },
