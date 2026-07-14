@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/07_coordinate_engine.py
+# scripts/smoke_tests/00_09/07_coordinate_engine.py
 
 from regime._07_coordinate_engine import build_coordinates
 
