@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/03_metric_scorer.py
+# scripts/smoke_tests/00_09/03_metric_scorer.py
 
 from regime._03_metric_scorer import score_metrics
 
