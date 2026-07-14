@@ -5,3 +5,8 @@ inventory_ma3_deviation,Active inventory MA3 deviation challenger,macro_regime_v
 
 inventory_ma6_structural,Inventory MA6 Structural,macro_regime_v1_bps120_sources,active_inventory,direct,ma_structural,6,3,0,6,12,false,true,"MA6 structural inventory (level=MA6, short=MA3/MA6-1, long=MA6/lag12(MA6)-1)"
 inventory_ma12_structural,Inventory MA12 Structural,macro_regime_v1_bps120_sources,active_inventory,direct,ma_structural,12,3,0,12,12,false,true,"MA12 structural inventory (level=MA12, short=MA3/MA12-1, long=MA12/lag12(MA12)-1)"
+
+inventory_ma6_momentum_lag1,Inventory MA6 Momentum Lag1,macro_regime_v1_bps120_sources,active_inventory,direct,ma_momentum,6,6,1,6,12,false,true,"MA6 structural state with one-month momentum: level=MA6, short=MA6/lag1(MA6)-1, long=MA6/lag12(MA6)-1"
+inventory_ma6_momentum_lag3,Inventory MA6 Momentum Lag3,macro_regime_v1_bps120_sources,active_inventory,direct,ma_momentum,6,6,3,6,12,false,true,"MA6 structural state with three-month momentum: level=MA6, short=MA6/lag3(MA6)-1, long=MA6/lag12(MA6)-1"
+inventory_ma12_momentum_lag1,Inventory MA12 Momentum Lag1,macro_regime_v1_bps120_sources,active_inventory,direct,ma_momentum,12,12,1,12,12,false,true,"MA12 structural state with one-month momentum: level=MA12, short=MA12/lag1(MA12)-1, long=MA12/lag12(MA12)-1"
+inventory_ma12_momentum_lag3,Inventory MA12 Momentum Lag3,macro_regime_v1_bps120_sources,active_inventory,direct,ma_momentum,12,12,3,12,12,false,true,"MA12 structural state with three-month momentum: level=MA12, short=MA12/lag3(MA12)-1, long=MA12/lag12(MA12)-1"
