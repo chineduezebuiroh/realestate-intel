@@ -137,6 +137,18 @@ def main() -> int:
         "active_inventory"
     )
 
+    ma6_structural_policy = experiments[
+        "inventory_ma6_structural"
+    ].policy_for(
+        "active_inventory"
+    )
+    
+    ma12_structural_policy = experiments[
+        "inventory_ma12_structural"
+    ].policy_for(
+        "active_inventory"
+    )
+
     if momentum_policy is None:
         raise AssertionError(
             "Momentum policy not found"
@@ -145,6 +157,16 @@ def main() -> int:
     if deviation_policy is None:
         raise AssertionError(
             "Deviation policy not found"
+        )
+    
+    if ma6_structural_policy is None:
+        raise AssertionError(
+            "MA6 structural policy not found"
+        )
+    
+    if ma12_structural_policy is None:
+        raise AssertionError(
+            "MA12 structural policy not found"
         )
 
     observations = (
@@ -165,6 +187,20 @@ def main() -> int:
         )
     )
 
+    ma6_structural_wide = (
+        build_smoothed_metric_features_wide(
+            observations,
+            policy=ma6_structural_policy,
+        )
+    )
+    
+    ma12_structural_wide = (
+        build_smoothed_metric_features_wide(
+            observations,
+            policy=ma12_structural_policy,
+        )
+    )
+
     momentum_long = (
         build_smoothed_metric_features(
             observations,
@@ -179,6 +215,26 @@ def main() -> int:
         build_smoothed_metric_features(
             observations,
             policy=deviation_policy,
+            preserve_columns=[
+                "source_observation_date",
+            ],
+        )
+    )
+
+    ma6_structural_long = (
+        build_smoothed_metric_features(
+            observations,
+            policy=ma6_structural_policy,
+            preserve_columns=[
+                "source_observation_date",
+            ],
+        )
+    )
+    
+    ma12_structural_long = (
+        build_smoothed_metric_features(
+            observations,
+            policy=ma12_structural_policy,
             preserve_columns=[
                 "source_observation_date",
             ],
@@ -203,6 +259,16 @@ def main() -> int:
     print(
         "[generic_smoothing] deviation rows:",
         len(deviation_long),
+    )
+
+    print(
+        "[generic_smoothing] MA6 structural rows:",
+        len(ma6_structural_long),
+    )
+    
+    print(
+        "[generic_smoothing] MA12 structural rows:",
+        len(ma12_structural_long),
     )
 
     print(
@@ -251,6 +317,63 @@ def main() -> int:
     print(
         "\n[generic_smoothing] deviation coverage:"
     )
+
+    for (
+        label,
+        structural_long,
+    ) in (
+        (
+            "MA6 structural",
+            ma6_structural_long,
+        ),
+        (
+            "MA12 structural",
+            ma12_structural_long,
+        ),
+    ):
+        print(
+            f"\n[generic_smoothing] "
+            f"{label} coverage:"
+        )
+    
+        print(
+            structural_long.groupby(
+                [
+                    "geo_id",
+                    "feature_component",
+                ],
+                as_index=False,
+            )
+            .agg(
+                rows=(
+                    "raw_feature_value",
+                    "size",
+                ),
+                valid_rows=(
+                    "raw_feature_value",
+                    "count",
+                ),
+                first_valid_date=(
+                    "date",
+                    lambda values: values[
+                        structural_long.loc[
+                            values.index,
+                            "raw_feature_value",
+                        ].notna()
+                    ].min(),
+                ),
+                last_valid_date=(
+                    "date",
+                    lambda values: values[
+                        structural_long.loc[
+                            values.index,
+                            "raw_feature_value",
+                        ].notna()
+                    ].max(),
+                ),
+            )
+            .to_string(index=False)
+        )
 
     print(
         deviation_long.groupby(
@@ -320,6 +443,30 @@ def main() -> int:
     deviation_steady = (
         deviation_wide[
             deviation_wide["geo_id"].eq(
+                "geo_steady"
+            )
+        ]
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+
+    ma6_structural_steady = (
+        ma6_structural_wide[
+            ma6_structural_wide[
+                "geo_id"
+            ].eq(
+                "geo_steady"
+            )
+        ]
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+    
+    ma12_structural_steady = (
+        ma12_structural_wide[
+            ma12_structural_wide[
+                "geo_id"
+            ].eq(
                 "geo_steady"
             )
         ]
@@ -471,6 +618,29 @@ def main() -> int:
             "Deviation feature-key contract mismatch"
         )
 
+    for (
+        label,
+        structural_long,
+    ) in (
+        (
+            "MA6 structural",
+            ma6_structural_long,
+        ),
+        (
+            "MA12 structural",
+            ma12_structural_long,
+        ),
+    ):
+        if set(
+            structural_long[
+                "feature_key"
+            ]
+        ) != expected_features:
+            raise AssertionError(
+                f"{label} feature-key "
+                "contract mismatch"
+            )
+
     expected_components = {
         "level",
         "short",
@@ -494,6 +664,29 @@ def main() -> int:
         raise AssertionError(
             "Deviation feature components mismatch"
         )
+
+    for (
+        label,
+        structural_long,
+    ) in (
+        (
+            "MA6 structural",
+            ma6_structural_long,
+        ),
+        (
+            "MA12 structural",
+            ma12_structural_long,
+        ),
+    ):
+        if set(
+            structural_long[
+                "feature_component"
+            ]
+        ) != expected_components:
+            raise AssertionError(
+                f"{label} feature "
+                "components mismatch"
+            )
 
     if (
         momentum_long[
@@ -536,6 +729,84 @@ def main() -> int:
         raise AssertionError(
             "Deviation output contains infinity"
         )
+
+    if not pd.isna(
+        ma6_structural_steady.loc[
+            16,
+            "smoothed_long_value",
+        ]
+    ):
+        raise AssertionError(
+            "MA6 structural long feature "
+            "appeared before full MA6 and "
+            "12-month lag history"
+        )
+    
+    expected_ma6_current_long = (
+        steady_values.iloc[
+            12:18
+        ].mean()
+    )
+    
+    expected_ma6_lagged_long = (
+        steady_values.iloc[
+            0:6
+        ].mean()
+    )
+    
+    expected_ma6_long = (
+        expected_ma6_current_long
+        / expected_ma6_lagged_long
+        - 1.0
+    )
+    
+    _assert_close(
+        ma6_structural_steady.loc[
+            17,
+            "smoothed_long_value",
+        ],
+        expected_ma6_long,
+        label="First MA6 structural long",
+    )
+    
+    if not pd.isna(
+        ma12_structural_steady.loc[
+            22,
+            "smoothed_long_value",
+        ]
+    ):
+        raise AssertionError(
+            "MA12 structural long feature "
+            "appeared before full MA12 and "
+            "12-month lag history"
+        )
+    
+    expected_ma12_current_long = (
+        steady_values.iloc[
+            12:24
+        ].mean()
+    )
+    
+    expected_ma12_lagged_long = (
+        steady_values.iloc[
+            0:12
+        ].mean()
+    )
+    
+    expected_ma12_long = (
+        expected_ma12_current_long
+        / expected_ma12_lagged_long
+        - 1.0
+    )
+    
+    _assert_close(
+        ma12_structural_steady.loc[
+            23,
+            "smoothed_long_value",
+        ],
+        expected_ma12_long,
+        label="First MA12 structural long",
+    )
 
     expected_long_rows = (
         len(observations) * 3
@@ -648,6 +919,164 @@ def main() -> int:
             "Momentum and deviation short "
             "features are unexpectedly identical"
         )
+
+    if not pd.isna(
+        ma6_structural_steady.loc[
+            4,
+            "smoothed_level_value",
+        ]
+    ):
+        raise AssertionError(
+            "MA6 level appeared before "
+            "six observations were available"
+        )
+    
+    if not pd.isna(
+        ma6_structural_steady.loc[
+            4,
+            "smoothed_short_value",
+        ]
+    ):
+        raise AssertionError(
+            "MA6 structural short feature "
+            "appeared before the MA6 denominator"
+        )
+
+    if not pd.isna(
+        ma12_structural_steady.loc[
+            10,
+            "smoothed_level_value",
+        ]
+    ):
+        raise AssertionError(
+            "MA12 level appeared before "
+            "twelve observations were available"
+        )
+    
+    if not pd.isna(
+        ma12_structural_steady.loc[
+            10,
+            "smoothed_short_value",
+        ]
+    ):
+        raise AssertionError(
+            "MA12 structural short feature "
+            "appeared before the MA12 denominator"
+        )
+    
+    expected_ma12_level = (
+        steady_values.iloc[
+            0:12
+        ].mean()
+    )
+    
+    expected_ma12_short_numerator = (
+        steady_values.iloc[
+            9:12
+        ].mean()
+    )
+    
+    expected_ma12_short = (
+        expected_ma12_short_numerator
+        / expected_ma12_level
+        - 1.0
+    )
+    
+    _assert_close(
+        ma12_structural_steady.loc[
+            11,
+            "smoothed_level_value",
+        ],
+        expected_ma12_level,
+        label="First MA12 structural level",
+    )
+    
+    _assert_close(
+        ma12_structural_steady.loc[
+            11,
+            "smoothed_short_value",
+        ],
+        expected_ma12_short,
+        label="First MA12 structural short",
+    )
+    
+    _assert_close(
+        ma12_structural_steady.loc[
+            11,
+            "short_ma_value",
+        ],
+        expected_ma12_short_numerator,
+        label="First MA12 structural short MA",
+    )
+    
+    _assert_close(
+        ma12_structural_steady.loc[
+            11,
+            "short_reference_value",
+        ],
+        expected_ma12_level,
+        label=(
+            "First MA12 structural "
+            "short reference"
+        ),
+    )
+    
+    expected_ma6_level = (
+        steady_values.iloc[
+            0:6
+        ].mean()
+    )
+    
+    expected_ma6_short_numerator = (
+        steady_values.iloc[
+            3:6
+        ].mean()
+    )
+    
+    expected_ma6_short = (
+        expected_ma6_short_numerator
+        / expected_ma6_level
+        - 1.0
+    )
+    
+    _assert_close(
+        ma6_structural_steady.loc[
+            5,
+            "smoothed_level_value",
+        ],
+        expected_ma6_level,
+        label="First MA6 structural level",
+    )
+    
+    _assert_close(
+        ma6_structural_steady.loc[
+            5,
+            "smoothed_short_value",
+        ],
+        expected_ma6_short,
+        label="First MA6 structural short",
+    )
+    
+    _assert_close(
+        ma6_structural_steady.loc[
+            5,
+            "short_ma_value",
+        ],
+        expected_ma6_short_numerator,
+        label="First MA6 structural short MA",
+    )
+    
+    _assert_close(
+        ma6_structural_steady.loc[
+            5,
+            "short_reference_value",
+        ],
+        expected_ma6_level,
+        label=(
+            "First MA6 structural "
+            "short reference"
+        ),
+    )
 
     print(
         "\n[generic_smoothing] latest comparison:"
