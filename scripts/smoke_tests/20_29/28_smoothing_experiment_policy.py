@@ -275,6 +275,88 @@ def main() -> int:
             "short-feature definitions"
         )
 
+    expected_momentum_policies = {
+        "inventory_ma6_momentum_lag1": (
+            6,
+            6,
+            1,
+            6,
+            12,
+        ),
+        "inventory_ma6_momentum_lag3": (
+            6,
+            6,
+            3,
+            6,
+            12,
+        ),
+        "inventory_ma12_momentum_lag1": (
+            12,
+            12,
+            1,
+            12,
+            12,
+        ),
+        "inventory_ma12_momentum_lag3": (
+            12,
+            12,
+            3,
+            12,
+            12,
+        ),
+    }
+    
+    for (
+        experiment_id,
+        expected_contract,
+    ) in expected_momentum_policies.items():
+        experiment = experiments[
+            experiment_id
+        ]
+    
+        policy = experiment.policy_for(
+            "active_inventory"
+        )
+    
+        if policy is None:
+            raise AssertionError(
+                f"{experiment_id}: policy not found"
+            )
+    
+        if (
+            policy.transform_strategy
+            != "ma_momentum"
+        ):
+            raise AssertionError(
+                f"{experiment_id}: expected "
+                "ma_momentum strategy"
+            )
+    
+        actual_contract = (
+            policy.level_window,
+            policy.short_window,
+            policy.short_lag_periods,
+            policy.long_window,
+            policy.long_lag_periods,
+        )
+    
+        if (
+            actual_contract
+            != expected_contract
+        ):
+            raise AssertionError(
+                f"{experiment_id}: expected "
+                f"{expected_contract}, found "
+                f"{actual_contract}"
+            )
+    
+        if policy.recompute_dependents:
+            raise AssertionError(
+                f"{experiment_id}: inventory "
+                "momentum must not recompute "
+                "dependents"
+            )
+
     print(
         "\n[smoothing_policy] OK"
     )
