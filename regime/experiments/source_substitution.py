@@ -206,9 +206,10 @@ def apply_metric_source_substitution(
     substitution_id: str,
     replacement_value_column: str = "value",
     missing_policy: Literal[
+        "null",
         "drop",
         "error",
-    ] = "drop",
+    ] = "null",
 ) -> SourceSubstitutionResult:
     """
     Replace one canonical source metric with an externally calculated
@@ -234,10 +235,15 @@ def apply_metric_source_substitution(
         Column in replacement_series containing the replacement value.
 
     missing_policy:
+        "null":
+            Preserve the original target row and set its value to
+            missing when no replacement is available. This preserves
+            the monthly source-date scaffold without silently falling
+            back to the original raw value.
+    
         "drop":
             Remove target-metric rows where the replacement is missing.
-            This prevents silent fallback to the original raw value.
-
+    
         "error":
             Require a valid replacement for every original target row.
 
@@ -262,6 +268,7 @@ def apply_metric_source_substitution(
         )
 
     if missing_policy not in {
+        "null",
         "drop",
         "error",
     }:
@@ -399,9 +406,9 @@ def apply_metric_source_substitution(
             "replacement_available"
         ],
         "replace",
-        "drop",
+        missing_policy,
     )
-
+    
     lineage = merged[
         [
             "geo_id",
@@ -421,25 +428,44 @@ def apply_metric_source_substitution(
         substitution_id,
     )
 
-    replaced_target = merged[
-        merged[
-            "replacement_available"
-        ]
-    ][
-        source.columns
-    ].copy()
-
-    replaced_target["value"] = merged.loc[
-        merged[
-            "replacement_available"
-        ],
-        "replacement_value",
-    ].to_numpy()
+    if missing_policy == "null":
+        output_target = merged[
+            source.columns
+        ].copy()
+    
+        output_target["value"] = (
+            merged["replacement_value"]
+        )
+    
+    elif missing_policy == "drop":
+        output_target = merged[
+            merged[
+                "replacement_available"
+            ]
+        ][
+            source.columns
+        ].copy()
+    
+        output_target["value"] = merged.loc[
+            merged[
+                "replacement_available"
+            ],
+            "replacement_value",
+        ].to_numpy()
+    
+    else:
+        output_target = merged[
+            source.columns
+        ].copy()
+    
+        output_target["value"] = (
+            merged["replacement_value"]
+        )
 
     output = pd.concat(
         [
             unrelated,
-            replaced_target,
+            output_target,
         ],
         ignore_index=True,
     )
