@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/06_axis_engine.py
+# scripts/smoke_tests/00_09/06_axis_engine.py
 
 from regime._06_axis_engine import score_axes
 
