@@ -304,6 +304,13 @@ def main() -> int:
             12,
             12,
         ),
+        "inventory_ma9_momentum_lag3": (
+            9,
+            9,
+            3,
+            9,
+            12,
+        ),
     }
     
     for (
