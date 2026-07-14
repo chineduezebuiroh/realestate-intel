@@ -10,3 +10,5 @@ inventory_ma6_momentum_lag1,Inventory MA6 Momentum Lag1,macro_regime_v1_bps120_s
 inventory_ma6_momentum_lag3,Inventory MA6 Momentum Lag3,macro_regime_v1_bps120_sources,active_inventory,direct,ma_momentum,6,6,3,6,12,false,true,"MA6 structural state with three-month momentum: level=MA6, short=MA6/lag3(MA6)-1, long=MA6/lag12(MA6)-1"
 inventory_ma12_momentum_lag1,Inventory MA12 Momentum Lag1,macro_regime_v1_bps120_sources,active_inventory,direct,ma_momentum,12,12,1,12,12,false,true,"MA12 structural state with one-month momentum: level=MA12, short=MA12/lag1(MA12)-1, long=MA12/lag12(MA12)-1"
 inventory_ma12_momentum_lag3,Inventory MA12 Momentum Lag3,macro_regime_v1_bps120_sources,active_inventory,direct,ma_momentum,12,12,3,12,12,false,true,"MA12 structural state with three-month momentum: level=MA12, short=MA12/lag3(MA12)-1, long=MA12/lag12(MA12)-1"
+
+inventory_ma9_momentum_lag3,Inventory MA9 Momentum Lag3,macro_regime_v1_bps120_sources,active_inventory,direct,ma_momentum,9,9,3,9,12,false,true,"MA9 structural state with three-month momentum: level=MA9, short=MA9/lag3(MA9)-1, long=MA9/lag12(MA9)-1"
