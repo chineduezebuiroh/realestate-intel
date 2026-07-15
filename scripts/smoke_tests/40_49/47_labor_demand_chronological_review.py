@@ -35,25 +35,29 @@ def main() -> int:
     result = build_labor_demand_chronological_review()
 
     complete_coverage = result["complete_coverage"]
+    dimension_panel = result["dimension_panel"]
+    axis_panel = result["axis_panel"]
     monthly_panel = result["monthly_panel"]
     sign_change_events = result["sign_change_events"]
     event_matches = result["event_matches"]
     matched_summary = result["matched_event_summary"]
     window_summary = result["window_summary"]
+    largest_disagreements_full = result["largest_disagreements_full"]
     decision_disagreements = result["decision_disagreements"]
     focused_windows = result["focused_event_windows"]
 
     for frame_name, frame in (
+        ("complete coverage", complete_coverage),
         ("dimension panel", dimension_panel),
         ("axis panel", axis_panel),
         ("monthly panel", monthly_panel),
         ("sign-change events", sign_change_events),
         ("event matches", event_matches),
+        ("matched-event summary", matched_summary),
         ("window summary", window_summary),
-        (
-            "largest disagreements",
-            largest_disagreements,
-        ),
+        ("full-history disagreements", largest_disagreements_full),
+        ("decision disagreements", decision_disagreements),
+        ("focused event windows", focused_windows),
     ):
         if frame.empty:
             raise AssertionError(
@@ -259,6 +263,12 @@ def main() -> int:
         decision_disagreements[
             display_columns
         ].to_string(index=False)
+    )
+
+    print(
+        "\n[labor_demand_chronology] "
+        f"focused event-window rows: "
+        f"{len(focused_windows)}"
     )
 
     print(
