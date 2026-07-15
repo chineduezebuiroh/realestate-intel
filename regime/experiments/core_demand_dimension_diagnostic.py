@@ -758,16 +758,109 @@ def _build_monthly_contribution_panel(
         "dimension_score"
     ].abs()
 
-    panel["cancellation_amount"] = (
+    raw_cancellation_amount = (
         panel["gross_contribution_magnitude"]
         - panel["net_contribution_magnitude"]
     )
+    
+    materially_negative = (
+        raw_cancellation_amount
+        < -1e-12
+    )
+    
+    if materially_negative.any():
+        bad = panel.loc[
+            materially_negative,
+            [
+                "geo_id",
+                "date",
+                "gross_contribution_magnitude",
+                "net_contribution_magnitude",
+                "dimension_score",
+            ],
+        ].copy()
+    
+        bad[
+            "raw_cancellation_amount"
+        ] = raw_cancellation_amount.loc[
+            materially_negative
+        ]
+    
+        raise AssertionError(
+            "Core Demand cancellation amount is "
+            "materially negative:\n"
+            + bad.head(30).to_string(
+                index=False
+            )
+        )
+    
+    panel["cancellation_amount"] = (
+        raw_cancellation_amount.clip(
+            lower=0.0
+        )
+    )
 
-    panel["cancellation_rate"] = np.where(
-        panel["gross_contribution_magnitude"].gt(0),
-        panel["cancellation_amount"]
-        / panel["gross_contribution_magnitude"],
+    raw_cancellation_rate = np.where(
+        panel[
+            "gross_contribution_magnitude"
+        ].gt(0),
+        panel[
+            "cancellation_amount"
+        ]
+        / panel[
+            "gross_contribution_magnitude"
+        ],
         0.0,
+    )
+    
+    materially_invalid_rate = (
+        (
+            raw_cancellation_rate
+            < -1e-12
+        )
+        | (
+            raw_cancellation_rate
+            > 1.0 + 1e-12
+        )
+    )
+    
+    if materially_invalid_rate.any():
+        bad = panel.loc[
+            materially_invalid_rate,
+            [
+                "geo_id",
+                "date",
+                "gross_contribution_magnitude",
+                "net_contribution_magnitude",
+                "cancellation_amount",
+                "dimension_score",
+            ],
+        ].copy()
+    
+        bad[
+            "raw_cancellation_rate"
+        ] = raw_cancellation_rate[
+            materially_invalid_rate
+        ]
+    
+        raise AssertionError(
+            "Core Demand cancellation rate is "
+            "materially outside [0, 1]:\n"
+            + bad.head(30).to_string(
+                index=False
+            )
+        )
+    
+    panel["cancellation_rate"] = (
+        pd.Series(
+            raw_cancellation_rate,
+            index=panel.index,
+            dtype=float,
+        )
+        .clip(
+            lower=0.0,
+            upper=1.0,
+        )
     )
 
     panel["near_zero_dimension"] = panel[
