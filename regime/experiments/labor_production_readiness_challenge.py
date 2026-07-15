@@ -224,15 +224,15 @@ def _build_seasonality_summary(
             "canonical_metric_key",
             "calendar_month_variance_share",
             "raw_level_correlation",
-            "raw_change_correlation",
         ]
     ].rename(
         columns={
             "calendar_month_variance_share": (
                 "ma6_short_calendar_variance_share"
             ),
-            "raw_level_correlation": "ma6_raw_level_correlation",
-            "raw_change_correlation": "ma6_raw_change_correlation",
+            "raw_level_correlation": (
+                "ma6_raw_level_correlation"
+            ),
         }
     )
 
