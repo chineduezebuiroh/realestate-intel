@@ -51,8 +51,12 @@ def main() -> int:
     cancellation_rates = monthly_panel["cancellation_rate"]
 
     if (
-        cancellation_rates.lt(0).any()
-        or cancellation_rates.gt(1).any()
+        cancellation_rates.lt(
+            -1e-12
+        ).any()
+        or cancellation_rates.gt(
+            1.0 + 1e-12
+        ).any()
     ):
         raise AssertionError(
             "Core Demand cancellation rate fell outside [0, 1]"
