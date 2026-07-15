@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 
 from regime.experiments.labor_demand_chronological_review import (
+    DECISION_START_DATE,
+    EVENT_MATCH_WINDOW_MONTHS,
     FOCUS_GEOS,
     RUN_ORDER,
     build_labor_demand_chronological_review,
@@ -32,15 +34,14 @@ def main() -> int:
 
     result = build_labor_demand_chronological_review()
 
-    dimension_panel = result["dimension_panel"]
-    axis_panel = result["axis_panel"]
+    complete_coverage = result["complete_coverage"]
     monthly_panel = result["monthly_panel"]
     sign_change_events = result["sign_change_events"]
     event_matches = result["event_matches"]
+    matched_summary = result["matched_event_summary"]
     window_summary = result["window_summary"]
-    largest_disagreements = result[
-        "largest_disagreements"
-    ]
+    decision_disagreements = result["decision_disagreements"]
+    focused_windows = result["focused_event_windows"]
 
     for frame_name, frame in (
         ("dimension panel", dimension_panel),
@@ -58,6 +59,25 @@ def main() -> int:
             raise AssertionError(
                 f"{frame_name} is empty"
             )
+
+    coverage_start = (
+        complete_coverage.groupby(
+            "geo_id"
+        )[
+            "date"
+        ].min()
+    )
+    
+    if (
+        coverage_start
+        < np.datetime64(
+            "2009-09-01"
+        )
+    ).any():
+        raise AssertionError(
+            "Complete coverage starts before "
+            "MA6 labor metrics are available"
+        )
 
     expected_geos = set(FOCUS_GEOS)
 
@@ -105,6 +125,47 @@ def main() -> int:
             "matched baseline events"
         )
 
+    if (
+        matched[
+            "absolute_lag_months"
+        ].gt(
+            EVENT_MATCH_WINDOW_MONTHS
+        ).any()
+    ):
+        raise AssertionError(
+            "Matched event exceeded the hard "
+            "lag window"
+        )
+    
+    duplicate_baseline_matches = (
+        matched.duplicated(
+            subset=[
+                "geo_id",
+                "series_name",
+                "transition",
+                "run_role",
+                "baseline_event_date",
+            ],
+            keep=False,
+        )
+    )
+    
+    if duplicate_baseline_matches.any():
+        raise AssertionError(
+            "A baseline event was matched to "
+            "multiple challenger events within "
+            "the same challenger run"
+        )
+    
+    if decision_disagreements[
+        "date"
+    ].lt(
+        DECISION_START_DATE
+    ).any():
+        raise AssertionError(
+            "Decision table contains pre-2019 rows"
+        )
+
     expected_plot_count = len(FOCUS_GEOS) * 3
 
     if len(
@@ -139,39 +200,19 @@ def main() -> int:
 
     print(
         "\n[labor_demand_chronology] "
-        "event lag summary:"
+        "matched-only event lag summary:"
     )
-
+    
     print(
-        event_matches.groupby(
+        matched_summary.sort_values(
             [
                 "geo_id",
                 "series_name",
                 "run_role",
-            ],
-            dropna=False,
+            ]
+        ).to_string(
+            index=False
         )
-        .agg(
-            events=("date", "size"),
-            matched_within_limit=(
-                "matched_within_limit",
-                "sum",
-            ),
-            mean_lag_months=(
-                "lag_months",
-                "mean",
-            ),
-            median_absolute_lag_months=(
-                "absolute_lag_months",
-                "median",
-            ),
-            maximum_absolute_lag_months=(
-                "absolute_lag_months",
-                "max",
-            ),
-        )
-        .reset_index()
-        .to_string(index=False)
     )
 
     print(
@@ -211,11 +252,11 @@ def main() -> int:
 
     print(
         "\n[labor_demand_chronology] "
-        "largest MA6 disagreements:"
+        "largest post-2019 MA6 disagreements:"
     )
 
     print(
-        largest_disagreements[
+        decision_disagreements[
             display_columns
         ].to_string(index=False)
     )
