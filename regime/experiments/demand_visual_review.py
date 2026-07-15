@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 
 from regime.artifacts import DEFAULT_ARTIFACT_ROOT
-from regime.experiments.demand_contribution_audit import (
+from regime.experiments.core_demand_dimension_diagnostic import (
     FOCUS_GEOS,
-    build_demand_contribution_audit,
+    build_core_demand_dimension_diagnostic,
 )
 from regime.experiments.labor_demand_source_diagnostic import (
     build_labor_demand_source_diagnostic,
@@ -70,33 +70,82 @@ def _build_core_demand_contributions(
     artifact_root: str | Path,
     geo_ids: tuple[str, ...],
 ) -> pd.DataFrame:
-    audit = build_demand_contribution_audit(
-        artifact_root=artifact_root,
-        geo_ids=geo_ids,
+    diagnostic = (
+        build_core_demand_dimension_diagnostic(
+            artifact_root=artifact_root,
+            geo_ids=geo_ids,
+        )
     )
 
-    contributions = audit[
-        "dimension_contributions"
+    contributions = diagnostic[
+        "metric_contributions"
     ].copy()
+
+    required_columns = {
+        "geo_id",
+        "date",
+        "canonical_metric_key",
+        "metric_score",
+        "metric_weight",
+        "effective_metric_weight",
+        "weighted_metric_contribution",
+    }
+
+    missing = (
+        required_columns
+        - set(
+            contributions.columns
+        )
+    )
+
+    if missing:
+        raise ValueError(
+            "Core Demand metric contributions "
+            "are missing required columns: "
+            f"{sorted(missing)}"
+        )
 
     contributions["date"] = pd.to_datetime(
         contributions["date"],
         errors="coerce",
     )
 
-    demand_only = contributions[
-        contributions[
-            "dimension"
-        ].eq("demand")
-    ].copy()
+    invalid_dates = contributions[
+        contributions["date"].isna()
+    ]
 
-    if demand_only.empty:
+    if not invalid_dates.empty:
         raise ValueError(
-            "Demand contribution audit returned no "
-            "core Demand dimension rows"
+            "Core Demand contributions contain "
+            "invalid dates"
         )
 
-    return demand_only
+    contributions = contributions[
+        contributions[
+            "canonical_metric_key"
+        ].isin(
+            CORE_DEMAND_METRICS
+        )
+    ].copy()
+
+    if contributions.empty:
+        raise ValueError(
+            "Core Demand diagnostic returned no "
+            "metric-level contribution rows"
+        )
+
+    return (
+        contributions.sort_values(
+            [
+                "geo_id",
+                "date",
+                "canonical_metric_key",
+            ]
+        )
+        .reset_index(
+            drop=True
+        )
+    )
 
 
 def _load_labor_visual_panel(
