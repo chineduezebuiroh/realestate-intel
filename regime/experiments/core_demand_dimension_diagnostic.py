@@ -154,50 +154,209 @@ def _load_demand_metric_registry() -> pd.DataFrame:
     return output
 
 
-def _load_feature_registry(metric_keys: set[str]) -> pd.DataFrame:
-    config = load_regime_config(validate=True)
-    features = config.features.copy()
+def _load_feature_registry(
+    metric_keys: set[str],
+) -> pd.DataFrame:
+    config = load_regime_config(
+        validate=True
+    )
 
-    required = {
+    features = config.features.copy()
+    metric_dimensions = (
+        config.metric_dimensions.copy()
+    )
+
+    required_feature_columns = {
         "feature_key",
-        "canonical_metric_key",
+        "metric_key",
         "feature_weight",
     }
-    missing = required - set(features.columns)
 
-    if missing:
+    missing_feature_columns = (
+        required_feature_columns
+        - set(features.columns)
+    )
+
+    if missing_feature_columns:
         raise ValueError(
             "Feature registry is missing "
-            f"columns: {sorted(missing)}"
+            "columns: "
+            f"{sorted(missing_feature_columns)}"
+        )
+
+    required_mapping_columns = {
+        "metric_key",
+        "canonical_metric_key",
+    }
+
+    missing_mapping_columns = (
+        required_mapping_columns
+        - set(metric_dimensions.columns)
+    )
+
+    if missing_mapping_columns:
+        raise ValueError(
+            "Metric-dimension registry is "
+            "missing columns: "
+            f"{sorted(missing_mapping_columns)}"
+        )
+
+    canonical_map = (
+        metric_dimensions[
+            [
+                "metric_key",
+                "canonical_metric_key",
+            ]
+        ]
+        .drop_duplicates()
+        .copy()
+    )
+
+    conflicts = (
+        canonical_map.groupby(
+            "metric_key"
+        )[
+            "canonical_metric_key"
+        ]
+        .nunique()
+        .reset_index(
+            name="canonical_count"
+        )
+    )
+
+    conflicts = conflicts[
+        conflicts[
+            "canonical_count"
+        ].gt(1)
+    ]
+
+    if not conflicts.empty:
+        raise ValueError(
+            "Physical metric keys map to "
+            "multiple canonical metrics:\n"
+            + conflicts.to_string(
+                index=False
+            )
+        )
+
+    features = features.merge(
+        canonical_map,
+        on="metric_key",
+        how="left",
+        validate="many_to_one",
+    )
+
+    missing_canonical = features[
+        features[
+            "canonical_metric_key"
+        ].isna()
+        | features[
+            "canonical_metric_key"
+        ].astype(str).str.strip().eq("")
+    ]
+
+    if not missing_canonical.empty:
+        missing = (
+            missing_canonical[
+                [
+                    "metric_key",
+                    "feature_key",
+                ]
+            ]
+            .drop_duplicates()
+            .sort_values(
+                [
+                    "metric_key",
+                    "feature_key",
+                ]
+            )
+        )
+
+        raise ValueError(
+            "Features are missing canonical "
+            "metric mappings:\n"
+            + missing.to_string(
+                index=False
+            )
         )
 
     features = features[
-        features["canonical_metric_key"].isin(metric_keys)
+        features[
+            "canonical_metric_key"
+        ].isin(
+            metric_keys
+        )
     ][
-        ["canonical_metric_key", "feature_key", "feature_weight"]
+        [
+            "canonical_metric_key",
+            "metric_key",
+            "feature_key",
+            "feature_weight",
+        ]
     ].copy()
 
-    features["feature_weight"] = pd.to_numeric(
-        features["feature_weight"],
+    features[
+        "feature_weight"
+    ] = pd.to_numeric(
+        features[
+            "feature_weight"
+        ],
         errors="coerce",
     )
 
     if features.empty:
         raise ValueError(
-            "No production features were found for core Demand metrics"
+            "No production features were found "
+            "for core Demand metrics"
         )
 
-    if features["feature_weight"].isna().any():
+    if features[
+        "feature_weight"
+    ].isna().any():
         raise ValueError(
-            "Core Demand features contain non-numeric weights"
+            "Core Demand features contain "
+            "non-numeric weights"
+        )
+
+    duplicates = features.duplicated(
+        subset=[
+            "canonical_metric_key",
+            "feature_key",
+        ],
+        keep=False,
+    )
+
+    if duplicates.any():
+        duplicate_rows = features.loc[
+            duplicates
+        ].sort_values(
+            [
+                "canonical_metric_key",
+                "feature_key",
+                "metric_key",
+            ]
+        )
+
+        raise ValueError(
+            "Core Demand feature keys resolve "
+            "to duplicate canonical mappings:\n"
+            + duplicate_rows.head(
+                30
+            ).to_string(
+                index=False
+            )
         )
 
     return (
-        features.drop_duplicates(
-            subset=["canonical_metric_key", "feature_key"]
+        features.sort_values(
+            [
+                "canonical_metric_key",
+                "feature_key",
+            ]
         )
-        .sort_values(["canonical_metric_key", "feature_key"])
-        .reset_index(drop=True)
+        .reset_index(
+            drop=True
+        )
     )
 
 
