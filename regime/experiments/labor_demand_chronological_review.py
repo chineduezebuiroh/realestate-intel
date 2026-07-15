@@ -10,6 +10,7 @@ import pandas as pd
 from regime.artifacts import DEFAULT_ARTIFACT_ROOT
 from regime.experiments.labor_demand_comparison import (
     FOCUS_GEOS,
+    LABOR_METRICS,
     build_labor_demand_comparison,
 )
 
@@ -56,6 +57,16 @@ HISTORICAL_WINDOWS = (
         pd.Timestamp("2026-12-31"),
     ),
 )
+
+DECISION_START_DATE = pd.Timestamp(
+    "2019-01-31"
+)
+
+EVENT_MATCH_WINDOW_MONTHS = 12
+
+FOCUSED_EVENT_HALF_WINDOW_MONTHS = 3
+
+FOCUSED_EVENT_COUNT_PER_GEO = 12
 
 
 def _ensure_output_root(output_root: str | Path) -> Path:
@@ -137,19 +148,154 @@ def _validate_history(
     ).reset_index(drop=True)
 
 
+def _build_complete_labor_coverage(
+    metric_history: pd.DataFrame,
+) -> pd.DataFrame:
+    required = {
+        "run_role",
+        "geo_id",
+        "date",
+        "canonical_metric_key",
+        "metric_score",
+    }
+
+    missing = required - set(
+        metric_history.columns
+    )
+
+    if missing:
+        raise ValueError(
+            "Metric history is missing columns "
+            "required for coverage filtering: "
+            f"{sorted(missing)}"
+        )
+
+    work = metric_history[
+        metric_history[
+            "run_role"
+        ].isin(
+            RUN_ORDER
+        )
+        & metric_history[
+            "canonical_metric_key"
+        ].isin(
+            LABOR_METRICS
+        )
+    ].copy()
+
+    work["date"] = pd.to_datetime(
+        work["date"],
+        errors="coerce",
+    )
+
+    work["metric_score"] = pd.to_numeric(
+        work["metric_score"],
+        errors="coerce",
+    )
+
+    work = work[
+        work["date"].notna()
+        & work["metric_score"].notna()
+        & np.isfinite(
+            work["metric_score"]
+        )
+    ].copy()
+
+    counts = (
+        work.groupby(
+            [
+                "run_role",
+                "geo_id",
+                "date",
+            ]
+        )[
+            "canonical_metric_key"
+        ]
+        .nunique()
+        .reset_index(
+            name="labor_metric_count"
+        )
+    )
+
+    complete_by_run = counts[
+        counts[
+            "labor_metric_count"
+        ].eq(
+            len(LABOR_METRICS)
+        )
+    ][
+        [
+            "run_role",
+            "geo_id",
+            "date",
+        ]
+    ]
+
+    run_counts = (
+        complete_by_run.groupby(
+            [
+                "geo_id",
+                "date",
+            ]
+        )[
+            "run_role"
+        ]
+        .nunique()
+        .reset_index(
+            name="complete_run_count"
+        )
+    )
+
+    complete = run_counts[
+        run_counts[
+            "complete_run_count"
+        ].eq(
+            len(RUN_ORDER)
+        )
+    ][
+        [
+            "geo_id",
+            "date",
+        ]
+    ].copy()
+
+    if complete.empty:
+        raise AssertionError(
+            "No months have complete three-metric "
+            "labor coverage across baseline, MA3, "
+            "and MA6"
+        )
+
+    return complete.sort_values(
+        [
+            "geo_id",
+            "date",
+        ]
+    ).reset_index(
+        drop=True
+    )
+    
+
 def _common_coverage_panel(
     history: pd.DataFrame,
+    complete_coverage: pd.DataFrame,
     *,
     value_column: str,
     output_prefix: str,
 ) -> pd.DataFrame:
     wide = history.pivot(
-        index=["geo_id", "date"],
+        index=[
+            "geo_id",
+            "date",
+        ],
         columns="run_role",
         values=value_column,
     ).reset_index()
 
-    missing_runs = set(RUN_ORDER) - set(wide.columns)
+    missing_runs = (
+        set(RUN_ORDER)
+        - set(wide.columns)
+    )
 
     if missing_runs:
         raise ValueError(
@@ -157,20 +303,37 @@ def _common_coverage_panel(
             f"run roles: {sorted(missing_runs)}"
         )
 
-    common = wide.dropna(
+    common = wide.merge(
+        complete_coverage,
+        on=[
+            "geo_id",
+            "date",
+        ],
+        how="inner",
+        validate="one_to_one",
+    )
+
+    common = common.dropna(
         subset=list(RUN_ORDER)
     ).copy()
 
     common = common.rename(
         columns={
-            run_role: f"{output_prefix}_{run_role}"
+            run_role: (
+                f"{output_prefix}_{run_role}"
+            )
             for run_role in RUN_ORDER
         }
     )
 
     return common.sort_values(
-        ["geo_id", "date"]
-    ).reset_index(drop=True)
+        [
+            "geo_id",
+            "date",
+        ]
+    ).reset_index(
+        drop=True
+    )
 
 
 def _sign_with_neutral_band(
@@ -253,80 +416,296 @@ def _build_sign_change_events(
     return pd.DataFrame(rows)
 
 
-def _match_events_to_baseline(
-    events: pd.DataFrame,
+def _month_difference(
+    later: pd.Timestamp,
+    earlier: pd.Timestamp,
+) -> int:
+    return (
+        (
+            later.year
+            - earlier.year
+        )
+        * 12
+        + (
+            later.month
+            - earlier.month
+        )
+    )
+
+
+def _match_group_one_to_one(
+    baseline_group: pd.DataFrame,
+    challenger_group: pd.DataFrame,
     *,
-    maximum_lag_months: int = 12,
+    maximum_lag_months: int,
 ) -> pd.DataFrame:
-    baseline = events[
-        events["run_role"].eq("baseline")
-    ].copy()
+    baseline_group = (
+        baseline_group.sort_values(
+            "date"
+        )
+        .reset_index(
+            drop=True
+        )
+    )
 
-    challengers = events[
-        ~events["run_role"].eq("baseline")
-    ].copy()
+    challenger_group = (
+        challenger_group.sort_values(
+            "date"
+        )
+        .reset_index(
+            drop=True
+        )
+    )
 
-    rows: list[dict[str, object]] = []
+    candidate_pairs: list[
+        dict[str, object]
+    ] = []
 
-    for _, challenger in challengers.iterrows():
-        candidates = baseline[
-            baseline["geo_id"].eq(challenger["geo_id"])
-            & baseline["series_name"].eq(
-                challenger["series_name"]
+    for challenger_index, challenger in (
+        challenger_group.iterrows()
+    ):
+        for baseline_index, baseline in (
+            baseline_group.iterrows()
+        ):
+            lag_months = _month_difference(
+                challenger["date"],
+                baseline["date"],
             )
-            & baseline["transition"].eq(
-                challenger["transition"]
-            )
-        ].copy()
 
-        if candidates.empty:
+            absolute_lag = abs(
+                lag_months
+            )
+
+            if (
+                absolute_lag
+                <= maximum_lag_months
+            ):
+                candidate_pairs.append(
+                    {
+                        "challenger_index": (
+                            challenger_index
+                        ),
+                        "baseline_index": (
+                            baseline_index
+                        ),
+                        "lag_months": (
+                            lag_months
+                        ),
+                        "absolute_lag_months": (
+                            absolute_lag
+                        ),
+                        "challenger_date": (
+                            challenger["date"]
+                        ),
+                        "baseline_date": (
+                            baseline["date"]
+                        ),
+                    }
+                )
+
+    candidate_pairs = sorted(
+        candidate_pairs,
+        key=lambda row: (
+            row[
+                "absolute_lag_months"
+            ],
+            row[
+                "challenger_date"
+            ],
+            row[
+                "baseline_date"
+            ],
+        ),
+    )
+
+    used_challengers: set[int] = set()
+    used_baselines: set[int] = set()
+
+    selected: dict[
+        int,
+        dict[str, object],
+    ] = {}
+
+    for pair in candidate_pairs:
+        challenger_index = int(
+            pair[
+                "challenger_index"
+            ]
+        )
+
+        baseline_index = int(
+            pair[
+                "baseline_index"
+            ]
+        )
+
+        if (
+            challenger_index
+            in used_challengers
+            or baseline_index
+            in used_baselines
+        ):
+            continue
+
+        used_challengers.add(
+            challenger_index
+        )
+
+        used_baselines.add(
+            baseline_index
+        )
+
+        selected[
+            challenger_index
+        ] = pair
+
+    rows: list[
+        dict[str, object]
+    ] = []
+
+    for challenger_index, challenger in (
+        challenger_group.iterrows()
+    ):
+        match = selected.get(
+            challenger_index
+        )
+
+        if match is None:
             rows.append(
                 {
                     **challenger.to_dict(),
-                    "baseline_event_date": pd.NaT,
+                    "baseline_event_date": (
+                        pd.NaT
+                    ),
                     "lag_months": np.nan,
-                    "absolute_lag_months": np.nan,
-                    "matched_within_limit": False,
+                    "absolute_lag_months": (
+                        np.nan
+                    ),
+                    "matched_within_limit": (
+                        False
+                    ),
                 }
             )
+
             continue
-
-        candidates["lag_months"] = (
-            (
-                challenger["date"].year
-                - candidates["date"].dt.year
-            )
-            * 12
-            + (
-                challenger["date"].month
-                - candidates["date"].dt.month
-            )
-        )
-        candidates["absolute_lag_months"] = (
-            candidates["lag_months"].abs()
-        )
-
-        best = candidates.sort_values(
-            ["absolute_lag_months", "date"]
-        ).iloc[0]
-
-        absolute_lag = int(
-            best["absolute_lag_months"]
-        )
 
         rows.append(
             {
                 **challenger.to_dict(),
-                "baseline_event_date": best["date"],
-                "lag_months": int(best["lag_months"]),
-                "absolute_lag_months": absolute_lag,
-                "matched_within_limit": (
-                    absolute_lag <= maximum_lag_months
+                "baseline_event_date": (
+                    match[
+                        "baseline_date"
+                    ]
                 ),
+                "lag_months": int(
+                    match[
+                        "lag_months"
+                    ]
+                ),
+                "absolute_lag_months": int(
+                    match[
+                        "absolute_lag_months"
+                    ]
+                ),
+                "matched_within_limit": True,
             }
         )
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(
+        rows
+    )
+
+
+def _match_events_to_baseline(
+    events: pd.DataFrame,
+    *,
+    maximum_lag_months: int = (
+        EVENT_MATCH_WINDOW_MONTHS
+    ),
+) -> pd.DataFrame:
+    baseline = events[
+        events[
+            "run_role"
+        ].eq(
+            "baseline"
+        )
+    ].copy()
+
+    challengers = events[
+        ~events[
+            "run_role"
+        ].eq(
+            "baseline"
+        )
+    ].copy()
+
+    frames: list[
+        pd.DataFrame
+    ] = []
+
+    grouping_columns = [
+        "geo_id",
+        "series_name",
+        "transition",
+        "run_role",
+    ]
+
+    for keys, challenger_group in (
+        challengers.groupby(
+            grouping_columns
+        )
+    ):
+        (
+            geo_id,
+            series_name,
+            transition,
+            _run_role,
+        ) = keys
+
+        baseline_group = baseline[
+            baseline[
+                "geo_id"
+            ].eq(
+                geo_id
+            )
+            & baseline[
+                "series_name"
+            ].eq(
+                series_name
+            )
+            & baseline[
+                "transition"
+            ].eq(
+                transition
+            )
+        ].copy()
+
+        frames.append(
+            _match_group_one_to_one(
+                baseline_group,
+                challenger_group,
+                maximum_lag_months=(
+                    maximum_lag_months
+                ),
+            )
+        )
+
+    if not frames:
+        return pd.DataFrame()
+
+    return pd.concat(
+        frames,
+        ignore_index=True,
+    ).sort_values(
+        [
+            "geo_id",
+            "series_name",
+            "run_role",
+            "date",
+        ]
+    ).reset_index(
+        drop=True
+    )
 
 
 def _build_monthly_disagreement_panel(
@@ -434,11 +813,28 @@ def _build_largest_disagreements(
     panel: pd.DataFrame,
     *,
     rows_per_geo: int = 20,
+    start_date: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     work = panel.copy()
-    work["ma6_joint_absolute_delta"] = (
-        work["dimension_ma6_delta"].abs()
-        + work["axis_ma6_delta"].abs()
+
+    if start_date is not None:
+        work = work[
+            work[
+                "date"
+            ].ge(
+                start_date
+            )
+        ].copy()
+
+    work[
+        "ma6_joint_absolute_delta"
+    ] = (
+        work[
+            "dimension_ma6_delta"
+        ].abs()
+        + work[
+            "axis_ma6_delta"
+        ].abs()
     )
 
     return (
@@ -448,11 +844,107 @@ def _build_largest_disagreements(
                 "ma6_joint_absolute_delta",
                 "date",
             ],
-            ascending=[True, False, True],
+            ascending=[
+                True,
+                False,
+                True,
+            ],
         )
-        .groupby("geo_id", as_index=False)
-        .head(rows_per_geo)
-        .reset_index(drop=True)
+        .groupby(
+            "geo_id",
+            as_index=False,
+        )
+        .head(
+            rows_per_geo
+        )
+        .reset_index(
+            drop=True
+        )
+    )
+
+
+def _build_focused_event_windows(
+    monthly_panel: pd.DataFrame,
+    *,
+    half_window_months: int = (
+        FOCUSED_EVENT_HALF_WINDOW_MONTHS
+    ),
+    rows_per_geo: int = (
+        FOCUSED_EVENT_COUNT_PER_GEO
+    ),
+) -> pd.DataFrame:
+    events = _build_largest_disagreements(
+        monthly_panel,
+        rows_per_geo=rows_per_geo,
+        start_date=DECISION_START_DATE,
+    )
+
+    frames: list[
+        pd.DataFrame
+    ] = []
+
+    for _, event in events.iterrows():
+        event_date = pd.Timestamp(
+            event["date"]
+        )
+
+        start_date = (
+            event_date
+            - pd.DateOffset(
+                months=half_window_months
+            )
+        )
+
+        end_date = (
+            event_date
+            + pd.DateOffset(
+                months=half_window_months
+            )
+        )
+
+        focus = monthly_panel[
+            monthly_panel[
+                "geo_id"
+            ].eq(
+                event["geo_id"]
+            )
+            & monthly_panel[
+                "date"
+            ].between(
+                start_date,
+                end_date,
+                inclusive="both",
+            )
+        ].copy()
+
+        focus[
+            "event_date"
+        ] = event_date
+
+        focus[
+            "event_joint_absolute_delta"
+        ] = event[
+            "ma6_joint_absolute_delta"
+        ]
+
+        frames.append(
+            focus
+        )
+
+    if not frames:
+        return pd.DataFrame()
+
+    return pd.concat(
+        frames,
+        ignore_index=True,
+    ).sort_values(
+        [
+            "geo_id",
+            "event_date",
+            "date",
+        ]
+    ).reset_index(
+        drop=True
     )
 
 
@@ -572,6 +1064,14 @@ def build_labor_demand_chronological_review(
         geo_ids=geo_ids,
     )
 
+    complete_coverage = (
+        _build_complete_labor_coverage(
+            comparison[
+                "metric_score_history"
+            ]
+        )
+    )
+
     dimension_history = _validate_history(
         comparison["dimension_score_history"],
         value_column="dimension_score",
@@ -586,16 +1086,22 @@ def build_labor_demand_chronological_review(
         expected_entity="demand",
     )
 
-    dimension_panel = _common_coverage_panel(
-        dimension_history,
-        value_column="dimension_score",
-        output_prefix="dimension_score",
+    dimension_panel = (
+        _common_coverage_panel(
+            dimension_history,
+            complete_coverage,
+            value_column="dimension_score",
+            output_prefix="dimension_score",
+        )
     )
-
-    axis_panel = _common_coverage_panel(
-        axis_history,
-        value_column="axis_score",
-        output_prefix="axis_score",
+    
+    axis_panel = (
+        _common_coverage_panel(
+            axis_history,
+            complete_coverage,
+            value_column="axis_score",
+            output_prefix="axis_score",
+        )
     )
 
     monthly_panel = _build_monthly_disagreement_panel(
@@ -629,28 +1135,110 @@ def build_labor_demand_chronological_review(
     event_matches = _match_events_to_baseline(
         sign_change_events
     )
+
+    matched_event_summary = (
+        event_matches[
+            event_matches[
+                "matched_within_limit"
+            ]
+        ]
+        .groupby(
+            [
+                "geo_id",
+                "series_name",
+                "run_role",
+            ],
+            dropna=False,
+        )
+        .agg(
+            matched_events=(
+                "date",
+                "size",
+            ),
+            mean_lag_months=(
+                "lag_months",
+                "mean",
+            ),
+            median_lag_months=(
+                "lag_months",
+                "median",
+            ),
+            mean_absolute_lag_months=(
+                "absolute_lag_months",
+                "mean",
+            ),
+            median_absolute_lag_months=(
+                "absolute_lag_months",
+                "median",
+            ),
+            maximum_absolute_lag_months=(
+                "absolute_lag_months",
+                "max",
+            ),
+        )
+        .reset_index()
+    )
+
+    
     window_summary = _build_window_summary(
         monthly_panel
     )
-    largest_disagreements = _build_largest_disagreements(
-        monthly_panel
+
+    largest_disagreements_full = (
+        _build_largest_disagreements(
+            monthly_panel
+        )
+    )
+    
+    decision_disagreements = (
+        _build_largest_disagreements(
+            monthly_panel,
+            start_date=DECISION_START_DATE,
+        )
+    )
+    
+    focused_event_windows = (
+        _build_focused_event_windows(
+            monthly_panel
+        )
     )
 
     csv_outputs = {
+        "complete_coverage": (
+            output_path
+            / "complete_labor_coverage.csv"
+        ),
         "monthly_panel": (
-            output_path / "monthly_panel.csv"
+            output_path
+            / "monthly_panel.csv"
         ),
         "sign_change_events": (
-            output_path / "sign_change_events.csv"
+            output_path
+            / "sign_change_events.csv"
         ),
         "event_matches": (
-            output_path / "event_matches.csv"
+            output_path
+            / "event_matches.csv"
+        ),
+        "matched_event_summary": (
+            output_path
+            / "matched_event_summary.csv"
         ),
         "window_summary": (
-            output_path / "window_summary.csv"
+            output_path
+            / "window_summary.csv"
         ),
-        "largest_disagreements": (
-            output_path / "largest_disagreements.csv"
+        "largest_disagreements_full": (
+            output_path
+            / "largest_disagreements_full_history.csv"
+        ),
+        "decision_disagreements": (
+            output_path
+            / "largest_disagreements_post_2019.csv"
+        ),
+        "focused_event_windows": (
+            output_path
+            / "focused_event_windows.csv"
         ),
     }
 
@@ -670,8 +1258,38 @@ def build_labor_demand_chronological_review(
         csv_outputs["window_summary"],
         index=False,
     )
-    largest_disagreements.to_csv(
-        csv_outputs["largest_disagreements"],
+    complete_coverage.to_csv(
+        csv_outputs[
+            "complete_coverage"
+        ],
+        index=False,
+    )
+    
+    matched_event_summary.to_csv(
+        csv_outputs[
+            "matched_event_summary"
+        ],
+        index=False,
+    )
+    
+    largest_disagreements_full.to_csv(
+        csv_outputs[
+            "largest_disagreements_full"
+        ],
+        index=False,
+    )
+    
+    decision_disagreements.to_csv(
+        csv_outputs[
+            "decision_disagreements"
+        ],
+        index=False,
+    )
+    
+    focused_event_windows.to_csv(
+        csv_outputs[
+            "focused_event_windows"
+        ],
         index=False,
     )
 
@@ -742,7 +1360,9 @@ def build_labor_demand_chronological_review(
         "sign_change_events": sign_change_events,
         "event_matches": event_matches,
         "window_summary": window_summary,
-        "largest_disagreements": (
-            largest_disagreements
-        ),
+        "complete_coverage": complete_coverage,
+        "matched_event_summary": matched_event_summary,
+        "largest_disagreements_full": largest_disagreements_full,
+        "decision_disagreements": decision_disagreements,
+        "focused_event_windows": focused_event_windows,
     }
