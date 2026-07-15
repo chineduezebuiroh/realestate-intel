@@ -14,8 +14,8 @@ FOCUS_GEOS = (
     "alameda_county_ca__county",
 )
 LAUS_METRICS = (
-    "laus_employment",
-    "laus_labor_force",
+    "employment",
+    "labor_force",
     "laus_unemployment_rate",
 )
 ROLLING_WINDOWS = (3, 6, 12)
