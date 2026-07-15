@@ -81,7 +81,11 @@ def _build_core_demand_contributions(
         "metric_contributions"
     ].copy()
 
-    required_columns = {
+    dimension_history = diagnostic[
+        "dimension_history"
+    ].copy()
+
+    required_contribution_columns = {
         "geo_id",
         "date",
         "canonical_metric_key",
@@ -91,18 +95,35 @@ def _build_core_demand_contributions(
         "weighted_metric_contribution",
     }
 
-    missing = (
-        required_columns
-        - set(
-            contributions.columns
-        )
+    missing_contribution_columns = (
+        required_contribution_columns
+        - set(contributions.columns)
     )
 
-    if missing:
+    if missing_contribution_columns:
         raise ValueError(
             "Core Demand metric contributions "
             "are missing required columns: "
-            f"{sorted(missing)}"
+            f"{sorted(missing_contribution_columns)}"
+        )
+
+    required_dimension_columns = {
+        "geo_id",
+        "date",
+        "dimension",
+        "dimension_score",
+    }
+
+    missing_dimension_columns = (
+        required_dimension_columns
+        - set(dimension_history.columns)
+    )
+
+    if missing_dimension_columns:
+        raise ValueError(
+            "Core Demand dimension history is "
+            "missing required columns: "
+            f"{sorted(missing_dimension_columns)}"
         )
 
     contributions["date"] = pd.to_datetime(
@@ -110,14 +131,55 @@ def _build_core_demand_contributions(
         errors="coerce",
     )
 
-    invalid_dates = contributions[
-        contributions["date"].isna()
-    ]
+    dimension_history["date"] = pd.to_datetime(
+        dimension_history["date"],
+        errors="coerce",
+    )
 
-    if not invalid_dates.empty:
+    if contributions["date"].isna().any():
         raise ValueError(
             "Core Demand contributions contain "
             "invalid dates"
+        )
+
+    if dimension_history["date"].isna().any():
+        raise ValueError(
+            "Core Demand dimension history contains "
+            "invalid dates"
+        )
+
+    dimension_history = dimension_history[
+        dimension_history[
+            "dimension"
+        ].eq("demand")
+        & dimension_history[
+            "geo_id"
+        ].isin(geo_ids)
+    ][
+        [
+            "geo_id",
+            "date",
+            "dimension_score",
+        ]
+    ].copy()
+
+    duplicates = dimension_history.duplicated(
+        subset=[
+            "geo_id",
+            "date",
+        ],
+        keep=False,
+    )
+
+    if duplicates.any():
+        raise ValueError(
+            "Core Demand dimension history is not "
+            "unique by geo/date:\n"
+            + dimension_history.loc[
+                duplicates
+            ].head(30).to_string(
+                index=False
+            )
         )
 
     contributions = contributions[
@@ -132,6 +194,37 @@ def _build_core_demand_contributions(
         raise ValueError(
             "Core Demand diagnostic returned no "
             "metric-level contribution rows"
+        )
+
+    contributions = contributions.merge(
+        dimension_history,
+        on=[
+            "geo_id",
+            "date",
+        ],
+        how="left",
+        validate="many_to_one",
+    )
+
+    missing_dimension_scores = contributions[
+        contributions[
+            "dimension_score"
+        ].isna()
+    ]
+
+    if not missing_dimension_scores.empty:
+        raise ValueError(
+            "Metric contributions are missing their "
+            "core Demand dimension score:\n"
+            + missing_dimension_scores[
+                [
+                    "geo_id",
+                    "date",
+                    "canonical_metric_key",
+                ]
+            ].head(30).to_string(
+                index=False
+            )
         )
 
     return (
