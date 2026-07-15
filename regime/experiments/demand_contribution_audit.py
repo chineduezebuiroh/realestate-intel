@@ -6,10 +6,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from regime._06_axis_engine import (
-    _build_axis_weights,
-)
+from regime._06_axis_engine import _build_axis_weights
+from regime.artifacts import RegimeArtifactStore
 from regime.experiments.linked_price_family_comparison import (
+    BASELINE_RUN_ID,
     DEFAULT_ARTIFACT_ROOT,
     FOCUS_GEOS,
     build_linked_price_family_comparison,
@@ -1127,6 +1127,155 @@ def _build_largest_change_months(
     )
 
 
+def _build_complete_dimension_history(
+    *,
+    comparison: dict[str, pd.DataFrame],
+    artifact_root: str | Path,
+    geo_ids: tuple[str, ...],
+) -> pd.DataFrame:
+    """
+    Build complete baseline and challenger dimension histories.
+
+    The linked price-family comparison's focused dimension history
+    contains only Price and Affordability. Demand reconstruction
+    requires every enabled Demand dimension.
+    """
+    store = RegimeArtifactStore(
+        artifact_root
+    )
+
+    baseline_dimensions = (
+        store.read_dataframe(
+            BASELINE_RUN_ID,
+            "dimension_scores",
+        )
+        .copy()
+    )
+
+    baseline_dimensions["date"] = (
+        pd.to_datetime(
+            baseline_dimensions["date"],
+            errors="coerce",
+        )
+    )
+
+    baseline_dimensions = baseline_dimensions[
+        baseline_dimensions[
+            "geo_id"
+        ].isin(geo_ids)
+    ].copy()
+
+    baseline_dimensions[
+        "run_role"
+    ] = "baseline"
+
+    challenger_dimensions = comparison[
+        "challenger_dimension_scores"
+    ].copy()
+
+    challenger_dimensions["date"] = (
+        pd.to_datetime(
+            challenger_dimensions["date"],
+            errors="coerce",
+        )
+    )
+
+    challenger_dimensions = (
+        challenger_dimensions[
+            challenger_dimensions[
+                "geo_id"
+            ].isin(geo_ids)
+        ].copy()
+    )
+
+    challenger_dimensions[
+        "run_role"
+    ] = "challenger"
+
+    required_columns = [
+        "run_role",
+        "geo_id",
+        "date",
+        "dimension",
+        "dimension_score",
+        "metric_count",
+        "metric_weight_sum",
+        "min_metric_score",
+        "max_metric_score",
+        "max_metric_age_days",
+    ]
+
+    missing_baseline = (
+        set(required_columns)
+        - set(
+            baseline_dimensions.columns
+        )
+    )
+
+    missing_challenger = (
+        set(required_columns)
+        - set(
+            challenger_dimensions.columns
+        )
+    )
+
+    if missing_baseline:
+        raise ValueError(
+            "Baseline dimensions are missing "
+            f"columns: {sorted(missing_baseline)}"
+        )
+
+    if missing_challenger:
+        raise ValueError(
+            "Challenger dimensions are missing "
+            f"columns: {sorted(missing_challenger)}"
+        )
+
+    history = pd.concat(
+        [
+            baseline_dimensions[
+                required_columns
+            ],
+            challenger_dimensions[
+                required_columns
+            ],
+        ],
+        ignore_index=True,
+    )
+
+    duplicates = history.duplicated(
+        subset=[
+            "run_role",
+            "geo_id",
+            "date",
+            "dimension",
+        ],
+        keep=False,
+    )
+
+    if duplicates.any():
+        raise AssertionError(
+            "Complete dimension history contains "
+            "duplicate rows:\n"
+            + history.loc[
+                duplicates
+            ].head(30).to_string(
+                index=False
+            )
+        )
+
+    return history.sort_values(
+        [
+            "run_role",
+            "geo_id",
+            "date",
+            "dimension",
+        ]
+    ).reset_index(
+        drop=True
+    )
+
+
 def build_demand_contribution_audit(
     *,
     artifact_root: str | Path = (
@@ -1143,9 +1292,13 @@ def build_demand_contribution_audit(
         )
     )
 
-    dimension_history = comparison[
-        "dimension_score_history"
-    ]
+    dimension_history = (
+        _build_complete_dimension_history(
+            comparison=comparison,
+            artifact_root=artifact_root,
+            geo_ids=geo_ids,
+        )
+    )
 
     axis_history = comparison[
         "axis_score_history"
