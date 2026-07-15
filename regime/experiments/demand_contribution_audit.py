@@ -225,6 +225,21 @@ def _demand_weights() -> pd.DataFrame:
 def _build_weighted_contributions(
     dimension_history: pd.DataFrame,
 ) -> pd.DataFrame:
+    """
+    Reconstruct each dimension's effective monthly contribution
+    to the Demand axis.
+
+    The production axis engine renormalizes configured weights
+    across the dimensions available in each geo/month. Therefore:
+
+        effective_weight =
+            configured_weight
+            / available_dimension_weight_sum
+
+        weighted_contribution =
+            dimension_score
+            * effective_weight
+    """
     dimensions = _validate_dimension_history(
         dimension_history
     )
@@ -245,10 +260,56 @@ def _build_weighted_contributions(
         )
 
     work[
+        "available_dimension_weight_sum"
+    ] = (
+        work.groupby(
+            [
+                "run_role",
+                "geo_id",
+                "date",
+            ]
+        )[
+            "dimension_weight"
+        ]
+        .transform("sum")
+    )
+
+    invalid_weight_sum = work[
+        work[
+            "available_dimension_weight_sum"
+        ].isna()
+        | work[
+            "available_dimension_weight_sum"
+        ].le(0)
+    ]
+
+    if not invalid_weight_sum.empty:
+        raise AssertionError(
+            "Demand contribution audit found a "
+            "non-positive available weight sum:\n"
+            + invalid_weight_sum.head(
+                30
+            ).to_string(
+                index=False
+            )
+        )
+
+    work[
+        "effective_dimension_weight"
+    ] = (
+        work["dimension_weight"]
+        / work[
+            "available_dimension_weight_sum"
+        ]
+    )
+
+    work[
         "weighted_contribution"
     ] = (
         work["dimension_score"]
-        * work["dimension_weight"]
+        * work[
+            "effective_dimension_weight"
+        ]
     )
 
     work[
@@ -383,10 +444,22 @@ def _build_monthly_panel(
         ]
     )
 
-    if (
+    maximum_reconstruction_error = (
         panel[
             "reconstruction_error"
         ].abs().max()
+    )
+    
+    if not np.isfinite(
+        maximum_reconstruction_error
+    ):
+        raise AssertionError(
+            "Demand reconstruction error is "
+            "non-finite"
+        )
+
+    if (
+        maximum_reconstruction_error
         > 1e-12
     ):
         raise AssertionError(
@@ -653,6 +726,14 @@ def _build_contribution_summary(
         )
         .agg(
             rows=("date", "size"),
+            mean_available_dimension_weight_sum=(
+                "available_dimension_weight_sum",
+                "mean",
+            ),
+            mean_effective_dimension_weight=(
+                "effective_dimension_weight",
+                "mean",
+            ),
             mean_dimension_score=(
                 "dimension_score",
                 "mean",
