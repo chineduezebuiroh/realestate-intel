@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -21,11 +22,16 @@ INCUMBENT_RUN_ID = "macro_regime_v1_bps120_sources"
 CANDIDATE_RUN_ID = "macro_regime_v1_bps120_laus_ma6"
 OUTPUT_DIR = Path("artifacts/regime/comparisons/laus_ma6_immutable_acceptance")
 LAUS_METRICS = ("laus_employment", "laus_labor_force", "laus_unemployment_rate")
+LAUS_CANONICAL_METRIC_KEYS = {
+    "laus_employment": "employment",
+    "laus_labor_force": "labor_force",
+    "laus_unemployment_rate": "laus_unemployment_rate",
+}
 LAUS_FEATURES = {m: {"level": f"{m}_level", "short": f"{m}_short", "long": f"{m}_long"} for m in LAUS_METRICS}
 LAUS_FEATURE_KEYS = {v for d in LAUS_FEATURES.values() for v in d.values()}
 AFFECTED_METRIC_KEYS = set(LAUS_METRICS) | {"employment", "labor_force"}
 ARTIFACTS = {
-    "raw_features": ["geo_id", "date", "canonical_metric_key", "feature_key"],
+    "features": ["geo_id", "date", "canonical_metric_key", "feature_key"],
     "normalized_features": ["geo_id", "date", "canonical_metric_key", "feature_key"],
     "metric_scores": ["geo_id", "evaluation_date", "metric_key"],
     "dimension_scores": ["geo_id", "evaluation_date", "dimension"],
@@ -68,28 +74,74 @@ def _read(store: RegimeArtifactStore, run_id: str, artifact: str) -> pd.DataFram
     return store.read_dataframe(run_id, artifact)
 
 
+def _source_lineage(source: pd.DataFrame, physical_metric_key: str) -> pd.Series:
+    masks = []
+    for column in ("source_metric_key", "metric_origin"):
+        if column in source.columns:
+            masks.append(source[column].astype("string").eq(physical_metric_key))
+    if not masks:
+        raise AssertionError(
+            f"source_metrics has no source_metric_key or metric_origin lineage column for {physical_metric_key}"
+        )
+    lineage = masks[0].copy()
+    for mask in masks[1:]:
+        lineage = lineage | mask
+    if not lineage.any():
+        raise AssertionError(f"source_metrics has no rows for physical LAUS source {physical_metric_key}")
+    return lineage.fillna(False)
+
+
 def _laus_recompute(store: RegimeArtifactStore) -> pd.DataFrame:
     source = _read(store, CANDIDATE_RUN_ID, "source_metrics")
-    features = _read(store, CANDIDATE_RUN_ID, "raw_features")
+    features = _read(store, CANDIDATE_RUN_ID, "features")
     rows = []
-    for metric in LAUS_METRICS:
-        src = source[source["canonical_metric_key"].eq(metric) | source.get("metric_origin", pd.Series(index=source.index, dtype=str)).eq(metric)].copy()
-        if src.empty:
-            src = source[source.get("source_metric_key", pd.Series(index=source.index, dtype=str)).eq(metric)].copy()
+    for physical_metric_key in LAUS_METRICS:
+        canonical_metric_key = LAUS_CANONICAL_METRIC_KEYS[physical_metric_key]
+        src = source[_source_lineage(source, physical_metric_key)].copy()
+        duplicate_keys = ["geo_id", _date_col(src)]
+        if src.duplicated(duplicate_keys).any():
+            dupes = src.loc[src.duplicated(duplicate_keys, keep=False), duplicate_keys].head(10)
+            raise AssertionError(
+                f"source_metrics duplicate geo/date rows for {physical_metric_key}:\n"
+                f"{dupes.to_string(index=False)}"
+            )
         src["date"] = pd.to_datetime(src[_date_col(src)])
         val_col = "value" if "value" in src.columns else "raw_value"
         for geo_id, group in src.groupby("geo_id", sort=False):
             base = group[["date", val_col] + (["metric_origin"] if "metric_origin" in group.columns else [])].rename(columns={val_col: "value"})
             for name, transform, window in (("level", "ma_level", "6m"), ("short", "ma_pct_change", "6m/lag3m"), ("long", "ma_pct_change", "6m/lag12m")):
-                s = _compute_feature(base, transform, window, LAUS_FEATURES[metric][name])
+                feature_key = LAUS_FEATURES[physical_metric_key][name]
+                s = _compute_feature(base, transform, window, feature_key)
                 for idx, expected in s.items():
-                    rows.append({"geo_id": geo_id, "date": base.loc[idx, "date"], "canonical_metric_key": metric, "feature_key": LAUS_FEATURES[metric][name], "expected": expected})
+                    rows.append(
+                        {
+                            "geo_id": geo_id,
+                            "date": base.loc[idx, "date"],
+                            "physical_metric_key": physical_metric_key,
+                            "canonical_metric_key": canonical_metric_key,
+                            "feature_key": feature_key,
+                            "expected": expected,
+                        }
+                    )
     expected = pd.DataFrame(rows).dropna(subset=["expected"])
     persisted = features[features["feature_key"].isin(LAUS_FEATURE_KEYS)][["geo_id", "date", "canonical_metric_key", "feature_key", "raw_feature_value"]].copy()
     persisted["date"] = pd.to_datetime(persisted["date"])
     merged = expected.merge(persisted, on=["geo_id", "date", "canonical_metric_key", "feature_key"], how="outer", indicator=True)
+    merged["absolute_difference"] = (merged["expected"] - merged["raw_feature_value"]).abs()
     bad = merged[(merged["_merge"].ne("both")) | (~np.isclose(merged["expected"], merged["raw_feature_value"], rtol=0.0, atol=0.0, equal_nan=True))]
-    return bad.assign(date=lambda d: pd.to_datetime(d["date"]).dt.strftime("%Y-%m-%d"))
+    bad = bad.rename(columns={"raw_feature_value": "persisted_value", "_merge": "merge_status"})
+    columns = [
+        "geo_id",
+        "date",
+        "physical_metric_key",
+        "canonical_metric_key",
+        "feature_key",
+        "expected",
+        "persisted_value",
+        "merge_status",
+        "absolute_difference",
+    ]
+    return bad.assign(date=lambda d: pd.to_datetime(d["date"]).dt.strftime("%Y-%m-%d"))[columns]
 
 
 def _compare_exact(left: pd.DataFrame, right: pd.DataFrame, keys: list[str], label: str) -> dict[str, Any]:
@@ -103,11 +155,24 @@ def _compare_exact(left: pd.DataFrame, right: pd.DataFrame, keys: list[str], lab
         raise AssertionError(f"{label} row-count difference: {len(left)} != {len(right)}")
     lk, rk = set(map(tuple, left[keys].to_numpy())), set(map(tuple, right[keys].to_numpy()))
     if lk != rk:
-        raise AssertionError(f"{label} key-set difference: left_only={len(lk-rk)} right_only={len(rk-lk)}")
+        raise AssertionError(
+            f"{label} key-set difference: left_only={len(lk-rk)} right_only={len(rk-lk)} "
+            f"left_examples={list(sorted(lk-rk))[:5]} right_examples={list(sorted(rk-lk))[:5]}"
+        )
     right = right.set_index(keys).loc[pd.MultiIndex.from_frame(left[keys])].reset_index()
     neq = left.ne(right)
     if neq.any().any():
-        raise AssertionError(f"{label} value differences: {int(neq.any(axis=1).sum())} rows")
+        differing_rows = neq.any(axis=1)
+        differing_cols = [c for c in left.columns if bool(neq[c].any())]
+        examples = []
+        for idx in list(neq.index[differing_rows])[:5]:
+            row = {key: left.loc[idx, key] for key in keys}
+            row["differing_columns"] = [c for c in differing_cols if bool(neq.loc[idx, c])][:5]
+            examples.append(row)
+        raise AssertionError(
+            f"{label} value differences: {int(differing_rows.sum())} rows; "
+            f"columns={differing_cols}; examples={examples}"
+        )
     return {"rows": len(left), "keys": keys}
 
 
@@ -131,18 +196,43 @@ def _diff_count(left: pd.DataFrame, right: pd.DataFrame, keys: list[str]) -> int
     return int(changed.sum())
 
 
+def _is_demand(series: pd.Series) -> pd.Series:
+    return series.astype("string").str.strip().str.lower().eq("demand").fillna(False)
+
+
+def _split_demand(
+    incumbent: pd.DataFrame,
+    candidate: pd.DataFrame,
+    column: str,
+    label: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    inc_demand = _is_demand(incumbent[column])
+    cand_demand = _is_demand(candidate[column])
+    if not inc_demand.any():
+        raise AssertionError(f"incumbent {label} is missing Demand {column}")
+    if not cand_demand.any():
+        raise AssertionError(f"candidate {label} is missing Demand {column}")
+    return incumbent[~inc_demand], candidate[~cand_demand], incumbent[inc_demand], candidate[cand_demand]
+
+
 def _manifest_checks(manifest: dict[str, Any]) -> dict[str, Any]:
     meta = manifest.get("metadata", {})
+    if manifest.get("status") != "complete":
+        raise AssertionError(f"candidate status is not complete: {manifest.get('status')!r}")
     if meta.get("smoothing_experiment_id") is not None:
         raise AssertionError("candidate smoothing_experiment_id is not None")
-    if "feature_registry_hash" not in json.dumps(manifest, sort_keys=True):
-        raise AssertionError("candidate manifest missing feature_registry hash")
+    config_hashes = meta.get("config_hashes")
+    if not isinstance(config_hashes, dict):
+        raise AssertionError("candidate manifest metadata.config_hashes is not a dictionary")
+    registry_hash = config_hashes.get("config/feature_registry.csv")
+    if not isinstance(registry_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", registry_hash.strip()):
+        raise AssertionError("candidate manifest missing valid metadata.config_hashes['config/feature_registry.csv']")
     snapshot = meta.get("ma_transform_policy_snapshot") or manifest.get("ma_transform_policy_snapshot") or []
     text = json.dumps(snapshot, sort_keys=True)
     missing = [f for f in sorted(LAUS_FEATURE_KEYS) if f not in text]
     if missing or text.count("laus_") < 9:
         raise AssertionError(f"candidate manifest missing approved LAUS policy rows: {missing}")
-    return {"laus_policy_rows": 9, "smoothing_experiment_id": None}
+    return {"laus_policy_rows": 9, "smoothing_experiment_id": None, "feature_registry_hash": registry_hash}
 
 
 def run(store: RegimeArtifactStore, output_dir: Path = OUTPUT_DIR) -> dict[str, Any]:
@@ -161,18 +251,18 @@ def run(store: RegimeArtifactStore, output_dir: Path = OUTPUT_DIR) -> dict[str, 
     exact = {}
     for artifact, keys in ARTIFACTS.items():
         inc, cand = _read(store, INCUMBENT_RUN_ID, artifact), _read(store, CANDIDATE_RUN_ID, artifact)
-        if artifact in {"raw_features", "normalized_features"}:
+        if artifact in {"features", "normalized_features"}:
             inc_exact, cand_exact = inc[~inc["feature_key"].isin(LAUS_FEATURE_KEYS)], cand[~cand["feature_key"].isin(LAUS_FEATURE_KEYS)]
             reports["laus_feature_rows_changed"] = _diff_count(inc[inc["feature_key"].isin(LAUS_FEATURE_KEYS)], cand[cand["feature_key"].isin(LAUS_FEATURE_KEYS)], keys)
         elif artifact == "metric_scores":
             inc_exact, cand_exact = inc[~inc["metric_key"].isin(AFFECTED_METRIC_KEYS)], cand[~cand["metric_key"].isin(AFFECTED_METRIC_KEYS)]
             reports["affected_metric_score_rows_changed"] = _diff_count(inc[inc["metric_key"].isin(AFFECTED_METRIC_KEYS)], cand[cand["metric_key"].isin(AFFECTED_METRIC_KEYS)], keys)
         elif artifact == "dimension_scores":
-            inc_exact, cand_exact = inc[~inc["dimension"].eq("Demand")], cand[~cand["dimension"].eq("Demand")]
-            reports["demand_dimension_rows_changed"] = _diff_count(inc[inc["dimension"].eq("Demand")], cand[cand["dimension"].eq("Demand")], keys)
+            inc_exact, cand_exact, inc_demand, cand_demand = _split_demand(inc, cand, "dimension", artifact)
+            reports["demand_dimension_rows_changed"] = _diff_count(inc_demand, cand_demand, keys)
         elif artifact == "axis_scores":
-            inc_exact, cand_exact = inc[~inc["axis"].eq("Demand")], cand[~cand["axis"].eq("Demand")]
-            reports["demand_axis_rows_changed"] = _diff_count(inc[inc["axis"].eq("Demand")], cand[cand["axis"].eq("Demand")], keys)
+            inc_exact, cand_exact, inc_demand, cand_demand = _split_demand(inc, cand, "axis", artifact)
+            reports["demand_axis_rows_changed"] = _diff_count(inc_demand, cand_demand, keys)
         else:
             reports[f"{artifact}_rows_changed"] = _diff_count(inc, cand, keys)
             continue
@@ -185,26 +275,62 @@ def run(store: RegimeArtifactStore, output_dir: Path = OUTPUT_DIR) -> dict[str, 
 
 
 def _write_fixture_run(store: RegimeArtifactStore, run_id: str, candidate: bool) -> None:
-    store.initialize_run(run_id, experiment_id="fixture", metadata={"smoothing_experiment_id": None, "feature_registry_hash": "abc", "ma_transform_policy_snapshot": sorted(LAUS_FEATURE_KEYS)}, overwrite=True)
+    store.initialize_run(
+        run_id,
+        experiment_id="fixture",
+        metadata={
+            "config_hashes": {
+                "config/feature_registry.csv": "0" * 64,
+            },
+            "smoothing_experiment_id": None,
+            "ma_transform_policy_snapshot": sorted(LAUS_FEATURE_KEYS),
+        },
+        overwrite=True,
+    )
     dates = pd.date_range("2020-01-01", periods=20, freq="MS")
-    src = pd.DataFrame([{"geo_id": "g", "date": d, "canonical_metric_key": m, "value": float(i + 10), "metric_origin": m} for m in LAUS_METRICS for i, d in enumerate(dates)])
+    src = pd.DataFrame(
+        [
+            {
+                "geo_id": "g",
+                "date": d,
+                "canonical_metric_key": LAUS_CANONICAL_METRIC_KEYS[m],
+                "source_metric_key": m,
+                "value": float(i + 10),
+                "metric_origin": m,
+            }
+            for m in LAUS_METRICS
+            for i, d in enumerate(dates)
+        ]
+    )
     store.write_dataframe(run_id, "source_metrics", src, allow_overwrite=True)
     rf = []
     for m in LAUS_METRICS:
-        g = src[src["canonical_metric_key"].eq(m)][["date", "value", "metric_origin"]]
+        canonical_metric_key = LAUS_CANONICAL_METRIC_KEYS[m]
+        g = src[src["source_metric_key"].eq(m)][["date", "value", "metric_origin"]]
         for n, t, w in (("level", "ma_level", "6m"), ("short", "ma_pct_change", "6m/lag3m"), ("long", "ma_pct_change", "6m/lag12m")):
             s = _compute_feature(g, t, w, LAUS_FEATURES[m][n])
-            for idx, v in s.dropna().items(): rf.append({"geo_id":"g","date":g.loc[idx,"date"],"canonical_metric_key":m,"feature_key":LAUS_FEATURES[m][n],"raw_feature_value":v})
+            for idx, v in s.dropna().items(): rf.append({"geo_id":"g","date":g.loc[idx,"date"],"canonical_metric_key":canonical_metric_key,"feature_key":LAUS_FEATURES[m][n],"raw_feature_value":v})
     rf.append({"geo_id":"g","date":dates[-1],"canonical_metric_key":"redfin_inventory","feature_key":"redfin_inventory_level","raw_feature_value":1.0})
-    for artifact in ("raw_features", "normalized_features"):
+    for artifact in ("features", "normalized_features"):
         store.write_dataframe(run_id, artifact, pd.DataFrame(rf), allow_overwrite=True)
     for artifact, cols, row in [
         ("metric_scores", ["geo_id","evaluation_date","metric_key","metric_score"], ["g",dates[-1],"redfin_inventory",1.0]),
-        ("dimension_scores", ["geo_id","evaluation_date","dimension","dimension_score"], ["g",dates[-1],"Supply",1.0]),
-        ("axis_scores", ["geo_id","evaluation_date","axis","axis_score"], ["g",dates[-1],"Supply",1.0]),
+        ("dimension_scores", ["geo_id","evaluation_date","dimension","dimension_score"], ["g",dates[-1],"supply",1.0]),
+        ("axis_scores", ["geo_id","evaluation_date","axis","axis_score"], ["g",dates[-1],"supply",1.0]),
         ("coordinates", ["geo_id","evaluation_date","x","y"], ["g",dates[-1],1.0,2.0]),
         ("regime_assignments", ["geo_id","evaluation_date","regime"], ["g",dates[-1],"expansion"]),
     ]: store.write_dataframe(run_id, artifact, pd.DataFrame([row], columns=cols), allow_overwrite=True)
+    for artifact, column, value_column in [
+        ("dimension_scores", "dimension", "dimension_score"),
+        ("axis_scores", "axis", "axis_score"),
+    ]:
+        df = store.read_dataframe(run_id, artifact)
+        df = pd.concat(
+            [df, pd.DataFrame([{"geo_id": "g", "evaluation_date": dates[-1], column: "demand", value_column: 2.0 if candidate else 1.5}])],
+            ignore_index=True,
+        )
+        store.write_dataframe(run_id, artifact, df, allow_overwrite=True)
+    store.update_manifest(run_id, status="complete")
 
 
 def main() -> int:
