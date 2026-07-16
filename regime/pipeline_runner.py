@@ -75,6 +75,41 @@ def _config_hashes(
     return hashes
 
 
+def _ma_transform_policy_snapshot() -> dict[str, Any]:
+    config = load_regime_config(validate=True)
+    policy_rows = config.features[
+        config.features["transform"].str.startswith("ma")
+    ][
+        [
+            "feature_key",
+            "metric_key",
+            "feature_type",
+            "transform",
+            "feature_window",
+        ]
+    ].copy()
+
+    policy_rows = policy_rows.sort_values(
+        [
+            "metric_key",
+            "feature_key",
+            "feature_type",
+            "transform",
+            "feature_window",
+        ]
+    ).reset_index(drop=True)
+
+    return {
+        "transform_schema": {
+            "ma_level": "rolling mean over feature_window observations",
+            "ma_pct_change": (
+                "rolling mean over feature_window MA component divided by "
+                "lagged rolling mean from lag component minus one"
+            ),
+        },
+        "active_ma_features": policy_rows.to_dict(orient="records"),
+    }
+
 def _frame_summary(df: pd.DataFrame) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "rows": int(len(df)),
@@ -168,6 +203,7 @@ def run_regime_pipeline(
         "serving_db_path": str(serving_db_path),
         "validation_geo_ids": validation_geo_ids,
         "config_hashes": _config_hashes(),
+        "ma_transform_policy_snapshot": _ma_transform_policy_snapshot(),
         "smoothing_experiment_id": smoothing_experiment_id,
     }
 

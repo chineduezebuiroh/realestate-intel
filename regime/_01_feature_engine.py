@@ -46,10 +46,78 @@ def _window_to_periods(feature_window: str, default: int) -> int:
     return max(periods, 1)
 
 
-def _compute_feature(
+def _parse_ma_window_config(
+    feature_window: str,
+    *,
+    transform: str,
+    feature_key: str,
+) -> tuple[int, int | None]:
+    value = str(feature_window or "").strip().lower()
+
+    def fail(expected: str) -> None:
+        raise ValueError(
+            "Invalid MA transform config for "
+            f"feature_key={feature_key!r}: "
+            f"transform={transform!r}, "
+            f"feature_window={feature_window!r}; "
+            f"expected {expected}"
+        )
+
+    def parse_positive_months(part: str, expected: str) -> int:
+        if not part.endswith("m"):
+            fail(expected)
+        number = part[:-1]
+        if not number.isdigit():
+            fail(expected)
+        periods = int(number)
+        if periods <= 0:
+            fail(expected)
+        return periods
+
+    if transform == "ma_level":
+        expected = "<positive integer>m"
+        if not value or "/" in value:
+            fail(expected)
+        return parse_positive_months(value, expected), None
+
+    if transform == "ma_pct_change":
+        expected = "<positive integer>m/lag<positive integer>m"
+        parts = value.split("/")
+        if len(parts) != 2:
+            fail(expected)
+        lag_part = parts[1]
+        if not lag_part.startswith("lag"):
+            fail(expected)
+        ma_periods = parse_positive_months(parts[0], expected)
+        lag_periods = parse_positive_months(lag_part[3:], expected)
+        return ma_periods, lag_periods
+
+    raise ValueError(f"Unsupported MA transform: {transform}")
+
+
+def _monthly_contiguous_segments(group: pd.DataFrame) -> pd.Series:
+    sorted_group = group.sort_values("date")
+    dates = pd.to_datetime(sorted_group["date"])
+    prior_dates = dates.shift(1)
+    month_gap = (
+        (dates.dt.to_period("M") - prior_dates.dt.to_period("M"))
+        .apply(lambda value: getattr(value, "n", np.nan))
+    )
+    boundary = month_gap.ne(1)
+
+    if "metric_origin" in sorted_group.columns:
+        origins = sorted_group["metric_origin"].astype(str)
+        boundary = boundary | origins.ne(origins.shift(1))
+
+    boundary.iloc[0] = True
+    return boundary.cumsum().reindex(group.index)
+
+
+def _compute_feature_for_contiguous_segment(
     group: pd.DataFrame,
     transform: str,
     feature_window: str = "",
+    feature_key: str = "",
 ) -> pd.Series:
     group = group.sort_values("date")
     value = group["value"].astype(float)
@@ -72,6 +140,30 @@ def _compute_feature(
     if transform == "rolling_yoy_zscore":
         periods = _window_to_periods(feature_window, default=3)
         return value.pct_change(periods)
+
+    if transform == "ma_level":
+        ma_periods, _ = _parse_ma_window_config(
+            feature_window,
+            transform=transform,
+            feature_key=feature_key,
+        )
+        return value.rolling(
+            window=ma_periods,
+            min_periods=ma_periods,
+        ).mean()
+
+    if transform == "ma_pct_change":
+        ma_periods, lag_periods = _parse_ma_window_config(
+            feature_window,
+            transform=transform,
+            feature_key=feature_key,
+        )
+        ma_value = value.rolling(
+            window=ma_periods,
+            min_periods=ma_periods,
+        ).mean()
+        denominator = ma_value.shift(lag_periods).replace(0.0, np.nan)
+        return (ma_value / denominator) - 1.0
 
     if transform == "ma12_level":
         return value.rolling(
@@ -109,6 +201,40 @@ def _compute_feature(
         return value
 
     raise ValueError(f"Unsupported transform: {transform}")
+
+
+def _compute_feature(
+    group: pd.DataFrame,
+    transform: str,
+    feature_window: str = "",
+    feature_key: str = "",
+) -> pd.Series:
+    group = group.sort_values("date")
+
+    if transform not in {"ma_level", "ma_pct_change"}:
+        return _compute_feature_for_contiguous_segment(
+            group,
+            transform,
+            feature_window,
+            feature_key,
+        )
+
+    segments = _monthly_contiguous_segments(group)
+    pieces = []
+    for _, segment in group.groupby(segments, sort=False):
+        pieces.append(
+            _compute_feature_for_contiguous_segment(
+                segment,
+                transform,
+                feature_window,
+                feature_key,
+            )
+        )
+
+    if not pieces:
+        return pd.Series(index=group.index, dtype=float)
+
+    return pd.concat(pieces).reindex(group.index)
 
 
 def load_raw_metric_series(
@@ -278,7 +404,15 @@ def build_canonical_source_metrics_with_lineage(
         .copy()
     )
 
-    required_columns = {
+    required_source_columns = {
+        "geo_id",
+        "date",
+        "canonical_metric_key",
+        "value",
+        "source_metric_key",
+    }
+
+    required_derived_columns = {
         "geo_id",
         "date",
         "canonical_metric_key",
@@ -286,7 +420,7 @@ def build_canonical_source_metrics_with_lineage(
     }
 
     missing_source_columns = (
-        required_columns
+        required_source_columns
         - set(canonical_source.columns)
     )
 
@@ -297,7 +431,9 @@ def build_canonical_source_metrics_with_lineage(
         )
 
     canonical_source["metric_origin"] = (
-        "canonical_source"
+        canonical_source["source_metric_key"]
+        .astype(str)
+        .str.strip()
     )
 
     derived, derived_lineage = (
@@ -321,7 +457,7 @@ def build_canonical_source_metrics_with_lineage(
 
     if not derived.empty:
         missing_derived_columns = (
-            required_columns
+            required_derived_columns
             - set(derived.columns)
         )
 
@@ -438,6 +574,8 @@ def build_feature_matrix_with_lineage(
         )
         .drop_duplicates(
             subset=[
+                "feature_key",
+                "metric_key",
                 "canonical_metric_key",
                 "feature_type",
                 "transform",
@@ -446,6 +584,12 @@ def build_feature_matrix_with_lineage(
             ]
         )
     )
+
+    origin_counts = (
+        feature_defs.groupby("canonical_metric_key")["metric_key"]
+        .transform("nunique")
+    )
+    feature_defs["origin_specific"] = origin_counts.gt(1)
 
     rows = []
 
@@ -469,6 +613,16 @@ def build_feature_matrix_with_lineage(
                 "canonical_metric_key"
             ].eq(metric_key)
         ].copy()
+
+        if (
+            feature_definition.get("origin_specific", False)
+            and "metric_origin" in metric_df.columns
+        ):
+            metric_df = metric_df[
+                metric_df["metric_origin"].eq(
+                    feature_definition["metric_key"]
+                )
+            ].copy()
 
         if metric_df.empty:
             continue
@@ -513,10 +667,19 @@ def build_feature_matrix_with_lineage(
                                 ]
                             ),
                             "value": series,
+                            "metric_origin": (
+                                metric_df.loc[
+                                    series.index,
+                                    "metric_origin",
+                                ]
+                                if "metric_origin" in metric_df.columns
+                                else ""
+                            ),
                         }
                     ),
                     transform,
                     feature_window,
+                    feature_key,
                 )
             )
         )

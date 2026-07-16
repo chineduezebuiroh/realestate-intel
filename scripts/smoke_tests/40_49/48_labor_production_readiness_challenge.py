@@ -1,7 +1,11 @@
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 # scripts/smoke_tests/40_49/48_labor_production_readiness_challenge.py
 
-from pathlib import Path
 
 import numpy as np
 
@@ -99,12 +103,11 @@ def main() -> int:
             "Overall readiness score fell outside [0, 1]"
         )
 
-    if decision["decision"] not in {
-        "PROMOTE_MA6",
-        "HOLD_FOR_REVIEW",
-        "KEEP_INCUMBENT",
-    }:
-        raise AssertionError("Unexpected production decision")
+    if decision["decision"] != "PROMOTE_MA6":
+        raise AssertionError(
+            "Readiness decision changed; expected PROMOTE_MA6, "
+            f"found {decision['decision']!r}"
+        )
 
     for path in result["csv_outputs"].values():
         _assert_nonempty_file(Path(path))
