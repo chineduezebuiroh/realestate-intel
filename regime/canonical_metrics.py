@@ -21,7 +21,7 @@ def resolve_canonical_metrics(
       geo_id, date, metric_key, value
 
     Output columns:
-      geo_id, date, canonical_metric_key, value
+      geo_id, date, canonical_metric_key, value, source_metric_key
 
     Resolution rules come from metric_dimension_registry.csv:
       - canonical_metric_key
@@ -47,20 +47,39 @@ def resolve_canonical_metrics(
     ]
 
     dim = dim[keep_cols].drop_duplicates()
-    dim["source_priority"] = pd.to_numeric(dim["source_priority"], errors="coerce").fillna(9999)
+    dim["source_priority"] = pd.to_numeric(
+        dim["source_priority"],
+        errors="coerce",
+    ).fillna(9999)
 
     merged = raw.merge(dim, on="metric_key", how="inner")
 
     if merged.empty:
-        return pd.DataFrame(columns=["geo_id", "date", "canonical_metric_key", "value"])
+        return pd.DataFrame(
+            columns=[
+                "geo_id",
+                "date",
+                "canonical_metric_key",
+                "value",
+                "source_metric_key",
+            ]
+        )
 
     # Strategy v1:
     # - primary_else_fallback: pick lowest source_priority per geo/date/canonical metric
     # - direct: same behavior, but normally only one metric exists
     # - diagnostic_only rows are excluded above
     merged = merged.sort_values(
-        ["geo_id", "date", "canonical_metric_key", "source_priority", "metric_key"]
+        [
+            "geo_id",
+            "date",
+            "canonical_metric_key",
+            "source_priority",
+            "metric_key",
+        ]
     )
+
+    merged = merged.rename(columns={"metric_key": "source_metric_key"})
 
     resolved = (
         merged
@@ -68,7 +87,7 @@ def resolve_canonical_metrics(
             subset=["geo_id", "date", "canonical_metric_key"],
             keep="first",
         )
-        [["geo_id", "date", "canonical_metric_key", "value"]]
+        [["geo_id", "date", "canonical_metric_key", "value", "source_metric_key"]]
         .copy()
     )
 

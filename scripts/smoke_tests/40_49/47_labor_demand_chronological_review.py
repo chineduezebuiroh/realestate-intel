@@ -1,7 +1,11 @@
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 # scripts/smoke_tests/40_49/47_labor_demand_chronological_review.py
 
-from pathlib import Path
 
 import numpy as np
 

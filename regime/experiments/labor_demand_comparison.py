@@ -355,6 +355,194 @@ def build_labor_policy_features(
     ).reset_index(drop=True)
 
 
+
+
+def _build_frozen_incumbent_expectation(
+    source_metrics: pd.DataFrame,
+) -> pd.DataFrame:
+    labor = _load_labor_sources(source_metrics)
+
+    grouped = labor.groupby(
+        [
+            "geo_id",
+            "canonical_metric_key",
+        ],
+        sort=False,
+    )
+
+    pieces: list[pd.DataFrame] = []
+
+    for component, lag_periods in (
+        ("short", 1),
+        ("long", 12),
+    ):
+        frame = labor[
+            [
+                "geo_id",
+                "date",
+                "canonical_metric_key",
+            ]
+        ].copy()
+        frame["feature_key"] = [
+            FEATURE_KEY_MAP[metric][component]
+            for metric in frame["canonical_metric_key"]
+        ]
+        frame["raw_feature_value"] = grouped["value"].transform(
+            lambda values, lag=lag_periods: _safe_ratio_minus_one(
+                values,
+                values.shift(lag),
+            )
+        )
+        frame["expected_contract"] = (
+            f"raw_lag{lag_periods}_pct_change"
+        )
+        pieces.append(frame)
+
+    return (
+        pd.concat(pieces, ignore_index=True)
+        .dropna(subset=["raw_feature_value"])
+        .reset_index(drop=True)
+    )
+
+
+def _assert_feature_contract_match(
+    actual: pd.DataFrame,
+    expected: pd.DataFrame,
+    *,
+    label: str,
+) -> int:
+    merged = actual.merge(
+        expected,
+        on=[
+            "geo_id",
+            "date",
+            "canonical_metric_key",
+            "feature_key",
+        ],
+        how="inner",
+        suffixes=("_actual", "_expected"),
+    )
+
+    if merged.empty:
+        raise AssertionError(
+            f"{label} has no common valid coverage"
+        )
+
+    matches = np.isclose(
+        merged["raw_feature_value_actual"],
+        merged["raw_feature_value_expected"],
+        rtol=0.0,
+        atol=1e-12,
+    )
+
+    if not matches.all():
+        raise AssertionError(
+            f"{label} feature contract mismatch:\n"
+            + merged.loc[~matches].head(20).to_string(index=False)
+        )
+
+    return len(merged)
+
+
+def _build_feature_contract_audit(
+    *,
+    source_metrics: pd.DataFrame,
+    baseline_features: pd.DataFrame,
+    ma6_features: pd.DataFrame,
+    geo_ids: tuple[str, ...],
+) -> pd.DataFrame:
+    baseline = baseline_features[
+        baseline_features["geo_id"].isin(geo_ids)
+        & baseline_features["canonical_metric_key"].isin(LABOR_METRICS)
+        & baseline_features["feature_key"].isin(TARGET_FEATURE_KEYS)
+    ][FEATURE_COLUMNS].copy()
+    baseline["date"] = pd.to_datetime(baseline["date"])
+
+    incumbent_expected = _build_frozen_incumbent_expectation(
+        source_metrics
+    )
+    incumbent_expected = incumbent_expected[
+        incumbent_expected["geo_id"].isin(geo_ids)
+    ]
+
+    incumbent_rows = _assert_feature_contract_match(
+        baseline[baseline["feature_key"].str.endswith(("_short", "_long"))],
+        incumbent_expected,
+        label="frozen incumbent raw lag1/lag12",
+    )
+
+    ma6_expected = build_labor_policy_features(
+        source_metrics,
+        policy_id="labor_ma6_momentum_lag3",
+        window=6,
+    )
+    ma6_expected = ma6_expected[
+        ma6_expected["geo_id"].isin(geo_ids)
+        & ma6_expected["feature_key"].isin(TARGET_FEATURE_KEYS)
+    ][FEATURE_COLUMNS]
+
+    ma6 = ma6_features[
+        ma6_features["geo_id"].isin(geo_ids)
+        & ma6_features["canonical_metric_key"].isin(LABOR_METRICS)
+        & ma6_features["feature_key"].isin(TARGET_FEATURE_KEYS)
+    ][FEATURE_COLUMNS].copy()
+    ma6["date"] = pd.to_datetime(ma6["date"])
+
+    ma6_rows = _assert_feature_contract_match(
+        ma6,
+        ma6_expected,
+        label="MA6 challenger MA6 lag3/lag12",
+    )
+
+    common = baseline.merge(
+        ma6,
+        on=[
+            "geo_id",
+            "date",
+            "canonical_metric_key",
+            "feature_key",
+        ],
+        how="inner",
+        suffixes=("_incumbent", "_ma6"),
+    )
+    common = common[common["feature_key"].str.endswith(("_short", "_long"))]
+
+    if common.empty:
+        raise AssertionError(
+            "Frozen incumbent and MA6 have no common valid coverage"
+        )
+
+    if np.allclose(
+        common["raw_feature_value_incumbent"],
+        common["raw_feature_value_ma6"],
+        rtol=0.0,
+        atol=1e-12,
+    ):
+        raise AssertionError(
+            "Frozen incumbent and MA6 challenger are identical"
+        )
+
+    return pd.DataFrame(
+        [
+            {
+                "run_role": "baseline",
+                "contract": "short=raw/lag1(raw)-1; long=raw/lag12(raw)-1",
+                "validated_rows": incumbent_rows,
+            },
+            {
+                "run_role": "labor_ma6_momentum_lag3",
+                "contract": "level=MA6; short=MA6/lag3(MA6)-1; long=MA6/lag12(MA6)-1",
+                "validated_rows": ma6_rows,
+            },
+            {
+                "run_role": "baseline_vs_labor_ma6_momentum_lag3",
+                "contract": "not_identical_over_common_valid_coverage",
+                "validated_rows": len(common),
+            },
+        ]
+    )
+
+
 def _replace_target_features(
     baseline_features: pd.DataFrame,
     override: pd.DataFrame,
@@ -1205,6 +1393,13 @@ def build_labor_demand_comparison(
                 geo_ids=geo_ids,
             )
         )
+
+    outputs["labor_feature_contract_audit"] = _build_feature_contract_audit(
+        source_metrics=source_metrics,
+        baseline_features=baseline_features,
+        ma6_features=outputs["labor_ma6_momentum_lag3__features"],
+        geo_ids=geo_ids,
+    )
 
     normalized_history = pd.concat(
         normalized_histories,
