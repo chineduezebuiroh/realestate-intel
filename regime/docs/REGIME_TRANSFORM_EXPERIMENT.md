@@ -126,13 +126,49 @@ Candidate
 
 LAUS MA6 Structural
 
-Production policy:
+Approved production contract:
 
 level = MA6
 
 short = MA6 / lag3(MA6) - 1
 
 long = MA6 / lag12(MA6) - 1
+
+Production implementation status
+
+COMPLETE
+
+Immutable production run ID
+
+macro_regime_v1_bps120_laus_ma6
+
+Experiment ID
+
+production_laus_ma6
+
+Immutable acceptance smoke test
+
+scripts/smoke_tests/50_59/50_laus_ma6_immutable_acceptance.py
+
+Acceptance artifact
+
+artifacts/regime/comparisons/laus_ma6_immutable_acceptance/acceptance_summary.json
+
+Readiness decision
+
+PROMOTE_MA6
+
+Readiness score
+
+1.0
+
+Failed hard gates
+
+0
+
+Final status
+
+decision-approved, production-integrated, immutable-run verified, and acceptance-validated
 
 Diagnostics performed
 
@@ -141,6 +177,25 @@ Diagnostics performed
 - contribution audit
 - cancellation audit
 - production readiness challenge
+- immutable acceptance validation
+
+Historical evidence retained
+
+- The frozen incumbent remains `macro_regime_v1_bps120_sources`.
+- The MA3 control and MA6 challenger remain part of the labor experiment record.
+- The chronology findings remain intact, including the observed 10-month maximum DC Demand-axis lag.
+- The 10-month maximum DC Demand-axis lag is accepted within the forecast-regime architecture because the labor transform is used as a structural regime signal rather than a tactical nowcast trigger, and the downstream regime framework values reduced seasonal churn over immediate monthly sensitivity.
+
+Immutable acceptance test verifies
+
+- both immutable runs exist and pass artifact/hash verification;
+- persisted LAUS production features match the approved MA6 formulas;
+- non-LAUS raw features remain exactly unchanged;
+- non-LAUS normalized features remain exactly unchanged;
+- non-LAUS metric scores remain exactly unchanged;
+- non-Demand dimensions remain exactly unchanged;
+- non-Demand axes remain exactly unchanged;
+- intended Demand, coordinate, and regime changes are reported rather than treated as failures.
 
 Major findings
 
@@ -149,9 +204,17 @@ Major findings
 - acceptable turning-point responsiveness
 - acceptable operational cost
 
+Production closeout
+
+- implementation is complete;
+- immutable production run creation is complete;
+- immutable acceptance validation is complete;
+- the LAUS MA6 transform is frozen as the production policy;
+- future changes require a new Production Readiness Challenge.
+
 Decision
 
-PROMOTED TO PRODUCTION
+PROMOTE_MA6
 
 ---
 
