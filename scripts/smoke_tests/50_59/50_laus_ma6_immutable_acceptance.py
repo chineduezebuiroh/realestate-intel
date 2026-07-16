@@ -29,7 +29,18 @@ LAUS_CANONICAL_METRIC_KEYS = {
 }
 LAUS_FEATURES = {m: {"level": f"{m}_level", "short": f"{m}_short", "long": f"{m}_long"} for m in LAUS_METRICS}
 LAUS_FEATURE_KEYS = {v for d in LAUS_FEATURES.values() for v in d.values()}
-AFFECTED_METRIC_KEYS = set(LAUS_METRICS) | {"employment", "labor_force"}
+CES_EMPLOYMENT_FEATURE_KEYS = {
+    "ces_total_nonfarm_level",
+    "ces_total_nonfarm_short",
+    "ces_total_nonfarm_long",
+}
+LAUS_EMPLOYMENT_FEATURE_KEYS = {
+    "laus_employment_level",
+    "laus_employment_short",
+    "laus_employment_long",
+}
+EMPLOYMENT_REATTRIBUTION_FEATURE_KEYS = LAUS_EMPLOYMENT_FEATURE_KEYS | CES_EMPLOYMENT_FEATURE_KEYS
+AFFECTED_CANONICAL_LABOR_METRICS = {"employment", "labor_force", "laus_unemployment_rate"}
 ARTIFACTS = {
     "features": ["geo_id", "date", "canonical_metric_key", "feature_key"],
     "normalized_features": ["geo_id", "date", "canonical_metric_key", "feature_key"],
@@ -144,6 +155,89 @@ def _laus_recompute(store: RegimeArtifactStore) -> pd.DataFrame:
     return bad.assign(date=lambda d: pd.to_datetime(d["date"]).dt.strftime("%Y-%m-%d"))[columns]
 
 
+
+def _employment_source_origin_checks(store: RegimeArtifactStore) -> dict[str, Any]:
+    source = _read(store, CANDIDATE_RUN_ID, "source_metrics").copy()
+    features = _read(store, CANDIDATE_RUN_ID, "features").copy()
+    source["date"] = pd.to_datetime(source[_date_col(source)]).dt.strftime("%Y-%m-%d")
+    features["date"] = pd.to_datetime(features["date"]).dt.strftime("%Y-%m-%d")
+    employment_source = source[source["canonical_metric_key"].astype("string").eq("employment")].copy()
+    if employment_source.empty:
+        raise AssertionError("candidate source_metrics has no canonical employment rows")
+    origin_col = None
+    for column in ("source_metric_key", "metric_origin"):
+        if column in employment_source.columns:
+            origin_col = column
+            break
+    if origin_col is None:
+        raise AssertionError("candidate source_metrics has no source_metric_key or metric_origin lineage column")
+    employment_source["origin_family"] = np.select(
+        [
+            employment_source[origin_col].astype("string").eq("ces_total_nonfarm"),
+            employment_source[origin_col].astype("string").eq("laus_employment"),
+        ],
+        ["ces", "laus"],
+        default="other",
+    )
+    employment_source = employment_source[employment_source["origin_family"].isin(["ces", "laus"])]
+    if not set(employment_source["origin_family"]) >= {"ces", "laus"}:
+        raise AssertionError("candidate canonical employment source lineage must include both CES and LAUS origins")
+    source_keys = ["geo_id", "date", "canonical_metric_key"]
+    mixed = employment_source.groupby(source_keys)["origin_family"].nunique()
+    if (mixed > 1).any():
+        examples = mixed[mixed > 1].head(5).reset_index().to_dict("records")
+        raise AssertionError(f"candidate employment source lineage is ambiguous for geo/date rows: {examples}")
+    employment_features = features[features["canonical_metric_key"].astype("string").eq("employment")].copy()
+    attributed = employment_features.merge(
+        employment_source[source_keys + ["origin_family"]].drop_duplicates(),
+        on=source_keys,
+        how="inner",
+    )
+    ces_rows = attributed[attributed["origin_family"].eq("ces")]
+    laus_rows = attributed[attributed["origin_family"].eq("laus")]
+    ces_bad = ces_rows[ces_rows["feature_key"].isin(LAUS_EMPLOYMENT_FEATURE_KEYS)]
+    laus_bad = laus_rows[laus_rows["feature_key"].isin(CES_EMPLOYMENT_FEATURE_KEYS)]
+    if ces_bad.empty is False:
+        raise AssertionError(f"LAUS employment features appeared on CES-origin observations: {len(ces_bad)}")
+    if laus_bad.empty is False:
+        raise AssertionError(f"CES employment features appeared on LAUS-origin observations: {len(laus_bad)}")
+    if not set(ces_rows["feature_key"]) & CES_EMPLOYMENT_FEATURE_KEYS:
+        raise AssertionError("CES-origin canonical employment rows produced no ces_total_nonfarm_* features")
+    if not set(laus_rows["feature_key"]) & LAUS_EMPLOYMENT_FEATURE_KEYS:
+        raise AssertionError("LAUS-origin canonical employment rows produced no laus_employment_* features")
+    return {
+        "ces_origin_feature_rows": int(len(ces_rows[ces_rows["feature_key"].isin(CES_EMPLOYMENT_FEATURE_KEYS)])),
+        "laus_origin_feature_rows": int(len(laus_rows[laus_rows["feature_key"].isin(LAUS_EMPLOYMENT_FEATURE_KEYS)])),
+        "ces_origin_laus_feature_rows": int(len(ces_bad)),
+        "laus_origin_ces_feature_rows": int(len(laus_bad)),
+    }
+
+
+def _employment_source_reattribution_report(store: RegimeArtifactStore) -> list[dict[str, Any]]:
+    rows = []
+    for run_id, side in ((INCUMBENT_RUN_ID, "incumbent"), (CANDIDATE_RUN_ID, "candidate")):
+        features = _read(store, run_id, "features")
+        counts = (
+            features[features["feature_key"].isin(EMPLOYMENT_REATTRIBUTION_FEATURE_KEYS)]
+            .groupby(["canonical_metric_key", "feature_key"])
+            .size()
+            .rename(side)
+            .reset_index()
+        )
+        rows.append(counts)
+    baseline = pd.DataFrame(
+        {"canonical_metric_key": "employment", "feature_key": feature_key}
+        for feature_key in sorted(EMPLOYMENT_REATTRIBUTION_FEATURE_KEYS)
+    )
+    report = baseline.merge(rows[0], on=["canonical_metric_key", "feature_key"], how="left").merge(
+        rows[1], on=["canonical_metric_key", "feature_key"], how="left"
+    ).fillna(0)
+    for column in ("incumbent", "candidate"):
+        report[column] = report[column].astype(int)
+    report["candidate_minus_incumbent"] = report["candidate"] - report["incumbent"]
+    return report.sort_values(["canonical_metric_key", "feature_key"]).to_dict("records")
+
+
 def _compare_exact(left: pd.DataFrame, right: pd.DataFrame, keys: list[str], label: str) -> dict[str, Any]:
     left = _canon(left).sort_values(keys).reset_index(drop=True)
     right = _canon(right).sort_values(keys).reset_index(drop=True)
@@ -246,17 +340,30 @@ def run(store: RegimeArtifactStore, output_dir: Path = OUTPUT_DIR) -> dict[str, 
         mismatches.to_csv(output_dir / "laus_feature_mismatches.csv", index=False)
         raise AssertionError(f"Persisted LAUS feature mismatches: {len(mismatches)}")
     summary["checks"]["laus_recompute"] = {"mismatches": 0, "tolerance": "exact"}
+    summary["checks"]["candidate_employment_source_attribution"] = _employment_source_origin_checks(store)
 
-    reports = {}
+    reports = {"employment_source_reattribution": _employment_source_reattribution_report(store)}
     exact = {}
     for artifact, keys in ARTIFACTS.items():
         inc, cand = _read(store, INCUMBENT_RUN_ID, artifact), _read(store, CANDIDATE_RUN_ID, artifact)
         if artifact in {"features", "normalized_features"}:
-            inc_exact, cand_exact = inc[~inc["feature_key"].isin(LAUS_FEATURE_KEYS)], cand[~cand["feature_key"].isin(LAUS_FEATURE_KEYS)]
-            reports["laus_feature_rows_changed"] = _diff_count(inc[inc["feature_key"].isin(LAUS_FEATURE_KEYS)], cand[cand["feature_key"].isin(LAUS_FEATURE_KEYS)], keys)
+            inc_exact, cand_exact = inc[~inc["canonical_metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)], cand[~cand["canonical_metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)]
+            reports.setdefault("affected_labor_feature_rows_changed", {})[artifact] = _diff_count(
+                inc[inc["canonical_metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)],
+                cand[cand["canonical_metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)],
+                keys,
+            )
+            reports.setdefault("unaffected_feature_isolation", {})[artifact] = {
+                "incumbent_rows": int(len(inc_exact)),
+                "candidate_rows": int(len(cand_exact)),
+            }
         elif artifact == "metric_scores":
-            inc_exact, cand_exact = inc[~inc["metric_key"].isin(AFFECTED_METRIC_KEYS)], cand[~cand["metric_key"].isin(AFFECTED_METRIC_KEYS)]
-            reports["affected_metric_score_rows_changed"] = _diff_count(inc[inc["metric_key"].isin(AFFECTED_METRIC_KEYS)], cand[cand["metric_key"].isin(AFFECTED_METRIC_KEYS)], keys)
+            inc_exact, cand_exact = inc[~inc["metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)], cand[~cand["metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)]
+            reports["affected_metric_score_rows_changed"] = _diff_count(
+                inc[inc["metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)],
+                cand[cand["metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)],
+                keys,
+            )
         elif artifact == "dimension_scores":
             inc_exact, cand_exact, inc_demand, cand_demand = _split_demand(inc, cand, "dimension", artifact)
             reports["demand_dimension_rows_changed"] = _diff_count(inc_demand, cand_demand, keys)
@@ -288,20 +395,30 @@ def _write_fixture_run(store: RegimeArtifactStore, run_id: str, candidate: bool)
         overwrite=True,
     )
     dates = pd.date_range("2020-01-01", periods=20, freq="MS")
-    src = pd.DataFrame(
-        [
-            {
-                "geo_id": "g",
-                "date": d,
-                "canonical_metric_key": LAUS_CANONICAL_METRIC_KEYS[m],
-                "source_metric_key": m,
-                "value": float(i + 10),
-                "metric_origin": m,
-            }
-            for m in LAUS_METRICS
-            for i, d in enumerate(dates)
-        ]
+    source_rows = [
+        {
+            "geo_id": "g",
+            "date": d,
+            "canonical_metric_key": LAUS_CANONICAL_METRIC_KEYS[m],
+            "source_metric_key": m,
+            "value": float(i + 10),
+            "metric_origin": m,
+        }
+        for m in LAUS_METRICS
+        for i, d in enumerate(dates)
+    ]
+    source_rows.extend(
+        {
+            "geo_id": "ces_g",
+            "date": d,
+            "canonical_metric_key": "employment",
+            "source_metric_key": "ces_total_nonfarm",
+            "value": float(i + 100),
+            "metric_origin": "ces_total_nonfarm",
+        }
+        for i, d in enumerate(dates)
     )
+    src = pd.DataFrame(source_rows)
     store.write_dataframe(run_id, "source_metrics", src, allow_overwrite=True)
     rf = []
     for m in LAUS_METRICS:
@@ -310,6 +427,12 @@ def _write_fixture_run(store: RegimeArtifactStore, run_id: str, candidate: bool)
         for n, t, w in (("level", "ma_level", "6m"), ("short", "ma_pct_change", "6m/lag3m"), ("long", "ma_pct_change", "6m/lag12m")):
             s = _compute_feature(g, t, w, LAUS_FEATURES[m][n])
             for idx, v in s.dropna().items(): rf.append({"geo_id":"g","date":g.loc[idx,"date"],"canonical_metric_key":canonical_metric_key,"feature_key":LAUS_FEATURES[m][n],"raw_feature_value":v})
+    ces_g = src[src["source_metric_key"].eq("ces_total_nonfarm")][["date", "value", "metric_origin"]]
+    ces_features = {"level": "ces_total_nonfarm_level", "short": "ces_total_nonfarm_short", "long": "ces_total_nonfarm_long"}
+    for n, t, w in (("level", "ma_level", "6m"), ("short", "ma_pct_change", "6m/lag3m"), ("long", "ma_pct_change", "6m/lag12m")):
+        s = _compute_feature(ces_g, t, w, ces_features[n])
+        for idx, v in s.dropna().items():
+            rf.append({"geo_id":"ces_g","date":ces_g.loc[idx,"date"],"canonical_metric_key":"employment","feature_key":ces_features[n],"raw_feature_value":v})
     rf.append({"geo_id":"g","date":dates[-1],"canonical_metric_key":"redfin_inventory","feature_key":"redfin_inventory_level","raw_feature_value":1.0})
     for artifact in ("features", "normalized_features"):
         store.write_dataframe(run_id, artifact, pd.DataFrame(rf), allow_overwrite=True)
