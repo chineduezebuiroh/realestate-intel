@@ -41,15 +41,112 @@ LAUS_EMPLOYMENT_FEATURE_KEYS = {
 }
 EMPLOYMENT_REATTRIBUTION_FEATURE_KEYS = LAUS_EMPLOYMENT_FEATURE_KEYS | CES_EMPLOYMENT_FEATURE_KEYS
 AFFECTED_CANONICAL_LABOR_METRICS = {"employment", "labor_force", "laus_unemployment_rate"}
-ARTIFACTS = {
-    "features": ["geo_id", "date", "canonical_metric_key", "feature_key"],
-    "normalized_features": ["geo_id", "date", "canonical_metric_key", "feature_key"],
-    "metric_scores": ["geo_id", "evaluation_date", "metric_key"],
-    "dimension_scores": ["geo_id", "evaluation_date", "dimension"],
-    "axis_scores": ["geo_id", "evaluation_date", "axis"],
-    "coordinates": ["geo_id", "evaluation_date"],
-    "regime_assignments": ["geo_id", "evaluation_date"],
+ARTIFACT_CONTRACTS: dict[str, dict[str, Any]] = {
+    "source_metrics": {
+        "columns": ["geo_id", "date", "canonical_metric_key", "value", "metric_origin"],
+        "key": ["geo_id", "date", "canonical_metric_key"],
+        "lineage_columns": ["metric_origin"],
+    },
+    "features": {
+        "columns": ["geo_id", "date", "canonical_metric_key", "feature_key", "raw_feature_value"],
+        "key": ["geo_id", "date", "canonical_metric_key", "feature_key"],
+    },
+    "normalized_features": {
+        "columns": [
+            "geo_id",
+            "date",
+            "canonical_metric_key",
+            "feature_key",
+            "source_family",
+            "raw_feature_value",
+            "percentile",
+            "feature_score",
+            "normalization_method",
+            "score_direction",
+            "lookback_periods",
+            "min_periods",
+        ],
+        "key": ["geo_id", "date", "canonical_metric_key", "feature_key"],
+    },
+    "metric_scores": {
+        "columns": [
+            "geo_id",
+            "date",
+            "canonical_metric_key",
+            "metric_score",
+            "feature_count",
+            "feature_weight_sum",
+            "min_feature_score",
+            "max_feature_score",
+        ],
+        "key": ["geo_id", "date", "canonical_metric_key"],
+    },
+    "dimension_scores": {
+        "columns": [
+            "geo_id",
+            "date",
+            "dimension",
+            "dimension_score",
+            "metric_count",
+            "metric_weight_sum",
+            "min_metric_score",
+            "max_metric_score",
+            "max_metric_age_days",
+        ],
+        "key": ["geo_id", "date", "dimension"],
+    },
+    "axis_scores": {
+        "columns": [
+            "geo_id",
+            "date",
+            "axis",
+            "axis_score",
+            "dimension_count",
+            "dimension_weight_sum",
+            "min_dimension_score",
+            "max_dimension_score",
+            "max_dimension_age_days",
+        ],
+        "key": ["geo_id", "date", "axis"],
+    },
+    "coordinates": {
+        "columns": [
+            "geo_id",
+            "date",
+            "x_supply",
+            "y_demand",
+            "radius",
+            "angle_degrees",
+            "axis_count",
+            "min_axis_score",
+            "max_axis_score",
+            "max_axis_age_days",
+        ],
+        "key": ["geo_id", "date"],
+    },
+    "regime_assignments": {
+        "columns": [
+            "geo_id",
+            "date",
+            "regime_type",
+            "major_regime",
+            "minor_regime",
+            "quadrant",
+            "supply_pressure_score",
+            "demand_strength_score",
+            "regime_strength",
+            "angle_degrees",
+            "distance_to_boundary_degrees",
+            "axis_count",
+            "min_axis_score",
+            "max_axis_score",
+            "max_axis_age_days",
+            "regime_engine_version",
+        ],
+        "key": ["geo_id", "date"],
+    },
 }
+COMPARISON_ARTIFACTS = [artifact for artifact in ARTIFACT_CONTRACTS if artifact != "source_metrics"]
 
 
 def _date_col(df: pd.DataFrame) -> str:
@@ -83,6 +180,60 @@ def _check_complete_and_verified(store: RegimeArtifactStore, run_id: str) -> dic
 
 def _read(store: RegimeArtifactStore, run_id: str, artifact: str) -> pd.DataFrame:
     return store.read_dataframe(run_id, artifact)
+
+
+def _preflight_contracts(store: RegimeArtifactStore, run_ids: tuple[str, ...]) -> dict[str, Any]:
+    violations: list[str] = []
+    summary: dict[str, Any] = {}
+    for run_id in run_ids:
+        manifest = store.read_manifest(run_id)
+        manifest_artifacts = manifest.get("artifacts") or {}
+        summary[run_id] = {}
+        for artifact, contract in ARTIFACT_CONTRACTS.items():
+            expected_columns = list(contract["columns"])
+            key = list(contract["key"])
+            if artifact not in manifest_artifacts:
+                violations.append(f"{run_id}.{artifact}: artifact missing from manifest")
+                continue
+            manifest_columns = manifest_artifacts.get(artifact, {}).get("columns")
+            if manifest_columns is not None and list(manifest_columns) != expected_columns:
+                violations.append(
+                    f"{run_id}.{artifact}: manifest columns differ; "
+                    f"expected={expected_columns} actual={list(manifest_columns)}"
+                )
+            try:
+                df = _read(store, run_id, artifact)
+            except Exception as exc:  # report with other defects instead of failing fast
+                violations.append(f"{run_id}.{artifact}: artifact could not be read: {exc}")
+                continue
+            actual_columns = list(df.columns)
+            missing = [c for c in expected_columns if c not in actual_columns]
+            unexpected = [c for c in actual_columns if c not in expected_columns]
+            if missing:
+                violations.append(f"{run_id}.{artifact}: missing expected columns {missing}")
+            if unexpected:
+                violations.append(f"{run_id}.{artifact}: unexpected columns {unexpected}")
+            if actual_columns != expected_columns:
+                violations.append(
+                    f"{run_id}.{artifact}: column order/schema differs; "
+                    f"expected={expected_columns} actual={actual_columns}"
+                )
+            missing_key = [c for c in key if c not in actual_columns]
+            if missing_key:
+                violations.append(f"{run_id}.{artifact}: comparison key missing columns {missing_key}; key={key}")
+            else:
+                duplicate_count = int(df.duplicated(key).sum())
+                if duplicate_count:
+                    examples = df.loc[df.duplicated(key, keep=False), key].head(5).to_dict("records")
+                    violations.append(
+                        f"{run_id}.{artifact}: duplicate comparison keys for key={key}; "
+                        f"duplicate_rows={duplicate_count}; examples={examples}"
+                    )
+            summary[run_id][artifact] = {"rows": int(len(df)), "columns": actual_columns, "comparison_key": key}
+    if violations:
+        joined = "\n".join(f"- {v}" for v in violations)
+        raise AssertionError(f"Preflight schema contract violations ({len(violations)}):\n{joined}")
+    return summary
 
 
 def _bool_array(mask: pd.Series) -> np.ndarray:
@@ -347,6 +498,7 @@ def _manifest_checks(manifest: dict[str, Any]) -> dict[str, Any]:
 
 def run(store: RegimeArtifactStore, output_dir: Path = OUTPUT_DIR) -> dict[str, Any]:
     summary: dict[str, Any] = {"incumbent_run": INCUMBENT_RUN_ID, "candidate_run": CANDIDATE_RUN_ID, "checks": {}}
+    summary["checks"]["preflight_schema_contracts"] = _preflight_contracts(store, (INCUMBENT_RUN_ID, CANDIDATE_RUN_ID))
     summary["checks"]["incumbent_manifest"] = _check_complete_and_verified(store, INCUMBENT_RUN_ID)
     summary["checks"]["candidate_manifest"] = _check_complete_and_verified(store, CANDIDATE_RUN_ID)
     summary["checks"]["candidate_manifest_policy"] = _manifest_checks(store.read_manifest(CANDIDATE_RUN_ID))
@@ -360,7 +512,8 @@ def run(store: RegimeArtifactStore, output_dir: Path = OUTPUT_DIR) -> dict[str, 
 
     reports = {"employment_source_reattribution": _employment_source_reattribution_report(store)}
     exact = {}
-    for artifact, keys in ARTIFACTS.items():
+    for artifact in COMPARISON_ARTIFACTS:
+        keys = list(ARTIFACT_CONTRACTS[artifact]["key"])
         inc, cand = _read(store, INCUMBENT_RUN_ID, artifact), _read(store, CANDIDATE_RUN_ID, artifact)
         if artifact in {"features", "normalized_features"}:
             inc_exact, cand_exact = inc[~inc["canonical_metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)], cand[~cand["canonical_metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)]
@@ -374,10 +527,10 @@ def run(store: RegimeArtifactStore, output_dir: Path = OUTPUT_DIR) -> dict[str, 
                 "candidate_rows": int(len(cand_exact)),
             }
         elif artifact == "metric_scores":
-            inc_exact, cand_exact = inc[~inc["metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)], cand[~cand["metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)]
+            inc_exact, cand_exact = inc[~inc["canonical_metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)], cand[~cand["canonical_metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)]
             reports["affected_metric_score_rows_changed"] = _diff_count(
-                inc[inc["metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)],
-                cand[cand["metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)],
+                inc[inc["canonical_metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)],
+                cand[cand["canonical_metric_key"].isin(AFFECTED_CANONICAL_LABOR_METRICS)],
                 keys,
             )
         elif artifact == "dimension_scores":
@@ -444,18 +597,10 @@ def _write_fixture_run(store: RegimeArtifactStore, run_id: str, candidate: bool)
                 "value": 200.0,
                 "metric_origin": "ces_total_nonfarm",
             },
-            {
-                "geo_id": "null_metric_origin_g",
-                "date": dates[-1],
-                "canonical_metric_key": "employment",
-                "source_metric_key": "ces_total_nonfarm",
-                "value": 201.0,
-                "metric_origin": pd.NA,
-            },
         ]
     )
     src = pd.DataFrame(source_rows)
-    store.write_dataframe(run_id, "source_metrics", src, allow_overwrite=True)
+    store.write_dataframe(run_id, "source_metrics", src[["geo_id", "date", "canonical_metric_key", "value", "metric_origin"]], allow_overwrite=True)
     rf = []
     for m in LAUS_METRICS:
         canonical_metric_key = LAUS_CANONICAL_METRIC_KEYS[m]
@@ -470,22 +615,57 @@ def _write_fixture_run(store: RegimeArtifactStore, run_id: str, candidate: bool)
         for idx, v in s.dropna().items():
             rf.append({"geo_id":"ces_g","date":ces_g.loc[idx,"date"],"canonical_metric_key":"employment","feature_key":ces_features[n],"raw_feature_value":v})
     rf.append({"geo_id":"g","date":dates[-1],"canonical_metric_key":"redfin_inventory","feature_key":"redfin_inventory_level","raw_feature_value":1.0})
-    for artifact in ("features", "normalized_features"):
-        store.write_dataframe(run_id, artifact, pd.DataFrame(rf), allow_overwrite=True)
-    for artifact, cols, row in [
-        ("metric_scores", ["geo_id","evaluation_date","metric_key","metric_score"], ["g",dates[-1],"redfin_inventory",1.0]),
-        ("dimension_scores", ["geo_id","evaluation_date","dimension","dimension_score"], ["g",dates[-1],"supply",1.0]),
-        ("axis_scores", ["geo_id","evaluation_date","axis","axis_score"], ["g",dates[-1],"supply",1.0]),
-        ("coordinates", ["geo_id","evaluation_date","x","y"], ["g",dates[-1],1.0,2.0]),
-        ("regime_assignments", ["geo_id","evaluation_date","regime"], ["g",dates[-1],"expansion"]),
-    ]: store.write_dataframe(run_id, artifact, pd.DataFrame([row], columns=cols), allow_overwrite=True)
+    features_df = pd.DataFrame(rf, columns=ARTIFACT_CONTRACTS["features"]["columns"])
+    store.write_dataframe(run_id, "features", features_df, allow_overwrite=True)
+    normalized_df = features_df.copy()
+    normalized_df["source_family"] = normalized_df["feature_key"].astype("string").str.split("_").str[0]
+    normalized_df["percentile"] = 0.5
+    normalized_df["feature_score"] = 0.0
+    normalized_df["normalization_method"] = "expanding_percentile"
+    normalized_df["score_direction"] = "positive"
+    normalized_df["lookback_periods"] = "120"
+    normalized_df["min_periods"] = "36"
+    normalized_df = normalized_df[ARTIFACT_CONTRACTS["normalized_features"]["columns"]]
+    store.write_dataframe(run_id, "normalized_features", normalized_df, allow_overwrite=True)
+    fixture_frames = {
+        "metric_scores": pd.DataFrame([{
+            "geo_id": "g", "date": dates[-1], "canonical_metric_key": "active_inventory",
+            "metric_score": 1.0, "feature_count": 1, "feature_weight_sum": 0.25,
+            "min_feature_score": 1.0, "max_feature_score": 1.0,
+        }]),
+        "dimension_scores": pd.DataFrame([{
+            "geo_id": "g", "date": dates[-1], "dimension": "supply", "dimension_score": 1.0,
+            "metric_count": 1, "metric_weight_sum": 0.5, "min_metric_score": 1.0,
+            "max_metric_score": 1.0, "max_metric_age_days": 0,
+        }]),
+        "axis_scores": pd.DataFrame([{
+            "geo_id": "g", "date": dates[-1], "axis": "supply", "axis_score": 1.0,
+            "dimension_count": 1, "dimension_weight_sum": 0.35, "min_dimension_score": 1.0,
+            "max_dimension_score": 1.0, "max_dimension_age_days": 0,
+        }]),
+        "coordinates": pd.DataFrame([{
+            "geo_id": "g", "date": dates[-1], "x_supply": 1.0, "y_demand": 2.0,
+            "radius": 2.2360679775, "angle_degrees": 63.4349488229, "axis_count": 2,
+            "min_axis_score": 1.0, "max_axis_score": 2.0, "max_axis_age_days": 0,
+        }]),
+        "regime_assignments": pd.DataFrame([{
+            "geo_id": "g", "date": dates[-1], "regime_type": "macro", "major_regime": "expansion",
+            "minor_regime": "late_expansion", "quadrant": 1, "supply_pressure_score": 1.0,
+            "demand_strength_score": 2.0, "regime_strength": 2.2360679775,
+            "angle_degrees": 63.4349488229, "distance_to_boundary_degrees": 18.4349488229,
+            "axis_count": 2, "min_axis_score": 1.0, "max_axis_score": 2.0,
+            "max_axis_age_days": 0, "regime_engine_version": "C4.2e_v1",
+        }]),
+    }
+    for artifact, df in fixture_frames.items():
+        store.write_dataframe(run_id, artifact, df[ARTIFACT_CONTRACTS[artifact]["columns"]], allow_overwrite=True)
     for artifact, column, value_column in [
         ("dimension_scores", "dimension", "dimension_score"),
         ("axis_scores", "axis", "axis_score"),
     ]:
         df = store.read_dataframe(run_id, artifact)
         df = pd.concat(
-            [df, pd.DataFrame([{"geo_id": "g", "evaluation_date": dates[-1], column: "demand", value_column: 2.0 if candidate else 1.5}])],
+            [df, pd.DataFrame([{**{c: 0 for c in df.columns}, "geo_id": "g", "date": dates[-1], column: "demand", value_column: 2.0 if candidate else 1.5}])],
             ignore_index=True,
         )
         store.write_dataframe(run_id, artifact, df, allow_overwrite=True)
@@ -508,7 +688,6 @@ def _fixture_assert_unknown_origin_failure(output_dir: Path) -> None:
                             "geo_id": "unknown_origin_g",
                             "date": pd.Timestamp("2020-01-01"),
                             "canonical_metric_key": "employment",
-                            "source_metric_key": pd.NA,
                             "value": 999.0,
                             "metric_origin": pd.NA,
                         }
@@ -522,11 +701,49 @@ def _fixture_assert_unknown_origin_failure(output_dir: Path) -> None:
             _employment_source_origin_checks(store)
         except AssertionError as exc:
             message = str(exc)
-            required = ["unknown origins", "unknown_origin_g", "source_metric_key", "metric_origin", "canonical_metric_key"]
+            required = ["unknown origins", "unknown_origin_g", "metric_origin", "canonical_metric_key"]
             if not all(token in message for token in required):
                 raise AssertionError(f"unknown-origin fixture failure omitted representative lineage details: {message}") from exc
         else:
             raise AssertionError("unknown-origin fixture did not fail explicitly")
+    finally:
+        shutil.rmtree(tmp)
+
+
+def _fixture_assert_preflight_aggregation_failure(output_dir: Path) -> None:
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        store = RegimeArtifactStore(tmp)
+        _write_fixture_run(store, INCUMBENT_RUN_ID, False)
+        _write_fixture_run(store, CANDIDATE_RUN_ID, True)
+
+        features = store.read_dataframe(CANDIDATE_RUN_ID, "features")
+        features = features.drop(columns=["raw_feature_value"])
+        features["unexpected_fixture_column"] = "bad"
+        store.write_dataframe(CANDIDATE_RUN_ID, "features", features, allow_overwrite=True)
+
+        metric_scores = store.read_dataframe(CANDIDATE_RUN_ID, "metric_scores")
+        metric_scores = pd.concat([metric_scores, metric_scores.head(1)], ignore_index=True)
+        store.write_dataframe(CANDIDATE_RUN_ID, "metric_scores", metric_scores, allow_overwrite=True)
+
+        axis_scores = store.read_dataframe(CANDIDATE_RUN_ID, "axis_scores").drop(columns=["axis"])
+        store.write_dataframe(CANDIDATE_RUN_ID, "axis_scores", axis_scores, allow_overwrite=True)
+
+        try:
+            _preflight_contracts(store, (INCUMBENT_RUN_ID, CANDIDATE_RUN_ID))
+        except AssertionError as exc:
+            message = str(exc)
+            required = [
+                "Preflight schema contract violations",
+                "features: missing expected columns ['raw_feature_value']",
+                "features: unexpected columns ['unexpected_fixture_column']",
+                "metric_scores: duplicate comparison keys",
+                "axis_scores: comparison key missing columns ['axis']",
+            ]
+            if not all(token in message for token in required):
+                raise AssertionError(f"preflight aggregation fixture omitted expected defects: {message}") from exc
+        else:
+            raise AssertionError("preflight aggregation fixture did not fail explicitly")
     finally:
         shutil.rmtree(tmp)
 
@@ -544,6 +761,7 @@ def main() -> int:
             _write_fixture_run(store, INCUMBENT_RUN_ID, False); _write_fixture_run(store, CANDIDATE_RUN_ID, True)
             run(store, Path(args.output_dir))
             _fixture_assert_unknown_origin_failure(Path(args.output_dir))
+            _fixture_assert_preflight_aggregation_failure(Path(args.output_dir))
         finally:
             shutil.rmtree(tmp)
     else:
