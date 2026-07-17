@@ -209,6 +209,7 @@ Production closeout
 - implementation is complete;
 - immutable production run creation is complete;
 - immutable acceptance validation is complete;
+- Acceptance smoke test executed successfully against immutable production run macro_regime_v1_bps120_laus_ma6 on 2026-07-16;
 - the LAUS MA6 transform is frozen as the production policy;
 - future changes require a new Production Readiness Challenge.
 
