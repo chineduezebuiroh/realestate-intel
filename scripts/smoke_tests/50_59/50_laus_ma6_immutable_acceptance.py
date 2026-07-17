@@ -85,6 +85,10 @@ def _read(store: RegimeArtifactStore, run_id: str, artifact: str) -> pd.DataFram
     return store.read_dataframe(run_id, artifact)
 
 
+def _bool_array(mask: pd.Series) -> np.ndarray:
+    return mask.fillna(False).astype(bool).to_numpy(dtype=bool)
+
+
 def _source_lineage(source: pd.DataFrame, physical_metric_key: str) -> pd.Series:
     masks = []
     for column in ("source_metric_key", "metric_origin"):
@@ -164,22 +168,34 @@ def _employment_source_origin_checks(store: RegimeArtifactStore) -> dict[str, An
     employment_source = source[source["canonical_metric_key"].astype("string").eq("employment")].copy()
     if employment_source.empty:
         raise AssertionError("candidate source_metrics has no canonical employment rows")
-    origin_col = None
-    for column in ("source_metric_key", "metric_origin"):
-        if column in employment_source.columns:
-            origin_col = column
-            break
-    if origin_col is None:
+    if not {"source_metric_key", "metric_origin"} & set(employment_source.columns):
         raise AssertionError("candidate source_metrics has no source_metric_key or metric_origin lineage column")
-    employment_source["origin_family"] = np.select(
-        [
-            employment_source[origin_col].astype("string").eq("ces_total_nonfarm"),
-            employment_source[origin_col].astype("string").eq("laus_employment"),
-        ],
-        ["ces", "laus"],
-        default="other",
+    source_key = (
+        employment_source.get("source_metric_key", pd.Series(pd.NA, index=employment_source.index))
+        .astype("string")
+        .str.strip()
     )
-    employment_source = employment_source[employment_source["origin_family"].isin(["ces", "laus"])]
+    metric_origin = (
+        employment_source.get("metric_origin", pd.Series(pd.NA, index=employment_source.index))
+        .astype("string")
+        .str.strip()
+    )
+    ces_mask = source_key.eq("ces_total_nonfarm").fillna(False) | metric_origin.eq("ces_total_nonfarm").fillna(False)
+    laus_mask = source_key.eq("laus_employment").fillna(False) | metric_origin.eq("laus_employment").fillna(False)
+    employment_source["origin_family"] = np.select(
+        [_bool_array(ces_mask), _bool_array(laus_mask)],
+        ["ces", "laus"],
+        default="unknown",
+    )
+    unknown = employment_source[employment_source["origin_family"].eq("unknown")]
+    if not unknown.empty:
+        columns = [
+            c
+            for c in ("geo_id", "date", "source_metric_key", "metric_origin", "canonical_metric_key")
+            if c in unknown.columns
+        ]
+        examples = unknown[columns].head(10).to_dict("records")
+        raise AssertionError(f"candidate canonical employment source lineage has unknown origins: {examples}")
     if not set(employment_source["origin_family"]) >= {"ces", "laus"}:
         raise AssertionError("candidate canonical employment source lineage must include both CES and LAUS origins")
     source_keys = ["geo_id", "date", "canonical_metric_key"]
@@ -418,6 +434,26 @@ def _write_fixture_run(store: RegimeArtifactStore, run_id: str, candidate: bool)
         }
         for i, d in enumerate(dates)
     )
+    source_rows.extend(
+        [
+            {
+                "geo_id": "null_source_metric_key_g",
+                "date": dates[-1],
+                "canonical_metric_key": "employment",
+                "source_metric_key": pd.NA,
+                "value": 200.0,
+                "metric_origin": "ces_total_nonfarm",
+            },
+            {
+                "geo_id": "null_metric_origin_g",
+                "date": dates[-1],
+                "canonical_metric_key": "employment",
+                "source_metric_key": "ces_total_nonfarm",
+                "value": 201.0,
+                "metric_origin": pd.NA,
+            },
+        ]
+    )
     src = pd.DataFrame(source_rows)
     store.write_dataframe(run_id, "source_metrics", src, allow_overwrite=True)
     rf = []
@@ -456,6 +492,45 @@ def _write_fixture_run(store: RegimeArtifactStore, run_id: str, candidate: bool)
     store.update_manifest(run_id, status="complete")
 
 
+def _fixture_assert_unknown_origin_failure(output_dir: Path) -> None:
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        store = RegimeArtifactStore(tmp)
+        _write_fixture_run(store, INCUMBENT_RUN_ID, False)
+        _write_fixture_run(store, CANDIDATE_RUN_ID, True)
+        source = store.read_dataframe(CANDIDATE_RUN_ID, "source_metrics")
+        source = pd.concat(
+            [
+                source,
+                pd.DataFrame(
+                    [
+                        {
+                            "geo_id": "unknown_origin_g",
+                            "date": pd.Timestamp("2020-01-01"),
+                            "canonical_metric_key": "employment",
+                            "source_metric_key": pd.NA,
+                            "value": 999.0,
+                            "metric_origin": pd.NA,
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
+        store.write_dataframe(CANDIDATE_RUN_ID, "source_metrics", source, allow_overwrite=True)
+        try:
+            _employment_source_origin_checks(store)
+        except AssertionError as exc:
+            message = str(exc)
+            required = ["unknown origins", "unknown_origin_g", "source_metric_key", "metric_origin", "canonical_metric_key"]
+            if not all(token in message for token in required):
+                raise AssertionError(f"unknown-origin fixture failure omitted representative lineage details: {message}") from exc
+        else:
+            raise AssertionError("unknown-origin fixture did not fail explicitly")
+    finally:
+        shutil.rmtree(tmp)
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--artifact-root", default=str(DEFAULT_ARTIFACT_ROOT))
@@ -468,6 +543,7 @@ def main() -> int:
             store = RegimeArtifactStore(tmp)
             _write_fixture_run(store, INCUMBENT_RUN_ID, False); _write_fixture_run(store, CANDIDATE_RUN_ID, True)
             run(store, Path(args.output_dir))
+            _fixture_assert_unknown_origin_failure(Path(args.output_dir))
         finally:
             shutil.rmtree(tmp)
     else:
