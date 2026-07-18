@@ -266,3 +266,89 @@ Pending
 Combined Policy
 
 Pending
+
+---
+
+# Price / Affordability PRC — Phase 1
+
+Candidate
+
+Linked Price Family MA12 Structural
+
+Preferred candidate ID
+
+`price_family_ma12_structural_linked`
+
+Legacy implementation ID retained for compatibility
+
+`price_family_ma12_momentum_lag3`
+
+Implementation status
+
+PHASE 1 COMPLETE — structural contract diagnostics only
+
+Phase 1 scope completed
+
+- validated the linked structural feature contract for `median_sale_price`, `median_ppsf`, `price_to_income`, and `payment_burden`;
+- validated full-window MA12 behavior with no partial-window level values;
+- validated same-state lag3 and lag12 feature formulas;
+- validated linked derived recomputation from substituted MA12 `median_sale_price`;
+- validated preservation of `median_household_income` and `mortgage_30y` inputs;
+- validated derived lineage, exact component membership, component ages, duplicate-key protection, finite outputs, deterministic reruns, and row-level reproducibility examples;
+- validated preferred-vs-legacy candidate identifier parity for comparable outputs;
+- validated perturbation isolation for unrelated geographies and unrelated metrics;
+- validated lazy public exports for the experiments package after the lazy-import change;
+- wrote deterministic Phase 1 diagnostic artifacts.
+
+Phase 1 smoke tests
+
+- `scripts/smoke_tests/50_59/51_price_family_ma12_feature_contract.py`
+- `scripts/smoke_tests/50_59/52_price_family_linked_derived_recalculation.py`
+
+Phase 1 artifact locations
+
+- `artifacts/regime/comparisons/price_family_ma12_structural_linked/phase1_feature_contract/`
+- `artifacts/regime/comparisons/price_family_ma12_structural_linked/phase1_linked_recalculation/`
+
+Formulas validated
+
+For `median_sale_price` and `median_ppsf`:
+
+```text
+level = full-window trailing MA12(raw value)
+short = level / lag3(level) - 1
+long  = level / lag12(level) - 1
+```
+
+For `price_to_income`:
+
+```text
+level = substituted MA12 median_sale_price / preserved median_household_income
+short = level / lag3(level) - 1
+long  = level / lag12(level) - 1
+```
+
+For `payment_burden`:
+
+```text
+level = canonical mortgage payment from substituted MA12 median_sale_price,
+        preserved median_household_income, and preserved mortgage_30y
+short = level / lag3(level) - 1
+long  = level / lag12(level) - 1
+```
+
+Remaining PRC phases
+
+- isolation audit;
+- economic responsiveness diagnostics;
+- stability and seasonality diagnostics;
+- chronology review;
+- visual review packet;
+- PRC scoring;
+- immutable challenger run creation;
+- immutable acceptance validation;
+- registry promotion decision.
+
+Production status
+
+No production registry promotion occurred. No immutable challenger run was created. The candidate remains experimental until the remaining PRC phases are completed and accepted.

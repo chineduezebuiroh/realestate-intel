@@ -1,0 +1,20 @@
+{
+  "candidate_id": "price_family_ma12_structural_linked",
+  "deterministic_rerun": true,
+  "duplicate_protection": "Price-family input is not unique by geo/date/metric:",
+  "feature_rows": 588,
+  "finite_structural_levels": true,
+  "full_window_ma12": true,
+  "lazy_public_exports_resolved": true,
+  "legacy_identifier": "price_family_ma12_momentum_lag3",
+  "legacy_identifier_parity_validated": true,
+  "non_finite_valid_outputs": 0,
+  "perturbation_changed_reachable_metric_counts": {
+    "median_sale_price": 38,
+    "payment_burden": 38,
+    "price_to_income": 38
+  },
+  "perturbation_changed_reachable_rows": 114,
+  "positive_reachable_perturbation_propagation_validated": true,
+  "source_rows": 156
+}

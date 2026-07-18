@@ -1,0 +1,6 @@
+derived_metric_key,component_metric_key,rows,carried_forward_rows,max_age_days
+payment_burden,median_household_income,38,34,335
+payment_burden,median_sale_price,38,0,0
+payment_burden,mortgage_30y,38,0,0
+price_to_income,median_household_income,38,34,335
+price_to_income,median_sale_price,38,0,0

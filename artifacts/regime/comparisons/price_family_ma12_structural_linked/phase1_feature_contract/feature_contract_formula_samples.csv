@@ -1,0 +1,5 @@
+geo_id,metric,first_level_date
+geo_alpha,median_sale_price,2020-12-31
+geo_alpha,median_ppsf,2020-12-31
+geo_beta,median_sale_price,2020-12-31
+geo_beta,median_ppsf,2020-12-31

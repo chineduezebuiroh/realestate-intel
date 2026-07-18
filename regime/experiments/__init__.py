@@ -1,21 +1,9 @@
-from regime.experiments.smoothing_features import (
-    build_smoothed_metric_features,
-    build_smoothed_metric_features_wide,
-)
-from regime.experiments.smoothing_policy import (
-    DEFAULT_SMOOTHING_EXPERIMENT_REGISTRY,
-    SmoothingExperiment,
-    SmoothingMetricPolicy,
-    load_smoothing_experiments,
-)
-from regime.experiments.active_inventory_comparison import build_active_inventory_comparison
-from regime.experiments.metric_normalization_stability import build_metric_normalization_stability_audit
-from regime.experiments.smoothing_run import apply_smoothing_experiment
-from regime.experiments.inventory_finalist_comparison import build_inventory_finalist_comparison
-from regime.experiments.inventory_chronological_review import (
-    build_inventory_chronological_review,
-    write_inventory_chronological_review,
-)
+"""Experiment helpers exposed with lazy imports.
+
+The package contains optional diagnostic modules that may require plotting
+libraries. Keep package import lightweight so non-visual smoke tests can run in
+minimal environments.
+"""
 
 __all__ = [
     "DEFAULT_SMOOTHING_EXPERIMENT_REGISTRY",
@@ -31,3 +19,28 @@ __all__ = [
     "build_inventory_chronological_review",
     "write_inventory_chronological_review",
 ]
+
+_EXPORTS = {
+    "build_smoothed_metric_features": ("regime.experiments.smoothing_features", "build_smoothed_metric_features"),
+    "build_smoothed_metric_features_wide": ("regime.experiments.smoothing_features", "build_smoothed_metric_features_wide"),
+    "DEFAULT_SMOOTHING_EXPERIMENT_REGISTRY": ("regime.experiments.smoothing_policy", "DEFAULT_SMOOTHING_EXPERIMENT_REGISTRY"),
+    "SmoothingExperiment": ("regime.experiments.smoothing_policy", "SmoothingExperiment"),
+    "SmoothingMetricPolicy": ("regime.experiments.smoothing_policy", "SmoothingMetricPolicy"),
+    "load_smoothing_experiments": ("regime.experiments.smoothing_policy", "load_smoothing_experiments"),
+    "build_active_inventory_comparison": ("regime.experiments.active_inventory_comparison", "build_active_inventory_comparison"),
+    "build_metric_normalization_stability_audit": ("regime.experiments.metric_normalization_stability", "build_metric_normalization_stability_audit"),
+    "apply_smoothing_experiment": ("regime.experiments.smoothing_run", "apply_smoothing_experiment"),
+    "build_inventory_finalist_comparison": ("regime.experiments.inventory_finalist_comparison", "build_inventory_finalist_comparison"),
+    "build_inventory_chronological_review": ("regime.experiments.inventory_chronological_review", "build_inventory_chronological_review"),
+    "write_inventory_chronological_review": ("regime.experiments.inventory_chronological_review", "write_inventory_chronological_review"),
+}
+
+
+def __getattr__(name: str):
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attr_name = _EXPORTS[name]
+    module = __import__(module_name, fromlist=[attr_name])
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
