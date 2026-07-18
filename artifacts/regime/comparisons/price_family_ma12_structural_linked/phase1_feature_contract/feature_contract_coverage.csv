@@ -1,0 +1,13 @@
+canonical_metric_key,feature_component,rows,valid_rows,first_valid_date
+median_ppsf,level,60,38,2020-12-31
+median_ppsf,long,60,14,2021-12-31
+median_ppsf,short,60,32,2021-03-31
+median_sale_price,level,60,38,2020-12-31
+median_sale_price,long,60,14,2021-12-31
+median_sale_price,short,60,32,2021-03-31
+payment_burden,level,38,38,2020-12-31
+payment_burden,long,38,14,2021-12-31
+payment_burden,short,38,32,2021-03-31
+price_to_income,level,38,38,2020-12-31
+price_to_income,long,38,14,2021-12-31
+price_to_income,short,38,32,2021-03-31
