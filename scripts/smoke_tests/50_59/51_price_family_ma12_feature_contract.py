@@ -30,7 +30,7 @@ DERIVED_METRICS = ("price_to_income", "payment_burden")
 
 
 def _build_fixture() -> pd.DataFrame:
-    dates = pd.date_range("2020-01-31", periods=30, freq="ME")
+    dates = pd.date_range("2020-01-31", periods=30, freq="M")
     rows: list[dict[str, object]] = []
     for geo_index, geo_id in enumerate(("geo_alpha", "geo_beta")):
         for index, date in enumerate(dates):
