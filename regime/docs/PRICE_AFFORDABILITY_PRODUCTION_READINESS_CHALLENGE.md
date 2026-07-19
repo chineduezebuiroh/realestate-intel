@@ -913,6 +913,47 @@ Required checks:
 - intended target downstream changes are reported.
 - writes acceptance summary JSON.
 
+## Implementation Status
+
+### Phase 1 — Feature Contract and Linked Derived Recalculation
+
+Status: Complete and locally validated
+
+Merged to `main`: 2026-07-18
+
+Implemented:
+
+- linked MA12 structural feature-contract validation;
+- preferred and legacy experiment identifier parity;
+- linked `price_to_income` recalculation;
+- linked `payment_burden` recalculation;
+- complete derived-component lineage validation;
+- perturbation propagation and isolation validation;
+- deterministic artifact generation;
+- lazy-import regression coverage.
+
+Validation completed:
+
+- `51_price_family_ma12_feature_contract.py`
+- `52_price_family_linked_derived_recalculation.py`
+- `41_linked_price_family_comparison.py`
+- `40_linked_price_family_features.py`
+- `39_linked_price_family_recalculation.py`
+- `21_derived_input_lineage.py`
+- targeted `py_compile`
+
+Outcome:
+
+- all tests passed locally;
+- no unexpected tracked-file changes;
+- non-target comparison scopes exact-matched baseline;
+- Phase 1 approved and merged.
+
+Compatibility note:
+
+- fixture month-end dates use `freq="M"` for compatibility with the
+  repository’s supported pandas environment rather than the newer `"ME"` alias.
+  
 ---
 
 # Recommended PRC Decision Flow
