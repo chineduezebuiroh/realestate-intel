@@ -141,7 +141,6 @@ def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame]) -> None:
         )
 
 
-
 def _assert_raw_structural_pairing(path: Path) -> None:
     feature = pd.read_csv(path / "feature_stability_summary.csv")
     seasonality = pd.read_csv(path / "seasonality_summary.csv")
@@ -155,23 +154,46 @@ def _assert_raw_structural_pairing(path: Path) -> None:
         & feature["canonical_metric_key"].isin(expected_metrics)
         & feature["geo_id"].isin(expected_geos)
     ].copy()
+
+    expected_pairs = {
+        (geo_id, metric)
+        for geo_id in expected_geos
+        for metric in expected_metrics
+    }
+
+    observed_feature_pairs = set(
+        raw_feature[["geo_id", "canonical_metric_key"]]
+        .itertuples(index=False, name=None)
+    )
+    missing_feature_pairs = expected_pairs - observed_feature_pairs
+    if missing_feature_pairs:
+        raise AssertionError(
+            "feature_stability_summary.csv: missing expected structural MA12 "
+            f"feature pairs: {sorted(missing_feature_pairs)}"
+        )
+
     for row in raw_feature.itertuples(index=False):
-        if pd.notna(row.overlap_rows) and row.overlap_rows > 0:
-            if pd.isna(row.mean_absolute_baseline_challenger_difference):
-                raise AssertionError(
-                    "feature_stability_summary.csv: raw/structural mean absolute "
-                    f"difference missing for geography={row.geo_id} metric={row.canonical_metric_key}"
-                )
-        if pd.notna(row.overlap_rows) and row.overlap_rows >= 2:
-            if pd.isna(row.baseline_challenger_correlation):
-                raise AssertionError(
-                    "feature_stability_summary.csv: raw/structural correlation missing "
-                    f"for geography={row.geo_id} metric={row.canonical_metric_key}"
-                )
-        if pd.notna(row.overlap_rows) and row.overlap_rows <= 0:
+        if pd.isna(row.overlap_rows) or row.overlap_rows <= 0:
             raise AssertionError(
-                "feature_stability_summary.csv: expected positive raw/structural overlap "
-                f"for geography={row.geo_id} metric={row.canonical_metric_key}"
+                "feature_stability_summary.csv: expected positive raw/structural "
+                f"overlap for geography={row.geo_id} "
+                f"metric={row.canonical_metric_key}"
+            )
+
+        if pd.isna(row.mean_absolute_baseline_challenger_difference):
+            raise AssertionError(
+                "feature_stability_summary.csv: raw/structural mean absolute "
+                f"difference missing for geography={row.geo_id} "
+                f"metric={row.canonical_metric_key}"
+            )
+
+        if row.overlap_rows >= 2 and pd.isna(
+            row.baseline_challenger_correlation
+        ):
+            raise AssertionError(
+                "feature_stability_summary.csv: raw/structural correlation missing "
+                f"for geography={row.geo_id} "
+                f"metric={row.canonical_metric_key}"
             )
 
     structural_seasonality = seasonality[
@@ -183,6 +205,18 @@ def _assert_raw_structural_pairing(path: Path) -> None:
         & seasonality["canonical_metric_key"].isin(expected_metrics)
         & seasonality["geo_id"].isin(expected_geos)
     ].copy()
+
+    observed_seasonality_pairs = set(
+        structural_seasonality[["geo_id", "canonical_metric_key"]]
+        .itertuples(index=False, name=None)
+    )
+    missing_seasonality_pairs = expected_pairs - observed_seasonality_pairs
+    if missing_seasonality_pairs:
+        raise AssertionError(
+            "seasonality_summary.csv: missing expected structural MA12 "
+            f"seasonality pairs: {sorted(missing_seasonality_pairs)}"
+        )
+        
     for row in structural_seasonality.itertuples(index=False):
         if pd.notna(row.baseline_seasonal_spread):
             if row.baseline_seasonal_spread != 0 and pd.isna(row.seasonal_spread_ratio_challenger_vs_baseline):
