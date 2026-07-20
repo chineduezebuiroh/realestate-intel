@@ -20,6 +20,7 @@ from regime.experiments.price_family_phase2_diagnostics import (
     CHRONOLOGY_DIR,
     PRODUCTION_CANDIDATE_ID,
     _chronology_flags,
+    _turning_lag,
     build_phase2_chronology,
 )
 
@@ -41,7 +42,20 @@ REQUIRED_NUMERIC = {
         "signed_lag_months",
         "absolute_lag_months",
         "median_absolute_lag_months_by_series",
+        "p90_absolute_lag_months_by_series",
         "maximum_absolute_lag_months_by_series",
+        "baseline_meaningful_turn_count",
+        "challenger_meaningful_turn_count",
+        "matched_turn_count",
+        "baseline_unmatched_turn_count",
+        "challenger_unmatched_turn_count",
+        "matched_turn_share",
+        "turn_prominence_minimum",
+        "turn_minimum_separation_months",
+        "turn_prominence_window_months",
+        "turn_prominence_min_side_observations",
+        "turn_prominence_min_side_coverage_months",
+        "turn_max_match_window_months",
     ],
     "affordability_shock_summary.csv": [
         "aligned_observation_count",
@@ -139,6 +153,174 @@ def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame]) -> None:
 
 
 
+
+def _synthetic_monthly(
+    values: list[float],
+    challenger: list[float],
+    series_key: str = "synthetic",
+    dates: pd.DatetimeIndex | None = None,
+) -> pd.DataFrame:
+    if dates is None:
+        dates = pd.date_range("2020-01-31", periods=len(values), freq="M")
+    return pd.DataFrame(
+        {
+            "geo_id": "geo_synth",
+            "series_type": "metric_score",
+            "series_key": series_key,
+            "date": dates,
+            "baseline_metric_score": values,
+            "challenger_metric_score": challenger,
+        }
+    )
+
+
+def _spike(length: int, index: int, magnitude: float = 2.0) -> list[float]:
+    values = [0.0] * length
+    values[index - 1] = magnitude / 2
+    values[index] = magnitude
+    values[index + 1] = magnitude / 2
+    return values
+
+
+def _run_synthetic_turning_point_validation() -> None:
+    sparse_dates = pd.DatetimeIndex(
+        pd.to_datetime(
+            [
+                "2020-01-31",
+                "2020-04-30",
+                "2020-07-31",
+                "2020-10-31",
+                "2021-01-31",
+                "2021-04-30",
+                "2021-07-31",
+                "2021-10-31",
+                "2022-01-31",
+                "2022-04-30",
+                "2022-07-31",
+                "2022-10-31",
+                "2023-01-31",
+            ]
+        )
+    )
+    sparse_values = [
+        0.0,
+        0.05,
+        0.10,
+        0.16,
+        0.22,
+        0.27,
+        0.30,
+        0.27,
+        0.22,
+        0.16,
+        0.10,
+        0.05,
+        0.0,
+    ]
+    lag = _turning_lag(
+        _synthetic_monthly(
+            sparse_values,
+            sparse_values,
+            "sparse_not_six_calendar_months",
+            dates=sparse_dates,
+        ),
+        {},
+    )
+    if not lag.empty:
+        raise AssertionError("sparse observations masqueraded as a six-month prominence window")
+
+    valid_missing_dates = pd.DatetimeIndex(
+        pd.to_datetime(
+            [
+                "2020-01-31",
+                "2020-02-29",
+                "2020-03-31",
+                "2020-05-31",
+                "2020-06-30",
+                "2020-07-31",
+                "2020-08-31",
+                "2020-09-30",
+                "2020-11-30",
+                "2020-12-31",
+                "2021-01-31",
+            ]
+        )
+    )
+    valid_missing_values = [0.0, 0.05, 0.10, 0.18, 0.24, 0.30, 0.24, 0.18, 0.10, 0.05, 0.0]
+    lag = _turning_lag(
+        _synthetic_monthly(
+            valid_missing_values,
+            valid_missing_values,
+            "valid_missing_months",
+            dates=valid_missing_dates,
+        ),
+        {},
+    )
+    if len(lag[lag["direction"].eq("peak")]) != 1:
+        raise AssertionError("valid rounded turn with missing intermediate months was not detected")
+
+    rounded_peak = [0.0] * 18
+    for offset, value in enumerate([0.0, 0.05, 0.10, 0.16, 0.22, 0.27, 0.30, 0.27, 0.22, 0.16, 0.10, 0.05, 0.0], start=2):
+        rounded_peak[offset] = value
+    lag = _turning_lag(_synthetic_monthly(rounded_peak, rounded_peak, "rounded_peak"), {})
+    peaks = lag[lag["direction"].eq("peak")]
+    if len(peaks) != 1 or not bool(peaks.iloc[0]["matched"]):
+        raise AssertionError("broad rounded peak was not detected by window prominence")
+
+    rounded_trough = [-value for value in rounded_peak]
+    lag = _turning_lag(_synthetic_monthly(rounded_trough, rounded_trough, "rounded_trough"), {})
+    troughs = lag[lag["direction"].eq("trough")]
+    if len(troughs) != 1 or not bool(troughs.iloc[0]["matched"]):
+        raise AssertionError("broad rounded trough was not detected by window prominence")
+
+    edge_peak = _spike(14, 3)
+    lag = _turning_lag(_synthetic_monthly(edge_peak, edge_peak, "edge_peak"), {})
+    if not lag.empty:
+        raise AssertionError("edge candidate without complete prominence windows was detected")
+
+    noisy = [0.0, 0.03] * 12
+    lag = _turning_lag(_synthetic_monthly(noisy, noisy, "tiny_oscillation"), {})
+    score_lag = lag[lag["comparison"].eq("score_vs_baseline")]
+    if not score_lag.empty:
+        raise AssertionError("tiny high-frequency oscillations produced meaningful turns")
+
+    lag = _turning_lag(_synthetic_monthly(_spike(24, 8), _spike(24, 15), "within_window"), {})
+    matched = lag[lag["matched"]]
+    if len(matched) != 1 or int(matched.iloc[0]["signed_lag_months"]) != 7:
+        raise AssertionError("true delayed turn within 12 months was not matched correctly")
+
+    lag = _turning_lag(_synthetic_monthly(_spike(60, 8), _spike(60, 44), "outside_window"), {})
+    if lag["matched"].any() or lag["absolute_lag_months"].notna().any():
+        raise AssertionError("same-direction turn several years later was matched or inflated lag stats")
+    row = lag.iloc[0]
+    if row["baseline_unmatched_turn_count"] != 1 or row["challenger_unmatched_turn_count"] != 1:
+        raise AssertionError("unmatched turns were not reported separately")
+
+    lag = _turning_lag(_synthetic_monthly(_spike(24, 8), [-v for v in _spike(24, 12)], "direction_guard"), {})
+    if lag["matched"].any():
+        raise AssertionError("peak was matched to trough")
+
+    baseline = [0.0] * 40
+    challenger = [0.0] * 40
+    for idx in (6, 18, 30):
+        baseline[idx - 1] = 1.0
+        baseline[idx] = 2.0
+        baseline[idx + 1] = 1.0
+    for idx in (8, 20, 32):
+        challenger[idx - 1] = 1.0
+        challenger[idx] = 2.0
+        challenger[idx + 1] = 1.0
+    lag = _turning_lag(_synthetic_monthly(baseline, challenger, "one_to_one"), {})
+    matched = lag[lag["matched"]].sort_values("baseline_turn_date")
+    if len(matched) != 3 or matched["challenger_turn_date"].duplicated().any():
+        raise AssertionError("one-to-one chronological ordering was not preserved")
+    if matched["signed_lag_months"].tolist() != [2, 2, 2]:
+        raise AssertionError("chronological matching selected unexpected lags")
+
+    first = _turning_lag(_synthetic_monthly(baseline, challenger, "deterministic"), {})
+    second = _turning_lag(_synthetic_monthly(baseline, challenger, "deterministic"), {})
+    pd.testing.assert_frame_equal(first, second)
+
 def _run_synthetic_chronology_flag_validation() -> None:
     period = pd.DataFrame(
         columns=["geo_id", "series_type", "series_key", "period", "available"]
@@ -171,6 +353,8 @@ def _run_synthetic_chronology_flag_validation() -> None:
                 "signed_lag_months": lag_months,
                 "absolute_lag_months": abs(lag_months),
                 "matched": True,
+                "matched_turn_count": 5,
+                "matched_turn_share": 1.0,
             }
         )
 
@@ -192,10 +376,12 @@ def _run_synthetic_chronology_flag_validation() -> None:
                 "signed_lag_months": lag_months,
                 "absolute_lag_months": abs(lag_months),
                 "matched": True,
+                "matched_turn_count": 4,
+                "matched_turn_share": 1.0,
             }
         )
 
-    for index in range(2):
+    for index in range(3):
         baseline = pd.Timestamp("2021-01-31") + pd.DateOffset(
             months=index * 4
         )
@@ -213,6 +399,8 @@ def _run_synthetic_chronology_flag_validation() -> None:
                 "signed_lag_months": -2,
                 "absolute_lag_months": 2,
                 "matched": True,
+                "matched_turn_count": 3,
+                "matched_turn_share": 1.0,
             }
         )
 
@@ -263,7 +451,7 @@ def _run_synthetic_chronology_flag_validation() -> None:
     inversions = flags[
         flags["flag_type"].eq("chronology_inversion_review")
     ]
-    if len(inversions) != 2:
+    if len(inversions) != 3:
         raise AssertionError(
             "synthetic chronology_flags.csv: equal-lag inversion turns "
             "were not preserved"
@@ -283,6 +471,8 @@ def _run_synthetic_chronology_flag_validation() -> None:
         )
 
 def main() -> int:
+    _run_synthetic_turning_point_validation()
+    print("[price_family_phase2_chronology] synthetic turning-point validation OK")
     _run_synthetic_chronology_flag_validation()
     print("[price_family_phase2_chronology] synthetic flag validation OK")
     print("[price_family_phase2_chronology] building upstream comparison once...")
