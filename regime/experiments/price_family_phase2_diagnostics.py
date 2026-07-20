@@ -23,6 +23,16 @@ CHRONOLOGY_DIR = COMPARISON_ROOT / "phase2_chronology"
 STABILITY_DIR = COMPARISON_ROOT / "phase2_stability_seasonality"
 SOURCE_PRICE_METRICS = ("median_sale_price", "median_ppsf")
 
+REVIEW_SCORE_SMOOTHER = "trailing_ma3"
+REVIEW_SCORE_SMOOTHER_WINDOW = 3
+TURN_PROMINENCE_MIN_NORMALIZED_SCORE = 0.20
+TURN_MIN_SEPARATION_MONTHS = 6
+TURN_MAX_MATCH_WINDOW_MONTHS = 12
+CHRONOLOGY_DELAY_MIN_MATCHED_TURNS = 3
+CHRONOLOGY_DELAY_MIN_MATCHED_SHARE = 0.50
+CHRONOLOGY_LARGE_LAG_MIN_GROUP_TURNS = 5
+CHRONOLOGY_INVERSION_MONTH_THRESHOLD = -2
+
 PERIODS = (
     ("pre_gfc_early_history", None, "2006-12-31"),
     ("gfc_housing_correction", "2007-01-01", "2012-12-31"),
@@ -256,34 +266,93 @@ def _period_summary(monthly: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def _turns(frame: pd.DataFrame, value_col: str) -> pd.DataFrame:
+def _review_smoothed_series(values: pd.Series) -> pd.Series:
+    return values.rolling(
+        window=REVIEW_SCORE_SMOOTHER_WINDOW,
+        min_periods=1,
+    ).mean()
+
+
+def _candidate_turns(
+    frame: pd.DataFrame,
+    *,
+    raw_col: str,
+    review_col: str,
+    prominence: float,
+    minimum_separation_months: int,
+) -> pd.DataFrame:
     work = (
-        frame[["date", value_col]]
-        .dropna()
+        frame[["date", raw_col, review_col]]
+        .dropna(subset=[review_col])
         .sort_values("date", kind="mergesort")
         .reset_index(drop=True)
     )
-    values = work[value_col].to_numpy(dtype=float)
-    rows: list[dict[str, Any]] = []
+    values = work[review_col].to_numpy(dtype=float)
+    candidates: list[dict[str, Any]] = []
     for index in range(1, len(work) - 1):
-        if values[index] >= values[index - 1] and values[index] > values[index + 1]:
-            rows.append(
-                {
-                    "turn_date": work.loc[index, "date"],
-                    "direction": "peak",
-                    "turn_value": values[index],
-                }
-            )
-        elif values[index] <= values[index - 1] and values[index] < values[index + 1]:
-            rows.append(
-                {
-                    "turn_date": work.loc[index, "date"],
-                    "direction": "trough",
-                    "turn_value": values[index],
-                }
-            )
-    return pd.DataFrame(rows)
+        prev_value = values[index - 1]
+        value = values[index]
+        next_value = values[index + 1]
+        if value >= prev_value and value > next_value:
+            turn_prominence = min(value - prev_value, value - next_value)
+            direction = "peak"
+        elif value <= prev_value and value < next_value:
+            turn_prominence = min(prev_value - value, next_value - value)
+            direction = "trough"
+        else:
+            continue
+        if turn_prominence < prominence:
+            continue
+        candidates.append(
+            {
+                "turn_date": work.loc[index, "date"],
+                "direction": direction,
+                "turn_value_raw": work.loc[index, raw_col],
+                "turn_value_review": value,
+                "turn_prominence": turn_prominence,
+            }
+        )
+    if not candidates:
+        return pd.DataFrame(
+            columns=[
+                "turn_date",
+                "direction",
+                "turn_value_raw",
+                "turn_value_review",
+                "turn_prominence",
+            ]
+        )
+    turns = pd.DataFrame(candidates).sort_values(
+        ["turn_date", "direction"], kind="mergesort"
+    )
+    kept: list[pd.Series] = []
+    for _, turn in turns.iterrows():
+        if not kept:
+            kept.append(turn)
+            continue
+        months_since_last = abs(_month_delta(kept[-1]["turn_date"], turn["turn_date"]))
+        if months_since_last >= minimum_separation_months:
+            kept.append(turn)
+        elif turn["turn_prominence"] > kept[-1]["turn_prominence"]:
+            kept[-1] = turn
+    return pd.DataFrame(kept).sort_values("turn_date", kind="mergesort").reset_index(drop=True)
 
+
+def _turns(frame: pd.DataFrame, value_col: str) -> pd.DataFrame:
+    work = frame[["date", value_col]].copy()
+    work["__review_value"] = work[value_col]
+    return _candidate_turns(
+        work,
+        raw_col=value_col,
+        review_col="__review_value",
+        prominence=0.0,
+        minimum_separation_months=1,
+    ).rename(
+        columns={
+            "turn_value_raw": "turn_value",
+            "turn_value_review": "turn_value_review",
+        }
+    )
 
 def _month_delta(start: pd.Timestamp, end: pd.Timestamp) -> int:
     return (end.year - start.year) * 12 + (end.month - start.month)
@@ -327,6 +396,61 @@ def _structural_level_pairs(
     return _sort(levels[columns], ["geo_id", "series_key", "date"])
 
 
+def _prepare_turn_frame(
+    frame: pd.DataFrame,
+    base_col: str,
+    challenger_col: str,
+    *,
+    use_review_smoother: bool,
+) -> pd.DataFrame:
+    work = frame[["date", base_col, challenger_col]].copy()
+    work["date"] = pd.to_datetime(work["date"])
+    work = work.sort_values("date", kind="mergesort").reset_index(drop=True)
+    if use_review_smoother:
+        work["baseline_review_score"] = _review_smoothed_series(work[base_col])
+        work["challenger_review_score"] = _review_smoothed_series(work[challenger_col])
+    else:
+        work["baseline_review_score"] = work[base_col]
+        work["challenger_review_score"] = work[challenger_col]
+    return work
+
+
+def _match_turns(
+    baseline_turns: pd.DataFrame,
+    challenger_turns: pd.DataFrame,
+    *,
+    max_window_months: int,
+) -> list[tuple[int, int]]:
+    candidates: list[tuple[int, int, int]] = []
+    for i, base in baseline_turns.iterrows():
+        for j, challenger in challenger_turns.iterrows():
+            if base["direction"] != challenger["direction"]:
+                continue
+            lag = _month_delta(base["turn_date"], challenger["turn_date"])
+            if abs(lag) <= max_window_months:
+                candidates.append((int(i), int(j), abs(lag)))
+    n = len(baseline_turns)
+    m = len(challenger_turns)
+    dp: dict[tuple[int, int], tuple[int, int, list[tuple[int, int]]]] = {}
+    candidate_map = {(i, j): cost for i, j, cost in candidates}
+    for i in range(n, -1, -1):
+        for j in range(m, -1, -1):
+            if i == n or j == m:
+                dp[(i, j)] = (0, 0, [])
+                continue
+            best = dp[(i + 1, j)]
+            right = dp[(i, j + 1)]
+            if (right[0], -right[1]) > (best[0], -best[1]):
+                best = right
+            if (i, j) in candidate_map:
+                tail = dp[(i + 1, j + 1)]
+                match = (tail[0] + 1, tail[1] + candidate_map[(i, j)], [(i, j), *tail[2]])
+                if (match[0], -match[1]) > (best[0], -best[1]):
+                    best = match
+            dp[(i, j)] = best
+    return dp[(0, 0)][2]
+
+
 def _turning_lag(
     monthly: pd.DataFrame,
     result: Mapping[str, pd.DataFrame],
@@ -339,6 +463,9 @@ def _turning_lag(
             "baseline_metric_score",
             "challenger_metric_score",
             ["geo_id", "series_type", "series_key"],
+            True,
+            TURN_PROMINENCE_MIN_NORMALIZED_SCORE,
+            REVIEW_SCORE_SMOOTHER,
         )
     ]
     structural = _structural_level_pairs(result)
@@ -350,121 +477,133 @@ def _turning_lag(
                 "baseline_metric_score",
                 "challenger_metric_score",
                 ["geo_id", "series_type", "series_key"],
+                False,
+                0.0,
+                "none",
             )
         )
 
-    for label, data, base_col, challenger_col, keys in pairs:
+    for label, data, base_col, challenger_col, keys, use_smoother, prominence, smoother in pairs:
         for key_values, frame in data.groupby(keys, dropna=False):
             if not isinstance(key_values, tuple):
                 key_values = (key_values,)
-            base_turns = _turns(frame, base_col)
-            challenger_turns = _turns(frame, challenger_col)
-            used: set[int] = set()
-            for _, base_turn in base_turns.iterrows():
-                candidates = challenger_turns[
-                    challenger_turns["direction"].eq(base_turn["direction"])
-                ].copy()
-                if not candidates.empty:
-                    candidates["absolute_candidate_lag"] = candidates["turn_date"].map(
-                        lambda date: abs(_month_delta(base_turn["turn_date"], date))
-                    )
-                    candidates = candidates[
-                        ~candidates.index.isin(used)
-                    ].sort_values(
-                        ["absolute_candidate_lag", "turn_date"],
-                        kind="mergesort",
-                    )
+            prepared = _prepare_turn_frame(
+                frame,
+                base_col,
+                challenger_col,
+                use_review_smoother=use_smoother,
+            )
+            base_turns = _candidate_turns(
+                prepared,
+                raw_col=base_col,
+                review_col="baseline_review_score",
+                prominence=prominence,
+                minimum_separation_months=TURN_MIN_SEPARATION_MONTHS,
+            )
+            challenger_turns = _candidate_turns(
+                prepared,
+                raw_col=challenger_col,
+                review_col="challenger_review_score",
+                prominence=prominence,
+                minimum_separation_months=TURN_MIN_SEPARATION_MONTHS,
+            )
+            matches = _match_turns(
+                base_turns,
+                challenger_turns,
+                max_window_months=TURN_MAX_MATCH_WINDOW_MONTHS,
+            )
+            matched_base = {i for i, _ in matches}
+            matched_challenger = {j for _, j in matches}
+            match_by_base = {i: j for i, j in matches}
+            base_count = len(base_turns)
+            challenger_count = len(challenger_turns)
+            matched_count = len(matches)
+            baseline_unmatched = base_count - matched_count
+            challenger_unmatched = challenger_count - matched_count
+            matched_share = matched_count / max(base_count, challenger_count) if max(base_count, challenger_count) else np.nan
 
-                match = None if candidates.empty else candidates.iloc[0]
-                if match is not None:
-                    used.add(int(match.name))
-                signed_lag = (
-                    np.nan
-                    if match is None
-                    else _month_delta(base_turn["turn_date"], match["turn_date"])
-                )
-                row = {
-                    key: value
-                    for key, value in zip(keys, key_values, strict=True)
-                }
+            def add_row(payload: dict[str, Any]) -> None:
+                row = {key: value for key, value in zip(keys, key_values, strict=True)}
+                row.update(payload)
                 row.update(
+                    {
+                        "baseline_meaningful_turn_count": base_count,
+                        "challenger_meaningful_turn_count": challenger_count,
+                        "matched_turn_count": matched_count,
+                        "baseline_unmatched_turn_count": baseline_unmatched,
+                        "challenger_unmatched_turn_count": challenger_unmatched,
+                        "matched_turn_share": matched_share,
+                        "review_smoother": smoother,
+                        "turn_prominence_minimum": prominence,
+                        "turn_minimum_separation_months": TURN_MIN_SEPARATION_MONTHS,
+                        "turn_max_match_window_months": TURN_MAX_MATCH_WINDOW_MONTHS,
+                    }
+                )
+                rows.append(row)
+
+            for i, base_turn in base_turns.iterrows():
+                j = match_by_base.get(int(i))
+                match = None if j is None else challenger_turns.loc[j]
+                signed_lag = np.nan if match is None else _month_delta(base_turn["turn_date"], match["turn_date"])
+                add_row(
                     {
                         "comparison": label,
                         "direction": base_turn["direction"],
                         "baseline_turn_date": base_turn["turn_date"],
                         "challenger_turn_date": pd.NaT if match is None else match["turn_date"],
+                        "baseline_turn_value_raw": base_turn["turn_value_raw"],
+                        "baseline_turn_value_review": base_turn["turn_value_review"],
+                        "challenger_turn_value_raw": np.nan if match is None else match["turn_value_raw"],
+                        "challenger_turn_value_review": np.nan if match is None else match["turn_value_review"],
                         "signed_lag_months": signed_lag,
                         "absolute_lag_months": abs(signed_lag) if pd.notna(signed_lag) else np.nan,
                         "matched": match is not None,
                     }
                 )
-                rows.append(row)
-
-            unmatched = challenger_turns[~challenger_turns.index.isin(used)]
-            for _, challenger_turn in unmatched.iterrows():
-                row = {
-                    key: value
-                    for key, value in zip(keys, key_values, strict=True)
-                }
-                row.update(
+            for j, challenger_turn in challenger_turns.iterrows():
+                if int(j) in matched_challenger:
+                    continue
+                add_row(
                     {
                         "comparison": label,
                         "direction": challenger_turn["direction"],
                         "baseline_turn_date": pd.NaT,
                         "challenger_turn_date": challenger_turn["turn_date"],
+                        "baseline_turn_value_raw": np.nan,
+                        "baseline_turn_value_review": np.nan,
+                        "challenger_turn_value_raw": challenger_turn["turn_value_raw"],
+                        "challenger_turn_value_review": challenger_turn["turn_value_review"],
                         "signed_lag_months": np.nan,
                         "absolute_lag_months": np.nan,
                         "matched": False,
                     }
                 )
-                rows.append(row)
 
     columns = [
-        "geo_id",
-        "series_type",
-        "series_key",
-        "comparison",
-        "direction",
-        "baseline_turn_date",
-        "challenger_turn_date",
-        "signed_lag_months",
-        "absolute_lag_months",
-        "matched",
-        "median_absolute_lag_months_by_series",
-        "maximum_absolute_lag_months_by_series",
+        "geo_id", "series_type", "series_key", "comparison", "direction",
+        "baseline_turn_date", "challenger_turn_date",
+        "baseline_turn_value_raw", "baseline_turn_value_review",
+        "challenger_turn_value_raw", "challenger_turn_value_review",
+        "signed_lag_months", "absolute_lag_months", "matched",
+        "baseline_meaningful_turn_count", "challenger_meaningful_turn_count",
+        "matched_turn_count", "baseline_unmatched_turn_count",
+        "challenger_unmatched_turn_count", "matched_turn_share",
+        "median_absolute_lag_months_by_series", "p90_absolute_lag_months_by_series",
+        "maximum_absolute_lag_months_by_series", "review_smoother",
+        "turn_prominence_minimum", "turn_minimum_separation_months",
+        "turn_max_match_window_months",
     ]
     out = pd.DataFrame(rows)
     if out.empty:
         return pd.DataFrame(columns=columns)
-    stats = (
-        out.groupby(["geo_id", "series_type", "series_key"], dropna=False)[
-            "absolute_lag_months"
-        ]
-        .agg(
-            median_absolute_lag_months_by_series="median",
-            maximum_absolute_lag_months_by_series="max",
-        )
-        .reset_index()
-    )
-    out = out.merge(
-        stats,
-        on=["geo_id", "series_type", "series_key"],
-        how="left",
-        validate="many_to_one",
-    )
-    return _sort(
-        out[columns],
-        [
-            "geo_id",
-            "series_type",
-            "series_key",
-            "comparison",
-            "direction",
-            "baseline_turn_date",
-            "challenger_turn_date",
-        ],
-    )
-
+    matched = out[out["matched"]].copy()
+    stats = matched.groupby(["geo_id", "series_type", "series_key", "comparison"], dropna=False)["absolute_lag_months"].agg(
+        median_absolute_lag_months_by_series="median",
+        p90_absolute_lag_months_by_series=lambda x: x.quantile(0.90),
+        maximum_absolute_lag_months_by_series="max",
+    ).reset_index()
+    out = out.merge(stats, on=["geo_id", "series_type", "series_key", "comparison"], how="left", validate="many_to_one")
+    return _sort(out[columns], ["geo_id", "series_type", "series_key", "comparison", "baseline_turn_date", "challenger_turn_date"])
 
 def _derived_component_history(
     result: Mapping[str, pd.DataFrame],
@@ -639,7 +778,10 @@ def _chronology_flags(
             "direction",
         ]
         for group_key, group in matched.groupby(lag_group_columns, dropna=False):
-            if len(group) < 5:
+            if len(group) < CHRONOLOGY_LARGE_LAG_MIN_GROUP_TURNS:
+                continue
+            share = group["matched_turn_share"].iloc[0] if "matched_turn_share" in group.columns else 1.0
+            if pd.isna(share) or share < CHRONOLOGY_DELAY_MIN_MATCHED_SHARE:
                 continue
             cutoff = group["absolute_lag_months"].quantile(0.90)
             large = group[group["absolute_lag_months"] > cutoff]
@@ -661,7 +803,11 @@ def _chronology_flags(
                         ),
                     }
                 )
-        inversions = matched[matched["signed_lag_months"] <= -2]
+        eligible = matched[
+            (matched["matched_turn_count"] >= CHRONOLOGY_DELAY_MIN_MATCHED_TURNS)
+            & (matched["matched_turn_share"] >= CHRONOLOGY_DELAY_MIN_MATCHED_SHARE)
+        ] if {"matched_turn_count", "matched_turn_share"}.issubset(matched.columns) else matched
+        inversions = eligible[eligible["signed_lag_months"] <= CHRONOLOGY_INVERSION_MONTH_THRESHOLD]
         for row in inversions.itertuples(index=False):
             rows.append(
                 {
