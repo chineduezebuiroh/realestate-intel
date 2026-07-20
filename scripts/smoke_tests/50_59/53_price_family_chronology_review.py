@@ -52,6 +52,7 @@ REQUIRED_NUMERIC = {
         "matched_turn_share",
         "turn_prominence_minimum",
         "turn_minimum_separation_months",
+        "turn_prominence_window_months",
         "turn_max_match_window_months",
     ],
     "affordability_shock_summary.csv": [
@@ -152,7 +153,7 @@ def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame]) -> None:
 
 
 def _synthetic_monthly(values: list[float], challenger: list[float], series_key: str = "synthetic") -> pd.DataFrame:
-    dates = pd.date_range("2020-01-31", periods=len(values), freq="ME")
+    dates = pd.date_range("2020-01-31", periods=len(values), freq="M")
     return pd.DataFrame(
         {
             "geo_id": "geo_synth",
@@ -174,6 +175,26 @@ def _spike(length: int, index: int, magnitude: float = 2.0) -> list[float]:
 
 
 def _run_synthetic_turning_point_validation() -> None:
+
+    rounded_peak = [0.0] * 18
+    for offset, value in enumerate([0.0, 0.05, 0.10, 0.16, 0.22, 0.27, 0.30, 0.27, 0.22, 0.16, 0.10, 0.05, 0.0], start=2):
+        rounded_peak[offset] = value
+    lag = _turning_lag(_synthetic_monthly(rounded_peak, rounded_peak, "rounded_peak"), {})
+    peaks = lag[lag["direction"].eq("peak")]
+    if len(peaks) != 1 or not bool(peaks.iloc[0]["matched"]):
+        raise AssertionError("broad rounded peak was not detected by window prominence")
+
+    rounded_trough = [-value for value in rounded_peak]
+    lag = _turning_lag(_synthetic_monthly(rounded_trough, rounded_trough, "rounded_trough"), {})
+    troughs = lag[lag["direction"].eq("trough")]
+    if len(troughs) != 1 or not bool(troughs.iloc[0]["matched"]):
+        raise AssertionError("broad rounded trough was not detected by window prominence")
+
+    edge_peak = _spike(14, 3)
+    lag = _turning_lag(_synthetic_monthly(edge_peak, edge_peak, "edge_peak"), {})
+    if not lag.empty:
+        raise AssertionError("edge candidate without complete prominence windows was detected")
+
     noisy = [0.0, 0.03] * 12
     lag = _turning_lag(_synthetic_monthly(noisy, noisy, "tiny_oscillation"), {})
     score_lag = lag[lag["comparison"].eq("score_vs_baseline")]

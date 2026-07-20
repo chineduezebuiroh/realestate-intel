@@ -26,6 +26,7 @@ SOURCE_PRICE_METRICS = ("median_sale_price", "median_ppsf")
 REVIEW_SCORE_SMOOTHER = "trailing_ma3"
 REVIEW_SCORE_SMOOTHER_WINDOW = 3
 TURN_PROMINENCE_MIN_NORMALIZED_SCORE = 0.20
+TURN_PROMINENCE_WINDOW_MONTHS = 6
 TURN_MIN_SEPARATION_MONTHS = 6
 TURN_MAX_MATCH_WINDOW_MONTHS = 12
 CHRONOLOGY_DELAY_MIN_MATCHED_TURNS = 3
@@ -280,6 +281,7 @@ def _candidate_turns(
     review_col: str,
     prominence: float,
     minimum_separation_months: int,
+    prominence_window_months: int | None = None,
 ) -> pd.DataFrame:
     work = (
         frame[["date", raw_col, review_col]]
@@ -294,11 +296,25 @@ def _candidate_turns(
         value = values[index]
         next_value = values[index + 1]
         if value >= prev_value and value > next_value:
-            turn_prominence = min(value - prev_value, value - next_value)
             direction = "peak"
-        elif value <= prev_value and value < next_value:
-            turn_prominence = min(prev_value - value, next_value - value)
+            if prominence_window_months is None:
+                turn_prominence = min(value - prev_value, value - next_value)
+            else:
+                before = work.iloc[index - prominence_window_months:index][review_col]
+                after = work.iloc[index + 1:index + 1 + prominence_window_months][review_col]
+                if len(before) < prominence_window_months or len(after) < prominence_window_months:
+                    continue
+                turn_prominence = min(value - before.min(), value - after.min())
+        elif values[index] <= prev_value and values[index] < next_value:
             direction = "trough"
+            if prominence_window_months is None:
+                turn_prominence = min(prev_value - value, next_value - value)
+            else:
+                before = work.iloc[index - prominence_window_months:index][review_col]
+                after = work.iloc[index + 1:index + 1 + prominence_window_months][review_col]
+                if len(before) < prominence_window_months or len(after) < prominence_window_months:
+                    continue
+                turn_prominence = min(before.max() - value, after.max() - value)
         else:
             continue
         if turn_prominence < prominence:
@@ -347,6 +363,7 @@ def _turns(frame: pd.DataFrame, value_col: str) -> pd.DataFrame:
         review_col="__review_value",
         prominence=0.0,
         minimum_separation_months=1,
+        prominence_window_months=None,
     ).rename(
         columns={
             "turn_value_raw": "turn_value",
@@ -466,6 +483,7 @@ def _turning_lag(
             True,
             TURN_PROMINENCE_MIN_NORMALIZED_SCORE,
             REVIEW_SCORE_SMOOTHER,
+            TURN_PROMINENCE_WINDOW_MONTHS,
         )
     ]
     structural = _structural_level_pairs(result)
@@ -480,10 +498,11 @@ def _turning_lag(
                 False,
                 0.0,
                 "none",
+                None,
             )
         )
 
-    for label, data, base_col, challenger_col, keys, use_smoother, prominence, smoother in pairs:
+    for label, data, base_col, challenger_col, keys, use_smoother, prominence, smoother, prominence_window in pairs:
         for key_values, frame in data.groupby(keys, dropna=False):
             if not isinstance(key_values, tuple):
                 key_values = (key_values,)
@@ -498,21 +517,22 @@ def _turning_lag(
                 raw_col=base_col,
                 review_col="baseline_review_score",
                 prominence=prominence,
-                minimum_separation_months=TURN_MIN_SEPARATION_MONTHS,
+                minimum_separation_months=TURN_MIN_SEPARATION_MONTHS if use_smoother else 1,
+                prominence_window_months=prominence_window,
             )
             challenger_turns = _candidate_turns(
                 prepared,
                 raw_col=challenger_col,
                 review_col="challenger_review_score",
                 prominence=prominence,
-                minimum_separation_months=TURN_MIN_SEPARATION_MONTHS,
+                minimum_separation_months=TURN_MIN_SEPARATION_MONTHS if use_smoother else 1,
+                prominence_window_months=prominence_window,
             )
             matches = _match_turns(
                 base_turns,
                 challenger_turns,
                 max_window_months=TURN_MAX_MATCH_WINDOW_MONTHS,
             )
-            matched_base = {i for i, _ in matches}
             matched_challenger = {j for _, j in matches}
             match_by_base = {i: j for i, j in matches}
             base_count = len(base_turns)
@@ -535,7 +555,8 @@ def _turning_lag(
                         "matched_turn_share": matched_share,
                         "review_smoother": smoother,
                         "turn_prominence_minimum": prominence,
-                        "turn_minimum_separation_months": TURN_MIN_SEPARATION_MONTHS,
+                        "turn_minimum_separation_months": TURN_MIN_SEPARATION_MONTHS if use_smoother else 1,
+                        "turn_prominence_window_months": prominence_window,
                         "turn_max_match_window_months": TURN_MAX_MATCH_WINDOW_MONTHS,
                     }
                 )
@@ -591,7 +612,7 @@ def _turning_lag(
         "median_absolute_lag_months_by_series", "p90_absolute_lag_months_by_series",
         "maximum_absolute_lag_months_by_series", "review_smoother",
         "turn_prominence_minimum", "turn_minimum_separation_months",
-        "turn_max_match_window_months",
+        "turn_prominence_window_months", "turn_max_match_window_months",
     ]
     out = pd.DataFrame(rows)
     if out.empty:
