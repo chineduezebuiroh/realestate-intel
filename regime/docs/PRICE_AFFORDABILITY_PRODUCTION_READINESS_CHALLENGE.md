@@ -949,6 +949,42 @@ Outcome:
 - non-target comparison scopes exact-matched baseline;
 - Phase 1 approved and merged.
 
+### Phase 2 — Chronology, Turning-Point Lag, Stability, and Seasonality Diagnostics
+
+Status: Implemented; pending local validation
+
+Implemented scope:
+
+- chronological baseline-versus-challenger review for the linked price family;
+- explicit historical period coverage summaries, including unavailable segments;
+- deterministic turning-point lag diagnostics for target metric, Price dimension,
+  Affordability dimension, and Demand-axis scores;
+- affordability-shock evidence flags for the 2022-2024 mortgage-rate period;
+- stability summaries for target feature components, target metric scores, Price
+  and Affordability dimensions, and the Demand axis;
+- calendar-month seasonality profiles and spread summaries;
+- Phase 1 isolation-audit reuse for non-target exact-match expectations; and
+- deterministic rerun checks for all required Phase 2 artifacts.
+
+Smoke tests added:
+
+- `scripts/smoke_tests/50_59/53_price_family_chronology_review.py`
+- `scripts/smoke_tests/50_59/54_price_family_stability_seasonality.py`
+
+Artifact paths:
+
+- `artifacts/regime/comparisons/price_family_ma12_structural_linked/phase2_chronology/`
+- `artifacts/regime/comparisons/price_family_ma12_structural_linked/phase2_stability_seasonality/`
+
+Phase 2 chronology now also persists `affordability_shock_summary.csv` for
+compact 2022-2024 mortgage-rate shock review evidence.
+
+Important limitation:
+
+- Phase 2 is diagnostic only. It does not constitute immutable acceptance, final
+  PRC scorecard adjudication, registry promotion, or production policy
+  replacement.
+
 Compatibility note:
 
 - fixture month-end dates use `freq="M"` for compatibility with the
