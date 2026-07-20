@@ -19,6 +19,7 @@ from regime.experiments.price_family_phase2_diagnostics import (
     CHRONOLOGY_ARTIFACTS,
     CHRONOLOGY_DIR,
     PRODUCTION_CANDIDATE_ID,
+    _chronology_flags,
     build_phase2_chronology,
 )
 
@@ -117,7 +118,17 @@ def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame]) -> None:
     _assert_artifact(path / "affordability_shock_summary.csv", ["geo_id", "period"])
     _assert_artifact(
         path / "chronology_flags.csv",
-        ["geo_id", "series_type", "series_key", "flag_type", "direction", "detail"],
+        [
+            "geo_id",
+            "series_type",
+            "series_key",
+            "flag_type",
+            "direction",
+            "baseline_turn_date",
+            "challenger_turn_date",
+            "signed_lag_months",
+            "detail",
+        ],
     )
     expected_geos = {"district_of_columbia_dc__county", "alameda_county_ca__county"}
     found = set(monthly["geo_id"].unique())
@@ -127,7 +138,153 @@ def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame]) -> None:
         )
 
 
+
+def _run_synthetic_chronology_flag_validation() -> None:
+    period = pd.DataFrame(
+        columns=["geo_id", "series_type", "series_key", "period", "available"]
+    )
+    shock = pd.DataFrame(
+        columns=[
+            "geo_id",
+            "aligned_observation_count",
+            "payment_burden_change",
+            "payment_burden_price_to_income_distinct_aligned",
+        ]
+    )
+    lag_rows: list[dict[str, object]] = []
+
+    for index, lag_months in enumerate([0, 0, 0, 0, 10]):
+        baseline = pd.Timestamp("2020-01-31") + pd.DateOffset(
+            months=index * 2
+        )
+        lag_rows.append(
+            {
+                "geo_id": "geo_alpha",
+                "series_type": "metric_score",
+                "series_key": "median_sale_price",
+                "comparison": "score_vs_baseline",
+                "direction": "peak",
+                "baseline_turn_date": baseline,
+                "challenger_turn_date": (
+                    baseline + pd.DateOffset(months=lag_months)
+                ),
+                "signed_lag_months": lag_months,
+                "absolute_lag_months": abs(lag_months),
+                "matched": True,
+            }
+        )
+
+    for index, lag_months in enumerate([10, 10, 10, 10]):
+        baseline = pd.Timestamp("2020-01-31") + pd.DateOffset(
+            months=index * 2
+        )
+        lag_rows.append(
+            {
+                "geo_id": "geo_beta",
+                "series_type": "metric_score",
+                "series_key": "median_sale_price",
+                "comparison": "score_vs_baseline",
+                "direction": "peak",
+                "baseline_turn_date": baseline,
+                "challenger_turn_date": (
+                    baseline + pd.DateOffset(months=lag_months)
+                ),
+                "signed_lag_months": lag_months,
+                "absolute_lag_months": abs(lag_months),
+                "matched": True,
+            }
+        )
+
+    for index in range(2):
+        baseline = pd.Timestamp("2021-01-31") + pd.DateOffset(
+            months=index * 4
+        )
+        lag_rows.append(
+            {
+                "geo_id": "geo_gamma",
+                "series_type": "metric_score",
+                "series_key": "payment_burden",
+                "comparison": "score_vs_baseline",
+                "direction": "trough",
+                "baseline_turn_date": baseline,
+                "challenger_turn_date": (
+                    baseline - pd.DateOffset(months=2)
+                ),
+                "signed_lag_months": -2,
+                "absolute_lag_months": 2,
+                "matched": True,
+            }
+        )
+
+    lag = pd.DataFrame(lag_rows)
+    flags = _chronology_flags(period, lag, shock)
+
+    key = [
+        "geo_id",
+        "series_type",
+        "series_key",
+        "flag_type",
+        "direction",
+        "baseline_turn_date",
+        "challenger_turn_date",
+        "signed_lag_months",
+        "detail",
+    ]
+    if flags.duplicated(key).any():
+        raise AssertionError(
+            "synthetic chronology_flags.csv: duplicate rows at revised "
+            "turning-point key grain"
+        )
+
+    large = flags[
+        flags["flag_type"].eq(
+            "large_lag_relative_to_observed_distribution"
+        )
+    ]
+    if len(large) != 1:
+        raise AssertionError(
+            "synthetic chronology_flags.csv: expected exactly one "
+            "series-specific p90 flag"
+        )
+
+    only = large.iloc[0]
+    if only["geo_id"] != "geo_alpha" or only["signed_lag_months"] != 10:
+        raise AssertionError(
+            "synthetic chronology_flags.csv: p90 flag was not scoped "
+            "to the eligible series"
+        )
+
+    if large["geo_id"].eq("geo_beta").any():
+        raise AssertionError(
+            "synthetic chronology_flags.csv: group with fewer than five "
+            "turns emitted p90 flag"
+        )
+
+    inversions = flags[
+        flags["flag_type"].eq("chronology_inversion_review")
+    ]
+    if len(inversions) != 2:
+        raise AssertionError(
+            "synthetic chronology_flags.csv: equal-lag inversion turns "
+            "were not preserved"
+        )
+
+    inversion_detail = inversions[
+        [
+            "baseline_turn_date",
+            "challenger_turn_date",
+            "signed_lag_months",
+        ]
+    ]
+    if inversion_detail.isna().any().any():
+        raise AssertionError(
+            "synthetic chronology_flags.csv: inversion flags lost "
+            "turning-point detail"
+        )
+
 def main() -> int:
+    _run_synthetic_chronology_flag_validation()
+    print("[price_family_phase2_chronology] synthetic flag validation OK")
     print("[price_family_phase2_chronology] building upstream comparison once...")
     comparison_result = build_linked_price_family_comparison(
         challenger_id=PRODUCTION_CANDIDATE_ID

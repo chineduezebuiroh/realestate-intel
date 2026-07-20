@@ -631,23 +631,36 @@ def _chronology_flags(
         )
     matched = lag[lag["absolute_lag_months"].notna()].copy()
     if not matched.empty:
-        cutoff = matched["absolute_lag_months"].quantile(0.90)
-        large = matched[matched["absolute_lag_months"] > cutoff]
-        for row in large.itertuples(index=False):
-            rows.append(
-                {
-                    "geo_id": row.geo_id,
-                    "series_type": row.series_type,
-                    "series_key": row.series_key,
-                    "flag_type": "large_lag_relative_to_observed_distribution",
-                    "severity": "review",
-                    "direction": row.direction,
-                    "baseline_turn_date": row.baseline_turn_date,
-                    "challenger_turn_date": row.challenger_turn_date,
-                    "signed_lag_months": row.signed_lag_months,
-                    "detail": f"absolute lag {row.absolute_lag_months} months exceeds p90 {cutoff}",
-                }
-            )
+        lag_group_columns = [
+            "geo_id",
+            "series_type",
+            "series_key",
+            "comparison",
+            "direction",
+        ]
+        for group_key, group in matched.groupby(lag_group_columns, dropna=False):
+            if len(group) < 5:
+                continue
+            cutoff = group["absolute_lag_months"].quantile(0.90)
+            large = group[group["absolute_lag_months"] > cutoff]
+            for row in large.itertuples(index=False):
+                rows.append(
+                    {
+                        "geo_id": row.geo_id,
+                        "series_type": row.series_type,
+                        "series_key": row.series_key,
+                        "flag_type": "large_lag_relative_to_observed_distribution",
+                        "severity": "review",
+                        "direction": row.direction,
+                        "baseline_turn_date": row.baseline_turn_date,
+                        "challenger_turn_date": row.challenger_turn_date,
+                        "signed_lag_months": row.signed_lag_months,
+                        "detail": (
+                            f"absolute lag {row.absolute_lag_months} months exceeds "
+                            f"group p90 {cutoff} for {group_key}"
+                        ),
+                    }
+                )
         inversions = matched[matched["signed_lag_months"] <= -2]
         for row in inversions.itertuples(index=False):
             rows.append(
