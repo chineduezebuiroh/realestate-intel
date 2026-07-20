@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/18_experiment_comparison.py
+# scripts/smoke_tests/10_19/18_experiment_comparison.py
 
 from regime.experiment_comparison import (
     DEFAULT_RUN_IDS,
