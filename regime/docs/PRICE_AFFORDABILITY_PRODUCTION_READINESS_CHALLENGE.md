@@ -1044,3 +1044,48 @@ Inspection commands
 Testing
 
 - ⚠️ No tests run — design-only review requested; no code or repository files were modified.
+
+---
+
+## Phase 2 Review / Adjudication Layer
+
+`regime/experiments/price_family_phase2_review.py` adds a deterministic review
+packet for the existing `price_family_ma12_structural_linked` challenger. The
+review layer consumes the persisted Phase 2 chronology and stability /
+seasonality CSV artifacts under:
+
+- `artifacts/regime/comparisons/price_family_ma12_structural_linked/phase2_chronology/`
+- `artifacts/regime/comparisons/price_family_ma12_structural_linked/phase2_stability_seasonality/`
+
+It does **not** rebuild, duplicate, or recompute those diagnostic pipelines. Its
+role is to transform their persisted outputs into compact adjudication artifacts
+under:
+
+- `artifacts/regime/comparisons/price_family_ma12_structural_linked/phase2_review/`
+
+The review determines whether Phase 2 evidence indicates that an MA6 linked
+challenger deserves finalist evaluation, whether MA12 remains the current
+finalist, whether evidence is insufficient, or whether diagnostic coverage /
+contract issues block adjudication.
+
+This review is intentionally bounded:
+
+- it does **not** constitute immutable acceptance;
+- it does **not** promote a registry policy;
+- it does **not** alter production weights or configuration; and
+- it does **not** close cancellation, weight, or axis-architecture questions.
+
+Cancellation / weight / axis-architecture adjudication remains a separate next
+layer unless reliable persisted comparison artifacts already contain sufficient
+contribution decomposition evidence.
+
+The attenuation review thresholds also include named near-zero/sign-flip signal
+suppression checks (`NEAR_ZERO_RATE_SUPPRESSION_CHANGE` and
+`SIGN_FLIP_RATE_SUPPRESSION_CHANGE`). These are Phase 2 review thresholds only,
+are emitted in `review_summary.json`, and are not production policy constants.
+
+The aggregate Phase 2 review treats seasonality overkill as supporting evidence
+only. Independent aggregate trigger-family counts are limited to chronology
+lag/delay evidence, attenuation evidence, and explicit adverse shock-suppression
+evidence; derivative seasonality confirmation does not independently warrant an
+MA6 finalist evaluation.
