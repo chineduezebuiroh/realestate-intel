@@ -1,5 +1,5 @@
 from __future__ import annotations
-# scripts/smoke_tests/12_seasonality_audit.py
+# scripts/smoke_tests/10_19/12_seasonality_audit.py
 
 from regime.validation import DEFAULT_VALIDATION_GEOS, build_seasonality_audit
 
