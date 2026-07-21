@@ -18,6 +18,8 @@ from regime.experiments.price_family_phase2_diagnostics import (
     STABILITY_DIR,
     STRUCTURAL_COMPARISON_ROOT,
 )
+from regime.experiments.linked_price_family_comparison import STRUCTURAL_CHALLENGER_IDS
+
 
 # Review thresholds only. These constants are deterministic adjudication defaults
 # for this Phase 2 review packet, not immutable production policy.
