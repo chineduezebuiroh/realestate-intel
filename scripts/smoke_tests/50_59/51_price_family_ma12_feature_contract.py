@@ -13,17 +13,22 @@ import numpy as np
 import pandas as pd
 
 from regime.experiments.linked_price_family_features import (
-    LEVEL_WINDOW,
     LONG_LAG_PERIODS,
     PRICE_FAMILY_METRICS,
+    PRICE_FAMILY_STRUCTURAL_CANDIDATES,
     SHORT_LAG_PERIODS,
     build_linked_price_family_features,
+    get_price_family_structural_candidate,
 )
 
-CANDIDATE_ID = "price_family_ma12_structural_linked"
+CANDIDATE_IDS = (
+    "price_family_ma6_structural_linked",
+    "price_family_ma9_structural_linked",
+    "price_family_ma12_structural_linked",
+)
 LEGACY_CANDIDATE_ID = "price_family_ma12_momentum_lag3"
 OUTPUT_DIR = Path(
-    "artifacts/regime/comparisons/price_family_ma12_structural_linked/phase1_feature_contract"
+    "artifacts/regime/comparisons/price_family_structural_windows/phase1_feature_contract"
 )
 SOURCE_METRICS = ("median_sale_price", "median_ppsf")
 DERIVED_METRICS = ("price_to_income", "payment_burden")
@@ -96,6 +101,10 @@ def _assert_lazy_exports_resolve() -> None:
         "SmoothingMetricPolicy",
         "load_smoothing_experiments",
         "apply_smoothing_experiment",
+        "PriceFamilyStructuralCandidate",
+        "PRICE_FAMILY_STRUCTURAL_CANDIDATES",
+        "get_price_family_structural_candidate",
+        "build_linked_price_family_features",
     }
     missing = expected_exports - set(experiments.__all__)
     if missing:
@@ -104,7 +113,7 @@ def _assert_lazy_exports_resolve() -> None:
         getattr(experiments, export_name)
 
 
-def _assert_perturbation_isolation(source: pd.DataFrame, baseline_features: pd.DataFrame) -> dict[str, Any]:
+def _assert_perturbation_isolation(source: pd.DataFrame, baseline_features: pd.DataFrame, candidate_id: str) -> dict[str, Any]:
     perturbed = source.copy()
     target_mask = (
         perturbed["geo_id"].eq("geo_alpha")
@@ -114,7 +123,7 @@ def _assert_perturbation_isolation(source: pd.DataFrame, baseline_features: pd.D
     if int(target_mask.sum()) != 1:
         raise AssertionError("Perturbation target row was not unique")
     perturbed.loc[target_mask, "value"] = perturbed.loc[target_mask, "value"] + 10_000.0
-    perturbed_features = build_linked_price_family_features(perturbed, experiment_id=CANDIDATE_ID).feature_history
+    perturbed_features = build_linked_price_family_features(perturbed, experiment_id=candidate_id).feature_history
 
     compare_columns = [column for column in baseline_features.columns if column in perturbed_features.columns]
     key_columns = ["geo_id", "date", "canonical_metric_key", "feature_component"]
@@ -127,7 +136,7 @@ def _assert_perturbation_isolation(source: pd.DataFrame, baseline_features: pd.D
         indicator=True,
     )
     if not merged["_merge"].eq("both").all():
-        raise AssertionError("Perturbation changed the feature key set")
+        raise AssertionError(f"{candidate_id}: perturbation changed the feature key set")
 
     value_pairs = [
         ("raw_feature_value_baseline", "raw_feature_value_perturbed"),
@@ -141,116 +150,140 @@ def _assert_perturbation_isolation(source: pd.DataFrame, baseline_features: pd.D
 
     changed_rows = merged.loc[changed, key_columns]
     if changed_rows.empty:
-        raise AssertionError(
-            "Perturbing geo_alpha median_sale_price did not change any reachable feature rows"
-        )
+        raise AssertionError(f"{candidate_id}: perturbing geo_alpha median_sale_price did not change any reachable feature rows")
 
     changed_metrics = set(changed_rows["canonical_metric_key"])
     if "median_sale_price" not in changed_metrics:
-        raise AssertionError(
-            "Median-sale-price perturbation did not affect median_sale_price features"
-        )
+        raise AssertionError(f"{candidate_id}: median-sale-price perturbation did not affect median_sale_price features")
     if not changed_metrics.intersection(DERIVED_METRICS):
-        raise AssertionError(
-            "Median-sale-price perturbation did not propagate to linked derived features"
-        )
+        raise AssertionError(f"{candidate_id}: median-sale-price perturbation did not propagate to linked derived features")
 
     unrelated_geography_changes = changed_rows[~changed_rows["geo_id"].eq("geo_alpha")]
     if not unrelated_geography_changes.empty:
         raise AssertionError(
-            "Median-sale-price perturbation changed unrelated geographies:\n"
+            f"{candidate_id}: median-sale-price perturbation changed unrelated geographies:\n"
             + unrelated_geography_changes.head(20).to_string(index=False)
         )
 
     reachable_metric = changed_rows["canonical_metric_key"].isin(("median_sale_price", *DERIVED_METRICS))
     if not reachable_metric.all():
         raise AssertionError(
-            "Median-sale-price perturbation changed unrelated metrics:\n"
+            f"{candidate_id}: median-sale-price perturbation changed unrelated metrics:\n"
             + changed_rows.loc[~reachable_metric].head(20).to_string(index=False)
         )
 
     unrelated_mask = ~(merged["geo_id"].eq("geo_alpha") & merged["canonical_metric_key"].isin(("median_sale_price", *DERIVED_METRICS)))
     if changed[unrelated_mask.to_numpy()].any():
-        raise AssertionError("Unrelated geographies or unrelated metrics changed after perturbation")
+        raise AssertionError(f"{candidate_id}: unrelated geographies or unrelated metrics changed after perturbation")
 
-    metric_counts = (
-        changed_rows.groupby("canonical_metric_key")
-        .size()
-        .sort_index()
-        .astype(int)
-        .to_dict()
-    )
-    return {
-        "changed_rows": int(changed_rows.shape[0]),
-        "changed_metric_counts": metric_counts,
-    }
+    metric_counts = changed_rows.groupby("canonical_metric_key").size().sort_index().astype(int).to_dict()
+    return {"changed_rows": int(changed_rows.shape[0]), "changed_metric_counts": metric_counts}
 
 
-def main() -> int:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    source = _build_fixture()
-    print(f"[phase1_feature_contract] candidate={CANDIDATE_ID} legacy_identifier={LEGACY_CANDIDATE_ID}")
-    first = build_linked_price_family_features(source, experiment_id=CANDIDATE_ID)
-    second = build_linked_price_family_features(source, experiment_id=CANDIDATE_ID)
-    pd.testing.assert_frame_equal(first.feature_history, second.feature_history, check_exact=True)
-    pd.testing.assert_frame_equal(first.level_history, second.level_history, check_exact=True)
-    _assert_legacy_parity(source, first)
-    _assert_lazy_exports_resolve()
+def _assert_source_feature_formulas(source: pd.DataFrame, result, candidate_id: str) -> list[dict[str, Any]]:
+    candidate = get_price_family_structural_candidate(candidate_id)
+    window = candidate.level_window
+    rows: list[dict[str, Any]] = []
+    features = result.feature_history
+    levels = result.level_history
 
-    features = first.feature_history
-    levels = first.level_history
-    key = ["geo_id", "date", "canonical_metric_key", "feature_component"]
-    if features.duplicated(key).any():
-        raise AssertionError("Duplicate feature keys found")
-    valid = features["raw_feature_value"].dropna()
-    if not np.isfinite(valid).all():
-        raise AssertionError("Feature output contains non-finite values")
-    valid_levels = levels["structural_level_value"].dropna()
-    if not np.isfinite(valid_levels).all():
-        raise AssertionError("Structural-level output contains non-finite values")
-    if set(features["canonical_metric_key"].unique()) != set(PRICE_FAMILY_METRICS):
-        raise AssertionError("Feature metrics differ from linked structural contract")
-
-    formula_rows: list[dict[str, Any]] = []
     for geo_id in ("geo_alpha", "geo_beta"):
         for metric_key in SOURCE_METRICS:
             raw = source[source["geo_id"].eq(geo_id) & source["canonical_metric_key"].eq(metric_key)].sort_values("date").reset_index(drop=True)
             metric_levels = levels[levels["geo_id"].eq(geo_id) & levels["canonical_metric_key"].eq(metric_key)].sort_values("date").reset_index(drop=True)
             first_valid = metric_levels[metric_levels["structural_level_value"].notna()].iloc[0]
-            expected_first_date = raw.loc[LEVEL_WINDOW - 1, "date"]
+            expected_first_date = raw.loc[window - 1, "date"]
             if first_valid["date"] != expected_first_date:
-                raise AssertionError(f"{geo_id}/{metric_key}: unexpected first full-window date")
-            if metric_levels.loc[: LEVEL_WINDOW - 2, "structural_level_value"].notna().any():
-                raise AssertionError(f"{geo_id}/{metric_key}: partial MA12 level emitted")
-            for idx in (LEVEL_WINDOW - 1, LEVEL_WINDOW + 3, LEVEL_WINDOW + 12):
-                expected_level = raw.loc[idx - LEVEL_WINDOW + 1 : idx, "value"].mean()
+                raise AssertionError(f"{candidate_id}/{geo_id}/{metric_key}: unexpected first full-window date")
+            if metric_levels.loc[: window - 2, "structural_level_value"].notna().any():
+                raise AssertionError(f"{candidate_id}/{geo_id}/{metric_key}: partial MA{window} level emitted")
+            for idx in (window - 1, window + 3, window + 12):
+                expected_level = raw.loc[idx - window + 1 : idx, "value"].mean()
                 actual_level = float(metric_levels.loc[idx, "structural_level_value"])
-                _assert_close(actual_level, expected_level, f"{geo_id}/{metric_key}/level/{idx}")
+                _assert_close(actual_level, expected_level, f"{candidate_id}/{geo_id}/{metric_key}/level/{idx}")
             feature_slice = features[features["geo_id"].eq(geo_id) & features["canonical_metric_key"].eq(metric_key)]
-            for component, lag in (("short", SHORT_LAG_PERIODS), ("long", LONG_LAG_PERIODS)):
-                row_date = raw.loc[LEVEL_WINDOW - 1 + lag, "date"]
+            for component, lag in (("short", candidate.short_lag_periods), ("long", candidate.long_lag_periods)):
+                row_date = raw.loc[window - 1 + lag, "date"]
                 row = feature_slice[feature_slice["date"].eq(row_date) & feature_slice["feature_component"].eq(component)].iloc[0]
-                current = float(metric_levels.loc[LEVEL_WINDOW - 1 + lag, "structural_level_value"])
-                reference = float(metric_levels.loc[LEVEL_WINDOW - 1, "structural_level_value"])
-                _assert_close(float(row["raw_feature_value"]), current / reference - 1.0, f"{geo_id}/{metric_key}/{component}")
-                _assert_close(float(row["reference_value"]), reference, f"{geo_id}/{metric_key}/{component}/reference")
-            formula_rows.append({"geo_id": geo_id, "metric": metric_key, "first_level_date": expected_first_date.strftime("%Y-%m-%d")})
+                current = float(metric_levels.loc[window - 1 + lag, "structural_level_value"])
+                reference = float(metric_levels.loc[window - 1, "structural_level_value"])
+                _assert_close(float(row["raw_feature_value"]), current / reference - 1.0, f"{candidate_id}/{geo_id}/{metric_key}/{component}")
+                _assert_close(float(row["reference_value"]), reference, f"{candidate_id}/{geo_id}/{metric_key}/{component}/reference")
+                if int(row["level_window"]) != window or int(row["lag_periods"]) != lag:
+                    raise AssertionError(f"{candidate_id}/{geo_id}/{metric_key}/{component}: window/lag metadata mismatch")
+            rows.append({"candidate_id": candidate_id, "level_window": window, "geo_id": geo_id, "metric": metric_key, "first_level_date": expected_first_date.strftime("%Y-%m-%d")})
+    return rows
 
-    duplicate_source = pd.concat([source, source.head(1)], ignore_index=True)
-    try:
-        build_linked_price_family_features(duplicate_source, experiment_id=CANDIDATE_ID)
-    except ValueError as exc:
-        duplicate_error = str(exc).splitlines()[0]
-    else:
-        raise AssertionError("Duplicate source keys were not rejected")
 
-    perturbation_summary = _assert_perturbation_isolation(source, features)
-    coverage = features.groupby(["canonical_metric_key", "feature_component"], as_index=False).agg(rows=("raw_feature_value", "size"), valid_rows=("raw_feature_value", "count"), first_valid_date=("date", lambda s: s[features.loc[s.index, "raw_feature_value"].notna()].min()))
-    _write_csv(coverage, OUTPUT_DIR / "feature_contract_coverage.csv")
-    _write_csv(pd.DataFrame(formula_rows), OUTPUT_DIR / "feature_contract_formula_samples.csv")
-    summary = {"candidate_id": CANDIDATE_ID, "legacy_identifier": LEGACY_CANDIDATE_ID, "legacy_identifier_parity_validated": True, "source_rows": len(source), "feature_rows": len(features), "duplicate_protection": duplicate_error, "deterministic_rerun": True, "full_window_ma12": True, "finite_structural_levels": True, "non_finite_valid_outputs": 0, "perturbation_changed_reachable_rows": perturbation_summary["changed_rows"], "perturbation_changed_reachable_metric_counts": perturbation_summary["changed_metric_counts"], "positive_reachable_perturbation_propagation_validated": True, "lazy_public_exports_resolved": True}
+def main() -> int:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    source = _build_fixture()
+    print(f"[phase1_feature_contract] candidates={','.join(CANDIDATE_IDS)} legacy_identifier={LEGACY_CANDIDATE_ID}")
+    _assert_lazy_exports_resolve()
+
+    formula_rows: list[dict[str, Any]] = []
+    perturbation_rows: list[dict[str, Any]] = []
+    coverage_rows: list[pd.DataFrame] = []
+    duplicate_errors: dict[str, str] = {}
+
+    for candidate_id in CANDIDATE_IDS:
+        if candidate_id not in PRICE_FAMILY_STRUCTURAL_CANDIDATES:
+            raise AssertionError(f"Missing structural candidate registry entry: {candidate_id}")
+        first = build_linked_price_family_features(source, experiment_id=candidate_id)
+        second = build_linked_price_family_features(source, experiment_id=candidate_id)
+        pd.testing.assert_frame_equal(first.feature_history, second.feature_history, check_exact=True)
+        pd.testing.assert_frame_equal(first.level_history, second.level_history, check_exact=True)
+        if candidate_id == "price_family_ma12_structural_linked":
+            _assert_legacy_parity(source, first)
+
+        features = first.feature_history
+        levels = first.level_history
+        key = ["geo_id", "date", "canonical_metric_key", "feature_component"]
+        if features.duplicated(key).any():
+            raise AssertionError(f"{candidate_id}: duplicate feature keys found")
+        valid = features["raw_feature_value"].dropna()
+        if not np.isfinite(valid).all():
+            raise AssertionError(f"{candidate_id}: feature output contains non-finite values")
+        valid_levels = levels["structural_level_value"].dropna()
+        if not np.isfinite(valid_levels).all():
+            raise AssertionError(f"{candidate_id}: structural-level output contains non-finite values")
+        if set(features["canonical_metric_key"].unique()) != set(PRICE_FAMILY_METRICS):
+            raise AssertionError(f"{candidate_id}: feature metrics differ from linked structural contract")
+        observed_windows = set(features["level_window"].dropna().astype(int).unique())
+        expected_window = get_price_family_structural_candidate(candidate_id).level_window
+        if observed_windows != {expected_window}:
+            raise AssertionError(f"{candidate_id}: unexpected level-window metadata {sorted(observed_windows)}")
+
+        formula_rows.extend(_assert_source_feature_formulas(source, first, candidate_id))
+        perturbation = _assert_perturbation_isolation(source, features, candidate_id)
+        perturbation_rows.append({"candidate_id": candidate_id, **perturbation})
+
+        duplicate_source = pd.concat([source, source.head(1)], ignore_index=True)
+        try:
+            build_linked_price_family_features(duplicate_source, experiment_id=candidate_id)
+        except ValueError as exc:
+            duplicate_errors[candidate_id] = str(exc).splitlines()[0]
+        else:
+            raise AssertionError(f"{candidate_id}: duplicate source keys were not rejected")
+
+        coverage = features.groupby(["price_family_experiment_id", "level_window", "canonical_metric_key", "feature_component"], as_index=False).agg(rows=("raw_feature_value", "size"), non_null_rows=("raw_feature_value", "count"), first_date=("date", "min"), last_date=("date", "max"))
+        coverage_rows.append(coverage)
+
+    _write_csv(pd.concat(coverage_rows, ignore_index=True), OUTPUT_DIR / "feature_contract_coverage.csv")
+    _write_csv(pd.DataFrame(formula_rows), OUTPUT_DIR / "source_formula_samples.csv")
+    _write_csv(pd.DataFrame(perturbation_rows), OUTPUT_DIR / "perturbation_isolation_summary.csv")
+    summary = {
+        "candidate_ids": list(CANDIDATE_IDS),
+        "legacy_identifier": LEGACY_CANDIDATE_ID,
+        "level_windows": {candidate_id: get_price_family_structural_candidate(candidate_id).level_window for candidate_id in CANDIDATE_IDS},
+        "source_rows": len(source),
+        "duplicate_protection": duplicate_errors,
+        "deterministic_rerun": True,
+        "legacy_ma12_parity": True,
+        "perturbation_isolation": True,
+    }
     (OUTPUT_DIR / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    print(coverage.to_string(index=False))
+    print(pd.concat(coverage_rows, ignore_index=True).to_string(index=False))
     print(f"[phase1_feature_contract] artifacts={OUTPUT_DIR}")
     print("[phase1_feature_contract] OK")
     return 0

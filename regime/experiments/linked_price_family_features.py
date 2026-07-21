@@ -30,9 +30,42 @@ PRICE_FAMILY_METRICS = (
     *DERIVED_PRICE_METRICS,
 )
 
-LEVEL_WINDOW = 12
 SHORT_LAG_PERIODS = 3
 LONG_LAG_PERIODS = 12
+
+
+@dataclass(frozen=True)
+class PriceFamilyStructuralCandidate:
+    experiment_id: str
+    level_window: int
+    short_lag_periods: int = SHORT_LAG_PERIODS
+    long_lag_periods: int = LONG_LAG_PERIODS
+    description: str = ""
+
+
+PRICE_FAMILY_STRUCTURAL_CANDIDATES: dict[str, PriceFamilyStructuralCandidate] = {
+    "price_family_ma6_structural_linked": PriceFamilyStructuralCandidate(
+        experiment_id="price_family_ma6_structural_linked",
+        level_window=6,
+        description="Price family MA6 structural linked candidate",
+    ),
+    "price_family_ma9_structural_linked": PriceFamilyStructuralCandidate(
+        experiment_id="price_family_ma9_structural_linked",
+        level_window=9,
+        description="Price family MA9 structural linked candidate",
+    ),
+    "price_family_ma12_structural_linked": PriceFamilyStructuralCandidate(
+        experiment_id="price_family_ma12_structural_linked",
+        level_window=12,
+        description="Price family MA12 structural linked candidate",
+    ),
+}
+
+PRICE_FAMILY_EXPERIMENT_ALIASES = {
+    "price_family_ma12_momentum_lag3": "price_family_ma12_structural_linked",
+}
+
+DEFAULT_PRICE_FAMILY_EXPERIMENT_ID = "price_family_ma12_momentum_lag3"
 
 FEATURE_COMPONENTS = (
     "level",
@@ -53,6 +86,41 @@ FEATURE_OUTPUT_COLUMNS = [
     "lag_periods",
     "feature_origin",
 ]
+
+
+def get_price_family_structural_candidate(
+    experiment_id: str,
+) -> PriceFamilyStructuralCandidate:
+    if not experiment_id.strip():
+        raise ValueError(
+            "experiment_id must be non-empty"
+        )
+
+    canonical_id = PRICE_FAMILY_EXPERIMENT_ALIASES.get(
+        experiment_id,
+        experiment_id,
+    )
+
+    try:
+        candidate = PRICE_FAMILY_STRUCTURAL_CANDIDATES[canonical_id]
+    except KeyError as exc:
+        raise ValueError(
+            "Unknown price-family structural experiment_id "
+            f"{experiment_id!r}; expected one of "
+            f"{sorted(PRICE_FAMILY_STRUCTURAL_CANDIDATES)} "
+            f"or aliases {sorted(PRICE_FAMILY_EXPERIMENT_ALIASES)}"
+        ) from exc
+
+    if candidate.level_window <= 0:
+        raise ValueError(
+            "Price-family level_window must be positive"
+        )
+    if candidate.short_lag_periods <= 0 or candidate.long_lag_periods <= 0:
+        raise ValueError(
+            "Price-family lag periods must be positive"
+        )
+
+    return candidate
 
 
 @dataclass(frozen=True)
@@ -160,15 +228,18 @@ def _validate_metric_frame(
     )
 
 
-def build_ma12_level(
+def build_structural_level(
     observations: pd.DataFrame,
     *,
+    level_window: int,
     value_column: str = "value",
 ) -> pd.DataFrame:
     """
-    Build the full-window MA12 level for one or more canonical metrics.
+    Build a full-window trailing structural level for one or more metrics.
     No partial-window values are emitted.
     """
+    if level_window <= 0:
+        raise ValueError("level_window must be positive")
     work = _validate_metric_frame(
         observations,
         value_column=value_column,
@@ -186,8 +257,8 @@ def build_ma12_level(
     work["structural_level_value"] = (
         grouped[value_column]
         .rolling(
-            window=LEVEL_WINDOW,
-            min_periods=LEVEL_WINDOW,
+            window=level_window,
+            min_periods=level_window,
         )
         .mean()
         .reset_index(
@@ -202,6 +273,19 @@ def build_ma12_level(
     return work
 
 
+def build_ma12_level(
+    observations: pd.DataFrame,
+    *,
+    value_column: str = "value",
+) -> pd.DataFrame:
+    """Backward-compatible wrapper for the MA12 structural level."""
+    return build_structural_level(
+        observations,
+        level_window=12,
+        value_column=value_column,
+    )
+
+
 def build_same_state_features(
     level_history: pd.DataFrame,
     *,
@@ -210,6 +294,9 @@ def build_same_state_features(
     ),
     experiment_id: str,
     feature_origin: str,
+    level_window: int,
+    short_lag_periods: int = SHORT_LAG_PERIODS,
+    long_lag_periods: int = LONG_LAG_PERIODS,
 ) -> pd.DataFrame:
     """
     Build same-state structural features:
@@ -236,7 +323,7 @@ def build_same_state_features(
         grouped[
             level_value_column
         ].shift(
-            SHORT_LAG_PERIODS
+            short_lag_periods
         )
     )
 
@@ -244,7 +331,7 @@ def build_same_state_features(
         grouped[
             level_value_column
         ].shift(
-            LONG_LAG_PERIODS
+            long_lag_periods
         )
     )
 
@@ -288,13 +375,13 @@ def build_same_state_features(
             "short",
             "short_feature_value",
             "short_reference_value",
-            SHORT_LAG_PERIODS,
+            short_lag_periods,
         ),
         (
             "long",
             "long_feature_value",
             "long_reference_value",
-            LONG_LAG_PERIODS,
+            long_lag_periods,
         ),
     ):
         output = work[
@@ -332,7 +419,7 @@ def build_same_state_features(
         ] = experiment_id
 
         output["level_window"] = (
-            LEVEL_WINDOW
+            level_window
         )
 
         output["lag_periods"] = (
@@ -431,16 +518,16 @@ def build_linked_price_family_features(
     source_metrics: pd.DataFrame,
     *,
     experiment_id: str = (
-        "price_family_ma12_momentum_lag3"
+        DEFAULT_PRICE_FAMILY_EXPERIMENT_ID
     ),
 ) -> LinkedPriceFamilyResult:
     """
-    Build the linked MA12 price-family experiment.
+    Build a linked structural price-family experiment.
 
     Contract
     --------
     median_sale_price:
-        level = MA12(raw price)
+        level = MA(window)(raw price)
         short = level / lag3(level) - 1
         long = level / lag12(level) - 1
 
@@ -448,18 +535,17 @@ def build_linked_price_family_features(
         same transform, calculated independently
 
     price_to_income:
-        recompute level from substituted MA12 price and preserved income,
+        recompute level from substituted MA(window) price and preserved income,
         then calculate same-state lag3/lag12 features
 
     payment_burden:
-        recompute level from substituted MA12 price, preserved income,
+        recompute level from substituted MA(window) price, preserved income,
         preserved mortgage rates, and the canonical payment formula,
         then calculate same-state lag3/lag12 features
     """
-    if not experiment_id.strip():
-        raise ValueError(
-            "experiment_id must be non-empty"
-        )
+    candidate = get_price_family_structural_candidate(
+        experiment_id
+    )
 
     price_rows = _source_metric_rows(
         source_metrics,
@@ -471,13 +557,15 @@ def build_linked_price_family_features(
         metric_key="median_ppsf",
     )
 
-    price_level = build_ma12_level(
+    price_level = build_structural_level(
         price_rows,
+        level_window=candidate.level_window,
         value_column="value",
     )
 
-    ppsf_level = build_ma12_level(
+    ppsf_level = build_structural_level(
         ppsf_rows,
+        level_window=candidate.level_window,
         value_column="value",
     )
 
@@ -565,6 +653,9 @@ def build_linked_price_family_features(
             feature_origin=(
                 "smoothed_source"
             ),
+            level_window=candidate.level_window,
+            short_lag_periods=candidate.short_lag_periods,
+            long_lag_periods=candidate.long_lag_periods,
         )
     )
 
@@ -582,6 +673,9 @@ def build_linked_price_family_features(
             feature_origin=(
                 "recomputed_derived"
             ),
+            level_window=candidate.level_window,
+            short_lag_periods=candidate.short_lag_periods,
+            long_lag_periods=candidate.long_lag_periods,
         )
     )
 
