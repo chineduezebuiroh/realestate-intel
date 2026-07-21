@@ -27,6 +27,7 @@ from regime._06_axis_engine import (
 )
 from regime.experiments.linked_price_family_features import (
     PRICE_FAMILY_METRICS,
+    PRICE_FAMILY_STRUCTURAL_CANDIDATES,
     build_linked_price_family_features,
 )
 
@@ -37,6 +38,10 @@ BASELINE_RUN_ID = (
 
 CHALLENGER_ID = (
     "price_family_ma12_momentum_lag3"
+)
+
+STRUCTURAL_CHALLENGER_IDS = tuple(
+    PRICE_FAMILY_STRUCTURAL_CANDIDATES
 )
 
 FOCUS_GEOS = (

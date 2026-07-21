@@ -6,6 +6,10 @@ minimal environments.
 """
 
 __all__ = [
+    "PriceFamilyStructuralCandidate",
+    "PRICE_FAMILY_STRUCTURAL_CANDIDATES",
+    "get_price_family_structural_candidate",
+    "build_linked_price_family_features",
     "DEFAULT_SMOOTHING_EXPERIMENT_REGISTRY",
     "SmoothingExperiment",
     "SmoothingMetricPolicy",
@@ -21,6 +25,10 @@ __all__ = [
 ]
 
 _EXPORTS = {
+    "build_linked_price_family_features": ("regime.experiments.linked_price_family_features", "build_linked_price_family_features"),
+    "get_price_family_structural_candidate": ("regime.experiments.linked_price_family_features", "get_price_family_structural_candidate"),
+    "PRICE_FAMILY_STRUCTURAL_CANDIDATES": ("regime.experiments.linked_price_family_features", "PRICE_FAMILY_STRUCTURAL_CANDIDATES"),
+    "PriceFamilyStructuralCandidate": ("regime.experiments.linked_price_family_features", "PriceFamilyStructuralCandidate"),
     "build_smoothed_metric_features": ("regime.experiments.smoothing_features", "build_smoothed_metric_features"),
     "build_smoothed_metric_features_wide": ("regime.experiments.smoothing_features", "build_smoothed_metric_features_wide"),
     "DEFAULT_SMOOTHING_EXPERIMENT_REGISTRY": ("regime.experiments.smoothing_policy", "DEFAULT_SMOOTHING_EXPERIMENT_REGISTRY"),
