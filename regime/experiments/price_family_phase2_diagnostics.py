@@ -12,15 +12,34 @@ import pandas as pd
 
 from regime.experiments.linked_price_family_comparison import (
     CHALLENGER_ID,
+    STRUCTURAL_CHALLENGER_IDS,
     _add_change_diagnostics,
     _stability_summary,
     build_linked_price_family_comparison,
 )
+from regime.experiments.linked_price_family_features import (
+    get_price_family_structural_candidate,
+)
 
 PRODUCTION_CANDIDATE_ID = "price_family_ma12_structural_linked"
-COMPARISON_ROOT = Path("artifacts/regime/comparisons") / PRODUCTION_CANDIDATE_ID
+STRUCTURAL_COMPARISON_ROOT = Path("artifacts/regime/comparisons/price_family_structural_windows")
+COMPARISON_ROOT = STRUCTURAL_COMPARISON_ROOT / PRODUCTION_CANDIDATE_ID
 CHRONOLOGY_DIR = COMPARISON_ROOT / "phase2_chronology"
 STABILITY_DIR = COMPARISON_ROOT / "phase2_stability_seasonality"
+
+
+def candidate_comparison_root(candidate_id: str = PRODUCTION_CANDIDATE_ID) -> Path:
+    if candidate_id not in STRUCTURAL_CHALLENGER_IDS:
+        raise ValueError(f"Unknown structural price-family candidate: {candidate_id}")
+    return STRUCTURAL_COMPARISON_ROOT / candidate_id
+
+
+def candidate_chronology_dir(candidate_id: str = PRODUCTION_CANDIDATE_ID) -> Path:
+    return candidate_comparison_root(candidate_id) / "phase2_chronology"
+
+
+def candidate_stability_dir(candidate_id: str = PRODUCTION_CANDIDATE_ID) -> Path:
+    return candidate_comparison_root(candidate_id) / "phase2_stability_seasonality"
 SOURCE_PRICE_METRICS = ("median_sale_price", "median_ppsf")
 
 REVIEW_SCORE_SMOOTHER = "trailing_ma3"
@@ -51,6 +70,7 @@ CHRONOLOGY_ARTIFACTS = (
     "turning_point_lag_summary.csv",
     "affordability_shock_summary.csv",
     "chronology_flags.csv",
+    "coverage_metrics.csv",
     "summary.json",
 )
 
@@ -85,12 +105,13 @@ def _json_default(value: Any) -> Any:
 
 def _comparison_result(
     comparison_result: Mapping[str, pd.DataFrame] | None,
+    *,
+    candidate_id: str = PRODUCTION_CANDIDATE_ID,
 ) -> Mapping[str, pd.DataFrame]:
     if comparison_result is not None:
         return comparison_result
-    return build_linked_price_family_comparison(
-        challenger_id=PRODUCTION_CANDIDATE_ID
-    )
+    print(f"[price_family_phase2] candidate={candidate_id} stage=upstream_comparison")
+    return build_linked_price_family_comparison(challenger_id=candidate_id)
 
 
 def _clean_output_dir(path: Path) -> None:
@@ -99,8 +120,10 @@ def _clean_output_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def _write_csv(frame: pd.DataFrame, path: Path) -> None:
+def _write_csv(frame: pd.DataFrame, path: Path, *, candidate_id: str | None = None) -> None:
     out = frame.copy()
+    if candidate_id is not None and "candidate_id" not in out.columns:
+        out.insert(0, "candidate_id", candidate_id)
     for column in out.columns:
         if pd.api.types.is_datetime64_any_dtype(out[column]):
             out[column] = out[column].dt.strftime("%Y-%m-%d")
@@ -961,9 +984,10 @@ def _summary_payload(
     coverage: list[dict[str, Any]] | None = None,
     isolation_exact_match: bool | None = None,
     reproducibility_checked: bool = False,
+    candidate_id: str = PRODUCTION_CANDIDATE_ID,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "candidate_id": PRODUCTION_CANDIDATE_ID,
+        "candidate_id": candidate_id,
         "legacy_candidate_id_supported": CHALLENGER_ID,
         "diagnostic_only": True,
         "flag_count": flag_count,
@@ -981,19 +1005,48 @@ def _summary_payload(
     return payload
 
 
+def _coverage_metrics(monthly: pd.DataFrame, candidate_id: str) -> pd.DataFrame:
+    candidate = get_price_family_structural_candidate(candidate_id)
+    rows: list[dict[str, Any]] = []
+    for (geo_id, series_type, series_key), group in monthly.groupby(["geo_id", "series_type", "series_key"], dropna=False):
+        ordered = group.sort_values("date", kind="mergesort")
+        overlap = ordered.dropna(subset=["baseline_metric_score", "challenger_metric_score"])
+        first_source = ordered.loc[ordered["baseline_metric_score"].notna(), "date"].min()
+        first_valid = ordered.loc[ordered["challenger_metric_score"].notna(), "date"].min()
+        last_date = ordered["date"].max()
+        rows.append({
+            "candidate_id": candidate_id,
+            "level_window": candidate.level_window,
+            "geo_id": geo_id,
+            "series_type": series_type,
+            "series_key": series_key,
+            "first_source_date": first_source,
+            "first_valid_structural_date": first_valid,
+            "last_date": last_date,
+            "usable_months": int(ordered["challenger_metric_score"].notna().sum()),
+            "warmup_months": int(max(candidate.level_window - 1, 0)),
+            "common_evaluation_window_months": int(len(ordered)),
+            "overlap_months_vs_common_evaluation_window": int(len(overlap)),
+        })
+    return _sort(pd.DataFrame(rows), ["candidate_id", "geo_id", "series_type", "series_key"])
+
+
 def build_phase2_chronology(
     output_dir: Path = CHRONOLOGY_DIR,
     *,
     comparison_result: Mapping[str, pd.DataFrame] | None = None,
     reproducibility_checked: bool = False,
+    candidate_id: str = PRODUCTION_CANDIDATE_ID,
 ) -> dict[str, pd.DataFrame]:
+    print(f"[price_family_phase2_chronology] candidate={candidate_id} stage=start output={output_dir}")
     _clean_output_dir(output_dir)
-    result = _comparison_result(comparison_result)
+    result = _comparison_result(comparison_result, candidate_id=candidate_id)
     monthly = _build_chronology_monthly(result)
     period = _period_summary(monthly)
     lag = _turning_lag(monthly, result)
     shock = _affordability_shock_summary(monthly, result)
     flags = _chronology_flags(period, lag, shock)
+    coverage_frame = _coverage_metrics(monthly, candidate_id)
     coverage = (
         monthly.groupby("geo_id")["date"]
         .agg(first_date="min", last_date="max")
@@ -1006,10 +1059,12 @@ def build_phase2_chronology(
             "period_rows": len(period),
             "lag_rows": len(lag),
             "affordability_shock_rows": len(shock),
+            "coverage_rows": len(coverage_frame),
         },
         flag_count=len(flags),
         coverage=coverage,
         reproducibility_checked=reproducibility_checked,
+        candidate_id=candidate_id,
     )
     outputs = {
         "chronology_monthly": monthly,
@@ -1017,11 +1072,13 @@ def build_phase2_chronology(
         "turning_point_lag_summary": lag,
         "affordability_shock_summary": shock,
         "chronology_flags": flags,
+        "coverage_metrics": coverage_frame,
     }
     for name, frame in outputs.items():
-        _write_csv(frame, output_dir / f"{name}.csv")
+        _write_csv(frame, output_dir / f"{name}.csv", candidate_id=candidate_id)
     _write_json(summary, output_dir / "summary.json")
     outputs["summary"] = pd.DataFrame([summary])
+    print(f"[price_family_phase2_chronology] candidate={candidate_id} stage=complete rows={len(monthly)} output={output_dir}")
     return outputs
 
 
@@ -1083,10 +1140,12 @@ def _feature_lineage_value_history(
         series_variant="raw_level",
         feature_value=levels["source_level_value"],
     )
+    candidate_id = str(lineage["price_family_experiment_id"].dropna().iloc[0]) if "price_family_experiment_id" in lineage.columns and lineage["price_family_experiment_id"].notna().any() else PRODUCTION_CANDIDATE_ID
+    window = get_price_family_structural_candidate(candidate_id).level_window
     structural = levels.assign(
-        run_role="structural_ma12",
-        feature_origin="structural_ma12",
-        series_variant="ma12_level",
+        run_role=f"structural_ma{window}",
+        feature_origin=f"structural_ma{window}",
+        series_variant=f"ma{window}_level",
         feature_value=levels["raw_feature_value"],
     )
     out = pd.concat([raw, structural], ignore_index=True, sort=False)
@@ -1155,10 +1214,12 @@ def _raw_structural_comparison_stats(history: pd.DataFrame) -> pd.DataFrame:
         dropna=False,
     ):
         geo_id, metric, component = key
-        if "raw_source" not in group.columns or "structural_ma12" not in group.columns:
+        structural_roles = sorted([c for c in group.columns if str(c).startswith("structural_ma")])
+        structural_role = structural_roles[0] if structural_roles else "structural_ma12"
+        if "raw_source" not in group.columns or structural_role not in group.columns:
             overlap = pd.DataFrame()
         else:
-            overlap = group.dropna(subset=["raw_source", "structural_ma12"])
+            overlap = group.dropna(subset=["raw_source", structural_role])
         rows.append(
             {
                 "geo_id": geo_id,
@@ -1166,10 +1227,10 @@ def _raw_structural_comparison_stats(history: pd.DataFrame) -> pd.DataFrame:
                 "feature_component": component,
                 "baseline_challenger_correlation": _safe_pair_correlation(
                     overlap.get("raw_source", pd.Series(dtype=float)),
-                    overlap.get("structural_ma12", pd.Series(dtype=float)),
+                    overlap.get(structural_role, pd.Series(dtype=float)),
                 ),
                 "mean_absolute_baseline_challenger_difference": (
-                    (overlap["structural_ma12"] - overlap["raw_source"]).abs().mean()
+                    (overlap[structural_role] - overlap["raw_source"]).abs().mean()
                     if not overlap.empty
                     else np.nan
                 ),
@@ -1293,9 +1354,11 @@ def build_phase2_stability_seasonality(
     *,
     comparison_result: Mapping[str, pd.DataFrame] | None = None,
     reproducibility_checked: bool = False,
+    candidate_id: str = PRODUCTION_CANDIDATE_ID,
 ) -> dict[str, pd.DataFrame]:
+    print(f"[price_family_phase2_stability] candidate={candidate_id} stage=start output={output_dir}")
     _clean_output_dir(output_dir)
-    result = _comparison_result(comparison_result)
+    result = _comparison_result(comparison_result, candidate_id=candidate_id)
 
     raw_feature_history = _feature_lineage_value_history(result)
     raw_feature_stability = _raw_structural_feature_stability(raw_feature_history)
@@ -1398,7 +1461,7 @@ def build_phase2_stability_seasonality(
                 ids,
                 label,
                 pair_ids=["canonical_metric_key", "feature_component"],
-                comparison_pair="raw_vs_structural_ma12",
+                comparison_pair=f"raw_vs_{raw_feature_history[raw_feature_history['run_role'].astype(str).str.startswith('structural_ma')]['run_role'].dropna().iloc[0] if not raw_feature_history.empty and raw_feature_history['run_role'].astype(str).str.startswith('structural_ma').any() else 'structural_ma12'}",
             )
         else:
             calendar, seasonality = _seasonality(history, value, ids, label)
@@ -1437,6 +1500,7 @@ def build_phase2_stability_seasonality(
         flag_count=len(flags_df),
         isolation_exact_match=bool(result["isolation_audit"]["exact_match"].all()),
         reproducibility_checked=reproducibility_checked,
+        candidate_id=candidate_id,
     )
 
     outputs = {
@@ -1449,7 +1513,8 @@ def build_phase2_stability_seasonality(
         "stability_flags": flags_df,
     }
     for name, frame in outputs.items():
-        _write_csv(frame, output_dir / f"{name}.csv")
+        _write_csv(frame, output_dir / f"{name}.csv", candidate_id=candidate_id)
     _write_json(summary, output_dir / "summary.json")
     outputs["summary"] = pd.DataFrame([summary])
+    print(f"[price_family_phase2_stability] candidate={candidate_id} stage=complete rows={len(feature)} output={output_dir}")
     return outputs

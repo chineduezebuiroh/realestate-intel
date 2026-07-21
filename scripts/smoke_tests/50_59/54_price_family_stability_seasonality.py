@@ -13,12 +13,13 @@ import numpy as np
 import pandas as pd
 
 from regime.experiments.linked_price_family_comparison import (
+    STRUCTURAL_CHALLENGER_IDS,
     build_linked_price_family_comparison,
 )
 from regime.experiments.price_family_phase2_diagnostics import (
-    PRODUCTION_CANDIDATE_ID,
     STABILITY_ARTIFACTS,
     STABILITY_DIR,
+    candidate_stability_dir,
     build_phase2_stability_seasonality,
 )
 
@@ -80,11 +81,12 @@ def _assert_frame(path: Path, keys: list[str]) -> pd.DataFrame:
     return frame
 
 
-def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame]) -> None:
+def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame], candidate_id: str) -> None:
     build_phase2_stability_seasonality(
         path,
         comparison_result=comparison_result,
         reproducibility_checked=True,
+        candidate_id=candidate_id,
     )
     _assert_frame(
         path / "feature_stability_summary.csv",
@@ -141,15 +143,34 @@ def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame]) -> None:
         )
 
 
+def _assert_candidate_identity(path: Path, candidate_id: str) -> None:
+    for name in STABILITY_ARTIFACTS:
+        if not name.endswith(".csv"):
+            continue
+        frame = pd.read_csv(path / name)
+        if "candidate_id" not in frame.columns:
+            raise AssertionError(f"{path / name}: missing candidate_id column")
+        if frame.empty:
+            continue
+        if frame["candidate_id"].isna().any():
+            raise AssertionError(f"{path / name}: null candidate_id values")
+        if set(frame["candidate_id"]) != {candidate_id}:
+            raise AssertionError(f"{path / name}: candidate_id mismatch")
+
+
 def _assert_raw_structural_pairing(path: Path) -> None:
     feature = pd.read_csv(path / "feature_stability_summary.csv")
     seasonality = pd.read_csv(path / "seasonality_summary.csv")
     expected_geos = {"district_of_columbia_dc__county", "alameda_county_ca__county"}
     expected_metrics = {"median_sale_price", "median_ppsf"}
 
+    structural_origin = sorted(feature.loc[feature["feature_origin"].astype(str).str.startswith("structural_ma"), "feature_origin"].dropna().unique())
+    if len(structural_origin) != 1:
+        raise AssertionError(f"expected exactly one structural feature origin, found {structural_origin}")
+    window = structural_origin[0].replace("structural_", "")
     raw_feature = feature[
-        feature["feature_origin"].eq("structural_ma12")
-        & feature["series_variant"].eq("ma12_level")
+        feature["feature_origin"].eq(structural_origin[0])
+        & feature["series_variant"].eq(f"{window}_level")
         & feature["feature_component"].eq("level")
         & feature["canonical_metric_key"].isin(expected_metrics)
         & feature["geo_id"].isin(expected_geos)
@@ -168,7 +189,7 @@ def _assert_raw_structural_pairing(path: Path) -> None:
     missing_feature_pairs = expected_pairs - observed_feature_pairs
     if missing_feature_pairs:
         raise AssertionError(
-            "feature_stability_summary.csv: missing expected structural MA12 "
+            "feature_stability_summary.csv: missing expected structural MA "
             f"feature pairs: {sorted(missing_feature_pairs)}"
         )
 
@@ -198,9 +219,9 @@ def _assert_raw_structural_pairing(path: Path) -> None:
 
     structural_seasonality = seasonality[
         seasonality["series_family"].eq("raw_structural_feature")
-        & seasonality["comparison_pair"].eq("raw_vs_structural_ma12")
-        & seasonality["feature_origin"].eq("structural_ma12")
-        & seasonality["series_variant"].eq("ma12_level")
+        & seasonality["comparison_pair"].eq(f"raw_vs_{structural_origin[0]}")
+        & seasonality["feature_origin"].eq(structural_origin[0])
+        & seasonality["series_variant"].eq(f"{window}_level")
         & seasonality["feature_component"].eq("level")
         & seasonality["canonical_metric_key"].isin(expected_metrics)
         & seasonality["geo_id"].isin(expected_geos)
@@ -213,7 +234,7 @@ def _assert_raw_structural_pairing(path: Path) -> None:
     missing_seasonality_pairs = expected_pairs - observed_seasonality_pairs
     if missing_seasonality_pairs:
         raise AssertionError(
-            "seasonality_summary.csv: missing expected structural MA12 "
+            "seasonality_summary.csv: missing expected structural MA "
             f"seasonality pairs: {sorted(missing_seasonality_pairs)}"
         )
         
@@ -221,37 +242,40 @@ def _assert_raw_structural_pairing(path: Path) -> None:
         if pd.notna(row.baseline_seasonal_spread):
             if row.baseline_seasonal_spread != 0 and pd.isna(row.seasonal_spread_ratio_challenger_vs_baseline):
                 raise AssertionError(
-                    "seasonality_summary.csv: structural MA12 seasonal spread ratio missing "
+                    "seasonality_summary.csv: structural MA seasonal spread ratio missing "
                     f"for geography={row.geo_id} metric={row.canonical_metric_key}"
                 )
         elif pd.notna(row.seasonal_spread):
             raise AssertionError(
-                "seasonality_summary.csv: structural MA12 row has no raw baseline spread "
+                "seasonality_summary.csv: structural MA row has no raw baseline spread "
                 f"for geography={row.geo_id} metric={row.canonical_metric_key}"
             )
 
 def main() -> int:
-    print("[price_family_phase2_stability] building upstream comparison once...")
-    comparison_result = build_linked_price_family_comparison(
-        challenger_id=PRODUCTION_CANDIDATE_ID
-    )
-    print("[price_family_phase2_stability] building deterministic stability/seasonality artifacts twice...")
-    with tempfile.TemporaryDirectory() as tmp:
-        first = Path(tmp) / "first"
-        second = Path(tmp) / "second"
-        _run_once(first, comparison_result)
-        _run_once(second, comparison_result)
-        for name in STABILITY_ARTIFACTS:
-            if not filecmp.cmp(first / name, second / name, shallow=False):
-                raise AssertionError(f"{name}: deterministic rerun row-level equality failed")
-        if STABILITY_DIR.exists():
-            shutil.rmtree(STABILITY_DIR)
-        shutil.copytree(second, STABILITY_DIR)
+    for candidate_id in STRUCTURAL_CHALLENGER_IDS:
+        out_dir = candidate_stability_dir(candidate_id)
+        print(f"[price_family_phase2_stability] candidate={candidate_id} building upstream comparison once...")
+        comparison_result = build_linked_price_family_comparison(challenger_id=candidate_id)
+        print(f"[price_family_phase2_stability] candidate={candidate_id} building deterministic stability/seasonality artifacts twice...")
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / candidate_id / "first"
+            second = Path(tmp) / candidate_id / "second"
+            build_phase2_stability_seasonality(first, comparison_result=comparison_result, reproducibility_checked=True, candidate_id=candidate_id)
+            build_phase2_stability_seasonality(second, comparison_result=comparison_result, reproducibility_checked=True, candidate_id=candidate_id)
+            for name in STABILITY_ARTIFACTS:
+                if not filecmp.cmp(first / name, second / name, shallow=False):
+                    raise AssertionError(f"{candidate_id} {name}: deterministic rerun row-level equality failed")
+            _assert_candidate_identity(second, candidate_id)
+            _assert_raw_structural_pairing(second)
+            if out_dir.exists():
+                shutil.rmtree(out_dir)
+            shutil.copytree(second, out_dir)
+        print(f"[price_family_phase2_stability] candidate={candidate_id} artifacts={out_dir}")
 
-    metric = pd.read_csv(STABILITY_DIR / "metric_stability_summary.csv")
-    axis = pd.read_csv(STABILITY_DIR / "demand_axis_stability_summary.csv")
-    seasonality = pd.read_csv(STABILITY_DIR / "seasonality_summary.csv")
-    flags = pd.read_csv(STABILITY_DIR / "stability_flags.csv")
+    metric = pd.read_csv(candidate_stability_dir(STRUCTURAL_CHALLENGER_IDS[-1]) / "metric_stability_summary.csv")
+    axis = pd.read_csv(candidate_stability_dir(STRUCTURAL_CHALLENGER_IDS[-1]) / "demand_axis_stability_summary.csv")
+    seasonality = pd.read_csv(candidate_stability_dir(STRUCTURAL_CHALLENGER_IDS[-1]) / "seasonality_summary.csv")
+    flags = pd.read_csv(candidate_stability_dir(STRUCTURAL_CHALLENGER_IDS[-1]) / "stability_flags.csv")
     print(
         f"[price_family_phase2_stability] metric_rows={len(metric)} "
         f"demand_axis_rows={len(axis)} seasonality_rows={len(seasonality)} flags={len(flags)}"
@@ -260,7 +284,7 @@ def main() -> int:
         "[price_family_phase2_stability] compact_metric_stability:\n"
         + metric.groupby("run_role")["mean_absolute_change_1m"].mean().reset_index().to_string(index=False)
     )
-    print(f"[price_family_phase2_stability] artifacts={STABILITY_DIR}")
+    print(f"[price_family_phase2_stability] artifacts_root={STABILITY_DIR.parent.parent}")
     print("[price_family_phase2_stability] OK")
     return 0
 
