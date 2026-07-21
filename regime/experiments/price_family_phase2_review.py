@@ -13,8 +13,10 @@ from regime.experiments.price_family_phase2_diagnostics import (
     CHRONOLOGY_ARTIFACTS,
     CHRONOLOGY_DIR,
     COMPARISON_ROOT,
+    PRODUCTION_CANDIDATE_ID,
     STABILITY_ARTIFACTS,
     STABILITY_DIR,
+    STRUCTURAL_COMPARISON_ROOT,
 )
 
 # Review thresholds only. These constants are deterministic adjudication defaults
@@ -37,8 +39,8 @@ REVIEW_DIR = COMPARISON_ROOT / "phase2_review"
 RECOMMENDATIONS = (
     "blocking_diagnostic_issue",
     "insufficient_evidence",
-    "retain_ma12_as_current_finalist",
-    "ma6_finalist_warranted",
+    "retain_current_reference",
+    "candidate_finalist_warranted",
 )
 REVIEW_ARTIFACTS = (
     "smoothing_scorecard.csv",
@@ -47,9 +49,20 @@ REVIEW_ARTIFACTS = (
     "seasonality_review.csv",
     "shock_review.csv",
     "focus_case_manifest.csv",
-    "ma6_trigger_evidence.csv",
+    "candidate_trigger_evidence.csv",
+    "adjudication_criteria.csv",
     "review_summary.json",
 )
+
+ADJUDICATION_CRITERIA_WEIGHTS = {
+    "seasonality_suppression": 0.18,
+    "structural_signal_retention": 0.22,
+    "turning_point_responsiveness": 0.22,
+    "transition_stability": 0.14,
+    "linked_derived_coherence": 0.12,
+    "usable_historical_coverage": 0.12,
+}
+
 SEASONALITY_REVIEW_COLUMNS = [
     "geo_id",
     "review_series_type",
@@ -98,8 +111,10 @@ def _safe_div(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
     return (numerator / denominator.replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
 
 
-def _write_csv(frame: pd.DataFrame, path: Path) -> None:
+def _write_csv(frame: pd.DataFrame, path: Path, *, candidate_id: str | None = None) -> None:
     out = frame.copy().replace([np.inf, -np.inf], np.nan)
+    if candidate_id is not None and "candidate_id" not in out.columns:
+        out.insert(0, "candidate_id", candidate_id)
     for column in out.columns:
         if pd.api.types.is_datetime64_any_dtype(out[column]):
             out[column] = out[column].dt.strftime("%Y-%m-%d")
@@ -150,7 +165,13 @@ def _required_target_series_count(monthly: pd.DataFrame) -> tuple[int, int]:
     return len(supported), required
 
 
-def build_price_family_phase2_review(output_dir: Path = REVIEW_DIR) -> dict[str, pd.DataFrame]:
+def build_price_family_phase2_review(
+    output_dir: Path = REVIEW_DIR,
+    *,
+    chronology_dir: Path = CHRONOLOGY_DIR,
+    stability_dir: Path = STABILITY_DIR,
+    candidate_id: str = PRODUCTION_CANDIDATE_ID,
+) -> dict[str, pd.DataFrame]:
     """Build a deterministic Phase 2 review packet from persisted diagnostics only.
 
     Key grains:
@@ -159,31 +180,33 @@ def build_price_family_phase2_review(output_dir: Path = REVIEW_DIR) -> dict[str,
     - seasonality_review: geo_id, review_series_type, review_series_key.
     - shock_review: geo_id, period.
     - focus_case_manifest: geo_id, review_series_type, review_series_key, review_reason.
-    - ma6_trigger_evidence: row_type, geo_id, review_series_type, review_series_key.
+    - candidate_trigger_evidence: candidate_id, row_type, geo_id, review_series_type, review_series_key.
+    - adjudication_criteria: candidate_id, criterion, raw inputs, normalized score, weight, weighted contribution.
     """
+    print(f"[price_family_phase2_review] candidate={candidate_id} stage=start output={output_dir}")
     for name in CHRONOLOGY_ARTIFACTS:
-        _require(CHRONOLOGY_DIR / name) if name.endswith(".csv") else _require_json(CHRONOLOGY_DIR / name)
+        _require(chronology_dir / name) if name.endswith(".csv") else _require_json(chronology_dir / name)
     for name in STABILITY_ARTIFACTS:
-        _require(STABILITY_DIR / name) if name.endswith(".csv") else _require_json(STABILITY_DIR / name)
+        _require(stability_dir / name) if name.endswith(".csv") else _require_json(stability_dir / name)
 
     _clean(output_dir)
-    monthly = _require(CHRONOLOGY_DIR / "chronology_monthly.csv", ["geo_id", "series_type", "series_key"])
-    lag = _require(CHRONOLOGY_DIR / "turning_point_lag_summary.csv", ["geo_id", "series_type", "series_key", "absolute_lag_months", "matched"])
-    flags = _require(CHRONOLOGY_DIR / "chronology_flags.csv", ["geo_id", "series_type", "series_key", "flag_type"])
-    shock = _require(CHRONOLOGY_DIR / "affordability_shock_summary.csv", ["geo_id", "period"])
-    stability_flags = _require(STABILITY_DIR / "stability_flags.csv")
+    monthly = _require(chronology_dir / "chronology_monthly.csv", ["geo_id", "series_type", "series_key"])
+    lag = _require(chronology_dir / "turning_point_lag_summary.csv", ["geo_id", "series_type", "series_key", "absolute_lag_months", "matched"])
+    flags = _require(chronology_dir / "chronology_flags.csv", ["geo_id", "series_type", "series_key", "flag_type"])
+    shock = _require(chronology_dir / "affordability_shock_summary.csv", ["geo_id", "period"])
+    stability_flags = _require(stability_dir / "stability_flags.csv")
     contract_flag_count = _contract_flag_count(stability_flags)
 
     stability = pd.concat(
         [
-            _prep_stability(_require(STABILITY_DIR / "metric_stability_summary.csv"), "metric", "canonical_metric_key"),
-            _prep_stability(_require(STABILITY_DIR / "dimension_stability_summary.csv"), "dimension", "dimension"),
-            _prep_stability(_require(STABILITY_DIR / "demand_axis_stability_summary.csv"), "axis", "axis"),
+            _prep_stability(_require(stability_dir / "metric_stability_summary.csv"), "metric", "canonical_metric_key"),
+            _prep_stability(_require(stability_dir / "dimension_stability_summary.csv"), "dimension", "dimension"),
+            _prep_stability(_require(stability_dir / "demand_axis_stability_summary.csv"), "axis", "axis"),
         ],
         ignore_index=True,
         sort=False,
     )
-    seasonality = _prep_seasonality(_require(STABILITY_DIR / "seasonality_summary.csv"))
+    seasonality = _prep_seasonality(_require(stability_dir / "seasonality_summary.csv"))
     shock_review = _shock_review(shock, flags)
 
     score = _chronology_score(lag, flags).merge(
@@ -213,7 +236,9 @@ def build_price_family_phase2_review(output_dir: Path = REVIEW_DIR) -> dict[str,
         missing_focus_geography_count=len(missing_focus),
         missing_required_target_series_count=missing_required_target_series_count,
         contract_flag_count=contract_flag_count,
+        candidate_id=candidate_id,
     )
+    criteria = _adjudication_criteria(score, shock_review, monthly, candidate_id=candidate_id)
 
     outputs = {
         "smoothing_scorecard": score,
@@ -222,11 +247,14 @@ def build_price_family_phase2_review(output_dir: Path = REVIEW_DIR) -> dict[str,
         "seasonality_review": seasonality_review,
         "shock_review": shock_review,
         "focus_case_manifest": focus,
-        "ma6_trigger_evidence": evidence,
+        "candidate_trigger_evidence": evidence,
+        "adjudication_criteria": criteria,
     }
     for name, frame in outputs.items():
-        _write_csv(frame, output_dir / f"{name}.csv")
+        _write_csv(frame, output_dir / f"{name}.csv", candidate_id=candidate_id)
     summary = {
+        "candidate_id": candidate_id,
+        "reference_candidate_id": PRODUCTION_CANDIDATE_ID,
         "aggregate_recommendation": evidence.loc[evidence["row_type"].eq("aggregate"), "recommendation"].iloc[0],
         "artifact_key_grains": {
             "smoothing_scorecard.csv": ["geo_id", "review_series_type", "review_series_key"],
@@ -235,8 +263,11 @@ def build_price_family_phase2_review(output_dir: Path = REVIEW_DIR) -> dict[str,
             "seasonality_review.csv": ["geo_id", "review_series_type", "review_series_key"],
             "shock_review.csv": ["geo_id", "period"],
             "focus_case_manifest.csv": ["geo_id", "review_series_type", "review_series_key", "review_reason"],
-            "ma6_trigger_evidence.csv": ["row_type", "geo_id", "review_series_type", "review_series_key"],
+            "candidate_trigger_evidence.csv": ["candidate_id", "row_type", "geo_id", "review_series_type", "review_series_key"],
+            "adjudication_criteria.csv": ["candidate_id", "criterion"],
         },
+        "adjudication_criteria_weights": ADJUDICATION_CRITERIA_WEIGHTS,
+        "adjudication_note": "Scores expose competing criteria for human review; aggregate recommendation is not based solely on lowest volatility.",
         "thresholds_are_review_not_production_policy": True,
         "thresholds": {name: globals()[name] for name in [
             "MIN_MATCHED_TURNS",
@@ -251,7 +282,10 @@ def build_price_family_phase2_review(output_dir: Path = REVIEW_DIR) -> dict[str,
         ]},
         "output_artifacts": list(REVIEW_ARTIFACTS),
     }
+    candidate_comparison = _candidate_comparison_row(candidate_id, summary, criteria)
     _write_json(summary, output_dir / "review_summary.json")
+    outputs["candidate_comparison"] = candidate_comparison
+    print(f"[price_family_phase2_review] candidate={candidate_id} stage=complete rows={len(score)} output={output_dir}")
     return outputs | {"review_summary": pd.DataFrame([summary])}
 
 
@@ -420,7 +454,92 @@ def _focus_manifest(score: pd.DataFrame, shock: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["review_reason", "geo_id", "review_series_type", "review_series_key"], kind="mergesort").reset_index(drop=True)
 
 
-def _evidence(score: pd.DataFrame, shock: pd.DataFrame, *, blocking: bool, missing_focus_geography_count: int, missing_required_target_series_count: int, contract_flag_count: int) -> pd.DataFrame:
+def _clip01(value: float) -> float:
+    if pd.isna(value):
+        return np.nan
+    return float(min(max(value, 0.0), 1.0))
+
+
+def _adjudication_criteria(score: pd.DataFrame, shock: pd.DataFrame, monthly: pd.DataFrame, *, candidate_id: str) -> pd.DataFrame:
+    target = score[_target_mask(score)].copy()
+    coverage = monthly.groupby(["geo_id", "series_type", "series_key"], dropna=False).agg(
+        common_evaluation_window_months=("date", "size"),
+        overlap_months=("challenger_metric_score", "count"),
+    ).reset_index()
+    raw = {
+        "seasonality_suppression": float(_num(target.get("percent_seasonal_spread_reduction", pd.Series(dtype=float))).median()),
+        "structural_signal_retention": float(_num(target.get("baseline_challenger_correlation", pd.Series(dtype=float))).median()),
+        "turning_point_responsiveness": float(1 - (_num(target.get("median_absolute_lag_months", pd.Series(dtype=float))).median() / max(MATERIAL_LAG_MONTHS, 1))),
+        "transition_stability": float(1 - _num(target.get("chronology_inversion_count", pd.Series(dtype=float))).sum() / max(len(target), 1)),
+        "linked_derived_coherence": float(1 - (int(shock.get("payment_burden_price_to_income_not_distinct_flag", pd.Series(dtype=bool)).astype(bool).sum()) / max(len(shock), 1))),
+        "usable_historical_coverage": float(coverage["overlap_months"].sum() / max(coverage["common_evaluation_window_months"].sum(), 1)) if not coverage.empty else np.nan,
+    }
+    inputs = {
+        "seasonality_suppression": {"median_percent_seasonal_spread_reduction": raw["seasonality_suppression"]},
+        "structural_signal_retention": {"median_baseline_challenger_correlation": raw["structural_signal_retention"]},
+        "turning_point_responsiveness": {"median_absolute_lag_months": float(_num(target.get("median_absolute_lag_months", pd.Series(dtype=float))).median())},
+        "transition_stability": {"chronology_inversion_count": int(_num(target.get("chronology_inversion_count", pd.Series(dtype=float))).sum()), "target_review_rows": int(len(target))},
+        "linked_derived_coherence": {"not_distinct_flag_count": int(shock.get("payment_burden_price_to_income_not_distinct_flag", pd.Series(dtype=bool)).astype(bool).sum()), "shock_rows": int(len(shock))},
+        "usable_historical_coverage": {"overlap_months": int(coverage["overlap_months"].sum()) if not coverage.empty else 0, "common_evaluation_window_months": int(coverage["common_evaluation_window_months"].sum()) if not coverage.empty else 0},
+    }
+    rows = []
+    for criterion in sorted(ADJUDICATION_CRITERIA_WEIGHTS):
+        normalized = _clip01(raw[criterion])
+        weight = ADJUDICATION_CRITERIA_WEIGHTS[criterion]
+        rows.append({
+            "candidate_id": candidate_id,
+            "criterion": criterion,
+            "raw_inputs_json": json.dumps(inputs[criterion], sort_keys=True, default=_json_default),
+            "raw_value": raw[criterion],
+            "normalized_score": normalized,
+            "weight": weight,
+            "weighted_contribution": normalized * weight if pd.notna(normalized) else np.nan,
+            "missing_evidence": bool(pd.isna(normalized)),
+        })
+    return pd.DataFrame(rows).sort_values(["candidate_id", "criterion"], kind="mergesort").reset_index(drop=True)
+
+
+def _candidate_comparison_row(candidate_id: str, summary: dict[str, Any], criteria: pd.DataFrame) -> pd.DataFrame:
+    row = {
+        "candidate_id": candidate_id,
+        "reference_candidate_id": PRODUCTION_CANDIDATE_ID,
+        "aggregate_recommendation": summary["aggregate_recommendation"],
+        "review_orientation": "human_adjudication_required",
+        "total_weighted_score": float(_num(criteria["weighted_contribution"]).sum()),
+    }
+    for item in criteria.itertuples(index=False):
+        row[f"{item.criterion}_normalized_score"] = item.normalized_score
+        row[f"{item.criterion}_weighted_contribution"] = item.weighted_contribution
+        row[f"{item.criterion}_missing_evidence"] = item.missing_evidence
+    return pd.DataFrame([row])
+
+
+def write_integrated_candidate_comparison(
+    candidate_rows: list[pd.DataFrame] | pd.DataFrame,
+    output_path: Path = STRUCTURAL_COMPARISON_ROOT / "phase2_candidate_comparison.csv",
+) -> pd.DataFrame:
+    frame = pd.concat(candidate_rows, ignore_index=True, sort=False) if isinstance(candidate_rows, list) else candidate_rows.copy()
+    if "candidate_id" not in frame.columns:
+        raise ValueError("candidate comparison rows must include candidate_id")
+    expected = set(STRUCTURAL_CHALLENGER_IDS)
+    observed = set(frame["candidate_id"].dropna())
+    if (
+        frame["candidate_id"].isna().any()
+        or observed != expected
+        or len(frame) != len(expected)
+        or frame["candidate_id"].duplicated().any()
+    ):
+        raise ValueError(
+            "candidate comparison must contain exactly one current structural candidate row; "
+            f"expected={sorted(expected)} observed={sorted(observed)} rows={len(frame)}"
+        )
+    out = frame.sort_values("candidate_id", kind="mergesort").reset_index(drop=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_csv(out, output_path)
+    return out
+
+
+def _evidence(score: pd.DataFrame, shock: pd.DataFrame, *, blocking: bool, missing_focus_geography_count: int, missing_required_target_series_count: int, contract_flag_count: int, candidate_id: str = PRODUCTION_CANDIDATE_ID) -> pd.DataFrame:
     eligible = score[score["eligible_observation"]]
     independent_chronology_trigger_count = int(eligible["chronology_delay_trigger"].sum())
     independent_attenuation_trigger_count = int(eligible["attenuation_trigger"].sum())
@@ -436,6 +555,7 @@ def _evidence(score: pd.DataFrame, shock: pd.DataFrame, *, blocking: bool, missi
     else:
         recommendation = RECOMMENDATIONS[2]
     aggregate = {
+        "candidate_id": candidate_id,
         "row_type": "aggregate",
         "geo_id": "ALL",
         "review_series_type": "aggregate",
@@ -453,9 +573,10 @@ def _evidence(score: pd.DataFrame, shock: pd.DataFrame, *, blocking: bool, missi
     }
     detail = score[["geo_id", "review_series_type", "review_series_key", "recommendation", "chronology_delay_trigger", "attenuation_trigger", "seasonality_overkill_trigger", "shock_suppression_trigger", "independent_trigger_family_count"]].copy()
     detail.insert(0, "row_type", "detail")
+    detail.insert(0, "candidate_id", candidate_id)
     for column in ["independent_chronology_trigger_count", "independent_attenuation_trigger_count", "independent_shock_trigger_count", "supporting_seasonality_overkill_count", "eligible_observation_count", "missing_focus_geography_count", "missing_required_target_series_count", "contract_flag_count"]:
         detail[column] = np.nan
-    return pd.concat([pd.DataFrame([aggregate]), detail], ignore_index=True, sort=False).sort_values(["row_type", "geo_id", "review_series_type", "review_series_key"], kind="mergesort").reset_index(drop=True)
+    return pd.concat([pd.DataFrame([aggregate]), detail], ignore_index=True, sort=False).sort_values(["candidate_id", "row_type", "geo_id", "review_series_type", "review_series_key"], kind="mergesort").reset_index(drop=True)
 
 
 if __name__ == "__main__":

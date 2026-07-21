@@ -13,12 +13,13 @@ import numpy as np
 import pandas as pd
 
 from regime.experiments.linked_price_family_comparison import (
+    STRUCTURAL_CHALLENGER_IDS,
     build_linked_price_family_comparison,
 )
 from regime.experiments.price_family_phase2_diagnostics import (
     CHRONOLOGY_ARTIFACTS,
     CHRONOLOGY_DIR,
-    PRODUCTION_CANDIDATE_ID,
+    candidate_chronology_dir,
     _chronology_flags,
     _turning_lag,
     build_phase2_chronology,
@@ -103,11 +104,23 @@ def _assert_artifact(path: Path, keys: list[str]) -> pd.DataFrame:
     return frame
 
 
-def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame]) -> None:
+def _assert_candidate_identity(frame: pd.DataFrame, path: Path, candidate_id: str) -> None:
+    if "candidate_id" not in frame.columns:
+        raise AssertionError(f"{path}: missing candidate_id column")
+    if frame.empty:
+        return
+    if frame["candidate_id"].isna().any():
+        raise AssertionError(f"{path}: null candidate_id values")
+    if set(frame["candidate_id"]) != {candidate_id}:
+        raise AssertionError(f"{path}: candidate_id mismatch")
+
+
+def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame], candidate_id: str) -> None:
     build_phase2_chronology(
         path,
         comparison_result=comparison_result,
         reproducibility_checked=True,
+        candidate_id=candidate_id,
     )
     monthly = _assert_artifact(
         path / "chronology_monthly.csv",
@@ -144,6 +157,16 @@ def _run_once(path: Path, comparison_result: dict[str, pd.DataFrame]) -> None:
             "detail",
         ],
     )
+    for name in CHRONOLOGY_ARTIFACTS:
+        if name.endswith(".csv"):
+            _assert_candidate_identity(pd.read_csv(path / name), path / name, candidate_id)
+    coverage_metrics = _assert_artifact(
+        path / "coverage_metrics.csv",
+        ["candidate_id", "geo_id", "series_type", "series_key"],
+    )
+    for column in ["first_source_date", "first_valid_structural_date", "last_date", "usable_months", "warmup_months", "overlap_months_vs_common_evaluation_window"]:
+        if column not in coverage_metrics.columns:
+            raise AssertionError(f"coverage_metrics.csv missing {column}")
     expected_geos = {"district_of_columbia_dc__county", "alameda_county_ca__county"}
     found = set(monthly["geo_id"].unique())
     if not expected_geos.issubset(found):
@@ -475,26 +498,29 @@ def main() -> int:
     print("[price_family_phase2_chronology] synthetic turning-point validation OK")
     _run_synthetic_chronology_flag_validation()
     print("[price_family_phase2_chronology] synthetic flag validation OK")
-    print("[price_family_phase2_chronology] building upstream comparison once...")
-    comparison_result = build_linked_price_family_comparison(
-        challenger_id=PRODUCTION_CANDIDATE_ID
-    )
-    print("[price_family_phase2_chronology] building deterministic chronology artifacts twice...")
-    with tempfile.TemporaryDirectory() as tmp:
-        first = Path(tmp) / "first"
-        second = Path(tmp) / "second"
-        _run_once(first, comparison_result)
-        _run_once(second, comparison_result)
-        for name in CHRONOLOGY_ARTIFACTS:
-            if not filecmp.cmp(first / name, second / name, shallow=False):
-                raise AssertionError(f"{name}: deterministic rerun row-level equality failed")
-        if CHRONOLOGY_DIR.exists():
-            shutil.rmtree(CHRONOLOGY_DIR)
-        shutil.copytree(second, CHRONOLOGY_DIR)
+    for candidate_id in STRUCTURAL_CHALLENGER_IDS:
+        out_dir = candidate_chronology_dir(candidate_id)
+        print(f"[price_family_phase2_chronology] candidate={candidate_id} building upstream comparison once...")
+        comparison_result = build_linked_price_family_comparison(challenger_id=candidate_id)
+        print(f"[price_family_phase2_chronology] candidate={candidate_id} building deterministic chronology artifacts twice...")
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / candidate_id / "first"
+            second = Path(tmp) / candidate_id / "second"
+            _run_once(first, comparison_result, candidate_id)
+            _run_once(second, comparison_result, candidate_id)
+            for name in CHRONOLOGY_ARTIFACTS:
+                if not filecmp.cmp(first / name, second / name, shallow=False):
+                    raise AssertionError(f"{candidate_id} {name}: deterministic rerun row-level equality failed")
+            if out_dir.exists():
+                shutil.rmtree(out_dir)
+            shutil.copytree(second, out_dir)
+        print(f"[price_family_phase2_chronology] candidate={candidate_id} artifacts={out_dir}")
 
-    monthly = pd.read_csv(CHRONOLOGY_DIR / "chronology_monthly.csv")
-    lag = pd.read_csv(CHRONOLOGY_DIR / "turning_point_lag_summary.csv")
-    flags = pd.read_csv(CHRONOLOGY_DIR / "chronology_flags.csv")
+    if not set(STRUCTURAL_CHALLENGER_IDS).issubset({p.parent.name for p in CHRONOLOGY_DIR.parent.parent.glob("*/phase2_chronology")}):
+        raise AssertionError("not all structural candidates produced isolated chronology artifacts")
+    monthly = pd.read_csv(candidate_chronology_dir(STRUCTURAL_CHALLENGER_IDS[-1]) / "chronology_monthly.csv")
+    lag = pd.read_csv(candidate_chronology_dir(STRUCTURAL_CHALLENGER_IDS[-1]) / "turning_point_lag_summary.csv")
+    flags = pd.read_csv(candidate_chronology_dir(STRUCTURAL_CHALLENGER_IDS[-1]) / "chronology_flags.csv")
     coverage = monthly.groupby("geo_id")["date"].agg(["min", "max", "count"]).reset_index()
     lag_summary = (
         lag.groupby("geo_id")["absolute_lag_months"].agg(["count", "median", "max"]).reset_index()
@@ -505,7 +531,7 @@ def main() -> int:
     print("[price_family_phase2_chronology] coverage:\n" + coverage.to_string(index=False))
     if not lag_summary.empty:
         print("[price_family_phase2_chronology] lag_summary:\n" + lag_summary.to_string(index=False))
-    print(f"[price_family_phase2_chronology] artifacts={CHRONOLOGY_DIR}")
+    print(f"[price_family_phase2_chronology] artifacts_root={CHRONOLOGY_DIR.parent.parent}")
     print("[price_family_phase2_chronology] OK")
     return 0
 
