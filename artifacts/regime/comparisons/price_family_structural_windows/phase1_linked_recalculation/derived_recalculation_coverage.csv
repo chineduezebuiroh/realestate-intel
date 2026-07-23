@@ -1,0 +1,7 @@
+candidate_id,level_window,canonical_metric_key,rows,first_date,last_date
+price_family_ma6_structural_linked,6,payment_burden,50,2020-06-30,2022-06-30
+price_family_ma6_structural_linked,6,price_to_income,50,2020-06-30,2022-06-30
+price_family_ma9_structural_linked,9,payment_burden,44,2020-09-30,2022-06-30
+price_family_ma9_structural_linked,9,price_to_income,44,2020-09-30,2022-06-30
+price_family_ma12_structural_linked,12,payment_burden,38,2020-12-31,2022-06-30
+price_family_ma12_structural_linked,12,price_to_income,38,2020-12-31,2022-06-30

@@ -1,0 +1,15 @@
+candidate_id,level_window,geo_id,series_type,series_key,first_source_date,first_valid_structural_date,last_date,usable_months,warmup_months,common_evaluation_window_months,overlap_months_vs_common_evaluation_window
+price_family_ma9_structural_linked,9,alameda_county_ca__county,axis_score,demand,2008-12-31,2008-12-31,2026-07-31,209,8,209,209
+price_family_ma9_structural_linked,9,alameda_county_ca__county,dimension_score,affordability,2015-11-30,2015-11-30,2026-07-31,129,8,129,129
+price_family_ma9_structural_linked,9,alameda_county_ca__county,dimension_score,price,2014-12-31,2015-08-31,2026-07-31,132,8,140,132
+price_family_ma9_structural_linked,9,alameda_county_ca__county,metric_score,median_ppsf,2014-12-31,2015-08-31,2026-05-31,130,8,138,130
+price_family_ma9_structural_linked,9,alameda_county_ca__county,metric_score,median_sale_price,2014-12-31,2015-08-31,2026-05-31,130,8,138,130
+price_family_ma9_structural_linked,9,alameda_county_ca__county,metric_score,payment_burden,2015-11-30,2015-11-30,2026-05-31,127,8,127,127
+price_family_ma9_structural_linked,9,alameda_county_ca__county,metric_score,price_to_income,2015-11-30,2015-11-30,2026-05-31,127,8,127,127
+price_family_ma9_structural_linked,9,district_of_columbia_dc__county,axis_score,demand,2008-12-31,2008-12-31,2026-07-31,209,8,209,209
+price_family_ma9_structural_linked,9,district_of_columbia_dc__county,dimension_score,affordability,2015-11-30,2015-11-30,2026-07-31,129,8,129,129
+price_family_ma9_structural_linked,9,district_of_columbia_dc__county,dimension_score,price,2014-12-31,2015-08-31,2026-07-31,132,8,140,132
+price_family_ma9_structural_linked,9,district_of_columbia_dc__county,metric_score,median_ppsf,2014-12-31,2015-08-31,2026-05-31,130,8,138,130
+price_family_ma9_structural_linked,9,district_of_columbia_dc__county,metric_score,median_sale_price,2014-12-31,2015-08-31,2026-05-31,130,8,138,130
+price_family_ma9_structural_linked,9,district_of_columbia_dc__county,metric_score,payment_burden,2015-11-30,2015-11-30,2026-05-31,127,8,127,127
+price_family_ma9_structural_linked,9,district_of_columbia_dc__county,metric_score,price_to_income,2015-11-30,2015-11-30,2026-05-31,127,8,127,127
