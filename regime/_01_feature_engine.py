@@ -22,6 +22,15 @@ CANONICAL_SOURCE_METRIC_COLUMNS = [
     "metric_origin",
 ]
 
+LINKED_PRICE_FAMILY_DERIVED_METRICS = (
+    "price_to_income",
+    "payment_burden",
+)
+
+PRICE_FAMILY_PRODUCTION_EXPERIMENT = (
+    "price_family_ma12_structural_linked"
+)
+
 
 def _zscore(s: pd.Series, min_obs: int = 12) -> pd.Series:
     expanding_mean = s.expanding(min_periods=min_obs).mean()
@@ -508,6 +517,28 @@ def build_canonical_source_metrics(
     return observations
 
 
+def _apply_observation_augmentations(
+    observations: pd.DataFrame,
+    derived_lineage: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Apply production observation augmentations before feature
+    computation.
+
+    Augmentations operate on an in-memory copy of the canonical
+    observation frame. They must never modify the canonical
+    observation artifact itself.
+    """
+
+    observations = observations.copy()
+    derived_lineage = derived_lineage.copy()
+
+    return (
+        observations,
+        derived_lineage,
+    )
+
+
 def build_feature_matrix_with_lineage(
     config: RegimeConfig | None = None,
     db_path: str | Path = SERVING_DB,
@@ -559,6 +590,13 @@ def build_feature_matrix_with_lineage(
         derived_lineage = (
             derived_metric_lineage.copy()
         )
+
+    raw, derived_lineage = (
+        _apply_observation_augmentations(
+            observations=raw,
+            derived_lineage=derived_lineage,
+        )
+    )
 
     feature_defs = (
         config.features
