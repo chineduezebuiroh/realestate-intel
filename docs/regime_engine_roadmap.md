@@ -68,20 +68,29 @@ Supporting design documentation:
 
 ---
 
-## Phase D — Analytical Refinement
+## Phase D — Analytical Refinement and Production Calibration
 
-Shifted development emphasis from infrastructure construction toward empirical evaluation and methodology refinement.
+Shifted development emphasis from infrastructure construction toward empirical evaluation, production-policy integration, and county-level methodology calibration.
 
-Major efforts include:
+Major completed efforts include:
 
-- smoothing experimentation
-- linked price-family recalculation
-- demand diagnostics
-- dimension contribution analysis
-- structural weight evaluation
-- dimension-specific investigations
+- smoothing experimentation infrastructure;
+- linked Price/Affordability recalculation;
+- labor and Demand diagnostics;
+- contribution and cancellation analysis;
+- immutable production-run comparison;
+- coordinate and regime-movement review;
+- transition-stability diagnostics;
+- production-review visualization.
 
-Detailed implementation history is recorded in the corresponding Phase D decision documents.
+Current Phase D work is organized around four calibration groups:
+
+1. review-tooling improvements;
+2. Inventory and Supply-axis calibration;
+3. Price feature-weight calibration;
+4. deferred CBSA labor-source correctness review.
+
+Detailed implementation history is recorded in the corresponding Phase D decision documents and persisted comparison artifacts.
 
 ---
 
@@ -89,47 +98,67 @@ Detailed implementation history is recorded in the corresponding Phase D decisio
 
 Planned future work includes:
 
-- Axis Engine completion
-- Coordinate Engine
-- capital market integration
-- enhanced market intelligence
-- geographic expansion
-- advanced diagnostic automation
+- Macro Regime confidence framework;
+- historical backtesting;
+- forecast regime generation;
+- Local Regime Engine development;
+- automated regime-health monitoring;
+- explainability and trace tooling;
+- geographic expansion after source and mapping contracts are validated;
+- advanced market-balance and market-profile intelligence.
 
 ---
 
 # Section 4 - Current Status
 
-The Regime Engine has transitioned from foundational engineering into analytical refinement.
+The deterministic Macro Regime Engine is operational through persisted regime assignment.
 
-Core engineering infrastructure is considered substantially complete, including:
+Completed production infrastructure includes:
 
-- deterministic execution framework;
-- artifact-driven production workflow;
+- canonical metric and derived-metric resolution;
 - feature engineering and normalization;
-- production selector framework;
-- regime scoring infrastructure;
-- reproducible validation framework.
+- metric, dimension, and axis scoring;
+- coordinate and geometry calculation;
+- major and minor regime assignment;
+- immutable artifact-driven production runs;
+- manifests, configuration hashes, and lineage artifacts;
+- baseline-versus-candidate production comparison;
+- chronological, contribution, cancellation, transition-stability, and visual review tooling.
 
-Current development is focused on evaluating, refining, and validating production methodology through targeted empirical investigations rather than introducing new infrastructure.
+The linked MA12 Price/Affordability policy has been integrated and evaluated in a production candidate. The candidate improved Demand-axis coherence and transition stability across many geographies while leaving the Supply axis exactly isolated.
 
-The platform is now in an optimization phase where analytical quality has become the primary engineering objective.
+The project is now in county-level production calibration. Remaining work is focused on improving the quality and interpretability of the existing engine, not rebuilding its core infrastructure.
 
 ---
 
 # Section 5 - Active Development Priorities
 
-Current work is focused on strengthening production methodology through targeted investigations.
+Current work is sequenced as follows:
 
-Primary priorities include:
+1. Improve production-review tooling.
+   - Make Washington, DC county a mandatory review geography.
+   - Prioritize county geographies in targeted reviews.
+   - Add combined Demand, Supply, major-regime, minor-regime, and micro-transition chronology views.
+   - Split full-history and recent-period Demand-delta heatmaps.
 
-1. Complete dimension-specific investigations.
-2. Finalize structural dimension weight evaluation.
-3. Integrate capital-market intelligence into the Regime Engine.
-4. Refine production scoring where supported by empirical evidence.
-5. Continue expanding engineering documentation and architectural decision records.
+2. Calibrate Inventory and the Supply axis.
+   - Evaluate structural smoothing alternatives for active inventory.
+   - Reassess level, short, and long feature weighting.
+   - Measure seasonality, volatility, sign flips, shock timing, and regime transitions.
+   - Preserve genuine structural responsiveness while reducing unnecessary jaggedness.
 
-The emphasis remains on evidence-driven refinement rather than feature expansion.
+3. Calibrate Price feature weights.
+   - Hold the linked MA12 observation policy constant.
+   - Test whether the current short-feature weight contributes to the unusually broad Price-score distribution.
+   - Measure downstream Affordability, Demand-axis, cancellation, and regime effects.
+
+4. Audit CBSA labor-source correctness.
+   - Verify LAUS and CES availability, source precedence, registry eligibility, and join behavior.
+   - Explain the observed CBSA Demand behavior before using CBSA results for model calibration.
+
+5. Continue formalizing architecture and production decisions through ADRs.
+
+The emphasis remains on isolated, evidence-driven changes rather than broad feature expansion.
 
 ---
 
@@ -139,9 +168,10 @@ Following completion of the current analytical refinement phase, anticipated dev
 
 ## Regime Intelligence
 
-- Complete the Axis Engine.
-- Complete the Coordinate Engine.
-- Continue refinement of regime scoring methodology.
+- Implement the Macro Regime confidence framework.
+- Complete historical backtesting.
+- Develop forecast score, coordinate, regime, and transition generation.
+- Continue evidence-driven refinement of regime scoring methodology.
 
 ## Geographic Expansion
 
@@ -156,9 +186,14 @@ Following completion of the current analytical refinement phase, anticipated dev
 
 ## Platform Maturity
 
-- Expand automated diagnostics.
-- Improve review artifact generation.
-- Continue formalizing engineering contracts and documentation.
+## Platform Maturity
+
+- Expand automated diagnostics and regime-health monitoring.
+- Develop metric, dimension, axis, transition, and assignment trace tools.
+- Formalize artifact lifecycle and retention contracts.
+- Enforce downstream row-order invariance.
+- Continue consolidating shared diagnostic and comparison infrastructure.
+- Maintain architecture documentation and ADR coverage.
 
 ---
 
@@ -178,6 +213,14 @@ Significant milestones in the evolution of the Regime Engine include:
 - Completed demand contribution diagnostics.
 - Began dimension-specific empirical investigations.
 - Transitioned the project from infrastructure development to analytical refinement.
+- Promoted shared production-safe linked Price/Affordability implementation.
+- Integrated linked MA12 Price/Affordability behavior into a production candidate.
+- Implemented generalized persisted-run production comparison.
+- Persisted detailed axis-contribution and cancellation comparison records.
+- Built aggregate and geography-specific production-review visual diagnostics.
+- Verified exact Supply-axis isolation during the linked Price integration.
+- Established county-level production calibration as the current engineering phase.
+- Formalized Regime Engine architecture and ADR documentation.
 
 ---
 

@@ -66,20 +66,22 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 - Production selector framework
 - Smoothing experimentation framework
 - Linked price-family recalculation framework
-- Dimension contribution diagnostics
+- Dimension contribution and cancellation diagnostics
+- Production comparison framework
+- Production review visualization framework
 
 ### Current Focus
 
-The current development effort is focused on refining the analytical quality of the Regime Engine through targeted diagnostic investigations rather than expanding platform capabilities.
+Current development has shifted from infrastructure implementation toward county-level production calibration.
 
-Current work includes:
+Current work is organized into four sequential efforts:
 
-- Dimension-specific investigations
-- Structural weight evaluation
-- Capital market integration
-- Regime scoring refinement
+- Review-tooling improvements
+- Inventory and Supply-axis calibration
+- Price feature-weight calibration
+- Deferred CBSA labor-source correctness review
 
-The engineering emphasis has shifted from building new infrastructure toward validating assumptions, improving methodology, and strengthening production policy through empirical evidence.
+The engineering emphasis remains on improving production methodology through isolated, evidence-driven changes while preserving deterministic engineering contracts.
 
 ---
 
@@ -96,6 +98,10 @@ The following engineering contracts are currently considered stable unless super
 - Production policy changes require supporting empirical diagnostics.
 - Experimental features must remain isolated from production until formally adopted.
 - All major implementation changes should be accompanied by validation artifacts and documentation.
+- Production and experiment policies should reuse shared production-safe computational implementations.
+- Persisted production artifacts are the authoritative source for downstream comparison and review.
+- County-level calibration is the current production target.
+- Washington, DC county is a mandatory targeted review geography.
 
 ---
 
@@ -105,24 +111,27 @@ The project is currently transitioning from foundational engineering into analyt
 
 ## Immediate Priorities
 
-- Complete dimension-specific investigations.
-- Finalize structural weight evaluation.
-- Incorporate capital market intelligence into the Regime Engine.
-- Refine production regime scoring where supported by empirical evidence.
+- Improve production-review tooling.
+- Complete Inventory and Supply-axis calibration.
+- Complete Price feature-weight calibration.
+- Audit CBSA labor-source correctness.
+- Continue expanding architecture documentation and ADR coverage.
 
 ## Near-Term Objectives
 
-- Expand review artifacts and diagnostic reporting.
-- Continue strengthening documentation and engineering contracts.
-- Validate production policy changes through challenger evaluations.
-- Mature the regime review workflow.
+- Freeze promoted production policies.
+- Update production registries.
+- Expand regime explainability.
+- Continue strengthening review automation.
+- Mature the production acceptance workflow.
 
 ## Longer-Term Objectives
 
-- Complete the Axis Engine and Coordinate Engine vision.
-- Extend macro intelligence across additional geographic resolutions where appropriate.
-- Expand capital flow analysis and market intelligence capabilities.
-- Continue evolving the platform into a comprehensive, explainable decision-support system for residential real estate markets.
+- Build the Macro Regime confidence framework.
+- Implement historical regime backtesting.
+- Develop the Forecast Regime Engine.
+- Develop the Local Regime Engine.
+- Expand geographic coverage after engineering contracts are validated.
 
 Detailed implementation sequencing, milestones, and historical context are maintained in `regime_engine_roadmap.md`.
 
@@ -170,7 +179,13 @@ Several architectural principles have become foundational to the platform.
 
 The following topics remain active areas of investigation and should not be considered settled production policy.
 
-- Refinement of structural dimension weights.
+- Optimal smoothing and feature weighting for the Inventory dimension.
+- Appropriate feature weighting within the Price dimension.
+- Long-term integration of capital-market indicators into regime scoring.
+- CBSA labor-source treatment and geography contracts.
+- Geographic expansion beyond the county-level Macro Regime framework.
+- Future Market Balance and Market Profile architecture.
+- Opportunities to improve review automation and explainability.
 - Long-term integration of capital-market indicators into regime scoring.
 - Appropriate treatment of price and affordability interactions.
 - Geographic expansion strategy beyond the current macro framework.
@@ -190,6 +205,15 @@ Before beginning implementation work, contributors (human or AI) should review t
 2. `docs/project_memory.md`
 3. `docs/regime_engine_roadmap.md`
 4. Relevant phase decision document(s)
+
+```text
+
+	Relevant architecture document(s), including:
+	- docs/architecture/regime_engine_overview.md
+	- docs/architecture/shared_production_experiment_implementation.md
+	- relevant ADRs
+```
+
 5. Relevant architecture document(s)
 6. Relevant research document(s)
 
@@ -197,7 +221,8 @@ When starting a new development session, establish the following before making i
 
 - Current branch
 - Latest completed implementation phase
-- Current development objective
+- Current development
+- Current production calibration phase (if applicable)
 - Active engineering contracts
 - Outstanding architectural decisions
 - Relevant diagnostic findings
