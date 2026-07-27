@@ -10,6 +10,7 @@ import numpy as np
 from regime._00_config_loader import RegimeConfig, load_regime_config
 from regime.derived_metrics import build_derived_metrics_with_lineage
 from regime.canonical_metrics import resolve_canonical_metrics
+from regime.linked_price_family import apply_linked_price_family_augmentation
 
 
 SERVING_DB = Path("data/market_serving.duckdb")
@@ -21,6 +22,10 @@ CANONICAL_SOURCE_METRIC_COLUMNS = [
     "value",
     "metric_origin",
 ]
+
+PRICE_FAMILY_PRODUCTION_EXPERIMENT = (
+    "price_family_ma12_structural_linked"
+)
 
 
 def _zscore(s: pd.Series, min_obs: int = 12) -> pd.Series:
@@ -508,6 +513,50 @@ def build_canonical_source_metrics(
     return observations
 
 
+def _apply_linked_price_family_augmentation(
+    observations: pd.DataFrame,
+    derived_lineage: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Apply the selected production linked Price/Affordability
+    observation policy.
+    """
+    return apply_linked_price_family_augmentation(
+        observations=observations,
+        derived_lineage=derived_lineage,
+        experiment_id=PRICE_FAMILY_PRODUCTION_EXPERIMENT,
+    )
+
+
+def _apply_observation_augmentations(
+    observations: pd.DataFrame,
+    derived_lineage: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Apply production observation augmentations before feature
+    computation.
+
+    Augmentations operate on an in-memory copy of the canonical
+    observation frame. They must never modify the canonical
+    observation artifact itself.
+    """
+
+    observations = observations.copy()
+    derived_lineage = derived_lineage.copy()
+
+    observations, derived_lineage = (
+        _apply_linked_price_family_augmentation(
+            observations=observations,
+            derived_lineage=derived_lineage,
+        )
+    )
+
+    return (
+        observations,
+        derived_lineage,
+    )
+
+
 def build_feature_matrix_with_lineage(
     config: RegimeConfig | None = None,
     db_path: str | Path = SERVING_DB,
@@ -559,6 +608,13 @@ def build_feature_matrix_with_lineage(
         derived_lineage = (
             derived_metric_lineage.copy()
         )
+
+    raw, derived_lineage = (
+        _apply_observation_augmentations(
+            observations=raw,
+            derived_lineage=derived_lineage,
+        )
+    )
 
     feature_defs = (
         config.features

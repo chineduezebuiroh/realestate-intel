@@ -1,0 +1,3 @@
+candidate_id,candidate_label,dimension,configured_weight,net_signed_change_contribution,share_of_total_aligned_activity,share_of_total_opposing_activity,aligned_month_rate,opposing_month_rate,mean_net_axis_change_ratio_material_months
+price_family_ma12_structural_linked,MA12_PRICE_AFFORDABILITY,affordability,0.1,0.1535,,,0.55859375,0.42578125,0.008237498330573334
+price_family_ma12_structural_linked,MA12_PRICE_AFFORDABILITY,price,0.15,-0.42175000000000007,,,0.5390625,0.4296875,0.09405504372592895

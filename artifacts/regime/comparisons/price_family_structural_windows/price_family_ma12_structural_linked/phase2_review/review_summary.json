@@ -1,0 +1,88 @@
+{
+  "adjudication_criteria_weights": {
+    "linked_derived_coherence": 0.12,
+    "seasonality_suppression": 0.18,
+    "structural_signal_retention": 0.22,
+    "transition_stability": 0.14,
+    "turning_point_responsiveness": 0.22,
+    "usable_historical_coverage": 0.12
+  },
+  "adjudication_note": "Scores expose competing criteria for human review; aggregate recommendation is not based solely on lowest volatility.",
+  "aggregate_recommendation": "retain_current_reference",
+  "artifact_key_grains": {
+    "adjudication_criteria.csv": [
+      "candidate_id",
+      "criterion"
+    ],
+    "candidate_trigger_evidence.csv": [
+      "candidate_id",
+      "row_type",
+      "geo_id",
+      "review_series_type",
+      "review_series_key"
+    ],
+    "chronology_outliers.csv": [
+      "source",
+      "geo_id",
+      "series_type",
+      "series_key",
+      "comparison",
+      "flag_type",
+      "direction",
+      "baseline_turn_date",
+      "challenger_turn_date",
+      "signed_lag_months",
+      "detail"
+    ],
+    "focus_case_manifest.csv": [
+      "geo_id",
+      "review_series_type",
+      "review_series_key",
+      "review_reason"
+    ],
+    "metric_review.csv": [
+      "geo_id",
+      "review_series_type",
+      "review_series_key"
+    ],
+    "seasonality_review.csv": [
+      "geo_id",
+      "review_series_type",
+      "review_series_key"
+    ],
+    "shock_review.csv": [
+      "geo_id",
+      "period"
+    ],
+    "smoothing_scorecard.csv": [
+      "geo_id",
+      "review_series_type",
+      "review_series_key"
+    ]
+  },
+  "candidate_id": "price_family_ma12_structural_linked",
+  "output_artifacts": [
+    "smoothing_scorecard.csv",
+    "metric_review.csv",
+    "chronology_outliers.csv",
+    "seasonality_review.csv",
+    "shock_review.csv",
+    "focus_case_manifest.csv",
+    "candidate_trigger_evidence.csv",
+    "adjudication_criteria.csv",
+    "review_summary.json"
+  ],
+  "reference_candidate_id": "price_family_ma12_structural_linked",
+  "thresholds": {
+    "EXTREME_LAG_MONTHS": 12,
+    "LOW_CORRELATION_THRESHOLD": 0.8,
+    "MATERIAL_LAG_MONTHS": 6,
+    "MATERIAL_LAG_SHARE": 0.2,
+    "MIN_MATCHED_TURNS": 5,
+    "NEAR_ZERO_RATE_SUPPRESSION_CHANGE": 0.25,
+    "SIGN_FLIP_RATE_SUPPRESSION_CHANGE": -0.1,
+    "STRONG_SEASONALITY_REDUCTION": 0.7,
+    "STRONG_VOLATILITY_REDUCTION": 0.8
+  },
+  "thresholds_are_review_not_production_policy": true
+}

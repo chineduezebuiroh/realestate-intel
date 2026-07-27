@@ -1,0 +1,5 @@
+candidate_id,row_type,geo_id,review_series_type,review_series_key,recommendation,independent_chronology_trigger_count,independent_attenuation_trigger_count,independent_shock_trigger_count,supporting_seasonality_overkill_count,independent_trigger_family_count,eligible_observation_count,missing_focus_geography_count,missing_required_target_series_count,contract_flag_count,chronology_delay_trigger,attenuation_trigger,seasonality_overkill_trigger,shock_suppression_trigger
+price_family_ma9_structural_linked,aggregate,ALL,aggregate,aggregate,candidate_finalist_warranted,3.0,0.0,1.0,0.0,2,7.0,0.0,0.0,0.0,,,,
+price_family_ma9_structural_linked,detail,alameda_county_ca__county,metric,median_sale_price,retain_current_reference,,,,,1,,,,,True,False,False,False
+price_family_ma9_structural_linked,detail,alameda_county_ca__county,metric,payment_burden,retain_current_reference,,,,,1,,,,,True,False,False,False
+price_family_ma9_structural_linked,detail,district_of_columbia_dc__county,metric,payment_burden,retain_current_reference,,,,,1,,,,,True,False,False,False

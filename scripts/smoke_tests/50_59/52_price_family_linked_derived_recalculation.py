@@ -17,6 +17,9 @@ from regime.experiments.linked_price_family_features import (
     build_linked_price_family_features,
     get_price_family_structural_candidate,
 )
+from regime.linked_price_family import (
+    apply_linked_price_family_augmentation,
+)
 
 CANDIDATE_IDS = (
     "price_family_ma6_structural_linked",
@@ -72,6 +75,37 @@ def _write_csv(df: pd.DataFrame, path: Path) -> None:
         if pd.api.types.is_datetime64_any_dtype(out[col]):
             out[col] = out[col].dt.strftime("%Y-%m-%d")
     out.to_csv(path, index=False)
+
+
+def _sorted_observations(
+    frame: pd.DataFrame,
+) -> pd.DataFrame:
+    return (
+        frame.sort_values(
+            [
+                "geo_id",
+                "canonical_metric_key",
+                "date",
+            ]
+        )
+        .reset_index(drop=True)
+    )
+
+
+def _sorted_lineage(
+    frame: pd.DataFrame,
+) -> pd.DataFrame:
+    return (
+        frame.sort_values(
+            [
+                "geo_id",
+                "derived_metric_key",
+                "date",
+                "component_metric_key",
+            ]
+        )
+        .reset_index(drop=True)
+    )
 
 
 def _component(lineage: pd.DataFrame, geo_id: str, date: pd.Timestamp, derived_key: str, component_key: str) -> pd.Series:
@@ -291,6 +325,249 @@ def main() -> int:
             duplicate_errors[candidate_id] = str(exc).splitlines()[0]
         else:
             raise AssertionError(f"{candidate_id}: duplicate source keys were not rejected")
+
+        #
+        # Production augmentation contract
+        #
+
+        canonical_source = source.copy()
+        canonical_source["metric_origin"] = "source"
+
+        canonical_derived = first.derived_metrics.copy()
+        canonical_derived["metric_origin"] = "derived"
+
+        canonical = pd.concat(
+            [
+                canonical_source[
+                    [
+                        "geo_id",
+                        "date",
+                        "canonical_metric_key",
+                        "value",
+                        "metric_origin",
+                    ]
+                ],
+                canonical_derived[
+                    [
+                        "geo_id",
+                        "date",
+                        "canonical_metric_key",
+                        "value",
+                        "metric_origin",
+                    ]
+                ],
+            ],
+            ignore_index=True,
+        )
+
+        augmented_observations, augmented_lineage = (
+            apply_linked_price_family_augmentation(
+                observations=canonical,
+                derived_lineage=first.derived_lineage,
+                experiment_id=candidate_id,
+            )
+        )
+
+        source_metric_keys = {
+            "median_sale_price",
+            "median_ppsf",
+            "median_household_income",
+            "mortgage_30y",
+        }
+        linked_metric_keys = {
+            "price_to_income",
+            "payment_burden",
+        }
+
+        # 1. Canonical source observations must remain unchanged.
+        expected_sources = _sorted_observations(
+            canonical[
+                canonical["canonical_metric_key"].isin(
+                    source_metric_keys
+                )
+            ][
+                [
+                    "geo_id",
+                    "date",
+                    "canonical_metric_key",
+                    "value",
+                    "metric_origin",
+                ]
+            ]
+        )
+        actual_sources = _sorted_observations(
+            augmented_observations[
+                augmented_observations[
+                    "canonical_metric_key"
+                ].isin(source_metric_keys)
+            ][
+                [
+                    "geo_id",
+                    "date",
+                    "canonical_metric_key",
+                    "value",
+                    "metric_origin",
+                ]
+            ]
+        )
+        pd.testing.assert_frame_equal(
+            actual_sources,
+            expected_sources,
+            check_exact=True,
+        )
+
+        # 2. Linked derived observations must match the recalculation.
+        expected_linked_metrics = _sorted_observations(
+            first.derived_metrics[
+                first.derived_metrics[
+                    "canonical_metric_key"
+                ].isin(linked_metric_keys)
+            ]
+            .assign(metric_origin="derived")[
+                [
+                    "geo_id",
+                    "date",
+                    "canonical_metric_key",
+                    "value",
+                    "metric_origin",
+                ]
+            ]
+        )
+        actual_linked_metrics = _sorted_observations(
+            augmented_observations[
+                augmented_observations[
+                    "canonical_metric_key"
+                ].isin(linked_metric_keys)
+            ][
+                [
+                    "geo_id",
+                    "date",
+                    "canonical_metric_key",
+                    "value",
+                    "metric_origin",
+                ]
+            ]
+        )
+        pd.testing.assert_frame_equal(
+            actual_linked_metrics,
+            expected_linked_metrics,
+            check_exact=True,
+        )
+
+        # 3. Linked lineage must match the recalculated lineage.
+        expected_linked_lineage = _sorted_lineage(
+            first.derived_lineage[
+                first.derived_lineage[
+                    "derived_metric_key"
+                ].isin(linked_metric_keys)
+            ]
+        )
+        actual_linked_lineage = _sorted_lineage(
+            augmented_lineage[
+                augmented_lineage[
+                    "derived_metric_key"
+                ].isin(linked_metric_keys)
+            ]
+        )
+        pd.testing.assert_frame_equal(
+            actual_linked_lineage,
+            expected_linked_lineage,
+            check_exact=True,
+        )
+
+        # 4. Augmentation must not produce duplicate keys.
+        observation_duplicates = (
+            augmented_observations.duplicated(
+                subset=[
+                    "geo_id",
+                    "date",
+                    "canonical_metric_key",
+                ],
+                keep=False,
+            )
+        )
+        if observation_duplicates.any():
+            raise AssertionError(
+                f"{candidate_id}: augmentation produced duplicate "
+                "observation keys:\n"
+                + augmented_observations.loc[
+                    observation_duplicates
+                ]
+                .sort_values(
+                    [
+                        "geo_id",
+                        "canonical_metric_key",
+                        "date",
+                    ]
+                )
+                .head(30)
+                .to_string(index=False)
+            )
+
+        lineage_duplicates = augmented_lineage.duplicated(
+            subset=[
+                "geo_id",
+                "date",
+                "derived_metric_key",
+                "component_metric_key",
+            ],
+            keep=False,
+        )
+        if lineage_duplicates.any():
+            raise AssertionError(
+                f"{candidate_id}: augmentation produced duplicate "
+                "lineage keys:\n"
+                + augmented_lineage.loc[lineage_duplicates]
+                .sort_values(
+                    [
+                        "geo_id",
+                        "derived_metric_key",
+                        "date",
+                        "component_metric_key",
+                    ]
+                )
+                .head(30)
+                .to_string(index=False)
+            )
+
+        # 5. Replacement semantics: unrelated observations remain
+        # unchanged, while linked-family rows are replaced exactly once.
+        expected_unrelated = _sorted_observations(
+            canonical[
+                ~canonical["canonical_metric_key"].isin(
+                    linked_metric_keys
+                )
+            ]
+        )
+        actual_unrelated = _sorted_observations(
+            augmented_observations[
+                ~augmented_observations[
+                    "canonical_metric_key"
+                ].isin(linked_metric_keys)
+            ]
+        )
+        pd.testing.assert_frame_equal(
+            actual_unrelated,
+            expected_unrelated,
+            check_exact=True,
+        )
+
+        original_linked_count = int(
+            canonical["canonical_metric_key"]
+            .isin(linked_metric_keys)
+            .sum()
+        )
+        expected_augmented_count = (
+            len(canonical)
+            - original_linked_count
+            + len(expected_linked_metrics)
+        )
+        if len(augmented_observations) != expected_augmented_count:
+            raise AssertionError(
+                f"{candidate_id}: expected "
+                f"{expected_augmented_count} augmented observations, "
+                f"found {len(augmented_observations)}"
+            )
 
         coverage = derived.groupby(["canonical_metric_key"], as_index=False).agg(rows=("value", "size"), first_date=("date", "min"), last_date=("date", "max"))
         coverage.insert(0, "candidate_id", candidate_id)

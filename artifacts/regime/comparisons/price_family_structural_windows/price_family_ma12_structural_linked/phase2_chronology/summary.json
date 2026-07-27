@@ -1,0 +1,28 @@
+{
+  "affordability_shock_rows": 358,
+  "candidate_id": "price_family_ma12_structural_linked",
+  "coverage": [
+    {
+      "first_date": "2008-12-31",
+      "geo_id": "alameda_county_ca__county",
+      "last_date": "2026-07-31"
+    },
+    {
+      "first_date": "2008-12-31",
+      "geo_id": "district_of_columbia_dc__county",
+      "last_date": "2026-07-31"
+    }
+  ],
+  "coverage_rows": 14,
+  "diagnostic_only": true,
+  "flag_count": 135,
+  "lag_rows": 25854,
+  "legacy_candidate_id_supported": "price_family_ma12_momentum_lag3",
+  "monthly_rows": 2016,
+  "period_rows": 84,
+  "reproducibility": {
+    "checked": true,
+    "row_level_equal": true,
+    "runs_compared": 2
+  }
+}

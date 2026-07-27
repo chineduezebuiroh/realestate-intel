@@ -12,7 +12,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from regime.experiments.price_family_phase2_diagnostics import CHRONOLOGY_ARTIFACTS, CHRONOLOGY_DIR, STABILITY_ARTIFACTS, STABILITY_DIR
+from regime.experiments.linked_price_family_comparison import STRUCTURAL_CHALLENGER_IDS
+from regime.experiments.price_family_phase2_diagnostics import CHRONOLOGY_ARTIFACTS, STABILITY_ARTIFACTS, candidate_chronology_dir, candidate_stability_dir
 from regime.experiments.price_family_phase2_review import (
     FOCUS_GEOS,
     MATERIAL_LAG_SHARE,
@@ -25,6 +26,7 @@ from regime.experiments.price_family_phase2_review import (
     _finalize_scorecard,
     _shock_review,
     build_price_family_phase2_review,
+    write_integrated_candidate_comparison,
 )
 
 NUMERIC_COLUMNS = {
@@ -48,12 +50,13 @@ NUMERIC_COLUMNS = {
         "aligned_observation_count", "mortgage_rate_change", "structural_median_sale_price_change",
         "structural_median_sale_price_pct_change", "payment_burden_change", "price_to_income_change",
     ],
-    "ma6_trigger_evidence.csv": [
+    "candidate_trigger_evidence.csv": [
         "independent_chronology_trigger_count", "independent_attenuation_trigger_count",
         "independent_shock_trigger_count", "supporting_seasonality_overkill_count",
         "independent_trigger_family_count", "eligible_observation_count", "missing_focus_geography_count",
         "missing_required_target_series_count", "contract_flag_count",
     ],
+    "adjudication_criteria.csv": ["raw_value", "normalized_score", "weight", "weighted_contribution"],
 }
 KEY_GRAINS = {
     "smoothing_scorecard.csv": ["geo_id", "review_series_type", "review_series_key"],
@@ -62,7 +65,8 @@ KEY_GRAINS = {
     "seasonality_review.csv": ["geo_id", "review_series_type", "review_series_key"],
     "shock_review.csv": ["geo_id", "period"],
     "focus_case_manifest.csv": ["geo_id", "review_series_type", "review_series_key", "review_reason"],
-    "ma6_trigger_evidence.csv": ["row_type", "geo_id", "review_series_type", "review_series_key"],
+    "candidate_trigger_evidence.csv": ["candidate_id", "row_type", "geo_id", "review_series_type", "review_series_key"],
+    "adjudication_criteria.csv": ["candidate_id", "criterion"],
 }
 
 
@@ -93,20 +97,41 @@ def _artifact(path: Path, keys: list[str] | None = None) -> pd.DataFrame:
     return frame
 
 
-def _required_inputs() -> None:
+def _assert_candidate_identity(frame: pd.DataFrame, path: Path, candidate_id: str) -> None:
+    if "candidate_id" not in frame.columns:
+        raise AssertionError(f"{path}: missing candidate_id column")
+    if frame.empty:
+        return
+    if frame["candidate_id"].isna().any():
+        raise AssertionError(f"{path}: null candidate_id values")
+    if set(frame["candidate_id"]) != {candidate_id}:
+        raise AssertionError(f"{path}: candidate_id mismatch")
+
+def _required_inputs(chronology_dir: Path, stability_dir: Path) -> None:
     for name in CHRONOLOGY_ARTIFACTS:
-        _artifact(CHRONOLOGY_DIR / name)
+        _artifact(chronology_dir / name)
     for name in STABILITY_ARTIFACTS:
-        _artifact(STABILITY_DIR / name)
+        _artifact(stability_dir / name)
 
 
-def _validate_outputs(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _validate_outputs(path: Path, chronology_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     for name in REVIEW_ARTIFACTS:
         _artifact(path / name, KEY_GRAINS.get(name))
     score = pd.read_csv(path / "smoothing_scorecard.csv")
     metric = pd.read_csv(path / "metric_review.csv")
     seasonality = pd.read_csv(path / "seasonality_review.csv")
-    evidence = pd.read_csv(path / "ma6_trigger_evidence.csv")
+    evidence = pd.read_csv(path / "candidate_trigger_evidence.csv")
+    criteria = pd.read_csv(path / "adjudication_criteria.csv")
+    summary = pd.read_json(path / "review_summary.json", typ="series")
+    candidate_ids = set(score["candidate_id"].dropna()) if "candidate_id" in score.columns else set()
+    if len(candidate_ids) != 1:
+        raise AssertionError("review outputs must contain exactly one non-null candidate_id")
+    candidate_id = next(iter(candidate_ids))
+    for name in REVIEW_ARTIFACTS:
+        if name.endswith(".csv"):
+            _assert_candidate_identity(pd.read_csv(path / name), path / name, candidate_id)
+    if summary.get("reference_candidate_id") != "price_family_ma12_structural_linked":
+        raise AssertionError("review_summary.json must preserve MA12 reference_candidate_id")
     required_score = set(NUMERIC_COLUMNS["smoothing_scorecard.csv"]) | {"chronology_delay_trigger", "attenuation_trigger", "seasonality_overkill_trigger", "recommendation"}
     missing_score = required_score - set(score.columns)
     if missing_score:
@@ -119,15 +144,22 @@ def _validate_outputs(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         raise AssertionError(f"invalid recommendation values {sorted(bad_recommendations)}")
     if not set(FOCUS_GEOS).issubset(set(score["geo_id"])):
         raise AssertionError("review outputs missing DC County or Alameda County")
-    upstream_metrics = set(pd.read_csv(CHRONOLOGY_DIR / "chronology_monthly.csv").query("series_type == 'metric_score'")["series_key"])
+    upstream_metrics = set(pd.read_csv(chronology_dir / "chronology_monthly.csv").query("series_type == 'metric_score'")["series_key"])
     required_metrics = {"median_sale_price", "median_ppsf", "price_to_income", "payment_burden"} & upstream_metrics
     found_metrics = set(metric.query("review_series_type == 'metric'")["review_series_key"])
     if not required_metrics.issubset(found_metrics):
         raise AssertionError(f"missing target metrics supported upstream: {sorted(required_metrics - found_metrics)}")
+    if "candidate_id" not in score.columns or "candidate_id" not in evidence.columns or "candidate_id" not in criteria.columns:
+        raise AssertionError("review outputs must preserve candidate_id columns")
+    if round(pd.to_numeric(criteria.drop_duplicates("criterion")["weight"]).sum(), 12) != 1.0:
+        raise AssertionError("adjudication criteria weights must sum to 1")
+    contrib = pd.to_numeric(criteria["normalized_score"]) * pd.to_numeric(criteria["weight"])
+    if not np.allclose(contrib.fillna(-1), pd.to_numeric(criteria["weighted_contribution"]).fillna(-1), rtol=0, atol=1e-12):
+        raise AssertionError("weighted contribution math is not exact")
     aggregate = evidence[evidence["row_type"].eq("aggregate")]
     if len(aggregate) != 1:
-        raise AssertionError("ma6_trigger_evidence.csv must contain one aggregate row")
-    for column in NUMERIC_COLUMNS["ma6_trigger_evidence.csv"]:
+        raise AssertionError("candidate_trigger_evidence.csv must contain one aggregate row")
+    for column in NUMERIC_COLUMNS["candidate_trigger_evidence.csv"]:
         if column not in aggregate.columns or pd.isna(aggregate[column].iloc[0]):
             raise AssertionError(f"aggregate recommendation lost trigger evidence column {column}")
     return score, evidence
@@ -146,13 +178,13 @@ def _synthetic_validation() -> None:
         base[column] = 0
     out = _finalize_scorecard(base, blocking=False)
     rec = dict(zip(out.geo_id, out.recommendation, strict=True))
-    if rec["g1"] == "ma6_finalist_warranted":
+    if rec["g1"] == "candidate_finalist_warranted":
         raise AssertionError("isolated extreme maximum alone warranted MA6")
-    if rec["g2"] != "ma6_finalist_warranted":
+    if rec["g2"] != "candidate_finalist_warranted":
         raise AssertionError("material lag share plus attenuation did not warrant MA6")
-    if rec["g3"] == "ma6_finalist_warranted":
+    if rec["g3"] == "candidate_finalist_warranted":
         raise AssertionError("strong seasonality alone warranted MA6")
-    if rec["g4"] == "ma6_finalist_warranted":
+    if rec["g4"] == "candidate_finalist_warranted":
         raise AssertionError("chronology plus derivative seasonality warranted MA6 without independent attenuation/shock")
     blocked = _finalize_scorecard(base.iloc[[1]], blocking=True)
     if blocked["recommendation"].iloc[0] != "blocking_diagnostic_issue":
@@ -180,31 +212,62 @@ def _synthetic_validation() -> None:
     if not bool(not_distinct_review["shock_suppression_trigger"].iloc[0]):
         raise AssertionError("explicit payment-burden/price-to-income not-distinct flag did not imply shock suppression")
     evidence = _evidence(out[out.geo_id.eq("g4")], _shock_review(shock, flags), blocking=False, missing_focus_geography_count=0, missing_required_target_series_count=0, contract_flag_count=0)
-    if evidence[evidence.row_type.eq("aggregate")]["recommendation"].iloc[0] == "ma6_finalist_warranted":
+    if evidence[evidence.row_type.eq("aggregate")]["recommendation"].iloc[0] == "candidate_finalist_warranted":
         raise AssertionError("aggregate counted supporting seasonality as an independent trigger")
 
 
 def main() -> int:
-    _required_inputs()
     _synthetic_validation()
-    with tempfile.TemporaryDirectory() as tmp:
-        first = Path(tmp) / "first"
-        second = Path(tmp) / "second"
-        build_price_family_phase2_review(first)
-        build_price_family_phase2_review(second)
-        for name in REVIEW_ARTIFACTS:
-            if not filecmp.cmp(first / name, second / name, shallow=False):
-                raise AssertionError(f"{name}: deterministic rerun byte equality failed")
-        score, evidence = _validate_outputs(second)
-        if REVIEW_DIR.exists():
-            shutil.rmtree(REVIEW_DIR)
-        shutil.copytree(second, REVIEW_DIR)
+    candidate_results = []
+    for candidate_id in STRUCTURAL_CHALLENGER_IDS:
+        chronology_dir = candidate_chronology_dir(candidate_id)
+        stability_dir = candidate_stability_dir(candidate_id)
+        review_dir = stability_dir.parent / "phase2_review"
+        _required_inputs(chronology_dir, stability_dir)
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / candidate_id / "first"
+            second = Path(tmp) / candidate_id / "second"
+            build_price_family_phase2_review(first, chronology_dir=chronology_dir, stability_dir=stability_dir, candidate_id=candidate_id)
+            second_outputs = build_price_family_phase2_review(second, chronology_dir=chronology_dir, stability_dir=stability_dir, candidate_id=candidate_id)
+            for name in REVIEW_ARTIFACTS:
+                if not filecmp.cmp(first / name, second / name, shallow=False):
+                    raise AssertionError(f"{candidate_id} {name}: deterministic rerun byte equality failed")
+            score, evidence = _validate_outputs(second, chronology_dir)
+            candidate_comparison = second_outputs["candidate_comparison"]
+            if review_dir.exists():
+                shutil.rmtree(review_dir)
+            shutil.copytree(second, review_dir)
+        aggregate = evidence[evidence.row_type.eq("aggregate")].iloc[0]
+        candidate_results.append(candidate_comparison)
+        print(f"[price_family_phase2_review] candidate={candidate_id} aggregate_recommendation={aggregate.recommendation}")
+    integrated_path = candidate_stability_dir(STRUCTURAL_CHALLENGER_IDS[-1]).parents[1] / "phase2_candidate_comparison.csv"
+    stale = pd.DataFrame([{"candidate_id": "stale_candidate", "aggregate_recommendation": "stale"}])
+    stale.to_csv(integrated_path, index=False)
+    first_integrated = write_integrated_candidate_comparison(candidate_results, integrated_path)
+    first_bytes = integrated_path.read_bytes()
+    second_integrated = write_integrated_candidate_comparison(candidate_results, integrated_path)
+    if first_bytes != integrated_path.read_bytes():
+        raise AssertionError("integrated comparison writer is not byte deterministic")
+    integrated = pd.read_csv(integrated_path)
+    if not first_integrated.equals(second_integrated):
+        raise AssertionError("integrated comparison writer returned non-deterministic rows")
+    if integrated["candidate_id"].tolist() != sorted(STRUCTURAL_CHALLENGER_IDS):
+        raise AssertionError("integrated comparison must be sorted stably by candidate_id")
+    if set(integrated["candidate_id"]) != set(STRUCTURAL_CHALLENGER_IDS) or len(integrated) != len(STRUCTURAL_CHALLENGER_IDS):
+        raise AssertionError("integrated comparison must contain exactly one row per structural candidate")
+    if "stale_candidate" in set(integrated["candidate_id"]):
+        raise AssertionError("integrated comparison preserved a stale candidate")
+    if set(integrated["reference_candidate_id"]) != {"price_family_ma12_structural_linked"}:
+        raise AssertionError("integrated comparison must preserve MA12 reference_candidate_id")
+    bad_recs = set(integrated["aggregate_recommendation"].dropna()) - set(RECOMMENDATIONS)
+    if bad_recs or any("ma12" in rec or "ma6" in rec for rec in integrated["aggregate_recommendation"].dropna().astype(str)):
+        raise AssertionError(f"integrated recommendations are not candidate-neutral: {sorted(bad_recs)}")
     aggregate = evidence[evidence.row_type.eq("aggregate")].iloc[0]
-    print(f"[price_family_phase2_review] aggregate_recommendation={aggregate.recommendation}")
+    print("[price_family_phase2_review] candidate_results=" + integrated[["candidate_id", "aggregate_recommendation"]].to_string(index=False))
     print("[price_family_phase2_review] trigger_family_counts=" + ", ".join(f"{column}={int(aggregate[column])}" for column in ["independent_chronology_trigger_count", "independent_attenuation_trigger_count", "independent_shock_trigger_count", "supporting_seasonality_overkill_count"]))
     print("[price_family_phase2_review] top chronology outliers:\n" + score.sort_values(["share_matched_turns_lag_ge_6m", "p90_absolute_lag_months"], ascending=[False, False], kind="mergesort").head(5)[["geo_id", "review_series_type", "review_series_key", "share_matched_turns_lag_ge_6m", "p90_absolute_lag_months"]].to_string(index=False))
     print("[price_family_phase2_review] top attenuation cases:\n" + score.sort_values(["percent_volatility_reduction", "baseline_challenger_correlation"], ascending=[False, True], kind="mergesort").head(5)[["geo_id", "review_series_type", "review_series_key", "percent_volatility_reduction", "baseline_challenger_correlation"]].to_string(index=False))
-    print(f"[price_family_phase2_review] focus_case_manifest={REVIEW_DIR / 'focus_case_manifest.csv'}")
+    print(f"[price_family_phase2_review] artifacts_root={REVIEW_DIR.parent.parent}")
     print("[price_family_phase2_review] OK")
     return 0
 

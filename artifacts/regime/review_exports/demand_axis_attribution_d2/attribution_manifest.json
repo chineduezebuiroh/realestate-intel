@@ -1,0 +1,32 @@
+{
+  "artifact_contract": "monthly_demand_axis_attribution",
+  "axis": "demand",
+  "change_rows": 256,
+  "dimensions": [
+    "demand",
+    "price",
+    "affordability",
+    "capital_markets"
+  ],
+  "first_date": "2015-11-30",
+  "geographies": 2,
+  "input_path": "artifacts/regime/review_exports/integrated_demand_chronology/monthly_integrated_demand_axis.csv",
+  "input_rows": 258,
+  "last_date": "2026-07-31",
+  "max_axis_change_reconstruction_residual": 4.163336342344337e-16,
+  "output_directory": "artifacts/regime/review_exports/demand_axis_attribution_d2",
+  "output_files": [
+    "axis_reconstruction_diagnostics.csv",
+    "candidate_summary.csv",
+    "dimension_share_of_absolute_change.csv",
+    "dimension_share_of_axis_change.csv",
+    "geography_dimension_summary.csv",
+    "geography_summary.csv",
+    "latest_attribution_state.csv",
+    "monthly_axis_attribution.csv",
+    "monthly_dimension_contributions.csv",
+    "monthly_dimension_volatility.csv",
+    "monthly_extreme_moves.csv"
+  ],
+  "phase": "D2"
+}

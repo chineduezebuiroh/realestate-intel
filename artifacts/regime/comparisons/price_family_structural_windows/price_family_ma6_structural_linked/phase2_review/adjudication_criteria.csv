@@ -1,0 +1,7 @@
+candidate_id,criterion,raw_inputs_json,raw_value,normalized_score,weight,weighted_contribution,missing_evidence
+price_family_ma6_structural_linked,linked_derived_coherence,"{""not_distinct_flag_count"": 0, ""shock_rows"": 358}",1.0,1.0,0.12,0.12,False
+price_family_ma6_structural_linked,seasonality_suppression,"{""median_percent_seasonal_spread_reduction"": 0.45575173405932373}",0.45575173405932373,0.45575173405932373,0.18,0.08203531213067827,False
+price_family_ma6_structural_linked,structural_signal_retention,"{""median_baseline_challenger_correlation"": 0.6074994320964355}",0.6074994320964355,0.6074994320964355,0.22,0.1336498750612158,False
+price_family_ma6_structural_linked,transition_stability,"{""chronology_inversion_count"": 17, ""target_review_rows"": 8}",-1.125,0.0,0.14,0.0,False
+price_family_ma6_structural_linked,turning_point_responsiveness,"{""median_absolute_lag_months"": 3.0}",0.5,0.5,0.22,0.11,False
+price_family_ma6_structural_linked,usable_historical_coverage,"{""common_evaluation_window_months"": 2016, ""overlap_months"": 1986}",0.9851190476190477,0.9851190476190477,0.12,0.11821428571428572,False

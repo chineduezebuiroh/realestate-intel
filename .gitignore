@@ -1,3 +1,8 @@
 data/market.duckdb
 data/*.DS_Store
 .env
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+*$py.class

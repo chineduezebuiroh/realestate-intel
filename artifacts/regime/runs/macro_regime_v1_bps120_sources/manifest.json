@@ -1,0 +1,1156 @@
+{
+  "artifacts": {
+    "aligned_metric_scores": {
+      "artifact_group": "pipeline",
+      "artifact_name": "aligned_metric_scores",
+      "column_count": 10,
+      "columns": [
+        "geo_id",
+        "evaluation_date",
+        "metric_date",
+        "canonical_metric_key",
+        "metric_score",
+        "feature_count",
+        "feature_weight_sum",
+        "min_feature_score",
+        "max_feature_score",
+        "metric_age_days"
+      ],
+      "date_ranges": {
+        "evaluation_date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2008-12-31T00:00:00"
+        },
+        "metric_date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2008-12-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 10,
+        "evaluation_date_max": "2026-07-31T00:00:00",
+        "evaluation_date_min": "2008-12-31T00:00:00",
+        "geos": 227,
+        "metric_date_max": "2026-07-31T00:00:00",
+        "metric_date_min": "2008-12-31T00:00:00",
+        "rows": 832246
+      },
+      "format": "parquet",
+      "relative_path": "aligned_metric_scores.parquet",
+      "row_count": 832246,
+      "sha256": "a6bc2250eaf884b63430a0071a5cb1c291b942d5ac24f17ffc76d8500e6a8ced",
+      "size_bytes": 8040386,
+      "written_at_utc": "2026-07-13T08:05:52.975074+00:00"
+    },
+    "axis_scores": {
+      "artifact_group": "pipeline",
+      "artifact_name": "axis_scores",
+      "column_count": 9,
+      "columns": [
+        "geo_id",
+        "date",
+        "axis",
+        "axis_score",
+        "dimension_count",
+        "dimension_weight_sum",
+        "min_dimension_score",
+        "max_dimension_score",
+        "max_dimension_age_days"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2008-12-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 9,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2008-12-31T00:00:00",
+        "geos": 227,
+        "rows": 94063
+      },
+      "format": "parquet",
+      "relative_path": "axis_scores.parquet",
+      "row_count": 94063,
+      "sha256": "8f6956ce680c8f01375385a1ef1a7c36b11be6e64100871142218d66fa8c8d11",
+      "size_bytes": 1960916,
+      "written_at_utc": "2026-07-13T08:06:28.566784+00:00"
+    },
+    "coordinates": {
+      "artifact_group": "pipeline",
+      "artifact_name": "coordinates",
+      "column_count": 10,
+      "columns": [
+        "geo_id",
+        "date",
+        "x_supply",
+        "y_demand",
+        "radius",
+        "angle_degrees",
+        "axis_count",
+        "min_axis_score",
+        "max_axis_score",
+        "max_axis_age_days"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2009-06-30T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 10,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2009-06-30T00:00:00",
+        "geos": 227,
+        "rows": 46762
+      },
+      "format": "parquet",
+      "relative_path": "coordinates.parquet",
+      "row_count": 46762,
+      "sha256": "3cdf3bde047b6de92ccfe0b6adad4480491a688c5053c87f46068d76deefbe2b",
+      "size_bytes": 2607011,
+      "written_at_utc": "2026-07-13T08:06:28.686894+00:00"
+    },
+    "derived_input_component_freshness": {
+      "artifact_group": "pipeline",
+      "artifact_name": "derived_input_component_freshness",
+      "column_count": 22,
+      "columns": [
+        "geo_id",
+        "date",
+        "derived_metric_key",
+        "component_metric_key",
+        "component_value",
+        "component_source_date",
+        "component_source_geo_id",
+        "component_age_days",
+        "component_age_months",
+        "was_carried_forward",
+        "warning_days",
+        "hard_days",
+        "policy_action",
+        "enabled",
+        "notes",
+        "stale_input_flag",
+        "exceeded_horizon_flag",
+        "freshness_status",
+        "freshness_severity",
+        "freshness_reason",
+        "suppress_output_flag",
+        "confidence_adjustment_required"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-05-31T00:00:00",
+          "min": "2007-01-01T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 22,
+        "date_max": "2026-05-31T00:00:00",
+        "date_min": "2007-01-01T00:00:00",
+        "geos": 223,
+        "rows": 214962
+      },
+      "format": "parquet",
+      "relative_path": "derived_input_component_freshness.parquet",
+      "row_count": 214962,
+      "sha256": "80646e3365c1d3a963994bb3e66a5da8edc3a594a6abd6d83cec247888d26516",
+      "size_bytes": 734043,
+      "written_at_utc": "2026-07-13T08:02:58.280654+00:00"
+    },
+    "derived_input_freshness": {
+      "artifact_group": "pipeline",
+      "artifact_name": "derived_input_freshness",
+      "column_count": 24,
+      "columns": [
+        "geo_id",
+        "date",
+        "derived_metric_key",
+        "component_count",
+        "carried_forward_component_count",
+        "stale_component_count",
+        "exceeded_component_count",
+        "oldest_component_age_days",
+        "average_component_age_days",
+        "governing_component_metric_key",
+        "governing_component_source_geo_id",
+        "governing_component_source_date",
+        "governing_component_age_days",
+        "governing_component_age_months",
+        "governing_warning_days",
+        "governing_hard_days",
+        "derived_freshness_status",
+        "derived_freshness_severity",
+        "derived_freshness_reason",
+        "derived_policy_action",
+        "stale_input_flag",
+        "exceeded_horizon_flag",
+        "suppress_output_flag",
+        "confidence_adjustment_required"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-05-31T00:00:00",
+          "min": "2007-01-01T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 24,
+        "date_max": "2026-05-31T00:00:00",
+        "date_min": "2007-01-01T00:00:00",
+        "geos": 223,
+        "rows": 89996
+      },
+      "format": "parquet",
+      "relative_path": "derived_input_freshness.parquet",
+      "row_count": 89996,
+      "sha256": "c27d35de4ffe623bddd710a1f572db5c3e27beda47b9919a44e1df4b3b84f748",
+      "size_bytes": 106156,
+      "written_at_utc": "2026-07-13T08:02:58.355787+00:00"
+    },
+    "derived_metric_lineage": {
+      "artifact_group": "pipeline",
+      "artifact_name": "derived_metric_lineage",
+      "column_count": 10,
+      "columns": [
+        "geo_id",
+        "date",
+        "derived_metric_key",
+        "component_metric_key",
+        "component_value",
+        "component_source_date",
+        "component_source_geo_id",
+        "component_age_days",
+        "component_age_months",
+        "was_carried_forward"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-05-31T00:00:00",
+          "min": "2007-01-01T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 10,
+        "date_max": "2026-05-31T00:00:00",
+        "date_min": "2007-01-01T00:00:00",
+        "geos": 223,
+        "rows": 214962
+      },
+      "format": "parquet",
+      "relative_path": "derived_metric_lineage.parquet",
+      "row_count": 214962,
+      "sha256": "049540025301bd479a475fad30a2288b26260c58652a0dc9bac7c6683c6ab351",
+      "size_bytes": 651271,
+      "written_at_utc": "2026-07-13T08:02:56.530948+00:00"
+    },
+    "dimension_scores": {
+      "artifact_group": "pipeline",
+      "artifact_name": "dimension_scores",
+      "column_count": 9,
+      "columns": [
+        "geo_id",
+        "date",
+        "dimension",
+        "dimension_score",
+        "metric_count",
+        "metric_weight_sum",
+        "min_metric_score",
+        "max_metric_score",
+        "max_metric_age_days"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2008-12-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 9,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2008-12-31T00:00:00",
+        "geos": 227,
+        "rows": 249997
+      },
+      "format": "parquet",
+      "relative_path": "dimension_scores.parquet",
+      "row_count": 249997,
+      "sha256": "2dd043a63a9cb0bba70220f96684ae7a81f5a56e377220d78da651848b78a42b",
+      "size_bytes": 5170198,
+      "written_at_utc": "2026-07-13T08:06:18.825881+00:00"
+    },
+    "features": {
+      "artifact_group": "pipeline",
+      "artifact_name": "features",
+      "column_count": 5,
+      "columns": [
+        "geo_id",
+        "date",
+        "canonical_metric_key",
+        "feature_key",
+        "raw_feature_value"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2001-12-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 5,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2001-12-31T00:00:00",
+        "geos": 387,
+        "rows": 2163016
+      },
+      "format": "parquet",
+      "relative_path": "features.parquet",
+      "row_count": 2163016,
+      "sha256": "9db716b36fc382096308bb8cab1d3c9439ad860fb9985ec2c91a48aa853b9304",
+      "size_bytes": 12804954,
+      "written_at_utc": "2026-07-13T08:02:56.389009+00:00"
+    },
+    "geometry": {
+      "artifact_group": "pipeline",
+      "artifact_name": "geometry",
+      "column_count": 14,
+      "columns": [
+        "geo_id",
+        "date",
+        "x_supply",
+        "y_demand",
+        "radius",
+        "angle_degrees",
+        "quadrant",
+        "major_regime",
+        "minor_regime",
+        "distance_to_boundary_degrees",
+        "axis_count",
+        "min_axis_score",
+        "max_axis_score",
+        "max_axis_age_days"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2009-06-30T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 14,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2009-06-30T00:00:00",
+        "geos": 227,
+        "rows": 46762
+      },
+      "format": "parquet",
+      "relative_path": "geometry.parquet",
+      "row_count": 46762,
+      "sha256": "5d5e2fa19ad6aace6298cfb517cbe38d34bf4beb82f1a815cd5ca5c61e57a32e",
+      "size_bytes": 3114641,
+      "written_at_utc": "2026-07-13T08:06:28.799768+00:00"
+    },
+    "metric_scores": {
+      "artifact_group": "pipeline",
+      "artifact_name": "metric_scores",
+      "column_count": 8,
+      "columns": [
+        "geo_id",
+        "date",
+        "canonical_metric_key",
+        "metric_score",
+        "feature_count",
+        "feature_weight_sum",
+        "min_feature_score",
+        "max_feature_score"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2008-12-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 8,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2008-12-31T00:00:00",
+        "geos": 367,
+        "rows": 586511
+      },
+      "format": "parquet",
+      "relative_path": "metric_scores.parquet",
+      "row_count": 586511,
+      "sha256": "3798be295ef77ef691d218895095f661436bdb1950446273bdba7b5a52a5ab68",
+      "size_bytes": 6543050,
+      "written_at_utc": "2026-07-13T08:05:47.056564+00:00"
+    },
+    "normalized_features": {
+      "artifact_group": "pipeline",
+      "artifact_name": "normalized_features",
+      "column_count": 12,
+      "columns": [
+        "geo_id",
+        "date",
+        "canonical_metric_key",
+        "feature_key",
+        "source_family",
+        "raw_feature_value",
+        "percentile",
+        "feature_score",
+        "normalization_method",
+        "score_direction",
+        "lookback_periods",
+        "min_periods"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2008-12-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 12,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2008-12-31T00:00:00",
+        "geos": 367,
+        "rows": 1702973
+      },
+      "format": "parquet",
+      "relative_path": "normalized_features.parquet",
+      "row_count": 1702973,
+      "sha256": "6ebffe7184e90a9bbe5d03ffaba8ff72177b6b108c689938c2833de9cfd34bcb",
+      "size_bytes": 15755450,
+      "written_at_utc": "2026-07-13T08:04:55.641579+00:00"
+    },
+    "regime_assignments": {
+      "artifact_group": "pipeline",
+      "artifact_name": "regime_assignments",
+      "column_count": 16,
+      "columns": [
+        "geo_id",
+        "date",
+        "regime_type",
+        "major_regime",
+        "minor_regime",
+        "quadrant",
+        "supply_pressure_score",
+        "demand_strength_score",
+        "regime_strength",
+        "angle_degrees",
+        "distance_to_boundary_degrees",
+        "axis_count",
+        "min_axis_score",
+        "max_axis_score",
+        "max_axis_age_days",
+        "regime_engine_version"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2009-06-30T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 16,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2009-06-30T00:00:00",
+        "geos": 227,
+        "rows": 46762
+      },
+      "format": "parquet",
+      "relative_path": "regime_assignments.parquet",
+      "row_count": 46762,
+      "sha256": "ac43f2e424727a5c38584257992bd8d8a2b08725b0ccd03c57c33a6c0ab5b477",
+      "size_bytes": 3116285,
+      "written_at_utc": "2026-07-13T08:06:28.888542+00:00"
+    },
+    "source_metrics": {
+      "artifact_group": "pipeline",
+      "artifact_name": "source_metrics",
+      "column_count": 5,
+      "columns": [
+        "geo_id",
+        "date",
+        "canonical_metric_key",
+        "value",
+        "metric_origin"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2001-12-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 5,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2001-12-31T00:00:00",
+        "geos": 387,
+        "rows": 744278
+      },
+      "format": "parquet",
+      "relative_path": "source_metrics.parquet",
+      "row_count": 744278,
+      "sha256": "5dad7e93ec0cfdbd8935057b21743a2434473a43f6a0420db8b9a86ca3f20e3f",
+      "size_bytes": 3408448,
+      "written_at_utc": "2026-07-13T08:02:46.056242+00:00"
+    },
+    "validation/historical_trajectory": {
+      "artifact_group": "validation",
+      "artifact_name": "historical_trajectory",
+      "column_count": 18,
+      "columns": [
+        "geo_id",
+        "date",
+        "major_regime",
+        "minor_regime",
+        "previous_major_regime",
+        "previous_minor_regime",
+        "major_changed",
+        "minor_changed",
+        "supply_pressure_score",
+        "demand_strength_score",
+        "regime_strength",
+        "angle_degrees",
+        "distance_to_boundary_degrees",
+        "max_axis_age_days",
+        "delta_supply_pressure_score",
+        "delta_demand_strength_score",
+        "delta_regime_strength",
+        "delta_angle_degrees"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-07-31T00:00:00",
+          "min": "2009-06-30T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 18,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2009-06-30T00:00:00",
+        "geos": 2,
+        "rows": 412
+      },
+      "format": "parquet",
+      "relative_path": "validation/historical_trajectory.parquet",
+      "row_count": 412,
+      "sha256": "9f80f7ca3bbc7051ec081796b72224adfd9a911474ea5589447e50630ec49f0d",
+      "size_bytes": 50576,
+      "written_at_utc": "2026-07-13T08:06:28.908121+00:00"
+    },
+    "validation/seasonality_monthly_diagnostics": {
+      "artifact_group": "validation",
+      "artifact_name": "seasonality_monthly_diagnostics",
+      "column_count": 10,
+      "columns": [
+        "geo_id",
+        "month",
+        "month_name",
+        "avg_regime_strength",
+        "median_regime_strength",
+        "avg_boundary_distance",
+        "median_boundary_distance",
+        "avg_axis_age_days",
+        "median_axis_age_days",
+        "max_axis_age_days"
+      ],
+      "date_ranges": {},
+      "extra_metadata": {
+        "columns": 10,
+        "geos": 2,
+        "rows": 24
+      },
+      "format": "parquet",
+      "relative_path": "validation/seasonality_monthly_diagnostics.parquet",
+      "row_count": 24,
+      "sha256": "6c1ac36cc62dccb82b62c01fc6257c145ffc675c68c51217a7964be846e84b1a",
+      "size_bytes": 9037,
+      "written_at_utc": "2026-07-13T08:06:28.958092+00:00"
+    },
+    "validation/seasonality_monthly_movement": {
+      "artifact_group": "validation",
+      "artifact_name": "seasonality_monthly_movement",
+      "column_count": 13,
+      "columns": [
+        "geo_id",
+        "month",
+        "month_name",
+        "observations",
+        "transition_rate",
+        "avg_abs_supply_delta",
+        "median_abs_supply_delta",
+        "avg_abs_demand_delta",
+        "median_abs_demand_delta",
+        "avg_abs_radius_delta",
+        "median_abs_radius_delta",
+        "avg_abs_angle_delta",
+        "median_abs_angle_delta"
+      ],
+      "date_ranges": {},
+      "extra_metadata": {
+        "columns": 13,
+        "geos": 2,
+        "rows": 24
+      },
+      "format": "parquet",
+      "relative_path": "validation/seasonality_monthly_movement.parquet",
+      "row_count": 24,
+      "sha256": "51ed834a093e0cf763f6143de24bd89f68ad9e28f9167d03c23d1f9155bcfeab",
+      "size_bytes": 11962,
+      "written_at_utc": "2026-07-13T08:06:28.955126+00:00"
+    },
+    "validation/seasonality_transition_calendar": {
+      "artifact_group": "validation",
+      "artifact_name": "seasonality_transition_calendar",
+      "column_count": 14,
+      "columns": [
+        "geo_id",
+        "year",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12"
+      ],
+      "date_ranges": {},
+      "extra_metadata": {
+        "columns": 14,
+        "geos": 2,
+        "rows": 35
+      },
+      "format": "parquet",
+      "relative_path": "validation/seasonality_transition_calendar.parquet",
+      "row_count": 35,
+      "sha256": "826011dad5b99d279bb162dfd90711d35f5cb86e153757a3aa4ffb7ce2a4d9a6",
+      "size_bytes": 9261,
+      "written_at_utc": "2026-07-13T08:06:28.951716+00:00"
+    },
+    "validation/seasonality_transition_counts_by_month": {
+      "artifact_group": "validation",
+      "artifact_name": "seasonality_transition_counts_by_month",
+      "column_count": 14,
+      "columns": [
+        "geo_id",
+        "month",
+        "month_name",
+        "transitions",
+        "major_transitions",
+        "minor_transitions",
+        "avg_regime_strength",
+        "avg_boundary_distance",
+        "avg_abs_supply_delta",
+        "avg_abs_demand_delta",
+        "avg_abs_angle_delta",
+        "avg_axis_age_days",
+        "total_transitions",
+        "transition_share"
+      ],
+      "date_ranges": {},
+      "extra_metadata": {
+        "columns": 14,
+        "geos": 2,
+        "rows": 24
+      },
+      "format": "parquet",
+      "relative_path": "validation/seasonality_transition_counts_by_month.parquet",
+      "row_count": 24,
+      "sha256": "3b81741dceabaadda44a3c7edc5beb7ca26695b61733013f35c5d7ab70037881",
+      "size_bytes": 12223,
+      "written_at_utc": "2026-07-13T08:06:28.948332+00:00"
+    },
+    "validation/seasonality_transition_events": {
+      "artifact_group": "validation",
+      "artifact_name": "seasonality_transition_events",
+      "column_count": 26,
+      "columns": [
+        "geo_id",
+        "date",
+        "major_regime",
+        "minor_regime",
+        "previous_major_regime",
+        "previous_minor_regime",
+        "major_changed",
+        "minor_changed",
+        "supply_pressure_score",
+        "demand_strength_score",
+        "regime_strength",
+        "angle_degrees",
+        "distance_to_boundary_degrees",
+        "max_axis_age_days",
+        "delta_supply_pressure_score",
+        "delta_demand_strength_score",
+        "delta_regime_strength",
+        "delta_angle_degrees",
+        "year",
+        "month",
+        "month_name",
+        "any_transition",
+        "abs_supply_delta",
+        "abs_demand_delta",
+        "abs_radius_delta",
+        "abs_angle_delta"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-03-31T00:00:00",
+          "min": "2009-07-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 26,
+        "date_max": "2026-03-31T00:00:00",
+        "date_min": "2009-07-31T00:00:00",
+        "geos": 2,
+        "rows": 259
+      },
+      "format": "parquet",
+      "relative_path": "validation/seasonality_transition_events.parquet",
+      "row_count": 259,
+      "sha256": "0131404dd4b8ee7a2e8a36addd73597a4753b1217335e3d3ac544aab6951d291",
+      "size_bytes": 52889,
+      "written_at_utc": "2026-07-13T08:06:28.962063+00:00"
+    },
+    "validation/supply_contribution_by_geo_metric": {
+      "artifact_group": "validation",
+      "artifact_name": "supply_contribution_by_geo_metric",
+      "column_count": 10,
+      "columns": [
+        "geo_id",
+        "axis",
+        "dimension",
+        "canonical_metric_key",
+        "transition_rows",
+        "avg_abs_delta_metric_score",
+        "avg_abs_weighted_contribution",
+        "max_abs_weighted_contribution",
+        "avg_metric_age_days",
+        "max_metric_age_days"
+      ],
+      "date_ranges": {},
+      "extra_metadata": {
+        "columns": 10,
+        "geos": 2,
+        "rows": 18
+      },
+      "format": "parquet",
+      "relative_path": "validation/supply_contribution_by_geo_metric.parquet",
+      "row_count": 18,
+      "sha256": "bcc7043bfb81aa04721c6c4daa04167d572ff082d00704b6ef743256c94afc96",
+      "size_bytes": 8699,
+      "written_at_utc": "2026-07-13T08:06:29.278846+00:00"
+    },
+    "validation/supply_contribution_metric_summary": {
+      "artifact_group": "validation",
+      "artifact_name": "supply_contribution_metric_summary",
+      "column_count": 13,
+      "columns": [
+        "axis",
+        "dimension",
+        "canonical_metric_key",
+        "transition_rows",
+        "avg_metric_score",
+        "avg_abs_delta_metric_score",
+        "avg_delta_metric_score",
+        "avg_abs_weighted_contribution",
+        "avg_weighted_contribution",
+        "max_abs_weighted_contribution",
+        "avg_axis_metric_weight",
+        "avg_metric_age_days",
+        "max_metric_age_days"
+      ],
+      "date_ranges": {},
+      "extra_metadata": {
+        "columns": 13,
+        "rows": 9
+      },
+      "format": "parquet",
+      "relative_path": "validation/supply_contribution_metric_summary.parquet",
+      "row_count": 9,
+      "sha256": "f2634bc9df5f8c6019368a97f5023cd227eec2498dbd15b41ba5a63c7da7cac4",
+      "size_bytes": 11028,
+      "written_at_utc": "2026-07-13T08:06:29.275005+00:00"
+    },
+    "validation/supply_contribution_top_metric_events": {
+      "artifact_group": "validation",
+      "artifact_name": "supply_contribution_top_metric_events",
+      "column_count": 36,
+      "columns": [
+        "geo_id",
+        "date",
+        "metric_date",
+        "canonical_metric_key",
+        "metric_score",
+        "feature_count",
+        "feature_weight_sum",
+        "min_feature_score",
+        "max_feature_score",
+        "metric_age_days",
+        "axis",
+        "dimension",
+        "metric_weight",
+        "dimension_weight",
+        "axis_metric_weight",
+        "previous_metric_score",
+        "delta_metric_score",
+        "weighted_metric_contribution",
+        "delta_weighted_metric_contribution",
+        "major_changed",
+        "minor_changed",
+        "previous_major_regime",
+        "major_regime",
+        "previous_minor_regime",
+        "minor_regime",
+        "supply_pressure_score",
+        "demand_strength_score",
+        "regime_strength",
+        "angle_degrees",
+        "distance_to_boundary_degrees",
+        "delta_supply_pressure_score",
+        "delta_demand_strength_score",
+        "delta_regime_strength",
+        "delta_angle_degrees",
+        "max_axis_age_days",
+        "abs_delta_weighted_metric_contribution"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-03-31T00:00:00",
+          "min": "2009-07-31T00:00:00"
+        },
+        "metric_date": {
+          "max": "2026-03-31T00:00:00",
+          "min": "2009-07-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 36,
+        "date_max": "2026-03-31T00:00:00",
+        "date_min": "2009-07-31T00:00:00",
+        "geos": 2,
+        "metric_date_max": "2026-03-31T00:00:00",
+        "metric_date_min": "2009-07-31T00:00:00",
+        "rows": 2141
+      },
+      "format": "parquet",
+      "relative_path": "validation/supply_contribution_top_metric_events.parquet",
+      "row_count": 2141,
+      "sha256": "303e1a99390bb4c8cf45d1ba2c3e8866be09ee4e4981ca5c6172d4b913caee8f",
+      "size_bytes": 203362,
+      "written_at_utc": "2026-07-13T08:06:29.303149+00:00"
+    },
+    "validation/supply_contribution_transition_metric_events": {
+      "artifact_group": "validation",
+      "artifact_name": "supply_contribution_transition_metric_events",
+      "column_count": 36,
+      "columns": [
+        "geo_id",
+        "date",
+        "metric_date",
+        "canonical_metric_key",
+        "metric_score",
+        "feature_count",
+        "feature_weight_sum",
+        "min_feature_score",
+        "max_feature_score",
+        "metric_age_days",
+        "axis",
+        "dimension",
+        "metric_weight",
+        "dimension_weight",
+        "axis_metric_weight",
+        "previous_metric_score",
+        "delta_metric_score",
+        "weighted_metric_contribution",
+        "delta_weighted_metric_contribution",
+        "major_changed",
+        "minor_changed",
+        "previous_major_regime",
+        "major_regime",
+        "previous_minor_regime",
+        "minor_regime",
+        "supply_pressure_score",
+        "demand_strength_score",
+        "regime_strength",
+        "angle_degrees",
+        "distance_to_boundary_degrees",
+        "delta_supply_pressure_score",
+        "delta_demand_strength_score",
+        "delta_regime_strength",
+        "delta_angle_degrees",
+        "max_axis_age_days",
+        "abs_delta_weighted_metric_contribution"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-03-31T00:00:00",
+          "min": "2009-07-31T00:00:00"
+        },
+        "metric_date": {
+          "max": "2026-03-31T00:00:00",
+          "min": "2009-07-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 36,
+        "date_max": "2026-03-31T00:00:00",
+        "date_min": "2009-07-31T00:00:00",
+        "geos": 2,
+        "metric_date_max": "2026-03-31T00:00:00",
+        "metric_date_min": "2009-07-31T00:00:00",
+        "rows": 2141
+      },
+      "format": "parquet",
+      "relative_path": "validation/supply_contribution_transition_metric_events.parquet",
+      "row_count": 2141,
+      "sha256": "fa3056f85b1b215a6b7e9273740be966a3b8a57a6edf0ecd842062d4cc5f76af",
+      "size_bytes": 183659,
+      "written_at_utc": "2026-07-13T08:06:29.289542+00:00"
+    },
+    "validation/transition_audit": {
+      "artifact_group": "validation",
+      "artifact_name": "transition_audit",
+      "column_count": 20,
+      "columns": [
+        "geo_id",
+        "transition_type",
+        "transition_count",
+        "avg_regime_strength",
+        "median_regime_strength",
+        "min_regime_strength",
+        "p25_regime_strength",
+        "p75_regime_strength",
+        "avg_boundary_distance",
+        "median_boundary_distance",
+        "min_boundary_distance",
+        "p25_boundary_distance",
+        "p75_boundary_distance",
+        "avg_abs_angle_delta",
+        "median_abs_angle_delta",
+        "max_abs_angle_delta",
+        "avg_abs_supply_delta",
+        "avg_abs_demand_delta",
+        "avg_abs_radius_delta",
+        "max_axis_age_days"
+      ],
+      "date_ranges": {},
+      "extra_metadata": {
+        "columns": 20,
+        "geos": 2,
+        "rows": 4
+      },
+      "format": "parquet",
+      "relative_path": "validation/transition_audit.parquet",
+      "row_count": 4,
+      "sha256": "0e97abac5221e30b08a02b64049d1278b785357625ac1198b9f1849c2d67719e",
+      "size_bytes": 16238,
+      "written_at_utc": "2026-07-13T08:06:28.927531+00:00"
+    },
+    "validation/transition_events": {
+      "artifact_group": "validation",
+      "artifact_name": "transition_events",
+      "column_count": 17,
+      "columns": [
+        "geo_id",
+        "date",
+        "transition_type",
+        "previous_major_regime",
+        "major_regime",
+        "previous_minor_regime",
+        "minor_regime",
+        "regime_strength",
+        "distance_to_boundary_degrees",
+        "angle_degrees",
+        "delta_angle_degrees",
+        "supply_pressure_score",
+        "demand_strength_score",
+        "delta_supply_pressure_score",
+        "delta_demand_strength_score",
+        "delta_regime_strength",
+        "max_axis_age_days"
+      ],
+      "date_ranges": {
+        "date": {
+          "max": "2026-03-31T00:00:00",
+          "min": "2009-07-31T00:00:00"
+        }
+      },
+      "extra_metadata": {
+        "columns": 17,
+        "date_max": "2026-03-31T00:00:00",
+        "date_min": "2009-07-31T00:00:00",
+        "geos": 2,
+        "rows": 259
+      },
+      "format": "parquet",
+      "relative_path": "validation/transition_events.parquet",
+      "row_count": 259,
+      "sha256": "eb17e5befe6c4fab8e49b737e1f9e0cd47e4e8bd2c9cc740db5a0aa12d440f4d",
+      "size_bytes": 37248,
+      "written_at_utc": "2026-07-13T08:06:28.914619+00:00"
+    }
+  },
+  "created_at_utc": "2026-07-13T08:02:42.392004+00:00",
+  "experiment_id": "production_ma_pct_equal_supply_bps120_sources",
+  "metadata": {
+    "completed_at_utc": "2026-07-13T08:06:29.307144+00:00",
+    "config_hashes": {
+      "config/axis_registry.csv": "c7b50ce4be2c0db5ce6e52bc9ac1359e34b8dc1107b5073712569e25dbe73bc7",
+      "config/derived_input_freshness_registry.csv": "4fd9a6a9bfeb3564e1428d599961a7b3e07a3312830addd832c4613041e82bf5",
+      "config/feature_registry.csv": "c6398e6151ee4c83bf76693231da818c2a2e0b30512faea5349cc8e37fbef71b",
+      "config/metric_dimension_registry.csv": "2a4041d99916fb406650a58fbae9a20f767f59ee892fd9f39bb9a10ac859784c",
+      "config/normalization_registry.csv": "77a335e6b8864e2e67f0405a0be21e37de219cf900e94af1f36f4656605bedb0",
+      "config/source_metric_registry.csv": "a642abbb324747804f58ec98a3666b134608e27d9aae4c7828ed6d7e1655d166"
+    },
+    "description": "Corrected BPS120 production-policy baseline with persisted canonical pre-feature source metrics.",
+    "lineage_enabled": true,
+    "normalization_policy": {
+      "bps_lookback_periods": 120
+    },
+    "parent_run": "macro_regime_v1_bps120",
+    "permit_feature_definitions": {
+      "level": "MA12",
+      "long": "MA12 / lag12(MA12) - 1",
+      "short": "MA3 / MA12 - 1"
+    },
+    "permit_feature_strategy": "ma_percent",
+    "permit_feature_weights": {
+      "level": 0.25,
+      "long": 0.4,
+      "short": 0.35
+    },
+    "pipeline_version": "C4.3b_v1",
+    "policy_document": "regime/docs/PERMIT_TRANSFORM_POLICY.md",
+    "serving_db_path": "data/market_serving.duckdb",
+    "source_metrics_contract": {
+      "artifact": "source_metrics.parquet",
+      "grain": [
+        "geo_id",
+        "date",
+        "canonical_metric_key"
+      ],
+      "origin_column": "metric_origin",
+      "value_column": "value"
+    },
+    "source_metrics_persisted": true,
+    "stage_summaries": {
+      "aligned_metric_scores": {
+        "columns": 10,
+        "evaluation_date_max": "2026-07-31T00:00:00",
+        "evaluation_date_min": "2008-12-31T00:00:00",
+        "geos": 227,
+        "metric_date_max": "2026-07-31T00:00:00",
+        "metric_date_min": "2008-12-31T00:00:00",
+        "rows": 832246
+      },
+      "axis_scores": {
+        "columns": 9,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2008-12-31T00:00:00",
+        "geos": 227,
+        "rows": 94063
+      },
+      "coordinates": {
+        "columns": 10,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2009-06-30T00:00:00",
+        "geos": 227,
+        "rows": 46762
+      },
+      "derived_input_component_freshness": {
+        "columns": 22,
+        "date_max": "2026-05-31T00:00:00",
+        "date_min": "2007-01-01T00:00:00",
+        "geos": 223,
+        "rows": 214962
+      },
+      "derived_input_freshness": {
+        "columns": 24,
+        "date_max": "2026-05-31T00:00:00",
+        "date_min": "2007-01-01T00:00:00",
+        "geos": 223,
+        "rows": 89996
+      },
+      "derived_metric_lineage": {
+        "columns": 10,
+        "date_max": "2026-05-31T00:00:00",
+        "date_min": "2007-01-01T00:00:00",
+        "geos": 223,
+        "rows": 214962
+      },
+      "dimension_scores": {
+        "columns": 9,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2008-12-31T00:00:00",
+        "geos": 227,
+        "rows": 249997
+      },
+      "features": {
+        "columns": 5,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2001-12-31T00:00:00",
+        "geos": 387,
+        "rows": 2163016
+      },
+      "geometry": {
+        "columns": 14,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2009-06-30T00:00:00",
+        "geos": 227,
+        "rows": 46762
+      },
+      "metric_scores": {
+        "columns": 8,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2008-12-31T00:00:00",
+        "geos": 367,
+        "rows": 586511
+      },
+      "normalized_features": {
+        "columns": 12,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2008-12-31T00:00:00",
+        "geos": 367,
+        "rows": 1702973
+      },
+      "regime_assignments": {
+        "columns": 16,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2009-06-30T00:00:00",
+        "geos": 227,
+        "rows": 46762
+      },
+      "source_metrics": {
+        "columns": 5,
+        "date_max": "2026-07-31T00:00:00",
+        "date_min": "2001-12-31T00:00:00",
+        "geos": 387,
+        "rows": 744278
+      }
+    },
+    "started_at_utc": "2026-07-13T08:02:42.390566+00:00",
+    "supply_metric_weights": {
+      "active_inventory": 0.3334,
+      "permit_activity": 0.3333,
+      "permit_intensity": 0.3333
+    },
+    "validation_geo_ids": [
+      "district_of_columbia_dc__county",
+      "alameda_county_ca__county"
+    ]
+  },
+  "run_id": "macro_regime_v1_bps120_sources",
+  "schema_version": 1,
+  "status": "complete",
+  "updated_at_utc": "2026-07-13T08:06:29.307338+00:00"
+}
