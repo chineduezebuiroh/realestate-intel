@@ -10,6 +10,7 @@ import numpy as np
 from regime._00_config_loader import RegimeConfig, load_regime_config
 from regime.derived_metrics import build_derived_metrics_with_lineage
 from regime.canonical_metrics import resolve_canonical_metrics
+from regime.linked_price_family import apply_linked_price_family_augmentation
 
 
 SERVING_DB = Path("data/market_serving.duckdb")
@@ -21,11 +22,6 @@ CANONICAL_SOURCE_METRIC_COLUMNS = [
     "value",
     "metric_origin",
 ]
-
-LINKED_PRICE_FAMILY_DERIVED_METRICS = (
-    "price_to_income",
-    "payment_burden",
-)
 
 PRICE_FAMILY_PRODUCTION_EXPERIMENT = (
     "price_family_ma12_structural_linked"
@@ -517,6 +513,21 @@ def build_canonical_source_metrics(
     return observations
 
 
+def _apply_linked_price_family_augmentation(
+    observations: pd.DataFrame,
+    derived_lineage: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Apply the selected production linked Price/Affordability
+    observation policy.
+    """
+    return apply_linked_price_family_augmentation(
+        observations=observations,
+        derived_lineage=derived_lineage,
+        experiment_id=PRICE_FAMILY_PRODUCTION_EXPERIMENT,
+    )
+
+
 def _apply_observation_augmentations(
     observations: pd.DataFrame,
     derived_lineage: pd.DataFrame,
@@ -532,6 +543,13 @@ def _apply_observation_augmentations(
 
     observations = observations.copy()
     derived_lineage = derived_lineage.copy()
+
+    observations, derived_lineage = (
+        _apply_linked_price_family_augmentation(
+            observations=observations,
+            derived_lineage=derived_lineage,
+        )
+    )
 
     return (
         observations,
