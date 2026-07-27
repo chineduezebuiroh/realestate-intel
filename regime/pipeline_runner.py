@@ -32,7 +32,7 @@ from regime.validation import (
     build_transition_events,
 )
 from regime.freshness import evaluate_derived_input_freshness
-from regime.experiments.smoothing_run import apply_smoothing_experiment
+from regime.smoothing_run import apply_smoothing_experiment
 
 
 DEFAULT_CONFIG_PATHS = [

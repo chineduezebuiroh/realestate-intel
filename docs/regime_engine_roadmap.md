@@ -82,6 +82,8 @@ Major completed efforts include:
 - coordinate and regime-movement review;
 - transition-stability diagnostics;
 - production-review visualization.
+- Demand-dimension production engineering freeze synthesizing Labor, GDP, ACS,
+  contribution, cancellation, and weighting diagnostics.
 
 Current Phase D work is organized around four calibration groups:
 

@@ -69,6 +69,8 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 - Dimension contribution and cancellation diagnostics
 - Production comparison framework
 - Production review visualization framework
+- Demand-dimension production engineering freeze covering Labor, GDP, ACS,
+  contribution, cancellation, and weighting behavior
 
 ### Current Focus
 
@@ -99,6 +101,9 @@ The following engineering contracts are currently considered stable unless super
 - Experimental features must remain isolated from production until formally adopted.
 - All major implementation changes should be accompanied by validation artifacts and documentation.
 - Production and experiment policies should reuse shared production-safe computational implementations.
+- The accepted core Demand engineering policy is documented in
+  `docs/decisions/demand_dimension_production_policy.md`; future Demand changes
+  require an isolated Production Calibration challenger.
 - Persisted production artifacts are the authoritative source for downstream comparison and review.
 - County-level calibration is the current production target.
 - Washington, DC county is a mandatory targeted review geography.
