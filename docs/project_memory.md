@@ -204,12 +204,13 @@ Before beginning implementation work, contributors (human or AI) should review t
 1. `docs/README.md`
 2. `docs/project_memory.md`
 3. `docs/regime_engine_roadmap.md`
-4. Relevant phase decision document(s)
-5. Relevant architecture document(s), including
+4. `docs/codex/CODEX_WORKFLOW.md`
+5. Relevant phase decision document(s)
+6. Relevant architecture document(s), including
 	- docs/architecture/regime_engine_overview.md
 	- docs/architecture/shared_production_experiment_implementation.md
 	- relevant ADRs
-6. Relevant research document(s)
+7. Relevant research document(s)
 
 When starting a new development session, establish the following before making implementation changes:
 
