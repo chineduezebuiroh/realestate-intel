@@ -9,7 +9,7 @@ import pandas as pd
 from regime.derived_metrics import (
     build_derived_metrics_with_lineage,
 )
-from regime.experiments.source_substitution import (
+from regime.source_substitution import (
     SourceSubstitutionResult,
     apply_metric_source_substitution,
 )
@@ -697,6 +697,15 @@ def apply_linked_price_family_augmentation(
             "missing required columns: "
             f"{sorted(missing_observation_columns)}"
         )
+
+    # Feature-engine callers may intentionally supply a metric-family subset
+    # (for example, the Labor production-contract smoke test).  In that case
+    # there is no Price-family policy to apply and derived lineage can be the
+    # schema-less empty frame returned for a no-derived-metric input.  This is
+    # an explicit no-op for an absent family, not a substitute policy.
+    present_metric_keys = set(observations["canonical_metric_key"])
+    if not present_metric_keys.intersection(PRICE_FAMILY_METRICS):
+        return observations.copy(), derived_lineage.copy()
 
     required_lineage_columns = {
         "geo_id",

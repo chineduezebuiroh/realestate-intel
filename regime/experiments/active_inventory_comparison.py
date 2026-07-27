@@ -10,10 +10,10 @@ from regime.artifacts import (
     DEFAULT_ARTIFACT_ROOT,
     RegimeArtifactStore,
 )
-from regime.experiments.smoothing_features import (
+from regime.smoothing_features import (
     build_smoothed_metric_features,
 )
-from regime.experiments.smoothing_policy import (
+from regime.smoothing_policy import (
     load_smoothing_experiments,
 )
 

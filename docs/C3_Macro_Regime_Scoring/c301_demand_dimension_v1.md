@@ -1,5 +1,10 @@
 # C3.01 — Demand Dimension v1
 
+> **Production authority:** This document preserves the v1 design rationale.
+> The accepted executable production policy and completed diagnostic synthesis
+> are defined in `docs/decisions/demand_dimension_production_policy.md` and the
+> referenced registries.
+
 ## Purpose
 
 This document defines the Demand Dimension used by the Macro Regime Engine.

@@ -9,7 +9,7 @@ import pandas as pd
 from regime.derived_metrics import (
     build_derived_metrics_with_lineage,
 )
-from regime.experiments.source_substitution import (
+from regime.source_substitution import (
     SourceSubstitutionResult,
     apply_metric_source_substitution,
 )

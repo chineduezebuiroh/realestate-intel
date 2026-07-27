@@ -7,10 +7,10 @@ import numpy as np
 import pandas as pd
 
 from regime.artifacts import DEFAULT_ARTIFACT_ROOT, RegimeArtifactStore
-from regime.experiments.smoothing_features import (
+from regime.smoothing_features import (
     build_smoothed_metric_features_wide,
 )
-from regime.experiments.smoothing_policy import load_smoothing_experiments
+from regime.smoothing_policy import load_smoothing_experiments
 
 
 DEFAULT_RUN_ID = "macro_regime_v1_bps120_sources"

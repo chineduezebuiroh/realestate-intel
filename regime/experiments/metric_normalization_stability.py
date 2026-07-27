@@ -16,10 +16,10 @@ from regime._02_feature_normalizer import (
 from regime._03_metric_scorer import (
     score_metrics,
 )
-from regime.experiments.smoothing_features import (
+from regime.smoothing_features import (
     build_smoothed_metric_features,
 )
-from regime.experiments.smoothing_policy import (
+from regime.smoothing_policy import (
     load_smoothing_experiments,
 )
 
