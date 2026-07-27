@@ -205,23 +205,17 @@ Before beginning implementation work, contributors (human or AI) should review t
 2. `docs/project_memory.md`
 3. `docs/regime_engine_roadmap.md`
 4. Relevant phase decision document(s)
-
-```text
-
-	Relevant architecture document(s), including:
+5. Relevant architecture document(s), including
 	- docs/architecture/regime_engine_overview.md
 	- docs/architecture/shared_production_experiment_implementation.md
 	- relevant ADRs
-```
-
-5. Relevant architecture document(s)
 6. Relevant research document(s)
 
 When starting a new development session, establish the following before making implementation changes:
 
 - Current branch
 - Latest completed implementation phase
-- Current development
+- Current development objective
 - Current production calibration phase (if applicable)
 - Active engineering contracts
 - Outstanding architectural decisions
