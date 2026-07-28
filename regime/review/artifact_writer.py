@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 import pandas as pd
 
@@ -96,3 +97,26 @@ class ReviewArtifactWriter:
                 }
             )
         return outputs
+
+    def write_zip(self, path: str | Path | None = None) -> Path:
+        """Write the current review package as a deterministic ZIP bundle."""
+        if not self.output_dir.is_dir():
+            raise FileNotFoundError(
+                f"Review package directory does not exist: {self.output_dir}"
+            )
+
+        zip_path = Path(path) if path is not None else self.output_dir.with_suffix(".zip")
+        zip_path.parent.mkdir(parents=True, exist_ok=True)
+        package_files = sorted(
+            candidate
+            for candidate in self.output_dir.rglob("*")
+            if candidate.is_file() and candidate.resolve() != zip_path.resolve()
+        )
+        with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as archive:
+            for candidate in package_files:
+                member = candidate.relative_to(self.output_dir).as_posix()
+                info = ZipInfo(member, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = ZIP_DEFLATED
+                info.external_attr = 0o100644 << 16
+                archive.writestr(info, candidate.read_bytes())
+        return zip_path

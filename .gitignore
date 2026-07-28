@@ -14,3 +14,13 @@ __pycache__/
 artifacts/regime/comparisons/
 artifacts/regime/review_exports/
 artifacts/regime/runs/
+
+# Other generated review/analysis output formats
+artifacts/regime/**/*.csv
+artifacts/regime/**/*.parquet
+artifacts/regime/**/*.png
+artifacts/regime/**/*.svg
+artifacts/regime/**/*.zip
+artifacts/regime/**/*.log
+artifacts/regime/**/diagnostics/
+artifacts/regime/**/tmp/
