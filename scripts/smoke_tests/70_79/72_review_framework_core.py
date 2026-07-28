@@ -119,10 +119,11 @@ def main() -> int:
         }
     )
 
-    selected = select_review_geographies(
+    selection = select_review_geographies(
         candidates,
         policy=GeographySelectionPolicy(max_automatic_geographies=2),
     )
+    selected = selection.selected_geographies
 
     selected_geo_ids = set(selected["geo_id"])
     if "district_of_columbia_dc__county" not in selected_geo_ids:

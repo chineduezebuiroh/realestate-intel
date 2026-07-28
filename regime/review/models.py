@@ -111,3 +111,12 @@ class ReviewBundle:
     @property
     def plot_count(self) -> int:
         return len(self.plots)
+
+
+@dataclass
+class ReviewGeographySelection:
+    selected_geographies: pd.DataFrame
+    targeted_geographies: pd.DataFrame
+    aggregate_geographies: pd.DataFrame
+    rationale: pd.DataFrame
+    metadata: dict

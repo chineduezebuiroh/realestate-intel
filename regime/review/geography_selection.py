@@ -10,6 +10,7 @@ from .validation import (
     assert_non_empty,
     assert_required_columns,
 )
+from .models import ReviewGeographySelection
 
 
 DEFAULT_MANDATORY_REVIEW_GEOS = ("district_of_columbia_dc__county",)
@@ -33,8 +34,12 @@ ALLOWED_SELECTION_REASONS = frozenset(
 class GeographySelectionPolicy:
     mandatory_geo_ids: tuple[str, ...] = DEFAULT_MANDATORY_REVIEW_GEOS
     targeted_geo_types: tuple[str, ...] = ("county",)
-    aggregate_geo_types: tuple[str, ...] = ("county", "cbsa_metro")
+    context_geo_types: tuple[str, ...] = ("cbsa_metro",)
     max_automatic_geographies: int = 6
+    allow_explicit_non_target_types: bool = True
+    include_context_geographies: bool = True
+    deterministic_sort: bool = True
+    persist_selection_rationale: bool = True
 
     def __post_init__(self) -> None:
         if self.max_automatic_geographies < 0:
@@ -55,6 +60,41 @@ def _validate_candidates(candidates: pd.DataFrame) -> None:
     )
     if invalid_reasons:
         raise ValueError(f"Unsupported selection reasons: {invalid_reasons}")
+
+
+def _build_selection_rationale(
+    selected: pd.DataFrame,
+) -> pd.DataFrame:
+
+    rationale = selected[
+        [
+            "geo_id",
+            "geo_type",
+            "selection_reason",
+            "selected_automatically",
+            "selected_manually",
+        ]
+    ].copy()
+
+    rationale["selection_scope"] = rationale["selected_automatically"].map(
+        lambda x: "targeted" if x else "manual"
+    )
+
+    rationale.loc[
+        rationale["selection_reason"] == "mandatory",
+        "selection_scope",
+    ] = "mandatory"
+
+    return rationale[
+        [
+            "geo_id",
+            "geo_type",
+            "selection_scope",
+            "selection_reason",
+            "selected_automatically",
+            "selected_manually",
+        ]
+    ]
 
 
 def select_review_geographies(
@@ -163,10 +203,36 @@ def select_review_geographies(
             "Automatic targeted selection contains unsupported geography types: "
             f"{invalid_automatic_types}"
         )
-    return selected.reset_index(drop=True)
+
+    selected = selected.reset_index(drop=True)
+
+    rationale = _build_selection_rationale(selected)
+
+    return ReviewGeographySelection(
+        selected_geographies=selected,
+        targeted_geographies=selected[
+            selected.selected_automatically
+        ].copy(),
+        aggregate_geographies=context_review_geographies(
+            candidates,
+            policy=active_policy,
+        ),
+        rationale=rationale,
+        metadata={
+            "mandatory_geo_ids": list(
+                active_policy.mandatory_geo_ids
+            ),
+            "targeted_geo_types": list(
+                active_policy.targeted_geo_types
+            ),
+            "context_geo_types": list(
+                active_policy.context_geo_types
+            ),
+        },
+    )
 
 
-def aggregate_review_geographies(
+def context_review_geographies(
     frame: pd.DataFrame,
     *,
     policy: GeographySelectionPolicy | None = None,
@@ -179,5 +245,5 @@ def aggregate_review_geographies(
         frame_name="aggregate_review_input",
     )
     return frame[
-        frame[geo_type_column].isin(active_policy.aggregate_geo_types)
+        frame[geo_type_column].isin(active_policy.context_geo_types)
     ].copy()

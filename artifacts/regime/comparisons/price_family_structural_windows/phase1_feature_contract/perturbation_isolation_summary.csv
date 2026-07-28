@@ -1,4 +1,0 @@
-candidate_id,changed_rows,changed_metric_counts
-price_family_ma6_structural_linked,66,"{'median_sale_price': 22, 'payment_burden': 22, 'price_to_income': 22}"
-price_family_ma9_structural_linked,93,"{'median_sale_price': 31, 'payment_burden': 31, 'price_to_income': 31}"
-price_family_ma12_structural_linked,114,"{'median_sale_price': 38, 'payment_burden': 38, 'price_to_income': 38}"

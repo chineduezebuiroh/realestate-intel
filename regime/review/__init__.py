@@ -6,7 +6,7 @@ from .decision import (
 from .geography_selection import (
     DEFAULT_MANDATORY_REVIEW_GEOS,
     GeographySelectionPolicy,
-    aggregate_review_geographies,
+    context_review_geographies,
     select_review_geographies,
 )
 from .io import (
@@ -17,6 +17,7 @@ from .io import (
 from .manifest import ReviewManifest
 from .models import (
     ReviewBundle,
+    ReviewGeographySelection,
     ReviewPlot,
     ReviewTable,
 )
@@ -42,10 +43,11 @@ __all__ = [
     "GeographySelectionPolicy",
     "ReviewArtifactWriter",
     "ReviewBundle",
+    "ReviewGeographySelection",
     "ReviewManifest",
     "ReviewPlot",
     "ReviewTable",
-    "aggregate_review_geographies",
+    "context_review_geographies",
     "assert_expected_values",
     "assert_finite",
     "assert_no_duplicate_keys",

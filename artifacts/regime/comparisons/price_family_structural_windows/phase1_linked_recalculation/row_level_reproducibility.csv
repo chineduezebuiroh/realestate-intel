@@ -1,7 +1,0 @@
-candidate_id,level_window,geo_id,date,substituted_price,income,income_source_date,income_source_geo_id,mortgage_30y,mortgage_source_date,mortgage_source_geo_id,price_to_income,payment_burden
-price_family_ma6_structural_linked,6,geo_alpha,2021-06-30,368800.0,103000.0,2021-01-31,geo_alpha,3.8850000000000002,2021-06-30,national,3.5805825242718448,0.1618340552281395
-price_family_ma6_structural_linked,6,geo_beta,2021-06-30,458800.0,121000.0,2021-01-31,geo_beta,3.8850000000000002,2021-06-30,national,3.7917355371900827,0.17137768342901374
-price_family_ma9_structural_linked,9,geo_alpha,2021-06-30,363400.0,103000.0,2021-01-31,geo_alpha,3.8850000000000002,2021-06-30,national,3.528155339805825,0.15946446765158867
-price_family_ma9_structural_linked,9,geo_beta,2021-06-30,453400.0,121000.0,2021-01-31,geo_beta,3.8850000000000002,2021-06-30,national,3.747107438016529,0.16936059648368534
-price_family_ma12_structural_linked,12,geo_alpha,2021-06-30,357100.0,103000.0,2021-01-31,geo_alpha,3.8850000000000002,2021-06-30,national,3.4669902912621358,0.15669994881227936
-price_family_ma12_structural_linked,12,geo_beta,2021-06-30,447100.0,121000.0,2021-01-31,geo_beta,3.8850000000000002,2021-06-30,national,3.6950413223140495,0.1670073283808022

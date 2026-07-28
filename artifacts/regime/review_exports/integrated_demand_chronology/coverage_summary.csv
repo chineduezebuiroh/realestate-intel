@@ -1,3 +1,0 @@
-geo_id,rows,first_any_date,last_any_date,complete_rows,complete_coverage_rate,first_complete_date,last_complete_date,demand_available_rows,demand_first_date,demand_last_date,price_available_rows,price_first_date,price_last_date,affordability_available_rows,affordability_first_date,affordability_last_date,capital_markets_available_rows,capital_markets_first_date,capital_markets_last_date
-alameda_county_ca__county,129,2015-11-30,2026-07-31,129,1.0,2015-11-30,2026-07-31,129,2015-11-30,2026-07-31,129,2015-11-30,2026-07-31,129,2015-11-30,2026-07-31,129,2015-11-30,2026-07-31
-district_of_columbia_dc__county,129,2015-11-30,2026-07-31,129,1.0,2015-11-30,2026-07-31,129,2015-11-30,2026-07-31,129,2015-11-30,2026-07-31,129,2015-11-30,2026-07-31,129,2015-11-30,2026-07-31

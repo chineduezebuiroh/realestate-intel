@@ -5,7 +5,10 @@ from pathlib import Path
 from .artifact_writer import ReviewArtifactWriter
 from .decision import DecisionSummary
 from .manifest import ReviewManifest
-from .models import ReviewBundle
+from .models import (
+    ReviewBundle,
+    ReviewGeographySelection,
+)
 
 
 def write_review_bundle(
@@ -14,6 +17,7 @@ def write_review_bundle(
     writer: ReviewArtifactWriter,
     manifest: ReviewManifest,
     decision: DecisionSummary | None = None,
+    geography_selection: ReviewGeographySelection | None = None,
 ) -> Path:
     """
     Persist a complete review bundle.
@@ -38,6 +42,18 @@ def write_review_bundle(
             table.name,
             table.dataframe,
             subdir=table.subdirectory,
+        )
+
+    if geography_selection is not None:
+
+        writer.write_table(
+            "selected_review_geographies",
+            geography_selection.selected_geographies,
+        )
+
+        writer.write_table(
+            "review_geography_rationale",
+            geography_selection.rationale,
         )
 
     outputs = writer.build_output_manifest()
