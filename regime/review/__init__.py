@@ -15,6 +15,12 @@ from .io import (
     write_json,
 )
 from .manifest import ReviewManifest
+from .package_contract import (
+    ReviewPackageValidationError,
+    ReviewPackageValidationResult,
+    validate_review_package,
+    validate_review_zip,
+)
 from .models import (
     ReviewBundle,
     ReviewGeographySelection,
@@ -45,6 +51,8 @@ __all__ = [
     "ReviewBundle",
     "ReviewGeographySelection",
     "ReviewManifest",
+    "ReviewPackageValidationError",
+    "ReviewPackageValidationResult",
     "ReviewPlot",
     "ReviewTable",
     "context_review_geographies",
@@ -60,6 +68,8 @@ __all__ = [
     "write_csv",
     "write_json",
     "write_review_bundle",
+    "validate_review_package",
+    "validate_review_zip",
     "GeneratedPlot",
     "ReviewResult",
 ]
