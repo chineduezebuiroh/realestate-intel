@@ -6,3 +6,11 @@ data/*.DS_Store
 __pycache__/
 *.py[cod]
 *$py.class
+
+# -----------------------------------------------------------------------------
+# Generated analysis artifacts (reproducible outputs)
+# -----------------------------------------------------------------------------
+
+artifacts/regime/comparisons/
+artifacts/regime/review_exports/
+artifacts/regime/runs/

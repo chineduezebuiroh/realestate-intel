@@ -1,3 +1,0 @@
-geo_id,date,substituted_price,income,income_source_date,income_source_geo_id,mortgage_30y,mortgage_source_date,mortgage_source_geo_id,price_to_income,payment_burden
-geo_alpha,2021-06-30,357100.0,103000.0,2021-01-31,geo_alpha,3.8850000000000002,2021-06-30,national,3.4669902912621358,0.15669994881227936
-geo_beta,2021-06-30,447100.0,121000.0,2021-01-31,geo_beta,3.8850000000000002,2021-06-30,national,3.6950413223140495,0.1670073283808022

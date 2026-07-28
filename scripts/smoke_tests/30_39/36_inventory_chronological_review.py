@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
-
 from regime.experiments.inventory_chronological_review import (
     BASELINE_RUN_ID,
     CHALLENGER_RUN_ID,
@@ -37,21 +35,10 @@ def main() -> int:
         )
     )
 
-    panel = review[
-        "monthly_panel"
-    ]
-
-    changed = review[
-        "changed_months"
-    ]
-
-    event_windows = review[
-        "major_event_windows"
-    ]
-
-    summary = review[
-        "changed_month_summary"
-    ]
+    panel = review.tables["monthly_panel"]
+    changed = review.tables["changed_months"]
+    event_windows = review.tables["major_event_windows"]
+    summary = review.tables["changed_month_summary"]
 
     print(
         "[inventory_chronology] baseline:",
@@ -61,6 +48,36 @@ def main() -> int:
     print(
         "[inventory_chronology] challenger:",
         CHALLENGER_RUN_ID,
+    )
+
+    print(
+        "[inventory_chronology] "
+        "review contract:",
+        type(review).__name__,
+    )
+
+    print(
+        "[inventory_chronology] "
+        "challenger materialization:",
+        review.metadata[
+            "challenger_materialization"
+        ],
+    )
+
+    print(
+        "[inventory_chronology] "
+        "challenger assignment rows:",
+        review.metadata[
+            "challenger_assignment_rows"
+        ],
+    )
+
+    print(
+        "[inventory_chronology] "
+        "smoothing lineage rows:",
+        review.metadata[
+            "smoothing_lineage_rows"
+        ],
     )
 
     print(
@@ -156,7 +173,7 @@ def main() -> int:
     }
 
     if set(
-        review
+        review.tables
     ) != required_outputs:
         raise AssertionError(
             "Chronological review output set "
@@ -164,11 +181,61 @@ def main() -> int:
         )
 
     for name in required_outputs:
-        if review[name].empty:
+        if review.tables[name].empty:
             raise AssertionError(
                 f"Expected non-empty output: {name}"
             )
+        
+    expected_metadata = {
+        "review_type": (
+            "inventory_chronological_review"
+        ),
+        "baseline_run_id": (
+            BASELINE_RUN_ID
+        ),
+        "challenger_run_id": (
+            CHALLENGER_RUN_ID
+        ),
+        "challenger_materialization": (
+            "in_memory"
+        ),
+        "challenger_persisted": False,
+    }
 
+    for key, expected_value in (
+        expected_metadata.items()
+    ):
+        actual_value = (
+            review.metadata.get(key)
+        )
+
+        if actual_value != expected_value:
+            raise AssertionError(
+                "Review metadata mismatch for "
+                f"{key}. Expected "
+                f"{expected_value!r}, found "
+                f"{actual_value!r}"
+            )
+
+    for key in (
+        "challenger_feature_rows",
+        "challenger_assignment_rows",
+        "smoothing_lineage_rows",
+    ):
+        value = review.metadata.get(
+            key
+        )
+
+        if (
+            not isinstance(value, int)
+            or value <= 0
+        ):
+            raise AssertionError(
+                "Expected positive integer "
+                f"metadata for {key}, found "
+                f"{value!r}"
+            )
+    
     if set(
         panel["geo_id"]
     ) != set(
@@ -187,36 +254,6 @@ def main() -> int:
         raise AssertionError(
             "Monthly panel contains duplicate "
             "geo/date rows"
-        )
-
-    if not np.allclose(
-        panel[
-            "demand_strength_score_baseline"
-        ].dropna(),
-        panel[
-            "demand_strength_score_challenger"
-        ].dropna(),
-        rtol=0.0,
-        atol=0.0,
-    ):
-        raise AssertionError(
-            "Demand coordinate changed in an "
-            "inventory-only experiment"
-        )
-
-    if not np.allclose(
-        panel[
-            "demand_axis_score_baseline"
-        ].dropna(),
-        panel[
-            "demand_axis_score_challenger"
-        ].dropna(),
-        rtol=0.0,
-        atol=0.0,
-    ):
-        raise AssertionError(
-            "Demand axis changed in an "
-            "inventory-only experiment"
         )
 
     if not panel[

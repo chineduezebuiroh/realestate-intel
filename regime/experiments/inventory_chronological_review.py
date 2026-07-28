@@ -2,6 +2,7 @@ from __future__ import annotations
 # regime/experiments/inventory_chronological_review.py
 
 from pathlib import Path
+from typing import Protocol
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,6 +12,9 @@ from regime.artifacts import (
     DEFAULT_ARTIFACT_ROOT,
     RegimeArtifactStore,
 )
+from regime.experiments.in_memory_challenger import build_in_memory_smoothing_challenger
+from regime.review import ReviewResult
+
 
 
 BASELINE_RUN_ID = "macro_regime_v1_bps120_sources"
@@ -33,6 +37,100 @@ DEFAULT_OUTPUT_DIR = Path(
 )
 
 EVENT_WINDOW_MONTHS = 3
+
+
+class ArtifactReader(Protocol):
+    """
+    Minimal artifact-reading contract required by this review.
+    """
+
+    def read_dataframe(
+        self,
+        run_id: str,
+        artifact_name: str,
+        *,
+        validation: bool = False,
+    ) -> pd.DataFrame:
+        ...
+
+
+class OverlayArtifactReader:
+    """
+    Read the persisted baseline from RegimeArtifactStore while
+    serving one logical challenger run from in-memory frames.
+    """
+
+    def __init__(
+        self,
+        *,
+        persisted_store: RegimeArtifactStore,
+        challenger_run_id: str,
+        challenger_artifacts: (
+            dict[str, pd.DataFrame]
+        ),
+    ) -> None:
+        if not challenger_run_id:
+            raise ValueError(
+                "challenger_run_id must be non-empty"
+            )
+
+        if not challenger_artifacts:
+            raise ValueError(
+                "challenger_artifacts must be non-empty"
+            )
+
+        self._persisted_store = (
+            persisted_store
+        )
+        self._challenger_run_id = (
+            challenger_run_id
+        )
+        self._challenger_artifacts = {
+            name: frame.copy()
+            for name, frame
+            in challenger_artifacts.items()
+        }
+
+    def read_dataframe(
+        self,
+        run_id: str,
+        artifact_name: str,
+        *,
+        validation: bool = False,
+    ) -> pd.DataFrame:
+        if run_id != self._challenger_run_id:
+            return (
+                self._persisted_store
+                .read_dataframe(
+                    run_id,
+                    artifact_name,
+                    validation=validation,
+                )
+            )
+
+        if validation:
+            raise ValueError(
+                "In-memory challenger validation "
+                "artifacts are not available"
+            )
+
+        if (
+            artifact_name
+            not in self._challenger_artifacts
+        ):
+            available = sorted(
+                self._challenger_artifacts
+            )
+
+            raise KeyError(
+                "In-memory challenger artifact "
+                f"not found: {artifact_name}. "
+                f"Available artifacts: {available}"
+            )
+
+        return self._challenger_artifacts[
+            artifact_name
+        ].copy()
 
 
 def _standardize_date(
@@ -102,7 +200,7 @@ def _period_name(
 
 
 def _load_assignments(
-    store: RegimeArtifactStore,
+    store: ArtifactReader,
     *,
     run_id: str,
     role: str,
@@ -165,7 +263,7 @@ def _load_assignments(
 
 
 def _load_inventory_metric_scores(
-    store: RegimeArtifactStore,
+    store: ArtifactReader,
     *,
     run_id: str,
     role: str,
@@ -211,7 +309,7 @@ def _load_inventory_metric_scores(
 
 
 def _load_supply_dimension(
-    store: RegimeArtifactStore,
+    store: ArtifactReader,
     *,
     run_id: str,
     role: str,
@@ -249,7 +347,7 @@ def _load_supply_dimension(
 
 
 def _load_axes(
-    store: RegimeArtifactStore,
+    store: ArtifactReader,
     *,
     run_id: str,
     role: str,
@@ -305,7 +403,7 @@ def _load_axes(
 
 
 def _load_inventory_features(
-    store: RegimeArtifactStore,
+    store: ArtifactReader,
     *,
     run_id: str,
     role: str,
@@ -417,7 +515,7 @@ def _load_inventory_features(
 
 
 def _load_raw_inventory(
-    store: RegimeArtifactStore,
+    store: ArtifactReader,
     *,
     run_id: str,
     geo_ids: list[str],
@@ -497,7 +595,7 @@ def _load_raw_inventory(
 
 
 def _merge_monthly_panel(
-    store: RegimeArtifactStore,
+    store: ArtifactReader,
     *,
     baseline_run_id: str,
     challenger_run_id: str,
@@ -1335,16 +1433,52 @@ def build_inventory_chronological_review(
     event_window_months: int = (
         EVENT_WINDOW_MONTHS
     ),
-) -> dict[str, pd.DataFrame]:
+) -> ReviewResult:
     if geo_ids is None:
         geo_ids = FOCUS_GEOS.copy()
 
-    store = RegimeArtifactStore(
+    persisted_store = RegimeArtifactStore(
         artifact_root
     )
 
+    source_metrics = (
+        persisted_store.read_dataframe(
+            baseline_run_id,
+            "source_metrics",
+        )
+    )
+
+    baseline_features = (
+        persisted_store.read_dataframe(
+            baseline_run_id,
+            "features",
+        )
+    )
+
+    challenger = (
+        build_in_memory_smoothing_challenger(
+            baseline_features=(
+                baseline_features
+            ),
+            source_metrics=source_metrics,
+            experiment_id=(
+                challenger_run_id
+            ),
+        )
+    )
+
+    artifact_reader = OverlayArtifactReader(
+        persisted_store=persisted_store,
+        challenger_run_id=(
+            challenger_run_id
+        ),
+        challenger_artifacts=(
+            challenger.as_mapping()
+        ),
+    )
+
     panel = _merge_monthly_panel(
-        store,
+        artifact_reader,
         baseline_run_id=(
             baseline_run_id
         ),
@@ -1375,20 +1509,66 @@ def build_inventory_chronological_review(
         )
     )
 
-    return {
-        "monthly_panel": panel,
-        "changed_months": changed_months,
-        "major_event_windows": (
-            event_windows
-        ),
-        "changed_month_summary": (
-            changed_month_summary
-        ),
-    }
+    review = ReviewResult(
+        metadata={
+            "review_type": (
+                "inventory_chronological_review"
+            ),
+            "baseline_run_id": (
+                baseline_run_id
+            ),
+            "challenger_run_id": (
+                challenger_run_id
+            ),
+            "challenger_materialization": (
+                "in_memory"
+            ),
+            "challenger_persisted": False,
+            "geo_ids": list(geo_ids),
+            "event_window_months": (
+                event_window_months
+            ),
+            "challenger_feature_rows": (
+                len(challenger.features)
+            ),
+            "challenger_assignment_rows": (
+                len(
+                    challenger.regime_assignments
+                )
+            ),
+            "smoothing_lineage_rows": (
+                len(
+                    challenger.smoothing_lineage
+                )
+            ),
+        }
+    )
+
+    review.add_table(
+        "monthly_panel",
+        panel,
+    )
+
+    review.add_table(
+        "changed_months",
+        changed_months,
+    )
+
+    review.add_table(
+        "major_event_windows",
+        event_windows,
+    )
+
+    review.add_table(
+        "changed_month_summary",
+        changed_month_summary,
+    )
+
+    return review
 
 
 def write_inventory_chronological_review(
-    review: dict[str, pd.DataFrame],
+    review: ReviewResult,
     *,
     output_dir: str | Path = (
         DEFAULT_OUTPUT_DIR
@@ -1405,7 +1585,9 @@ def write_inventory_chronological_review(
 
     table_paths = []
 
-    for name, frame in review.items():
+    for name, frame in (
+        review.tables.items()
+    ):
         path = destination / (
             f"{name}.csv"
         )
@@ -1419,7 +1601,7 @@ def write_inventory_chronological_review(
 
     plot_paths = []
 
-    panel = review[
+    panel = review.tables[
         "monthly_panel"
     ]
 

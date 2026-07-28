@@ -1,3 +1,0 @@
-geo_id,rows,first_date,last_date,mean_axis_change,mean_absolute_axis_change,axis_change_std,mean_gross_component_activity,mean_component_cancellation_rate,dominant_dimension_by_total_activity,max_absolute_reconstruction_residual,mean_effective_component_count,median_effective_component_count
-alameda_county_ca__county,128,2015-12-31,2026-07-31,-0.004650531960842406,0.0913065298783074,0.11028421262204893,0.1209700767363976,0.27979587330255884,demand,3.0531133177191805e-16,1.9306165764344894,1.6760105457085088
-district_of_columbia_dc__county,128,2015-12-31,2026-07-31,-0.0034242065001049374,0.08846790683077896,0.11330077775862556,0.12492504974180813,0.33533378500532945,demand,4.163336342344337e-16,2.150445696660202,2.1638392608007946
