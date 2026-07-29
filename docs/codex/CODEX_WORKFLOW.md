@@ -28,6 +28,7 @@ Before making implementation changes, always review:
 3. Relevant phase decision document(s)
 4. Relevant architecture document(s)
 5. Relevant ADR(s)
+6. Any implementation contract(s) governing the requested work
 
 Then inspect:
 
@@ -49,6 +50,9 @@ Before writing code, establish:
 - expected validation strategy.
 
 Never begin implementation without first understanding the current repository state.
+
+Implementation contracts are authoritative for implementation behavior.
+If an implementation contract exists for the requested work, review it before writing code.
 
 ---
 
