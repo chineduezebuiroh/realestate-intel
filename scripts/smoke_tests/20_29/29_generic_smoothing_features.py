@@ -983,13 +983,19 @@ def main() -> int:
     
     expected_ma12_short_numerator = (
         steady_values.iloc[
-            9:12
+            3:15
+        ].mean()
+    )
+
+    expected_ma12_short_reference = (
+        steady_values.iloc[
+            0:12
         ].mean()
     )
     
     expected_ma12_short = (
         expected_ma12_short_numerator
-        / expected_ma12_level
+        / expected_ma12_short_reference
         - 1.0
     )
     
@@ -1004,7 +1010,7 @@ def main() -> int:
     
     _assert_close(
         ma12_structural_steady.loc[
-            11,
+            14,
             "smoothed_short_value",
         ],
         expected_ma12_short,
@@ -1013,7 +1019,7 @@ def main() -> int:
     
     _assert_close(
         ma12_structural_steady.loc[
-            11,
+            14,
             "short_ma_value",
         ],
         expected_ma12_short_numerator,
@@ -1022,10 +1028,10 @@ def main() -> int:
     
     _assert_close(
         ma12_structural_steady.loc[
-            11,
+            14,
             "short_reference_value",
         ],
-        expected_ma12_level,
+        expected_ma12_short_reference,
         label=(
             "First MA12 structural "
             "short reference"
@@ -1040,13 +1046,19 @@ def main() -> int:
     
     expected_ma6_short_numerator = (
         steady_values.iloc[
-            3:6
+            3:9
+        ].mean()
+    )
+
+    expected_ma6_short_reference = (
+        steady_values.iloc[
+            0:6
         ].mean()
     )
     
     expected_ma6_short = (
         expected_ma6_short_numerator
-        / expected_ma6_level
+        / expected_ma6_short_reference
         - 1.0
     )
     
@@ -1061,7 +1073,7 @@ def main() -> int:
     
     _assert_close(
         ma6_structural_steady.loc[
-            5,
+            8,
             "smoothed_short_value",
         ],
         expected_ma6_short,
@@ -1070,7 +1082,7 @@ def main() -> int:
     
     _assert_close(
         ma6_structural_steady.loc[
-            5,
+            8,
             "short_ma_value",
         ],
         expected_ma6_short_numerator,
@@ -1079,10 +1091,10 @@ def main() -> int:
     
     _assert_close(
         ma6_structural_steady.loc[
-            5,
+            8,
             "short_reference_value",
         ],
-        expected_ma6_level,
+        expected_ma6_short_reference,
         label=(
             "First MA6 structural "
             "short reference"

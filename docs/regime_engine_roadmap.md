@@ -144,6 +144,9 @@ Current work is sequenced as follows:
    - Split full-history and recent-period Demand-delta heatmaps.
 
 2. Calibrate Inventory and the Supply axis.
+   - The Phase 8c campaign foundation is implemented for typed contracts,
+     structural-candidate validation, and fixture Review Platform packaging;
+     the analytical campaign and promotion decision remain incomplete.
    - Evaluate structural smoothing alternatives for active inventory.
    - Reassess level, short, and long feature weighting.
    - Measure seasonality, volatility, sign flips, shock timing, and regime transitions.
