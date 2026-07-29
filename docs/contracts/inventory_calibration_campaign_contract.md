@@ -1312,6 +1312,35 @@ The initial Inventory Calibration Campaign does not:
 
 ---
 
+## Implementation Status
+
+Phase 8c Slice 2 implements the evidence-only Phase A foundation. The
+`campaign_definition`, `coverage_and_lineage`, `structural_window_behavior`,
+and `baseline_comparison` sections contain exactly these tables:
+
+* `inventory_phase_a_campaign`;
+* `inventory_phase_a_candidates`;
+* `inventory_phase_a_feature_weights`;
+* `inventory_candidate_feature_coverage`;
+* `inventory_candidate_lineage_summary`;
+* `inventory_candidate_target_replacement`;
+* `inventory_candidate_non_target_parity`;
+* `inventory_candidate_feature_statistics`;
+* `inventory_candidate_feature_correlations`;
+* `inventory_candidate_calendar_month_behavior`;
+* `inventory_candidate_baseline_feature_comparison`.
+
+The authoritative inputs are loaded without fallback and the four canonical
+MA3, MA6, MA9, and MA12 challengers remain in memory only. The result contains
+typed evidence and an existing `ReviewBundle`; it contains no decision,
+promotion-gate execution, eligibility, ranking, recommendation, or winner
+selection.
+
+Normalized and downstream transmission evidence, geography policy, chronology,
+shock, transition, persistence, dwell, contribution and cancellation evidence,
+review-package and ZIP export, `DecisionSummary`, persisted challenger runs,
+production registry changes, and Phase B weight calibration remain deferred.
+
 ## 24. Completion Criteria
 
 Section 8c campaign infrastructure is complete when:
