@@ -234,7 +234,9 @@ A commit should represent one coherent engineering objective.
 
 Commit messages should describe the resulting implementation.
 
-Do not:
+## Environment-specific Git behavior
+
+When operating in a user-controlled local repository, do not:
 
 - create branches;
 - switch branches;
@@ -244,6 +246,24 @@ Do not:
 - push;
 
 unless explicitly instructed.
+
+When operating through an isolated hosted Codex task environment, the platform may create task branches, commits, or pull-request records automatically.
+
+In that environment:
+
+- do not perform additional branch manipulation;
+- do not merge or rebase;
+- do not directly push outside the platform-managed task workflow;
+- do not create extra commits beyond platform-managed task completion unless
+  explicitly requested.
+
+Always report:
+
+- the branch used;
+- whether a commit was created;
+- the commit SHA, when available;
+- whether a pull-request record was created;
+- whether any remote branch was modified.
 
 ---
 
@@ -259,6 +279,9 @@ At the end of each implementation task, provide:
 6. Production-policy impact
 7. Remaining risks
 8. Recommended commit scope
+9. Git actions performed or platform-created
+
+For hosted tasks, distinguish platform-created Git activity from Git actions explicitly initiated during implementation.
 
 Explicitly identify anything left incomplete.
 
