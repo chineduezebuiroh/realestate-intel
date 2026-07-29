@@ -183,6 +183,11 @@ inventory_ma9_structural
 inventory_ma12_structural
 ```
 
+Foundation implementation note: the smoothing registry contains canonical
+entries for all four IDs. Each MAx policy uses the same coherent structural
+definition: level is MAx, short is `MAx / lag3(MAx) - 1`, and long is
+`MAx / lag12(MAx) - 1`.
+
 All four candidates are structural policies.
 
 The exact registry IDs may differ if an accepted repository alias already exists. The campaign must resolve one canonical candidate identity for each of the four windows and persist any alias-to-canonical mapping in campaign metadata.

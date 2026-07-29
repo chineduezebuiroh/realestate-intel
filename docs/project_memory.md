@@ -76,6 +76,12 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 
 Current development has shifted from infrastructure implementation toward county-level production calibration.
 
+The Phase 8c Inventory calibration campaign now has a bounded foundation: typed
+campaign and promotion-gate contracts, registry-validated MA3/MA6/MA9/MA12
+structural candidates, and fixture orchestration through the existing Review
+Platform. Analytical evidence generation, thresholds, gate evaluation, and any
+production-policy decision remain future Phase 8c work.
+
 Current work is organized into four sequential efforts:
 
 - Review-tooling improvements

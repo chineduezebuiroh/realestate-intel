@@ -279,10 +279,10 @@ def _build_group_features(
         window=policy.long_window,
     )
 
-    if (
-        policy.transform_strategy
-        == "ma_momentum"
-    ):
+    if policy.transform_strategy in {
+        "ma_momentum",
+        "ma_structural",
+    }:
         short_reference = (
             short_ma.shift(
                 policy.short_lag_periods
@@ -305,35 +305,6 @@ def _build_group_features(
         short_feature = (
             _safe_ratio_minus_one(
                 raw,
-                short_reference,
-            )
-        )
-
-    elif (
-        policy.transform_strategy
-        == "ma_structural"
-    ):
-        #
-        # Structural inventory:
-        #
-        # level  = MA(level_window)
-        #
-        # short  = MA(short_window)
-        #          /
-        #          MA(level_window)
-        #          - 1
-        #
-        # long   = MA(level_window)
-        #          /
-        #          lag12(MA(level_window))
-        #          - 1
-        #
-
-        short_reference = level_ma
-
-        short_feature = (
-            _safe_ratio_minus_one(
-                short_ma,
                 short_reference,
             )
         )
