@@ -15,6 +15,10 @@ from regime.smoothing_policy import (
 
 SUPPORTED_PIPELINE_EXPERIMENTS = {
     "inventory_ma3_deviation",
+    "inventory_ma3_structural",
+    "inventory_ma6_structural",
+    "inventory_ma9_structural",
+    "inventory_ma12_structural",
 }
 
 TARGET_METRIC = "active_inventory"
