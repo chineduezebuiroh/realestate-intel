@@ -263,3 +263,9 @@ It should be updated whenever:
 - the active development roadmap is substantially revised.
 
 Detailed implementation history belongs in phase decision documents rather than this project summary.
+> **Phase 8c geography boundary:** The generated geography manifest is
+> authoritative. Legacy artifact IDs use the reviewed Phase 8c identity
+> crosswalk (the old manifest is migration evidence, not runtime authority),
+> after which county-only scope is applied before challengers. ZIP remains
+> reserved for future local work; city is outside both current macro and
+> planned local regimes; all other non-county levels are excluded.

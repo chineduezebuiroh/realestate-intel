@@ -94,7 +94,8 @@ def main() -> int:
             assert paths == sorted(paths) and len(paths) == len(set(paths))
             assert first.manifest["regime_scope"] == "macro"
             assert first.manifest["included_geo_levels"] == ["county"]
-            assert first.manifest["local_zip_regimes"] == "out_of_scope_for_this_campaign"
+            assert first.manifest["zip_future_status"] == "reserved_for_future_local_regime"
+            assert first.manifest["city_status"] == "out_of_scope_no_current_regime_role"
             for item in first.manifest["files"]:
                 path = first.bundle_directory / item["relative_path"]
                 assert hashlib.sha256(path.read_bytes()).hexdigest() == item["sha256"]

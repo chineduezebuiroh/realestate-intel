@@ -321,7 +321,16 @@ def build_inventory_review_bundle(
         "candidate_policy_ids": list(candidates),
         "regime_scope": campaign.metadata.get("geography_scope", {}).get("regime_scope", "macro"),
         "included_geo_levels": campaign.metadata.get("geography_scope", {}).get("included_geo_levels", list(campaign.allowed_geo_levels)),
-        "local_zip_regimes": "out_of_scope_for_this_campaign",
+        "zip_future_status": campaign.metadata.get("geography_scope", {}).get(
+            "zip_future_status", "reserved_for_future_local_regime"),
+        "city_status": campaign.metadata.get("geography_scope", {}).get(
+            "city_status", "out_of_scope_no_current_regime_role"),
+        "geography_identity": {
+            key: campaign.metadata.get("geography_scope", {}).get(key)
+            for key in ("authoritative_geography_manifest_path", "authoritative_geography_manifest_hash",
+                        "authoritative_identity_column", "identity_crosswalk_path", "identity_crosswalk_hash",
+                        "identity_resolution_mode")
+        },
         "recommended_candidate_policy_id": recommendation.get("recommended_candidate_policy_id"),
         "recommendation_status": "recommended_for_human_review",
         "eligible_candidate_count": int(ranking["eligible"].sum()),

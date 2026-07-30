@@ -172,39 +172,69 @@ def _geography_scope_contract(baseline: pd.DataFrame, source: pd.DataFrame) -> N
     mixed_sources = pd.concat([source, zip_sources], ignore_index=True)
     with TemporaryDirectory() as temporary:
         manifest = Path(temporary) / "geos.csv"
-        pd.DataFrame({"geo_slug": ["a__county", "b__county", "z__zip"],
-                      "level": ["county", "county", "zip"]}).to_csv(manifest, index=False)
+        pd.DataFrame({"geo_slug": ["a__county", "b__county", "z__zip", "c__city", "m__metro_division", "x__combined_area"],
+                      "level": ["county", "county", "zip", "city", "metro_division", "combined_area"]}).to_csv(manifest, index=False)
+        crosswalk = Path(temporary) / "crosswalk.csv"
+        columns = ["legacy_geo_id", "canonical_geo_slug", "mapping_method", "mapping_source",
+                   "mapping_version", "legacy_level", "canonical_level"]
+        pd.DataFrame([
+            ["legacy_county", "a__county", "stable_source_identifier", "fixture", "v1", "county", "county"],
+            ["legacy_city", "c__city", "stable_source_identifier", "fixture", "v1", "city", "city"],
+            ["legacy_zip", "z__zip", "stable_source_identifier", "fixture", "v1", "zip", "zip"],
+            ["legacy_msd", "m__metro_division", "stable_source_identifier", "fixture", "v1", "metro_division", "metro_division"],
+            ["legacy_csa", "x__combined_area", "stable_source_identifier", "fixture", "v1", "combined_area", "combined_area"],
+        ], columns=columns).to_csv(crosswalk, index=False)
         campaign = inventory.build_inventory_calibration_campaign(
             campaign_id="scope", campaign_version="1", baseline_run_id=inventory.AUTHORITATIVE_RUN_ID,
             incumbent_run_id=inventory.AUTHORITATIVE_RUN_ID)
         resolved, features, sources, lineage = inventory.resolve_phase_a_geography_scope(
-            campaign, mixed_features, mixed_sources, manifest_path=manifest)
+            campaign, mixed_features, mixed_sources, manifest_path=manifest, crosswalk_path=crosswalk)
         assert sorted(features["geo_id"].unique()) == ["a__county", "b__county"]
         assert sorted(sources["geo_id"].unique()) == ["a__county", "b__county"]
         assert resolved.metadata["geography_scope"]["included_geo_count"] == 2
         assert resolved.metadata["geography_scope"]["excluded_geo_counts_by_level"] == {"zip": 1}
-        assert lineage.query("geo_id == 'z__zip'").iloc[0]["exclusion_reason"] == "geo_level_out_of_scope"
+        assert lineage.query("geo_id == 'z__zip'").iloc[0]["exclusion_reason"] == "excluded_level_not_allowed_for_macro_phase_8c"
+        identities = inventory._geography_identities(
+            {"legacy_county", "legacy_city", "legacy_zip", "legacy_msd", "legacy_csa", "a__county"}, manifest, crosswalk)
+        assert identities["legacy_county"]["canonical_geo_slug"] == "a__county"
+        assert identities["legacy_city"]["resolved_level"] == "city"
+        assert identities["legacy_zip"]["resolved_level"] == "zip"
+        assert identities["a__county"]["identity_resolution_method"] == "canonical_geo_slug_direct"
+        _expect_error(lambda: inventory._geography_identities({"missing"}, manifest, crosswalk))
+        invalid = pd.read_csv(crosswalk); invalid.loc[0, "canonical_geo_slug"] = "absent"
+        invalid.to_csv(crosswalk, index=False)
+        _expect_error(lambda: inventory._geography_identities({"legacy_county"}, manifest, crosswalk))
+        pd.concat([pd.read_csv(crosswalk), pd.read_csv(crosswalk).iloc[[0]]]).to_csv(crosswalk, index=False)
+        _expect_error(lambda: inventory._geography_identities({"legacy_county"}, manifest, crosswalk))
+        # Restore the governed fixture for the remaining scope checks.
+        pd.DataFrame([
+            ["legacy_county", "a__county", "stable_source_identifier", "fixture", "v1", "county", "county"],
+            ["legacy_city", "c__city", "stable_source_identifier", "fixture", "v1", "city", "city"],
+            ["legacy_zip", "z__zip", "stable_source_identifier", "fixture", "v1", "zip", "zip"],
+            ["legacy_msd", "m__metro_division", "stable_source_identifier", "fixture", "v1", "metro_division", "metro_division"],
+            ["legacy_csa", "x__combined_area", "stable_source_identifier", "fixture", "v1", "combined_area", "combined_area"],
+        ], columns=columns).to_csv(crosswalk, index=False)
         subset = inventory.build_inventory_calibration_campaign(
             campaign_id="subset", campaign_version="1", baseline_run_id=inventory.AUTHORITATIVE_RUN_ID,
             incumbent_run_id=inventory.AUTHORITATIVE_RUN_ID, manual_geo_ids=("b__county",))
         scoped, features, _, _ = inventory.resolve_phase_a_geography_scope(
-            subset, mixed_features, mixed_sources, manifest_path=manifest)
+            subset, mixed_features, mixed_sources, manifest_path=manifest, crosswalk_path=crosswalk)
         assert features["geo_id"].unique().tolist() == ["b__county"]
         assert scoped.metadata["geography_scope"]["manual_subset_applied"] is True
         forbidden = inventory.build_inventory_calibration_campaign(
             campaign_id="zip", campaign_version="1", baseline_run_id=inventory.AUTHORITATIVE_RUN_ID,
             incumbent_run_id=inventory.AUTHORITATIVE_RUN_ID, manual_geo_ids=("z__zip",))
         _expect_error(lambda: inventory.resolve_phase_a_geography_scope(
-            forbidden, mixed_features, mixed_sources, manifest_path=manifest))
+            forbidden, mixed_features, mixed_sources, manifest_path=manifest, crosswalk_path=crosswalk))
         unknown = inventory.build_inventory_calibration_campaign(
             campaign_id="unknown", campaign_version="1", baseline_run_id=inventory.AUTHORITATIVE_RUN_ID,
             incumbent_run_id=inventory.AUTHORITATIVE_RUN_ID, manual_geo_ids=("missing",))
         _expect_error(lambda: inventory.resolve_phase_a_geography_scope(
-            unknown, mixed_features, mixed_sources, manifest_path=manifest))
+            unknown, mixed_features, mixed_sources, manifest_path=manifest, crosswalk_path=crosswalk))
         empty_features = mixed_features[mixed_features["geo_id"].eq("z__zip")]
         empty_sources = mixed_sources[mixed_sources["geo_id"].eq("z__zip")]
         _expect_error(lambda: inventory.resolve_phase_a_geography_scope(
-            campaign, empty_features, empty_sources, manifest_path=manifest))
+            campaign, empty_features, empty_sources, manifest_path=manifest, crosswalk_path=crosswalk))
 
 
 def main() -> int:
