@@ -92,6 +92,10 @@ figures, lineage/hash manifest, and compressed ZIP. Phase A retains the already-
 materialized target series and deterministic transition-window identities needed
 for overlays. No challenger construction, normalization, scoring, registry
 mutation, or promotion occurs in the renderer; a human decision remains pending.
+Phase 8c now enforces an explicit county-only macro campaign boundary before
+challenger materialization, independently of any optional manual county subset.
+ZIP remains reserved for future local-regime work. Prior authoritative scoring
+is provisional pending a corrected county-only authoritative rerun.
 
 Current work is organized into four sequential efforts:
 

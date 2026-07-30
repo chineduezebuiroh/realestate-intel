@@ -43,7 +43,7 @@ CAMPAIGN_IDENTITY_FIELDS = (
     "campaign_id", "campaign_version", "campaign_phase", "baseline_run_id",
     "incumbent_run_id", "baseline_policy_id", "incumbent_policy_id",
     "candidate_policy_ids", "target_metric", "target_dimension", "target_axis",
-    "manual_geo_ids",
+    "allowed_geo_levels", "manual_geo_ids", "metadata",
 )
 
 

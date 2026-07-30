@@ -52,6 +52,15 @@ def main() -> int:
         "inventory_candidate_feature_series": pd.DataFrame(series),
         "inventory_transition_review_windows": pd.DataFrame(windows),
     })
+    evidence.evidence_results["geography_scope"] = ReviewResult(tables={
+        "inventory_campaign_geography_scope": pd.DataFrame([{
+            "campaign_id": evidence.campaign.campaign_id,
+            "campaign_version": evidence.campaign.campaign_version,
+            "geo_id": "fixture__county", "geo_level": "county", "included": True,
+            "inclusion_reason": "all_authoritative_counties", "exclusion_reason": None,
+            "metadata_source": upstream.GEO_METADATA_SOURCE,
+        }])
+    })
     result = score_inventory_candidates(campaign=evidence.campaign, phase_a_evidence=evidence)
 
     forbidden = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("forbidden upstream call"))
@@ -78,10 +87,14 @@ def main() -> int:
             required_tables = set(result.tables) | set(upstream_name for upstream_name in (
                 "inventory_candidate_feature_coverage", "inventory_candidate_calendar_month_behavior",
                 "inventory_candidate_feature_statistics", "inventory_candidate_baseline_feature_comparison",
-                "inventory_candidate_target_replacement", "inventory_candidate_non_target_parity"))
+                "inventory_candidate_target_replacement", "inventory_candidate_non_target_parity",
+                "inventory_campaign_geography_scope"))
             assert required_tables == {path.stem for path in (first.bundle_directory / "tables").glob("*.csv")}
             paths = [item["relative_path"] for item in first.manifest["files"]]
             assert paths == sorted(paths) and len(paths) == len(set(paths))
+            assert first.manifest["regime_scope"] == "macro"
+            assert first.manifest["included_geo_levels"] == ["county"]
+            assert first.manifest["local_zip_regimes"] == "out_of_scope_for_this_campaign"
             for item in first.manifest["files"]:
                 path = first.bundle_directory / item["relative_path"]
                 assert hashlib.sha256(path.read_bytes()).hexdigest() == item["sha256"]

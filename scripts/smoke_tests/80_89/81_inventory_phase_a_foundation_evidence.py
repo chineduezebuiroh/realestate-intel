@@ -163,8 +163,53 @@ def _sign_flip_contract() -> None:
     assert inventory._sign_flip_rate(infinite_gap) == 0.0
 
 
+def _geography_scope_contract(baseline: pd.DataFrame, source: pd.DataFrame) -> None:
+    zip_features = baseline[baseline["geo_id"].eq("a__county")].copy()
+    zip_features["geo_id"] = "z__zip"
+    zip_sources = source[source["geo_id"].eq("a__county")].copy()
+    zip_sources["geo_id"] = "z__zip"
+    mixed_features = pd.concat([baseline, zip_features], ignore_index=True)
+    mixed_sources = pd.concat([source, zip_sources], ignore_index=True)
+    with TemporaryDirectory() as temporary:
+        manifest = Path(temporary) / "geos.csv"
+        pd.DataFrame({"geo_slug": ["a__county", "b__county", "z__zip"],
+                      "level": ["county", "county", "zip"]}).to_csv(manifest, index=False)
+        campaign = inventory.build_inventory_calibration_campaign(
+            campaign_id="scope", campaign_version="1", baseline_run_id=inventory.AUTHORITATIVE_RUN_ID,
+            incumbent_run_id=inventory.AUTHORITATIVE_RUN_ID)
+        resolved, features, sources, lineage = inventory.resolve_phase_a_geography_scope(
+            campaign, mixed_features, mixed_sources, manifest_path=manifest)
+        assert sorted(features["geo_id"].unique()) == ["a__county", "b__county"]
+        assert sorted(sources["geo_id"].unique()) == ["a__county", "b__county"]
+        assert resolved.metadata["geography_scope"]["included_geo_count"] == 2
+        assert resolved.metadata["geography_scope"]["excluded_geo_counts_by_level"] == {"zip": 1}
+        assert lineage.query("geo_id == 'z__zip'").iloc[0]["exclusion_reason"] == "geo_level_out_of_scope"
+        subset = inventory.build_inventory_calibration_campaign(
+            campaign_id="subset", campaign_version="1", baseline_run_id=inventory.AUTHORITATIVE_RUN_ID,
+            incumbent_run_id=inventory.AUTHORITATIVE_RUN_ID, manual_geo_ids=("b__county",))
+        scoped, features, _, _ = inventory.resolve_phase_a_geography_scope(
+            subset, mixed_features, mixed_sources, manifest_path=manifest)
+        assert features["geo_id"].unique().tolist() == ["b__county"]
+        assert scoped.metadata["geography_scope"]["manual_subset_applied"] is True
+        forbidden = inventory.build_inventory_calibration_campaign(
+            campaign_id="zip", campaign_version="1", baseline_run_id=inventory.AUTHORITATIVE_RUN_ID,
+            incumbent_run_id=inventory.AUTHORITATIVE_RUN_ID, manual_geo_ids=("z__zip",))
+        _expect_error(lambda: inventory.resolve_phase_a_geography_scope(
+            forbidden, mixed_features, mixed_sources, manifest_path=manifest))
+        unknown = inventory.build_inventory_calibration_campaign(
+            campaign_id="unknown", campaign_version="1", baseline_run_id=inventory.AUTHORITATIVE_RUN_ID,
+            incumbent_run_id=inventory.AUTHORITATIVE_RUN_ID, manual_geo_ids=("missing",))
+        _expect_error(lambda: inventory.resolve_phase_a_geography_scope(
+            unknown, mixed_features, mixed_sources, manifest_path=manifest))
+        empty_features = mixed_features[mixed_features["geo_id"].eq("z__zip")]
+        empty_sources = mixed_sources[mixed_sources["geo_id"].eq("z__zip")]
+        _expect_error(lambda: inventory.resolve_phase_a_geography_scope(
+            campaign, empty_features, empty_sources, manifest_path=manifest))
+
+
 def main() -> int:
     baseline, source = _frames()
+    _geography_scope_contract(baseline, source)
     baseline_snapshot = baseline.copy(deep=True)
     source_snapshot = source.copy(deep=True)
     campaign = inventory.build_inventory_calibration_campaign(

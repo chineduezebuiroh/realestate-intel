@@ -43,6 +43,7 @@ INVENTORY_FEATURE_KEYS = frozenset(COMPONENT_BY_FEATURE_KEY)
 FEATURE_KEYS = [FEATURE_KEY_BY_COMPONENT[item] for item in FEATURE_COMPONENTS]
 FEATURE_KEYS_COLUMNS = ["geo_id", "date", "canonical_metric_key", "feature_key"]
 AUTHORITATIVE_RUN_ID = "macro_regime_v1_bps120_sources"
+GEO_METADATA_SOURCE = "config/geo_manifest.generated.csv (geo_slug/level)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +182,7 @@ def build_inventory_calibration_campaign(
     incumbent_policy_id: str = "baseline_current",
     candidate_policy_ids: tuple[str, ...] = tuple(PHASE_A_CANDIDATES.values()),
     manual_geo_ids: tuple[str, ...] = (),
+    allowed_geo_levels: tuple[str, ...] = ("county",),
     metadata: Mapping[str, Any] | None = None,
     registry_path: str | Path | None = None,
 ) -> CalibrationCampaign:
@@ -201,6 +203,7 @@ def build_inventory_calibration_campaign(
         target_metric="active_inventory",
         target_dimension="supply",
         target_axis="supply",
+        allowed_geo_levels=allowed_geo_levels,
         manual_geo_ids=manual_geo_ids,
         metadata=dict(metadata or {}),
     )
@@ -215,6 +218,86 @@ def build_inventory_calibration_campaign(
         "feature_weights_held_constant": True,
     })
     return replace(campaign, metadata=enriched)
+
+
+def _geography_levels(geo_ids: set[str], manifest_path: str | Path = "config/geo_manifest.generated.csv") -> dict[str, str]:
+    """Resolve persisted geo IDs from the canonical generated geography manifest."""
+    manifest = pd.read_csv(manifest_path, dtype=str)
+    if not {"geo_slug", "level"}.issubset(manifest.columns):
+        raise ValueError("Geography manifest must contain geo_slug and level")
+    if manifest["geo_slug"].duplicated().any():
+        raise ValueError("Geography manifest geo_slug values must be unique")
+    mapping = manifest.set_index("geo_slug")["level"].str.strip().str.lower().to_dict()
+    unknown = sorted(geo_ids.difference(mapping))
+    if unknown:
+        raise ValueError(f"Unknown geography IDs absent from authoritative geography manifest: {unknown}")
+    return {geo_id: mapping[geo_id] for geo_id in sorted(geo_ids)}
+
+
+def resolve_phase_a_geography_scope(
+    campaign: CalibrationCampaign,
+    baseline_features: pd.DataFrame,
+    source_metrics: pd.DataFrame,
+    *,
+    manifest_path: str | Path = "config/geo_manifest.generated.csv",
+) -> tuple[CalibrationCampaign, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Fail closed and filter both baseline inputs at the campaign boundary."""
+    all_ids = set(baseline_features["geo_id"].astype(str)) | set(source_metrics["geo_id"].astype(str))
+    levels = _geography_levels(all_ids, manifest_path)
+    allowed = set(campaign.allowed_geo_levels)
+    if allowed != {"county"}:
+        raise ValueError("Macro Phase 8c v1 allowed_geo_levels must be exactly ('county',)")
+    feature_target_ids = set(baseline_features.loc[
+        baseline_features["feature_key"].isin(INVENTORY_FEATURE_KEYS), "geo_id"
+    ].astype(str))
+    source_target_ids = set(source_metrics.loc[
+        source_metrics["canonical_metric_key"].eq(campaign.target_metric), "geo_id"
+    ].astype(str))
+    available = feature_target_ids & source_target_ids
+    if campaign.manual_geo_ids:
+        requested = set(campaign.manual_geo_ids)
+        unknown = sorted(requested.difference(levels))
+        if unknown:
+            raise ValueError(f"Unknown manual geography IDs: {unknown}")
+        forbidden = sorted(geo for geo in requested if levels[geo] not in allowed)
+        if forbidden:
+            raise ValueError(f"Manual geography IDs are outside macro Phase 8c county scope: {forbidden}")
+        missing = sorted(requested.difference(available))
+        if missing:
+            raise ValueError(f"Manual county geography IDs lack required authoritative target coverage: {missing}")
+        included = sorted(requested)
+    else:
+        included = sorted(geo for geo in available if levels[geo] in allowed)
+    if not included:
+        raise ValueError("Macro Phase 8c resolved an empty county geography universe")
+    included_set = set(included)
+    rows = []
+    for geo_id in sorted(all_ids):
+        is_included = geo_id in included_set
+        rows.append({
+            "campaign_id": campaign.campaign_id, "campaign_version": campaign.campaign_version,
+            "geo_id": geo_id, "geo_level": levels[geo_id], "included": is_included,
+            "inclusion_reason": "manual_county_subset" if is_included and campaign.manual_geo_ids else ("all_authoritative_counties" if is_included else None),
+            "exclusion_reason": None if is_included else ("manual_subset_not_selected" if levels[geo_id] in allowed else "geo_level_out_of_scope"),
+            "metadata_source": GEO_METADATA_SOURCE,
+        })
+    lineage = pd.DataFrame(rows)
+    excluded = lineage.loc[~lineage["included"], "geo_level"].value_counts().sort_index().to_dict()
+    metadata = dict(campaign.metadata)
+    metadata["geography_scope"] = {
+        "regime_scope": "macro", "requested_allowed_geo_levels": list(campaign.allowed_geo_levels),
+        "included_geo_levels": sorted({levels[item] for item in included}),
+        "included_geo_ids": included, "included_geo_count": len(included),
+        "excluded_geo_counts_by_level": {str(k): int(v) for k, v in excluded.items()},
+        "metadata_source": GEO_METADATA_SOURCE, "manual_subset_applied": bool(campaign.manual_geo_ids),
+        "local_zip_regimes": "out_of_scope_for_this_campaign",
+    }
+    resolved = replace(campaign, metadata=metadata)
+    features = baseline_features[baseline_features["geo_id"].isin(included)].copy().sort_values(FEATURE_KEYS_COLUMNS, kind="mergesort").reset_index(drop=True)
+    sources = source_metrics[source_metrics["geo_id"].isin(included)].copy().sort_values(["geo_id", "date", "canonical_metric_key"], kind="mergesort").reset_index(drop=True)
+    if features.empty or sources.empty:
+        raise ValueError("Resolved county inputs lack required campaign coverage")
+    return resolved, features, sources, lineage
 
 
 def materialize_phase_a_challengers(
@@ -232,6 +315,9 @@ def materialize_phase_a_challengers(
     output: dict[str, InMemoryChallengerArtifacts] = {}
     baseline_snapshot = baseline_features.copy(deep=True)
     source_snapshot = source_metrics.copy(deep=True)
+    approved_geos = set(baseline_features.loc[
+        baseline_features["feature_key"].isin(INVENTORY_FEATURE_KEYS), "geo_id"
+    ].astype(str))
     for candidate_id in campaign.candidate_policy_ids:
         if candidate_id in output:
             raise ValueError(f"Duplicate candidate: {candidate_id}")
@@ -262,6 +348,11 @@ def materialize_phase_a_challengers(
         present = set(challenger.features["feature_key"])
         if not INVENTORY_FEATURE_KEYS.issubset(present):
             raise ValueError(f"Missing target features for candidate: {candidate_id}")
+        candidate_geos = set(challenger.features.loc[
+            challenger.features["feature_key"].isin(INVENTORY_FEATURE_KEYS), "geo_id"
+        ].astype(str))
+        if candidate_geos != approved_geos:
+            raise ValueError(f"Candidate geography universe mismatch: {candidate_id}")
         for feature_key in FEATURE_KEYS:
             target_values = pd.to_numeric(
                 challenger.features.loc[
@@ -720,19 +811,28 @@ def _baseline_comparison_evidence(
 def run_phase_a_foundation_evidence(
     *, campaign_id: str, campaign_version: str, artifact_root: str | Path,
     baseline_run_id: str = AUTHORITATIVE_RUN_ID,
+    manual_geo_ids: tuple[str, ...] = (),
 ) -> PhaseAEvidence:
     """Load, materialize and assemble Phase A descriptive evidence only."""
     baseline = _load_authoritative_baseline(artifact_root, baseline_run_id)
     campaign = build_inventory_calibration_campaign(
         campaign_id=campaign_id, campaign_version=campaign_version,
         baseline_run_id=baseline_run_id, incumbent_run_id=baseline_run_id,
+        manual_geo_ids=manual_geo_ids,
     )
-    challengers = materialize_phase_a_challengers(campaign, baseline.features, baseline.source_metrics)
+    campaign, scoped_features, scoped_sources, geography_lineage = resolve_phase_a_geography_scope(
+        campaign, baseline.features, baseline.source_metrics
+    )
+    challengers = materialize_phase_a_challengers(campaign, scoped_features, scoped_sources)
     evidence = {
         "campaign_definition": _campaign_definition_evidence(campaign),
-        "coverage_and_lineage": _coverage_lineage_evidence(challengers, baseline.features),
+        "geography_scope": ReviewResult(
+            tables={"inventory_campaign_geography_scope": geography_lineage},
+            metadata={"generator_id": "inventory_campaign_geography_scope", **campaign.metadata["geography_scope"]},
+        ),
+        "coverage_and_lineage": _coverage_lineage_evidence(challengers, scoped_features),
         "structural_window_behavior": _structural_behavior_evidence(challengers),
-        "baseline_comparison": _baseline_comparison_evidence(baseline.features, challengers),
+        "baseline_comparison": _baseline_comparison_evidence(scoped_features, challengers),
     }
     bundle = assemble_review_results(campaign.campaign_id, evidence)
     return PhaseAEvidence(campaign, challengers, evidence, bundle)

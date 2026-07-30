@@ -28,6 +28,7 @@ from .inventory_candidate_scoring import (
 BUNDLE_CONTRACT_VERSION = "inventory_review_bundle_v1"
 GENERATOR_VERSION = "1.0"
 EVIDENCE_TABLES = (
+    "inventory_campaign_geography_scope",
     "inventory_candidate_feature_coverage",
     "inventory_candidate_calendar_month_behavior",
     "inventory_candidate_feature_statistics",
@@ -153,6 +154,11 @@ def _validate(
             raise ValueError(f"Missing required scoring rows: {name}")
     for name in EVIDENCE_TABLES:
         frame = tables[name]
+        if name == "inventory_campaign_geography_scope":
+            included = frame[frame["included"].eq(True)]
+            if included.empty or set(included["geo_level"]) != {"county"}:
+                raise ValueError("Review evidence geography scope must include counties only")
+            continue
         if "candidate_policy_id" not in frame:
             raise ValueError(f"{name} is missing candidate_policy_id")
         if set(frame["candidate_policy_id"].dropna()) != set(candidates):
@@ -313,6 +319,9 @@ def build_inventory_review_bundle(
         "baseline_run_id": campaign.baseline_run_id, "incumbent_run_id": campaign.incumbent_run_id,
         "baseline_policy_id": campaign.baseline_policy_id, "incumbent_policy_id": campaign.incumbent_policy_id,
         "candidate_policy_ids": list(candidates),
+        "regime_scope": campaign.metadata.get("geography_scope", {}).get("regime_scope", "macro"),
+        "included_geo_levels": campaign.metadata.get("geography_scope", {}).get("included_geo_levels", list(campaign.allowed_geo_levels)),
+        "local_zip_regimes": "out_of_scope_for_this_campaign",
         "recommended_candidate_policy_id": recommendation.get("recommended_candidate_policy_id"),
         "recommendation_status": "recommended_for_human_review",
         "eligible_candidate_count": int(ranking["eligible"].sum()),
