@@ -319,9 +319,18 @@ def main() -> int:
     first = reconciled[CANDIDATES[0]]
     target_index = first.features[first.features["feature_key"].eq(inventory.FEATURE_KEYS[0])].index[0]
     first.features = first.features.drop(index=target_index).reset_index(drop=True)
-    new_row = first.features[first.features["feature_key"].eq(inventory.FEATURE_KEYS[0])].iloc[[0]].copy()
+    
+    new_row = (
+        first.features[
+            first.features["feature_key"].eq(inventory.FEATURE_KEYS[0])
+        ]
+        .iloc[0]
+        .to_dict()
+    )
     new_row["date"] = pd.Timestamp("2030-01-01")
-    first.features = pd.concat([first.features, new_row], ignore_index=True)
+    first.features.loc[len(first.features)] = new_row
+    first.features = first.features.reset_index(drop=True)
+
     reconciliation = inventory._baseline_comparison_evidence(baseline, reconciled).tables[
         "inventory_candidate_baseline_feature_comparison"
     ].iloc[0]

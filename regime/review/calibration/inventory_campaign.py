@@ -221,6 +221,9 @@ def materialize_phase_a_challengers(
     source_metrics: pd.DataFrame,
 ) -> dict[str, InMemoryChallengerArtifacts]:
     """Build every canonical candidate once, preserving campaign order."""
+    
+    from time import perf_counter
+
     _validate_phase_a_candidates(
         campaign.candidate_policy_ids, load_smoothing_experiments(validate=True)
     )
@@ -230,11 +233,26 @@ def materialize_phase_a_challengers(
     for candidate_id in campaign.candidate_policy_ids:
         if candidate_id in output:
             raise ValueError(f"Duplicate candidate: {candidate_id}")
+        
+        started = perf_counter()
+        print(
+            f"[inventory-phase-a] materializing {candidate_id}...",
+            flush=True,
+        )
+
         challenger = build_in_memory_smoothing_challenger(
             baseline_features=baseline_features,
             source_metrics=source_metrics,
             experiment_id=candidate_id,
         )
+
+        elapsed = perf_counter() - started
+        print(
+            f"[inventory-phase-a] completed {candidate_id} "
+            f"in {elapsed:,.1f}s",
+            flush=True,
+        )
+
         if challenger.smoothing_lineage.empty:
             raise ValueError(f"Missing lineage for candidate: {candidate_id}")
         if set(challenger.smoothing_lineage["experiment_id"].dropna()) != {candidate_id}:

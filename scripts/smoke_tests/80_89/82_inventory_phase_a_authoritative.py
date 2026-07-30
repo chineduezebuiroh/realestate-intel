@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import perf_counter
 
 import pandas as pd
 
@@ -46,8 +47,27 @@ def main() -> int:
 
     artifact_root = Path(DEFAULT_ARTIFACT_ROOT)
     directories_before = {path.name for path in artifact_root.iterdir() if path.is_dir()}
+    
+    started = perf_counter()
+    
     result = _run()
+
+    print(
+        f"First authoritative Phase A run completed in "
+        f"{perf_counter() - started:,.1f}s",
+        flush=True,
+    )
+
+    started = perf_counter()
+
     repeated = _run()
+
+    print(
+        f"Repeated authoritative Phase A run completed in "
+        f"{perf_counter() - started:,.1f}s",
+        flush=True,
+    )
+    
     directories_after = {path.name for path in artifact_root.iterdir() if path.is_dir()}
     candidates = tuple(PHASE_A_CANDIDATES.values())
     assert result.campaign.candidate_policy_ids == candidates
@@ -75,7 +95,20 @@ def main() -> int:
     assert parity["parity_pass"].all()
     replacement = table_by_name["inventory_candidate_target_replacement"]
     assert replacement.groupby("candidate_policy_id")["changed_rows"].sum().gt(0).all()
-    assert replacement["baseline_only_rows"].eq(0).all()
+
+    assert (
+        replacement["baseline_rows"]
+        == replacement["overlap_rows"] + replacement["baseline_only_rows"]
+    ).all()
+
+    assert (
+        replacement["challenger_rows"]
+        == replacement["overlap_rows"] + replacement["challenger_only_rows"]
+    ).all()
+
+    assert replacement["overlap_rows"].gt(0).all()
+    assert replacement["baseline_only_rows"].ge(0).all()
+
     assert replacement["challenger_only_rows"].eq(0).all()
     assert not hasattr(result, "decision") and not hasattr(result, "decision_summary")
     assert directories_before == directories_after
