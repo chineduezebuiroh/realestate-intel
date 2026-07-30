@@ -23,10 +23,15 @@ from .inventory_candidate_scoring import (
     InventoryScoringPolicy,
     load_inventory_scoring_policy,
 )
+from .system_evidence import (
+    CalibrationSystemEvidence,
+    SYSTEM_SECTIONS,
+    validate_system_evidence,
+)
 
 
-BUNDLE_CONTRACT_VERSION = "inventory_review_bundle_v1"
-GENERATOR_VERSION = "1.0"
+BUNDLE_CONTRACT_VERSION = "calibration_review_bundle_v2"
+GENERATOR_VERSION = "2.0"
 EVIDENCE_TABLES = (
     "inventory_campaign_geography_scope",
     "inventory_candidate_feature_coverage",
@@ -266,6 +271,7 @@ def _hash(path: Path) -> str:
 def build_inventory_review_bundle(
     *, campaign: CalibrationCampaign, phase_a_evidence: PhaseAEvidence,
     scoring_result: InventoryCandidateScoringResult, output_root: str | Path,
+    system_evidence: CalibrationSystemEvidence,
     scoring_policy: InventoryScoringPolicy | None = None,
     source_lineage: Mapping[str, object] | None = None, overwrite: bool = False,
 ) -> InventoryReviewBundleResult:
@@ -273,13 +279,36 @@ def build_inventory_review_bundle(
     policy = scoring_policy or load_inventory_scoring_policy()
     tables = _evidence_tables(phase_a_evidence)
     _validate(campaign, phase_a_evidence, scoring_result, policy, tables)
+    validate_system_evidence(system_evidence)
+    expected_system_identity = (
+        system_evidence.campaign_id, system_evidence.campaign_version,
+        system_evidence.candidate_policy_ids, system_evidence.incumbent_policy_id,
+        system_evidence.baseline_policy_id, system_evidence.target_metric,
+        system_evidence.target_dimension, system_evidence.target_axis,
+    )
+    campaign_identity = (
+        campaign.campaign_id, campaign.campaign_version,
+        campaign.candidate_policy_ids, campaign.incumbent_policy_id,
+        campaign.baseline_policy_id, campaign.target_metric,
+        campaign.target_dimension, campaign.target_axis,
+    )
+    if expected_system_identity != campaign_identity:
+        raise ValueError("System evidence does not reconcile to the scoring campaign")
     bundle = Path(output_root) / "inventory_calibration" / _slug(campaign.campaign_id) / _slug(campaign.campaign_version)
     archive = bundle.parent / f"{bundle.name}.zip"
     if bundle.exists() or archive.exists():
         if not overwrite:
             raise FileExistsError(f"Review bundle output already exists: {bundle}")
         shutil.rmtree(bundle, ignore_errors=True); archive.unlink(missing_ok=True)
-    for name in ("tables", "metadata", *(f"figures/{item}" for item in FIGURE_DIRECTORIES)):
+    for name in (
+        "tables", "metadata", "technical_evidence/metric_score_decomposition",
+        "technical_evidence/metric_chronology",
+        "technical_evidence/calendar_month_profiles",
+        "technical_evidence/metric_transition_windows",
+        "technical_evidence/statistic_comparisons",
+        *(f"system_evidence/{item}" for item in SYSTEM_SECTIONS),
+        *(f"figures/{item}" for item in FIGURE_DIRECTORIES),
+    ):
         (bundle / name).mkdir(parents=True, exist_ok=True)
     candidates = campaign.candidate_policy_ids
     for name, frame in {**scoring_result.tables, **{key: tables[key] for key in EVIDENCE_TABLES}}.items():
@@ -290,9 +319,45 @@ def build_inventory_review_bundle(
     (bundle / "metadata" / "source_lineage.json").write_text(json.dumps(lineage, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     figures = _score_figures(bundle / "figures" / "score_summary", scoring_result, policy, candidates)
     figures += _evidence_figures(bundle / "figures", tables, candidates)
+    system_tables = system_evidence.copied_tables()
+    system_links = []
+    value_columns = {
+        "dimension_chronology": ("dimension_score",),
+        "axis_chronology": ("axis_score",),
+        "coordinate_trajectories": ("x_supply", "y_demand"),
+        "regime_chronology": ("supply_pressure_score", "demand_strength_score"),
+        "transition_windows": ("axis_score", "dimension_score", "x_supply"),
+        "cancellation_diagnostics": ("dimension_cancellation_ratio", "cancellation_rate"),
+    }
+    for section in SYSTEM_SECTIONS:
+        frame = system_tables[section].sort_values(
+            [c for c in ("geo_id", "series_id", "date", "window_id") if c in system_tables[section]],
+            kind="mergesort",
+        )
+        csv_path = bundle / "system_evidence" / section / f"{section}.csv"
+        frame.to_csv(csv_path, index=False, lineterminator="\n")
+        numeric = next((column for column in value_columns[section] if column in frame), None)
+        if numeric and "date" in frame:
+            for geo_id, geo in frame.groupby("geo_id", sort=True):
+                lines = []
+                for series_id in ("baseline", *candidates):
+                    part = geo[geo["series_id"].eq(series_id)].sort_values("date")
+                    lines.append((series_id, part["date"].tolist(), part[numeric].tolist()))
+                plot = csv_path.parent / f"{_slug(geo_id)}.png"
+                _lines(plot, f"{section.replace('_', ' ').title()} — {geo_id}", lines, numeric)
+        system_links.append(
+            f'<li><a href="{csv_path.relative_to(bundle).as_posix()}">{section.replace("_", " ").title()}</a></li>'
+        )
+    selection = {
+        "representative_geography_rule": system_evidence.representative_geography_rule,
+        "selected_geographies": sorted(set(system_tables[SYSTEM_SECTIONS[0]]["geo_id"].astype(str))),
+        "transition_window_rule": system_evidence.transition_window_rule,
+    }
+    (bundle / "metadata" / "system_evidence_selection.json").write_text(
+        json.dumps(selection, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     ranking = scoring_result.inventory_candidate_ranking
     recommendation = scoring_result.inventory_campaign_recommendation.iloc[0]
-    figure_links = "\n".join(f'<li><a href="{path.relative_to(bundle).as_posix()}">{html.escape(path.stem.replace("_", " "))}</a> — authoritative evidence visualization.</li>' for path in figures)
     failed = scoring_result.inventory_candidate_eligibility.query("not gate_pass")
     failed_html = "<p>None.</p>" if failed.empty else failed.to_html(index=False, escape=True)
     page = f"""<!doctype html><html><head><meta charset=\"utf-8\"><title>Inventory calibration review</title>
@@ -300,10 +365,14 @@ def build_inventory_review_bundle(
 <h1>Inventory calibration human-review bundle</h1><div class=\"notice\">Objective recommendation available; visual review bundle available; human decision pending; promotion not performed.</div>
 <h2>Campaign identity</h2><p><b>{html.escape(campaign.campaign_id)} / {html.escape(campaign.campaign_version)}</b><br>Baseline: {html.escape(campaign.baseline_run_id)} ({html.escape(campaign.baseline_policy_id)}); incumbent: {html.escape(campaign.incumbent_run_id)} ({html.escape(campaign.incumbent_policy_id)})<br>Target: {campaign.target_metric} / {campaign.target_dimension} / {campaign.target_axis}<br>Candidates (canonical order): {', '.join(candidates)}</p>
 <h2>Advisory recommendation</h2><p>{html.escape(str(recommendation.get('recommended_candidate_policy_id')))} — recommended_for_human_review only. Eligible candidates: {int(ranking['eligible'].sum())}.</p>
-<h2>Normalized metric scores and weighted decomposition</h2>{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
-<h2>Final ranking</h2>{ranking.to_html(index=False, escape=True)}
-<h2>Failed gates</h2>{failed_html}<h2>Primary figures</h2><ul>{figure_links}</ul>
-<p>Calendar profiles reveal recurring month behavior; full overlays reveal smoothing, lag, turning points, and oscillation; deterministic transition windows focus the largest baseline change; statistic charts reproduce scorer inputs.</p></body></html>"""
+<h2>Candidate ranking</h2>{ranking.to_html(index=False, escape=True)}
+<h2>Technical Evidence</h2><p>Explains metric chronology, stability, transition behavior, and why each candidate received its authoritative score.</p>
+<h3>Metric Score Decomposition</h3>{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
+<p><a href="tables/">Technical evidence tables</a> · <a href="figures/">Technical evidence figures</a></p>
+<h2>System Evidence</h2><p>Traces the supplied immutable evidence through Metric → {campaign.target_dimension.title()} dimension → {campaign.target_axis.title()} axis → Coordinates → Regimes.</p>
+<ol>{''.join(system_links)}</ol>
+<h2>Failed gates</h2>{failed_html}
+<h2>Human decision status</h2><p>Pending. The recommendation remains advisory-only and no promotion occurred.</p></body></html>"""
     (bundle / "review_summary.html").write_text(page, encoding="utf-8")
     (bundle / "README.md").write_text(
         "# Inventory calibration human-review bundle\n\nOpen `review_summary.html` locally. "
@@ -319,6 +388,8 @@ def build_inventory_review_bundle(
         "baseline_run_id": campaign.baseline_run_id, "incumbent_run_id": campaign.incumbent_run_id,
         "baseline_policy_id": campaign.baseline_policy_id, "incumbent_policy_id": campaign.incumbent_policy_id,
         "candidate_policy_ids": list(candidates),
+        "review_sections": {"technical_evidence": True, "system_evidence": list(SYSTEM_SECTIONS)},
+        "system_evidence_selection": selection,
         "regime_scope": campaign.metadata.get("geography_scope", {}).get("regime_scope", "macro"),
         "included_geo_levels": campaign.metadata.get("geography_scope", {}).get("included_geo_levels", list(campaign.allowed_geo_levels)),
         "zip_future_status": campaign.metadata.get("geography_scope", {}).get(
