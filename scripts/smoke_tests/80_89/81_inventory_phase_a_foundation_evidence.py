@@ -206,9 +206,10 @@ def main() -> int:
         "inventory_candidate_non_target_parity", "inventory_candidate_feature_statistics",
         "inventory_candidate_feature_correlations", "inventory_candidate_calendar_month_behavior",
         "inventory_candidate_baseline_feature_comparison",
+        "inventory_candidate_feature_series", "inventory_transition_review_windows",
     }
     bundle = inventory.assemble_review_results(campaign.campaign_id, sections)
-    assert bundle.table_count == 11
+    assert bundle.table_count == 13
     assert {table.name for table in bundle.tables} == expected_tables
 
     definition = sections["campaign_definition"].tables

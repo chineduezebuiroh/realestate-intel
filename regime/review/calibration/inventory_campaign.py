@@ -70,7 +70,9 @@ def _validated_frame(
     if missing:
         raise ValueError(f"{name} is missing required columns: {missing}")
     work = frame.copy(deep=True)
-    parsed = pd.to_datetime(work["date"], errors="coerce")
+    # Explicit mixed parsing is deterministic for the persisted ISO-like values
+    # and avoids pandas' per-element format-inference warning on validation fixtures.
+    parsed = pd.to_datetime(work["date"], format="mixed", errors="coerce")
     if parsed.isna().any():
         raise ValueError(f"{name} contains invalid dates")
     work["date"] = parsed
@@ -514,16 +516,68 @@ def _coverage_lineage_evidence(
                 "baseline_only_rows": int(merged["_merge"].eq("left_only").sum()),
                 "challenger_only_rows": int(merged["_merge"].eq("right_only").sum()),
             })
+    series_rows = []
+    for series_id, frame in (("baseline", baseline_features), *(
+        (candidate_id, challengers[candidate_id].features)
+        for candidate_id in _candidate_ids(challengers)
+    )):
+        target = frame[frame["feature_key"].isin(INVENTORY_FEATURE_KEYS)]
+        for row in target.sort_values(
+            ["geo_id", "feature_key", "date"], kind="mergesort"
+        ).itertuples(index=False):
+            series_rows.append({
+                "series_id": series_id,
+                "candidate_policy_id": (
+                    series_id if series_id != "baseline" else pd.NA
+                ),
+                "is_baseline": series_id == "baseline",
+                "geo_id": row.geo_id,
+                "date": row.date,
+                "feature_component": COMPONENT_BY_FEATURE_KEY[row.feature_key],
+                "feature_key": row.feature_key,
+                "raw_feature_value": row.raw_feature_value,
+            })
+    series = pd.DataFrame(series_rows)
+
+    # Review windows are selected once as immutable Phase A evidence.  The
+    # renderer only filters by these identifiers and never derives turning
+    # points from the supplied series.
+    transition_rows = []
+    baseline_series = series[series["is_baseline"]].copy()
+    for (geo_id, component), part in baseline_series.groupby(
+        ["geo_id", "feature_component"], sort=True
+    ):
+        part = part.sort_values("date", kind="mergesort").reset_index(drop=True)
+        changes = _finite_numeric(part["raw_feature_value"]).diff().abs()
+        eligible = changes.dropna()
+        if eligible.empty:
+            raise ValueError(f"No transition-window observation for {geo_id}/{component}")
+        center = int(eligible.idxmax())
+        start = max(0, center - 3)
+        end = min(len(part) - 1, center + 3)
+        transition_rows.append({
+            "geo_id": geo_id,
+            "feature_component": component,
+            "window_id": "largest_absolute_baseline_change",
+            "selection_rule": "largest absolute month-over-month baseline change; three observations of context on each side",
+            "center_date": part.loc[center, "date"],
+            "window_start": part.loc[start, "date"],
+            "window_end": part.loc[end, "date"],
+        })
+
     return ReviewResult(tables={
         "inventory_candidate_feature_coverage": pd.DataFrame(coverage),
         "inventory_candidate_lineage_summary": pd.DataFrame(lineage_summary),
         "inventory_candidate_target_replacement": pd.DataFrame(replacements),
         "inventory_candidate_non_target_parity": pd.DataFrame(parity_rows),
+        "inventory_candidate_feature_series": series,
+        "inventory_transition_review_windows": pd.DataFrame(transition_rows),
     }, metadata={
         "generator_id": "inventory_phase_a_coverage_and_lineage",
         "generator_version": "1.0",
         "candidate_policy_ids": list(challengers),
         "value_comparison": "exact equality with null-safe matching",
+        "series_evidence": "already-materialized baseline and challenger target features",
     })
 
 

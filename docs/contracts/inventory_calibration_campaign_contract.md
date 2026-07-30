@@ -1407,3 +1407,36 @@ Section 8c campaign infrastructure is complete when:
 * recommended commit scope.
 
 The production Inventory policy is not considered calibrated until Phase A and Phase B have been executed on authoritative artifacts, reviewed, approved, documented, and reflected in the appropriate production policy or registry through a separate governed change.
+# Human-review bundle (Phase 8c Slice 4)
+
+The advisory human-review stage occurs after Phase A evidence and deterministic
+candidate scoring, and before any promotion decision. Its only computational
+inputs are a reconciled `CalibrationCampaign`, `PhaseAEvidence`, and
+`InventoryCandidateScoringResult`. The renderer must not materialize challengers,
+normalize features, orchestrate Phase A, rerun scoring, mutate a registry, or
+promote a policy.
+
+Phase A persists the already-materialized target feature series and deterministic
+transition review windows. The latter select, for every geography/component, the
+largest absolute month-over-month baseline change with up to three observations
+of context on either side. Rendering introduces no new analytical metric.
+
+The stable output is
+`<output_root>/inventory_calibration/<campaign_id>/<campaign_version>/`, with an
+adjacent `<campaign_version>.zip`. It contains `README.md`, a self-contained
+`review_summary.html`, ten CSV tables under `tables/`, campaign/scoring/lineage
+metadata, and PNG figures for normalized metrics, weighted contributions,
+ranking, calendar-month profiles, full time-series overlays, transition windows,
+volatility, sign flips, and trend preservation. `manifest.json` records sorted
+relative paths, sizes, SHA256 hashes (excluding the self-referential manifest and
+ZIP), identity, lineage, and explicit no-recomputation/no-promotion flags. ZIP
+entry timestamps are fixed.
+
+Run the authoritative export with:
+
+```bash
+time PYTHONPATH=. python -u scripts/smoke_tests/80_89/86_inventory_review_bundle_authoritative.py
+```
+
+The output is advisory: objective recommendation available, visual review bundle
+available, human decision pending, promotion not performed.

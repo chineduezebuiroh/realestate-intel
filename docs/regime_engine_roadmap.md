@@ -154,6 +154,10 @@ Current work is sequenced as follows:
      scored coverage tradeoff rather than an automatic failure. Authoritative
      scoring reuses the in-memory Phase A evidence and does not repeat challenger
      normalization; human-reviewed promotion remains a subsequent slice.
+   - Phase 8c Slice 4 packages the supplied Phase A evidence and Slice 3 scores
+     into a hashed, downloadable human-review directory and ZIP. Static score,
+     seasonality, overlay, transition, volatility, sign-flip, and correlation
+     figures are advisory only; promotion remains blocked pending human review.
    - Reassess level, short, and long feature weighting.
    - Measure seasonality, volatility, sign flips, shock timing, and regime transitions.
    - Preserve genuine structural responsiveness while reducing unnecessary jaggedness.
