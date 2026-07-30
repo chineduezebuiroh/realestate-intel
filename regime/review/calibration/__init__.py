@@ -11,6 +11,10 @@ from .inventory_candidate_scoring import (
     load_inventory_scoring_policy,
     score_inventory_candidates,
 )
+from .inventory_review_bundle import (
+    InventoryReviewBundleResult,
+    build_inventory_review_bundle,
+)
 
 __all__ = [
     "CalibrationCampaign",
@@ -23,4 +27,6 @@ __all__ = [
     "InventoryScoringPolicy",
     "load_inventory_scoring_policy",
     "score_inventory_candidates",
+    "InventoryReviewBundleResult",
+    "build_inventory_review_bundle",
 ]

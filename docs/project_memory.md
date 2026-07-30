@@ -86,6 +86,12 @@ weights and directions, hard eligibility gates, warmup as a scored coverage
 tradeoff, direction-aware min-max normalization, and deterministic ranking. It
 does not rematerialize challengers, mutate registries, or promote the result;
 human-reviewed promotion remains deferred.
+Phase 8c Slice 4 adds a pure rendering boundary over those immutable results: a
+self-contained HTML landing page, CSV evidence copies, deterministic PNG review
+figures, lineage/hash manifest, and compressed ZIP. Phase A retains the already-
+materialized target series and deterministic transition-window identities needed
+for overlays. No challenger construction, normalization, scoring, registry
+mutation, or promotion occurs in the renderer; a human decision remains pending.
 
 Current work is organized into four sequential efforts:
 
