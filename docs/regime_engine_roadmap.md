@@ -144,6 +144,9 @@ Current work is sequenced as follows:
    - Split full-history and recent-period Demand-delta heatmaps.
 
 2. Calibrate Inventory and the Supply axis.
+   - Macro Phase 8c v1 geography scope is county only. A future macro extension
+     may add `cbsa_metro`; ZIP geography remains reserved for future local-regime
+     campaigns and is not globally invalid.
    - The Phase 8c campaign foundation is implemented for typed contracts,
      structural-candidate validation, and fixture Review Platform packaging;
      the analytical campaign and promotion decision remain incomplete.

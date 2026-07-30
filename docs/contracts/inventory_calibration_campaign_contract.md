@@ -1,5 +1,29 @@
 # Inventory Calibration Campaign Contract
 
+## Phase 8c v1 geography boundary
+
+Macro Phase 8c v1 is county-only. `allowed_geo_levels=("county",)` is a level
+eligibility contract distinct from the optional, deterministically ordered
+`manual_geo_ids` subset. An empty subset means every authoritative county with
+both target-feature and target-source coverage, not every geography in the
+baseline run. A non-empty subset fails closed for unknown IDs, out-of-scope ZIP
+IDs, or counties without required target coverage.
+
+The campaign resolves `geo_id` through `config/geo_manifest.generated.csv`
+(`geo_slug` to `level`) and filters both persisted baseline frames before any
+challenger is materialized. The immutable
+`inventory_campaign_geography_scope` evidence table records included and
+excluded IDs, levels, reasons, and metadata source; compact campaign metadata
+records deterministic included IDs/count, exclusions by level, and whether a
+manual subset applied. Campaign, evidence, scoring, and bundle identities must
+reconcile and fail closed on a scope mismatch.
+
+`cbsa_metro` is a future macro extension. ZIP remains supported and reserved
+for future local-regime campaigns; it is only out of scope for this campaign.
+The earlier MA12 recommendation and score are provisional until corrected
+county-only authoritative Smokes 84 and 86 pass. No promotion follows from this
+advisory campaign without human review.
+
 ## 1. Purpose
 
 This contract defines the deterministic campaign used to evaluate and select the production active-inventory policy for Section 8c of the Regime Engine roadmap.

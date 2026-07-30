@@ -46,6 +46,7 @@ class CalibrationCampaign:
     target_metric: str
     target_dimension: str
     target_axis: str
+    allowed_geo_levels: tuple[str, ...] = ("county",)
     manual_geo_ids: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -80,6 +81,10 @@ class CalibrationCampaign:
                 raise ValueError(f"{name} must be {expected_value!r}; received {actual!r}")
             object.__setattr__(self, name, actual)
 
+        levels = tuple(sorted(_text(value, "allowed_geo_levels").lower() for value in self.allowed_geo_levels))
+        if not levels or len(levels) != len(set(levels)):
+            raise ValueError("allowed_geo_levels must be non-empty and unique")
+        object.__setattr__(self, "allowed_geo_levels", levels)
         geos = tuple(sorted(_text(value, "manual_geo_ids") for value in self.manual_geo_ids))
         if len(geos) != len(set(geos)):
             raise ValueError("manual_geo_ids must be unique")
