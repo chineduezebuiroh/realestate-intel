@@ -267,3 +267,9 @@ It should be updated whenever:
 - the project's strategic direction materially evolves.
 
 Detailed implementation decisions should be documented within the corresponding phase decision documents rather than duplicated here.
+> **Phase 8c geography identity:** `config/geo_manifest.generated.csv` is the
+> authoritative registry. Governed migration resolves older persisted IDs;
+> `config/geo_manifest.csv` is evidence only. Macro v1 admits counties only,
+> with CBSA metro deferred as a future macro extension. ZIP is reserved for a
+> future local regime; city has no current macro or local-regime role. All
+> non-county levels are removed before challenger materialization.

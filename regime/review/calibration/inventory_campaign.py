@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, replace
@@ -44,6 +45,7 @@ FEATURE_KEYS = [FEATURE_KEY_BY_COMPONENT[item] for item in FEATURE_COMPONENTS]
 FEATURE_KEYS_COLUMNS = ["geo_id", "date", "canonical_metric_key", "feature_key"]
 AUTHORITATIVE_RUN_ID = "macro_regime_v1_bps120_sources"
 GEO_METADATA_SOURCE = "config/geo_manifest.generated.csv (geo_slug/level)"
+GEO_IDENTITY_CROSSWALK = "config/inventory_phase8c_geo_identity_crosswalk.csv"
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,18 +222,52 @@ def build_inventory_calibration_campaign(
     return replace(campaign, metadata=enriched)
 
 
-def _geography_levels(geo_ids: set[str], manifest_path: str | Path = "config/geo_manifest.generated.csv") -> dict[str, str]:
-    """Resolve persisted geo IDs from the canonical generated geography manifest."""
+def _file_sha256(path: str | Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _geography_identities(
+    geo_ids: set[str], manifest_path: str | Path = "config/geo_manifest.generated.csv",
+    crosswalk_path: str | Path = GEO_IDENTITY_CROSSWALK,
+) -> dict[str, dict[str, str]]:
+    """Resolve canonical and governed retired identities, without name heuristics."""
     manifest = pd.read_csv(manifest_path, dtype=str)
     if not {"geo_slug", "level"}.issubset(manifest.columns):
         raise ValueError("Geography manifest must contain geo_slug and level")
     if manifest["geo_slug"].duplicated().any():
         raise ValueError("Geography manifest geo_slug values must be unique")
-    mapping = manifest.set_index("geo_slug")["level"].str.strip().str.lower().to_dict()
-    unknown = sorted(geo_ids.difference(mapping))
-    if unknown:
-        raise ValueError(f"Unknown geography IDs absent from authoritative geography manifest: {unknown}")
-    return {geo_id: mapping[geo_id] for geo_id in sorted(geo_ids)}
+    manifest = manifest.fillna("")
+    canonical = manifest.set_index("geo_slug")["level"].str.strip().str.lower().to_dict()
+    aliases = pd.read_csv(crosswalk_path, dtype=str).fillna("")
+    required = {"legacy_geo_id", "canonical_geo_slug", "mapping_method", "mapping_source",
+                "mapping_version", "legacy_level", "canonical_level"}
+    if not required.issubset(aliases.columns):
+        raise ValueError(f"Geography identity crosswalk is missing columns: {sorted(required - set(aliases.columns))}")
+    if aliases.duplicated().any() or aliases["legacy_geo_id"].duplicated().any():
+        raise ValueError("Duplicate or ambiguous legacy identity in geography crosswalk")
+    resolved: dict[str, dict[str, str]] = {}
+    alias_map = aliases.set_index("legacy_geo_id").to_dict("index")
+    for source_id in sorted(geo_ids):
+        if source_id in canonical:
+            resolved[source_id] = {"canonical_geo_slug": source_id, "resolved_level": canonical[source_id],
+                "identity_resolution_method": "canonical_geo_slug_direct", "identity_resolution_source": str(manifest_path)}
+            continue
+        if source_id not in alias_map:
+            raise ValueError(f"Unresolved legacy geography identity: {source_id}")
+        alias = alias_map[source_id]
+        target = alias["canonical_geo_slug"].strip()
+        level = alias["canonical_level"].strip().lower()
+        if target:
+            if target not in canonical:
+                raise ValueError(f"Invalid crosswalk target absent from authoritative geography manifest: {target}")
+            if level != canonical[target] or alias["legacy_level"].strip().lower() != level:
+                raise ValueError(f"Contradictory geography level mapping for legacy identity: {source_id}")
+        elif alias["mapping_method"] != "governed_retired_identity_exclusion" or level == "county":
+            raise ValueError(f"Invalid crosswalk target for legacy identity: {source_id}")
+        resolved[source_id] = {"canonical_geo_slug": target, "resolved_level": level,
+            "identity_resolution_method": alias["mapping_method"],
+            "identity_resolution_source": alias["mapping_source"]}
+    return resolved
 
 
 def resolve_phase_a_geography_scope(
@@ -240,10 +276,12 @@ def resolve_phase_a_geography_scope(
     source_metrics: pd.DataFrame,
     *,
     manifest_path: str | Path = "config/geo_manifest.generated.csv",
+    crosswalk_path: str | Path = GEO_IDENTITY_CROSSWALK,
 ) -> tuple[CalibrationCampaign, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Fail closed and filter both baseline inputs at the campaign boundary."""
     all_ids = set(baseline_features["geo_id"].astype(str)) | set(source_metrics["geo_id"].astype(str))
-    levels = _geography_levels(all_ids, manifest_path)
+    identities = _geography_identities(all_ids, manifest_path, crosswalk_path)
+    levels = {key: value["resolved_level"] for key, value in identities.items()}
     allowed = set(campaign.allowed_geo_levels)
     if allowed != {"county"}:
         raise ValueError("Macro Phase 8c v1 allowed_geo_levels must be exactly ('county',)")
@@ -254,20 +292,38 @@ def resolve_phase_a_geography_scope(
         source_metrics["canonical_metric_key"].eq(campaign.target_metric), "geo_id"
     ].astype(str))
     available = feature_target_ids & source_target_ids
+    def preferred_sources(source_ids: set[str]) -> list[str]:
+        by_canonical: dict[str, list[str]] = {}
+        for source_id in sorted(source_ids):
+            identity = identities[source_id]
+            if identity["resolved_level"] in allowed:
+                by_canonical.setdefault(identity["canonical_geo_slug"], []).append(source_id)
+        chosen = []
+        for canonical_slug, sources_for_canonical in sorted(by_canonical.items()):
+            if canonical_slug in sources_for_canonical:
+                chosen.append(canonical_slug)
+            elif len(sources_for_canonical) == 1:
+                chosen.append(sources_for_canonical[0])
+            else:
+                raise ValueError(f"Ambiguous legacy geography identity for canonical county {canonical_slug}: {sources_for_canonical}")
+        return chosen
     if campaign.manual_geo_ids:
-        requested = set(campaign.manual_geo_ids)
-        unknown = sorted(requested.difference(levels))
-        if unknown:
-            raise ValueError(f"Unknown manual geography IDs: {unknown}")
-        forbidden = sorted(geo for geo in requested if levels[geo] not in allowed)
+        manual = _geography_identities(set(campaign.manual_geo_ids), manifest_path, crosswalk_path)
+        forbidden = sorted(geo for geo, identity in manual.items() if identity["resolved_level"] not in allowed)
         if forbidden:
-            raise ValueError(f"Manual geography IDs are outside macro Phase 8c county scope: {forbidden}")
-        missing = sorted(requested.difference(available))
+            status = " ZIP is reserved for future local-regime work." if any(manual[g]["resolved_level"] in {"zip", "zip_code"} for g in forbidden) else ""
+            raise ValueError(f"Non-county manual request outside macro Phase 8c county scope: {forbidden}.{status}")
+        requested_to_canonical = {key: value["canonical_geo_slug"] for key, value in manual.items()}
+        if len(set(requested_to_canonical.values())) != len(requested_to_canonical):
+            raise ValueError("Mixed manual geography IDs resolve to duplicate canonical counties")
+        available_canonical = {identities[g]["canonical_geo_slug"] for g in available}
+        missing = sorted(set(requested_to_canonical.values()).difference(available_canonical))
         if missing:
             raise ValueError(f"Manual county geography IDs lack required authoritative target coverage: {missing}")
-        included = sorted(requested)
+        included_canonical = set(requested_to_canonical.values())
+        included = [g for g in preferred_sources(available) if identities[g]["canonical_geo_slug"] in included_canonical]
     else:
-        included = sorted(geo for geo in available if levels[geo] in allowed)
+        included = preferred_sources(available)
     if not included:
         raise ValueError("Macro Phase 8c resolved an empty county geography universe")
     included_set = set(included)
@@ -276,9 +332,15 @@ def resolve_phase_a_geography_scope(
         is_included = geo_id in included_set
         rows.append({
             "campaign_id": campaign.campaign_id, "campaign_version": campaign.campaign_version,
-            "geo_id": geo_id, "geo_level": levels[geo_id], "included": is_included,
+            "geo_id": geo_id, "source_geo_id": geo_id,
+            "canonical_geo_slug": identities[geo_id]["canonical_geo_slug"],
+            "geo_level": levels[geo_id], "resolved_level": levels[geo_id], "included": is_included,
+            "identity_resolution_method": identities[geo_id]["identity_resolution_method"],
+            "identity_resolution_source": identities[geo_id]["identity_resolution_source"],
             "inclusion_reason": "manual_county_subset" if is_included and campaign.manual_geo_ids else ("all_authoritative_counties" if is_included else None),
-            "exclusion_reason": None if is_included else ("manual_subset_not_selected" if levels[geo_id] in allowed else "geo_level_out_of_scope"),
+            "exclusion_reason": None if is_included else (
+                "superseded_legacy_identity" if levels[geo_id] in allowed and identities[geo_id]["canonical_geo_slug"] in {identities[g]["canonical_geo_slug"] for g in included}
+                else ("manual_subset_not_selected" if levels[geo_id] in allowed else "excluded_level_not_allowed_for_macro_phase_8c")),
             "metadata_source": GEO_METADATA_SOURCE,
         })
     lineage = pd.DataFrame(rows)
@@ -287,14 +349,24 @@ def resolve_phase_a_geography_scope(
     metadata["geography_scope"] = {
         "regime_scope": "macro", "requested_allowed_geo_levels": list(campaign.allowed_geo_levels),
         "included_geo_levels": sorted({levels[item] for item in included}),
-        "included_geo_ids": included, "included_geo_count": len(included),
+        "included_geo_ids": sorted(identities[g]["canonical_geo_slug"] for g in included), "included_geo_count": len(included),
         "excluded_geo_counts_by_level": {str(k): int(v) for k, v in excluded.items()},
         "metadata_source": GEO_METADATA_SOURCE, "manual_subset_applied": bool(campaign.manual_geo_ids),
-        "local_zip_regimes": "out_of_scope_for_this_campaign",
+        "authoritative_geography_manifest_path": str(manifest_path),
+        "authoritative_geography_manifest_hash": _file_sha256(manifest_path),
+        "authoritative_identity_column": "geo_slug", "identity_crosswalk_path": str(crosswalk_path),
+        "identity_crosswalk_hash": _file_sha256(crosswalk_path), "identity_resolution_mode": "canonical_then_governed_crosswalk",
+        "source_geo_count": len(all_ids), "resolved_geo_count": len(identities), "unresolved_geo_count": 0,
+        "zip_future_status": "reserved_for_future_local_regime",
+        "city_status": "out_of_scope_no_current_regime_role",
     }
     resolved = replace(campaign, metadata=metadata)
-    features = baseline_features[baseline_features["geo_id"].isin(included)].copy().sort_values(FEATURE_KEYS_COLUMNS, kind="mergesort").reset_index(drop=True)
-    sources = source_metrics[source_metrics["geo_id"].isin(included)].copy().sort_values(["geo_id", "date", "canonical_metric_key"], kind="mergesort").reset_index(drop=True)
+    features = baseline_features[baseline_features["geo_id"].isin(included)].copy()
+    sources = source_metrics[source_metrics["geo_id"].isin(included)].copy()
+    features["geo_id"] = features["geo_id"].map(lambda item: identities[str(item)]["canonical_geo_slug"])
+    sources["geo_id"] = sources["geo_id"].map(lambda item: identities[str(item)]["canonical_geo_slug"])
+    features = features.sort_values(FEATURE_KEYS_COLUMNS, kind="mergesort").reset_index(drop=True)
+    sources = sources.sort_values(["geo_id", "date", "canonical_metric_key"], kind="mergesort").reset_index(drop=True)
     if features.empty or sources.empty:
         raise ValueError("Resolved county inputs lack required campaign coverage")
     return resolved, features, sources, lineage

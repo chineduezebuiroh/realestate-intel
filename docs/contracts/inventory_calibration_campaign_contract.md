@@ -9,17 +9,23 @@ both target-feature and target-source coverage, not every geography in the
 baseline run. A non-empty subset fails closed for unknown IDs, out-of-scope ZIP
 IDs, or counties without required target coverage.
 
-The campaign resolves `geo_id` through `config/geo_manifest.generated.csv`
-(`geo_slug` to `level`) and filters both persisted baseline frames before any
+The generated `config/geo_manifest.generated.csv` is the authoritative runtime
+registry (`geo_slug` to `level`). Older persisted `geo_id` values resolve first
+through the governed `config/inventory_phase8c_geo_identity_crosswalk.csv`, then
+both persisted baseline frames are filtered before any
 challenger is materialized. The immutable
 `inventory_campaign_geography_scope` evidence table records included and
-excluded IDs, levels, reasons, and metadata source; compact campaign metadata
+excluded source and canonical IDs, resolution methods, levels, reasons, and
+metadata source; compact campaign metadata
 records deterministic included IDs/count, exclusions by level, and whether a
 manual subset applied. Campaign, evidence, scoring, and bundle identities must
 reconcile and fail closed on a scope mismatch.
 
-`cbsa_metro` is a future macro extension. ZIP remains supported and reserved
-for future local-regime campaigns; it is only out of scope for this campaign.
+The old `config/geo_manifest.csv` is migration evidence only, never runtime
+authority. `cbsa_metro` is a future macro extension. ZIP remains supported and
+reserved for future local-regime campaigns; it is excluded here. City is
+outside both the current macro regime and planned local regimes. Every
+non-county level is excluded before challenger materialization.
 The earlier MA12 recommendation and score are provisional until corrected
 county-only authoritative Smokes 84 and 86 pass. No promotion follows from this
 advisory campaign without human review.
