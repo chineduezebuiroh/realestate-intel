@@ -194,6 +194,47 @@ The exact registry IDs may differ if an accepted repository alias already exists
 
 Phase A must not vary active-inventory level, short, or long feature weights.
 
+### Phase A evidence scoring (Phase 8c, Slice 3)
+
+Slice 2 produces the eleven descriptive foundation-evidence tables. Slice 3
+consumes that in-memory evidence without rebuilding challengers or rerunning
+feature normalization and produces deterministic eligibility, metric-detail,
+weighted-score, ranking, and campaign-recommendation tables. The recommendation
+is advisory, requires human review, and cannot update a registry or production
+policy; promotion is deferred to the next slice.
+
+The provisional `inventory_candidate_scoring_v1` policy is controlled by
+`config/inventory_candidate_scoring.csv`:
+
+| Metric | Source | Aggregation | Direction | Weight |
+|---|---|---|---|---:|
+| `warmup_coverage_retention` | `inventory_candidate_feature_coverage.valid_rows / rows` | ratio at candidate/component, then equal mean of level/short/long | higher | 0.20 |
+| `seasonality_suppression` | `inventory_candidate_calendar_month_behavior.mean_absolute_monthly_change` | equal mean of months within component, then equal component mean | lower | 0.25 |
+| `volatility_reduction` | `inventory_candidate_feature_statistics.standard_deviation` | equal component mean | lower | 0.20 |
+| `sign_flip_reduction` | `inventory_candidate_feature_statistics.sign_flip_rate` | equal component mean | lower | 0.15 |
+| `trend_shape_preservation` | `inventory_candidate_baseline_feature_comparison.correlation` | equal component mean | higher | 0.20 |
+
+Warmup is deliberately a bounded coverage tradeoff, not an eligibility failure:
+longer windows may have legitimate baseline-only history. Hard gates instead
+cover candidate/component identity, positive overlap, replacement identities,
+zero challenger-only target rows, non-target parity, coverage integrity,
+evidence grain, complete and unique finite calendar months 1 through 12 for
+every component, and finite scoring inputs. Non-target parity accepts actual
+boolean values only; malformed serialized or truthy values fail closed.
+
+Eligible candidate metrics use direction-aware min-max normalization. A metric
+that is constant across eligible candidates receives `0.5`; ineligible candidates
+do not influence extrema. Ranking uses total score, then trend preservation,
+then coverage retention, then the canonical MA3/MA6/MA9/MA12 order, with a
+`1e-12` tie tolerance.
+
+The same strict policy validator governs CSV-loaded and directly constructed
+scoring policies. Before evidence extraction, the scoring campaign must also
+reconcile with the evidence campaign across campaign/version, run and policy
+identities, ordered candidates, target fields, and manual geography identity.
+Each ranking row's `tie_break_reason` is a controlled value naming the actual
+decisive criterion rather than listing tie-breaks that were not exercised.
+
 The output of Phase A is one of:
 
 ```text

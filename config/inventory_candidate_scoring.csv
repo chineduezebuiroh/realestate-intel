@@ -1,0 +1,6 @@
+metric_key,display_name,source_table,source_column,aggregation,direction,weight,enabled,notes
+warmup_coverage_retention,Warmup coverage retention,inventory_candidate_feature_coverage,valid_rows / rows,component_ratio_then_equal_component_mean,higher_is_better,0.20,true,Rewards usable history without making legitimate moving-average warmup a gate failure.
+seasonality_suppression,Seasonality suppression,inventory_candidate_calendar_month_behavior,mean_absolute_monthly_change,equal_month_mean_then_equal_component_mean,lower_is_better,0.25,true,Lower calendar-month absolute movement indicates less residual seasonal behavior.
+volatility_reduction,Volatility reduction,inventory_candidate_feature_statistics,standard_deviation,equal_component_mean,lower_is_better,0.20,true,Lower feature dispersion is preferred.
+sign_flip_reduction,Sign-flip reduction,inventory_candidate_feature_statistics,sign_flip_rate,equal_component_mean,lower_is_better,0.15,true,Lower within-geography nonzero change-sign transition rate is preferred.
+trend_shape_preservation,Trend shape preservation,inventory_candidate_baseline_feature_comparison,correlation,equal_component_mean,higher_is_better,0.20,true,Higher correlation with the authoritative baseline preserves shape.
