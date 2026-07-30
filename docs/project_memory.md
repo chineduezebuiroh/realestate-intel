@@ -80,7 +80,12 @@ The Phase 8c Inventory calibration campaign now has a bounded foundation: typed
 campaign and promotion-gate contracts, registry-validated MA3/MA6/MA9/MA12
 structural candidates, and fixture orchestration through the existing Review
 Platform. Analytical evidence generation, thresholds, gate evaluation, and any
-production-policy decision remain future Phase 8c work.
+production-policy decision remain future Phase 8c work. Phase 8c Slice 3 adds an
+artifact-backed advisory scorer over the Slice 2 evidence: explicit configured
+weights and directions, hard eligibility gates, warmup as a scored coverage
+tradeoff, direction-aware min-max normalization, and deterministic ranking. It
+does not rematerialize challengers, mutate registries, or promote the result;
+human-reviewed promotion remains deferred.
 
 Current work is organized into four sequential efforts:
 

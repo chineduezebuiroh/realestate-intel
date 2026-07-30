@@ -148,6 +148,12 @@ Current work is sequenced as follows:
      structural-candidate validation, and fixture Review Platform packaging;
      the analytical campaign and promotion decision remain incomplete.
    - Evaluate structural smoothing alternatives for active inventory.
+   - Phase 8c Slice 2 now supplies descriptive foundation evidence; Slice 3
+     converts that evidence into configuration-controlled eligibility, normalized
+     scoring, deterministic ranking, and an advisory recommendation. Warmup is a
+     scored coverage tradeoff rather than an automatic failure. Authoritative
+     scoring reuses the in-memory Phase A evidence and does not repeat challenger
+     normalization; human-reviewed promotion remains a subsequent slice.
    - Reassess level, short, and long feature weighting.
    - Measure seasonality, volatility, sign flips, shock timing, and regime transitions.
    - Preserve genuine structural responsiveness while reducing unnecessary jaggedness.
