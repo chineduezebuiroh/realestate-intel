@@ -26,6 +26,87 @@ SYSTEM_SECTIONS = (
 # Phase A technical evidence so reviewers can distinguish feature values from
 # their already-normalized downstream metric score.
 NORMALIZED_METRIC_SECTION = "normalized_metric_score_chronology"
+SYSTEM_EVIDENCE_CONTRACT_VERSION = "inventory_system_evidence_v2"
+
+
+def _adapt_chronology(
+    frame: pd.DataFrame, *, artifact: str, required: set[str],
+    chronology_columns: tuple[str, ...] = ("date",),
+) -> pd.DataFrame:
+    """Map an artifact's documented chronology to canonical review ``date``.
+
+    ``aligned_metric_scores`` permits evaluation_date and legacy date inputs;
+    when both exist they must describe the same evaluation chronology.
+    """
+    missing = sorted(required.difference(frame.columns))
+    if missing:
+        raise ValueError(f"{artifact} is missing required columns: {missing}")
+    present = [column for column in chronology_columns if column in frame.columns]
+    if not present:
+        raise ValueError(
+            f"{artifact} is missing chronology column; expected one of {list(chronology_columns)}"
+        )
+    parsed: dict[str, pd.Series] = {}
+    for column in present:
+        values = pd.to_datetime(frame[column], format="mixed", errors="coerce")
+        if values.isna().any():
+            raise ValueError(f"{artifact} contains invalid {column} values")
+        parsed[column] = values
+    canonical_source = "evaluation_date" if "evaluation_date" in parsed else "date"
+    for column, values in parsed.items():
+        if column != canonical_source and not values.equals(parsed[canonical_source]):
+            raise ValueError(f"{artifact} has conflicting date and evaluation_date chronology")
+    work = frame.copy(deep=True)
+    work["date"] = parsed[canonical_source]
+    if "evaluation_date" in work:
+        work["evaluation_date"] = parsed["evaluation_date"]
+    if "metric_date" in work:
+        metric_dates = pd.to_datetime(work["metric_date"], format="mixed", errors="coerce")
+        if work["metric_date"].notna().any() and metric_dates[work["metric_date"].notna()].isna().any():
+            raise ValueError(f"{artifact} contains invalid metric_date values")
+        work["metric_date"] = metric_dates
+    leading = ["geo_id", "date"]
+    lineage = [c for c in ("evaluation_date", "metric_date", "metric_age_days") if c in work and c not in leading]
+    remaining = [c for c in work.columns if c not in {*leading, *lineage}]
+    return work[[*leading, *lineage, *remaining]].sort_values(
+        ["geo_id", "date"], kind="mergesort"
+    ).reset_index(drop=True)
+
+
+def adapt_aligned_metric_scores(frame: pd.DataFrame) -> pd.DataFrame:
+    return _adapt_chronology(
+        frame, artifact="aligned_metric_scores",
+        required={"geo_id", "canonical_metric_key", "metric_score"},
+        chronology_columns=("evaluation_date", "date"),
+    )
+
+
+def adapt_dimension_scores(frame: pd.DataFrame) -> pd.DataFrame:
+    return _adapt_chronology(frame, artifact="dimension_scores", required={"geo_id", "dimension", "dimension_score"})
+
+
+def adapt_axis_scores(frame: pd.DataFrame) -> pd.DataFrame:
+    return _adapt_chronology(frame, artifact="axis_scores", required={"geo_id", "axis", "axis_score"})
+
+
+def adapt_coordinates(frame: pd.DataFrame) -> pd.DataFrame:
+    return _adapt_chronology(frame, artifact="coordinates", required={"geo_id", "x_supply", "y_demand"})
+
+
+def adapt_regime_assignments(frame: pd.DataFrame) -> pd.DataFrame:
+    return _adapt_chronology(
+        frame, artifact="regime_assignments",
+        required={"geo_id", "major_regime", "minor_regime", "quadrant"},
+    )
+
+
+ARTIFACT_ADAPTERS = {
+    "aligned_metric_scores": adapt_aligned_metric_scores,
+    "dimension_scores": adapt_dimension_scores,
+    "axis_scores": adapt_axis_scores,
+    "coordinates": adapt_coordinates,
+    "regime_assignments": adapt_regime_assignments,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +188,8 @@ def assemble_inventory_system_evidence(
     """Adapt already-produced baseline/candidate artifacts; never run engine stages."""
     from regime.diagnostics.axis_contribution import build_axis_cancellation_from_frames
 
-    required = {"aligned_metric_scores", "dimension_scores", "axis_scores", "coordinates", "regime_assignments"}
+    required_order = ("aligned_metric_scores", "dimension_scores", "axis_scores", "coordinates", "regime_assignments")
+    required = set(required_order)
     if required.difference(baseline_artifacts):
         raise ValueError(f"Baseline system artifacts missing: {sorted(required.difference(baseline_artifacts))}")
     if tuple(candidate_artifacts) != campaign.candidate_policy_ids:
@@ -117,9 +199,14 @@ def assemble_inventory_system_evidence(
         if missing:
             raise ValueError(f"{candidate_id} system artifacts missing: {sorted(missing)}")
 
-    baseline_coordinates = baseline_artifacts["coordinates"].copy()
+    normalized_baseline = {name: ARTIFACT_ADAPTERS[name](baseline_artifacts[name]) for name in required_order}
+    normalized_candidates = {
+        candidate_id: {name: ARTIFACT_ADAPTERS[name](artifacts[name]) for name in required_order}
+        for candidate_id, artifacts in candidate_artifacts.items()
+    }
+    baseline_coordinates = normalized_baseline["coordinates"]
     divergence = []
-    for candidate_id, artifacts in candidate_artifacts.items():
+    for candidate_id, artifacts in normalized_candidates.items():
         merged = baseline_coordinates[["geo_id", "date", "x_supply"]].merge(
             artifacts["coordinates"][["geo_id", "date", "x_supply"]],
             on=["geo_id", "date"], suffixes=("_baseline", "_candidate"), validate="one_to_one",
@@ -139,7 +226,7 @@ def assemble_inventory_system_evidence(
     if not selected:
         raise ValueError("No representative geography has coordinate overlap")
 
-    identities = [("baseline", baseline_artifacts)] + list(candidate_artifacts.items())
+    identities = [("baseline", normalized_baseline)] + list(normalized_candidates.items())
     common = {"campaign_id": campaign.campaign_id, "campaign_version": campaign.campaign_version}
 
     def combine(name: str, predicate=None) -> pd.DataFrame:
