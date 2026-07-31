@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
@@ -53,6 +54,7 @@ class _BaselineInputs:
     run_id: str
     features: pd.DataFrame
     source_metrics: pd.DataFrame
+    system_artifacts: Mapping[str, pd.DataFrame]
     manifest: Mapping[str, Any]
 
 
@@ -64,6 +66,7 @@ class PhaseAEvidence:
     challengers: Mapping[str, InMemoryChallengerArtifacts]
     evidence_results: Mapping[str, ReviewResult]
     review_bundle: ReviewBundle
+    system_evidence: Any | None = None
 
 
 def _validated_frame(
@@ -85,9 +88,9 @@ def _validated_frame(
 
 
 def _load_authoritative_baseline(
-    artifact_root: str | Path, run_id: str = AUTHORITATIVE_RUN_ID
+    artifact_root: str | Path, run_id: str = AUTHORITATIVE_RUN_ID, *, include_system: bool = False,
 ) -> _BaselineInputs:
-    """Load exactly the three persisted inputs required by Phase A."""
+    """Load the immutable baseline inputs and downstream system artifacts."""
     if run_id != AUTHORITATIVE_RUN_ID:
         raise ValueError(f"Phase A baseline must be {AUTHORITATIVE_RUN_ID!r}")
     run_dir = Path(artifact_root) / run_id
@@ -95,6 +98,10 @@ def _load_authoritative_baseline(
         "features": run_dir / "features.parquet",
         "source_metrics": run_dir / "source_metrics.parquet",
         "manifest": run_dir / "manifest.json",
+        **({name: run_dir / f"{name}.parquet" for name in (
+            "aligned_metric_scores", "dimension_scores", "axis_scores",
+            "coordinates", "regime_assignments",
+        )} if include_system else {}),
     }
     missing = sorted(name for name, path in paths.items() if not path.is_file())
     if missing:
@@ -115,7 +122,12 @@ def _load_authoritative_baseline(
         required={"geo_id", "date", "canonical_metric_key", "value", "metric_origin"},
         keys=["geo_id", "date", "canonical_metric_key"],
     )
-    return _BaselineInputs(run_id, features, sources, manifest)
+    system_artifacts = {
+        name: pd.read_parquet(path)
+        for name, path in paths.items()
+        if name not in {"features", "source_metrics", "manifest"}
+    }
+    return _BaselineInputs(run_id, features, sources, system_artifacts, manifest)
 
 
 def _inventory_feature_weights() -> dict[str, float]:
@@ -884,9 +896,12 @@ def run_phase_a_foundation_evidence(
     *, campaign_id: str, campaign_version: str, artifact_root: str | Path,
     baseline_run_id: str = AUTHORITATIVE_RUN_ID,
     manual_geo_ids: tuple[str, ...] = (),
+    persist_system_evidence: bool = False,
 ) -> PhaseAEvidence:
     """Load, materialize and assemble Phase A descriptive evidence only."""
-    baseline = _load_authoritative_baseline(artifact_root, baseline_run_id)
+    baseline = _load_authoritative_baseline(
+        artifact_root, baseline_run_id, include_system=persist_system_evidence
+    )
     campaign = build_inventory_calibration_campaign(
         campaign_id=campaign_id, campaign_version=campaign_version,
         baseline_run_id=baseline_run_id, incumbent_run_id=baseline_run_id,
@@ -907,7 +922,81 @@ def run_phase_a_foundation_evidence(
         "baseline_comparison": _baseline_comparison_evidence(scoped_features, challengers),
     }
     bundle = assemble_review_results(campaign.campaign_id, evidence)
-    return PhaseAEvidence(campaign, challengers, evidence, bundle)
+    system_evidence = None
+    if persist_system_evidence:
+        from .system_evidence import assemble_inventory_system_evidence
+        system_evidence = assemble_inventory_system_evidence(
+            campaign=campaign, baseline_artifacts=baseline.system_artifacts,
+            candidate_artifacts={key: value.as_mapping() for key, value in challengers.items()},
+        )
+    result = PhaseAEvidence(campaign, challengers, evidence, bundle, system_evidence)
+    if persist_system_evidence:
+        persist_phase_a_foundation_evidence(result, Path(artifact_root) / "calibration_campaigns")
+    return result
+
+
+def persist_phase_a_foundation_evidence(evidence: PhaseAEvidence, root: str | Path) -> Path:
+    """Persist renderer-ready Phase A and System Evidence with content hashes."""
+    directory = Path(root) / evidence.campaign.campaign_id / evidence.campaign.campaign_version
+    if directory.exists():
+        shutil.rmtree(directory)
+    (directory / "phase_a").mkdir(parents=True)
+    (directory / "system").mkdir()
+    records = []
+    for name, frame in sorted(_all_evidence_tables(evidence).items()):
+        path = directory / "phase_a" / f"{name}.parquet"; frame.to_parquet(path, index=False)
+        records.append({"kind": "phase_a", "name": name, "sha256": _file_sha256(path)})
+    for name, frame in sorted(evidence.system_evidence.tables.items()):
+        path = directory / "system" / f"{name}.parquet"; frame.to_parquet(path, index=False)
+        records.append({"kind": "system", "name": name, "sha256": _file_sha256(path)})
+    metadata = {
+        "campaign": evidence.campaign.to_dict(), "files": records,
+        "representative_geography_rule": evidence.system_evidence.representative_geography_rule,
+        "transition_window_rule": evidence.system_evidence.transition_window_rule,
+    }
+    (directory / "evidence_manifest.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+    return directory
+
+
+def _all_evidence_tables(evidence: PhaseAEvidence) -> dict[str, pd.DataFrame]:
+    tables = {}
+    for result in evidence.evidence_results.values():
+        for name, frame in result.tables.items():
+            if name in tables:
+                raise ValueError(f"Duplicate Phase A evidence table: {name}")
+            tables[name] = frame
+    return tables
+
+
+def load_phase_a_foundation_evidence(
+    *, campaign_id: str, campaign_version: str, artifact_root: str | Path,
+) -> PhaseAEvidence:
+    """Load and hash-verify renderer-ready immutable authoritative evidence."""
+    from .system_evidence import CalibrationSystemEvidence, validate_system_evidence
+    directory = Path(artifact_root) / "calibration_campaigns" / campaign_id / campaign_version
+    manifest_path = directory / "evidence_manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Persisted Phase A evidence is missing: {manifest_path}")
+    metadata = json.loads(manifest_path.read_text())
+    campaign = CalibrationCampaign(**metadata["campaign"])
+    phase_tables, system_tables = {}, {}
+    for record in metadata["files"]:
+        path = directory / record["kind"] / f"{record['name']}.parquet"
+        if _file_sha256(path) != record["sha256"]:
+            raise ValueError(f"Persisted evidence hash mismatch: {path}")
+        (phase_tables if record["kind"] == "phase_a" else system_tables)[record["name"]] = pd.read_parquet(path)
+    result = ReviewResult(tables=phase_tables)
+    system = CalibrationSystemEvidence(
+        campaign_id=campaign.campaign_id, campaign_version=campaign.campaign_version,
+        candidate_policy_ids=campaign.candidate_policy_ids, incumbent_policy_id=campaign.incumbent_policy_id,
+        baseline_policy_id=campaign.baseline_policy_id, target_metric=campaign.target_metric,
+        target_dimension=campaign.target_dimension, target_axis=campaign.target_axis, tables=system_tables,
+        representative_geography_rule=metadata["representative_geography_rule"],
+        transition_window_rule=metadata["transition_window_rule"],
+    )
+    validate_system_evidence(system)
+    return PhaseAEvidence(campaign, {}, {"persisted_authoritative": result},
+                          assemble_review_results(campaign.campaign_id, {"persisted_authoritative": result}), system)
 
 
 def assemble_review_results(

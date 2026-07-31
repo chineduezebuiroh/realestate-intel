@@ -23,8 +23,9 @@ def main() -> int:
     started = perf_counter()
     print("[inventory-scoring] building authoritative Phase A evidence once...", flush=True)
     evidence = run_phase_a_foundation_evidence(
-        campaign_id="inventory_phase_a_scoring_v1", campaign_version="1.0",
+        campaign_id="inventory_phase_a_authoritative_v1", campaign_version="1.0",
         artifact_root=DEFAULT_ARTIFACT_ROOT,
+        persist_system_evidence=True,
     )
     print(f"[inventory-scoring] evidence ready in {perf_counter() - started:,.1f}s; scoring twice...", flush=True)
     first = score_inventory_candidates(campaign=evidence.campaign, phase_a_evidence=evidence)
