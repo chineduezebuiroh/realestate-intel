@@ -18,6 +18,7 @@ from regime.review.calibration import score_inventory_candidates
 from regime.review.calibration.inventory_review_bundle import build_inventory_review_bundle
 from regime.review.results import ReviewResult
 from regime.review.calibration.system_evidence import CalibrationSystemEvidence, SYSTEM_SECTIONS
+from regime.review.calibration.system_evidence import NORMALIZED_METRIC_SECTION
 
 
 def _expect_error(call, error=ValueError):
@@ -42,6 +43,9 @@ def _system_evidence(evidence):
                          "supply_pressure_score": number / 10,
                          "demand_strength_score": .2, "major_regime": "recovery",
                          "minor_regime": "early_recovery", "window_id": "largest_divergence",
+                         "quadrant": "high_supply_high_demand",
+                         "window_center_date": pd.Timestamp("2020-04-01"),
+                         "metric_score": number / 10 + series_number / 100,
                          "dimension_cancellation_ratio": series_number / 10})
     base = pd.DataFrame(rows)
     return CalibrationSystemEvidence(
@@ -49,7 +53,7 @@ def _system_evidence(evidence):
         candidate_policy_ids=candidates, incumbent_policy_id=evidence.campaign.incumbent_policy_id,
         baseline_policy_id=evidence.campaign.baseline_policy_id, target_metric=evidence.campaign.target_metric,
         target_dimension=evidence.campaign.target_dimension, target_axis=evidence.campaign.target_axis,
-        tables={name: base.copy() for name in SYSTEM_SECTIONS},
+        tables={name: base.copy() for name in (*SYSTEM_SECTIONS, NORMALIZED_METRIC_SECTION)},
         representative_geography_rule="all fixture counties ordered by geo_id",
         transition_window_rule="largest candidate/incumbent divergence; stable date tie-break")
 
@@ -116,6 +120,21 @@ def main() -> int:
             assert first.zip_path.read_bytes() == second.zip_path.read_bytes()
             assert first.manifest["flags"]["promotion_performed"] is False
             assert first.manifest["recommendation_status"] == "recommended_for_human_review"
+            page = (first.bundle_directory / "review_summary.html").read_text(encoding="utf-8")
+            headings = ["1. Executive Summary", "2. Technical Evidence", "2.1 Raw Metric Chronology",
+                        "2.2 Normalized Metric-Score Chronology", "2.3 Metric Score Decomposition",
+                        "3.1 Supply Dimension Chronology", "3.2 Supply Axis Chronology",
+                        "3.3 Supply–Demand Coordinate Trajectory", "3.4 Regime Chronology",
+                        "3.5 Transition Windows", "3.6 Cancellation Diagnostics",
+                        "4. Supporting Tables and Artifact Links", "5. Human Decision Status"]
+            positions = [page.index(heading) for heading in headings]
+            assert positions == sorted(positions)
+            assert "x_supply" in page and "y_demand" in page and "major_regime" in page
+            assert "dimension_cancellation_ratio" not in page or "Supply-Axis Contribution Cancellation" in page
+            assert "2020-04-01" in page or "Center event" in page
+            assert page.count("<img ") >= len(SYSTEM_SECTIONS) + 3
+            for geo_id in system.tables[SYSTEM_SECTIONS[0]]["geo_id"].unique():
+                assert str(geo_id) in page
             required_tables = set(result.tables) | set(upstream_name for upstream_name in (
                 "inventory_candidate_feature_coverage", "inventory_candidate_calendar_month_behavior",
                 "inventory_candidate_feature_statistics", "inventory_candidate_baseline_feature_comparison",
