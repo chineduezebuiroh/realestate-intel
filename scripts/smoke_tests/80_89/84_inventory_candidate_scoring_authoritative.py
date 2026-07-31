@@ -10,10 +10,22 @@ import pandas as pd
 
 from regime.artifacts import DEFAULT_ARTIFACT_ROOT
 from regime.review.calibration import run_phase_a_foundation_evidence, score_inventory_candidates
+from regime.review.calibration.inventory_campaign import (
+    AUTHORITATIVE_PRODUCER_CODE_IDENTITY,
+    evidence_directory,
+    invalidate_authoritative_evidence_readiness,
+)
 
 
 def main() -> int:
     run_id = "macro_regime_v1_bps120_sources"
+    campaign_id, campaign_version = "inventory_phase_a_authoritative_v1", "1.0"
+    canonical = evidence_directory(DEFAULT_ARTIFACT_ROOT, campaign_id, campaign_version)
+    invalidate_authoritative_evidence_readiness(
+        artifact_root=DEFAULT_ARTIFACT_ROOT, campaign_id=campaign_id, campaign_version=campaign_version,
+    )
+    print(f"[inventory-scoring] canonical evidence: {canonical}", flush=True)
+    print(f"[inventory-scoring] producer identity: {AUTHORITATIVE_PRODUCER_CODE_IDENTITY}", flush=True)
     run_dir = Path(DEFAULT_ARTIFACT_ROOT) / run_id
     missing = [name for name in ("features.parquet", "source_metrics.parquet", "manifest.json")
                if not (run_dir / name).is_file()]
@@ -23,7 +35,7 @@ def main() -> int:
     started = perf_counter()
     print("[inventory-scoring] building authoritative Phase A evidence once...", flush=True)
     evidence = run_phase_a_foundation_evidence(
-        campaign_id="inventory_phase_a_authoritative_v1", campaign_version="1.0",
+        campaign_id=campaign_id, campaign_version=campaign_version,
         artifact_root=DEFAULT_ARTIFACT_ROOT,
         persist_system_evidence=True,
     )

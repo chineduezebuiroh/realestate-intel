@@ -4,7 +4,8 @@ from pathlib import Path
 from time import perf_counter
 
 from regime.artifacts import DEFAULT_ARTIFACT_ROOT
-from regime.review.calibration import load_phase_a_foundation_evidence, score_inventory_candidates
+from regime.review.calibration import score_inventory_candidates
+from regime.review.calibration.inventory_campaign import validate_current_authoritative_evidence
 from regime.review.calibration.inventory_review_bundle import build_inventory_review_bundle
 
 
@@ -15,9 +16,10 @@ def main() -> int:
     if missing:
         print(f"SMOKE TEST 86 — SKIP: authoritative production artifacts unavailable; missing={missing}")
         return 0
-    evidence = load_phase_a_foundation_evidence(
+    evidence = validate_current_authoritative_evidence(
         campaign_id="inventory_phase_a_authoritative_v1", campaign_version="1.0",
         artifact_root=DEFAULT_ARTIFACT_ROOT,
+        source_run_id=run_id,
     )
     scoring = score_inventory_candidates(campaign=evidence.campaign, phase_a_evidence=evidence)
     bundle = build_inventory_review_bundle(campaign=evidence.campaign, phase_a_evidence=evidence,

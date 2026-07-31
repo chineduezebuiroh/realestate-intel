@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
+import tempfile
+from datetime import datetime, timezone
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
@@ -45,6 +48,10 @@ INVENTORY_FEATURE_KEYS = frozenset(COMPONENT_BY_FEATURE_KEY)
 FEATURE_KEYS = [FEATURE_KEY_BY_COMPONENT[item] for item in FEATURE_COMPONENTS]
 FEATURE_KEYS_COLUMNS = ["geo_id", "date", "canonical_metric_key", "feature_key"]
 AUTHORITATIVE_RUN_ID = "macro_regime_v1_bps120_sources"
+EVIDENCE_CONTRACT_VERSION = "inventory_phase_a_evidence_v2"
+AUTHORITATIVE_PRODUCER_ID = "inventory_phase_a_authoritative_smoke"
+AUTHORITATIVE_PRODUCER_CODE_IDENTITY = "inventory_phase_a_authoritative_producer_v2"
+COMPLETION_MARKER = "producer_completion.json"
 GEO_METADATA_SOURCE = "config/geo_manifest.generated.csv (geo_slug/level)"
 GEO_IDENTITY_CROSSWALK = "config/inventory_phase8c_geo_identity_crosswalk.csv"
 
@@ -935,27 +942,107 @@ def run_phase_a_foundation_evidence(
     return result
 
 
-def persist_phase_a_foundation_evidence(evidence: PhaseAEvidence, root: str | Path) -> Path:
-    """Persist renderer-ready Phase A and System Evidence with content hashes."""
+def evidence_directory(root: str | Path, campaign_id: str, campaign_version: str) -> Path:
+    return Path(root) / "calibration_campaigns" / campaign_id / campaign_version
+
+
+def invalidate_authoritative_evidence_readiness(
+    *, artifact_root: str | Path, campaign_id: str, campaign_version: str,
+) -> Path:
+    """Invalidate only current-producer readiness; historical evidence stays intact."""
+    marker = evidence_directory(artifact_root, campaign_id, campaign_version) / COMPLETION_MARKER
+    marker.unlink(missing_ok=True)
+    return marker
+
+
+def persist_phase_a_foundation_evidence(
+    evidence: PhaseAEvidence, root: str | Path, *, _failure_point: str | None = None,
+) -> Path:
+    """Validate, stage, hash, atomically publish, then certify immutable evidence."""
+    from .system_evidence import (
+        CalibrationSystemEvidence, SYSTEM_EVIDENCE_CONTRACT_VERSION, validate_system_evidence,
+    )
+
+    if evidence.system_evidence is None:
+        raise ValueError("Complete System Evidence is required for persistence")
+    validate_system_evidence(evidence.system_evidence)
+    phase_tables = _all_evidence_tables(evidence)
     directory = Path(root) / evidence.campaign.campaign_id / evidence.campaign.campaign_version
-    if directory.exists():
-        shutil.rmtree(directory)
-    (directory / "phase_a").mkdir(parents=True)
-    (directory / "system").mkdir()
-    records = []
-    for name, frame in sorted(_all_evidence_tables(evidence).items()):
-        path = directory / "phase_a" / f"{name}.parquet"; frame.to_parquet(path, index=False)
-        records.append({"kind": "phase_a", "name": name, "sha256": _file_sha256(path)})
-    for name, frame in sorted(evidence.system_evidence.tables.items()):
-        path = directory / "system" / f"{name}.parquet"; frame.to_parquet(path, index=False)
-        records.append({"kind": "system", "name": name, "sha256": _file_sha256(path)})
-    metadata = {
-        "campaign": evidence.campaign.to_dict(), "files": records,
-        "representative_geography_rule": evidence.system_evidence.representative_geography_rule,
-        "transition_window_rule": evidence.system_evidence.transition_window_rule,
-    }
-    (directory / "evidence_manifest.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
-    return directory
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{directory.name}.staging-", dir=directory.parent))
+    backup = directory.parent / f".{directory.name}.previous"
+    try:
+        (staging / "phase_a").mkdir(); (staging / "system").mkdir()
+        records = []
+        for kind, supplied in (("phase_a", phase_tables), ("system", evidence.system_evidence.tables)):
+            for name, frame in sorted(supplied.items()):
+                path = staging / kind / f"{name}.parquet"; frame.to_parquet(path, index=False)
+                records.append({"kind": kind, "name": name, "sha256": _file_sha256(path)})
+                if _failure_point == "write":
+                    raise RuntimeError("injected staging write failure")
+        source_manifest = Path(root).parent / evidence.campaign.baseline_run_id / "manifest.json"
+        metadata = {
+            "evidence_contract_version": EVIDENCE_CONTRACT_VERSION,
+            "system_evidence_contract_version": SYSTEM_EVIDENCE_CONTRACT_VERSION,
+            "campaign": evidence.campaign.to_dict(), "files": records,
+            "representative_geography_rule": evidence.system_evidence.representative_geography_rule,
+            "transition_window_rule": evidence.system_evidence.transition_window_rule,
+            "source_run_id": evidence.campaign.baseline_run_id,
+            "source_artifact_identity": {
+                "manifest_sha256": _file_sha256(source_manifest) if source_manifest.is_file() else None,
+            },
+        }
+        if _failure_point == "manifest":
+            raise RuntimeError("injected pre-manifest failure")
+        manifest_path = staging / "evidence_manifest.json"
+        manifest_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+        for record in records:
+            path = staging / record["kind"] / f"{record['name']}.parquet"
+            if not path.is_file() or _file_sha256(path) != record["sha256"]:
+                raise ValueError(f"Staging artifact hash mismatch: {path}")
+        staged_system = {
+            record["name"]: pd.read_parquet(staging / "system" / f"{record['name']}.parquet")
+            for record in records if record["kind"] == "system"
+        }
+        validate_system_evidence(CalibrationSystemEvidence(
+            campaign_id=evidence.campaign.campaign_id,
+            campaign_version=evidence.campaign.campaign_version,
+            candidate_policy_ids=evidence.campaign.candidate_policy_ids,
+            incumbent_policy_id=evidence.campaign.incumbent_policy_id,
+            baseline_policy_id=evidence.campaign.baseline_policy_id,
+            target_metric=evidence.campaign.target_metric,
+            target_dimension=evidence.campaign.target_dimension,
+            target_axis=evidence.campaign.target_axis,
+            tables=staged_system,
+            representative_geography_rule=evidence.system_evidence.representative_geography_rule,
+            transition_window_rule=evidence.system_evidence.transition_window_rule,
+        ))
+        if backup.exists(): shutil.rmtree(backup)
+        if directory.exists(): os.replace(directory, backup)
+        try:
+            os.replace(staging, directory)
+        except Exception:
+            if backup.exists(): os.replace(backup, directory)
+            raise
+        if backup.exists(): shutil.rmtree(backup)
+        completion = {
+            "campaign_id": evidence.campaign.campaign_id,
+            "campaign_version": evidence.campaign.campaign_version,
+            "evidence_manifest_sha256": _file_sha256(directory / "evidence_manifest.json"),
+            "evidence_contract_version": EVIDENCE_CONTRACT_VERSION,
+            "system_evidence_contract_version": SYSTEM_EVIDENCE_CONTRACT_VERSION,
+            "producer_id": AUTHORITATIVE_PRODUCER_ID,
+            "producer_code_identity": AUTHORITATIVE_PRODUCER_CODE_IDENTITY,
+            "source_run_id": evidence.campaign.baseline_run_id,
+            "source_artifact_identity": metadata["source_artifact_identity"],
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        temporary_marker = directory / f".{COMPLETION_MARKER}.tmp"
+        temporary_marker.write_text(json.dumps(completion, indent=2, sort_keys=True) + "\n")
+        os.replace(temporary_marker, directory / COMPLETION_MARKER)
+        return directory
+    finally:
+        if staging.exists(): shutil.rmtree(staging)
 
 
 def _all_evidence_tables(evidence: PhaseAEvidence) -> dict[str, pd.DataFrame]:
@@ -997,6 +1084,54 @@ def load_phase_a_foundation_evidence(
     validate_system_evidence(system)
     return PhaseAEvidence(campaign, {}, {"persisted_authoritative": result},
                           assemble_review_results(campaign.campaign_id, {"persisted_authoritative": result}), system)
+
+
+def validate_current_authoritative_evidence(
+    *, campaign_id: str, campaign_version: str, artifact_root: str | Path,
+    source_run_id: str = AUTHORITATIVE_RUN_ID,
+) -> PhaseAEvidence:
+    """Fail closed unless historical evidence has current-producer certification."""
+    from .system_evidence import SYSTEM_EVIDENCE_CONTRACT_VERSION
+    directory = evidence_directory(artifact_root, campaign_id, campaign_version)
+    if not directory.is_dir(): raise FileNotFoundError(f"persisted evidence absent: {directory}")
+    manifest = directory / "evidence_manifest.json"
+    if not manifest.is_file(): raise ValueError(f"persisted evidence incomplete: {manifest}")
+    marker_path = directory / COMPLETION_MARKER
+    if not marker_path.is_file(): raise ValueError(f"producer completion marker absent: {marker_path}")
+    marker = json.loads(marker_path.read_text())
+    if marker.get("campaign_id") != campaign_id or marker.get("campaign_version") != campaign_version:
+        raise ValueError("producer identity stale: campaign identity mismatch")
+    if marker.get("producer_id") != AUTHORITATIVE_PRODUCER_ID or marker.get("producer_code_identity") != AUTHORITATIVE_PRODUCER_CODE_IDENTITY:
+        raise ValueError("producer identity stale")
+    if marker.get("evidence_contract_version") != EVIDENCE_CONTRACT_VERSION or marker.get("system_evidence_contract_version") != SYSTEM_EVIDENCE_CONTRACT_VERSION:
+        raise ValueError("contract-version mismatch")
+    if marker.get("source_run_id") != source_run_id:
+        raise ValueError("source-run mismatch")
+    if marker.get("evidence_manifest_sha256") != _file_sha256(manifest):
+        raise ValueError("manifest hash mismatch")
+    metadata = json.loads(manifest.read_text())
+    for record in metadata.get("files", []):
+        path = directory / record["kind"] / f"{record['name']}.parquet"
+        if not path.is_file():
+            raise ValueError(f"persisted evidence incomplete: {path}")
+        if _file_sha256(path) != record.get("sha256"):
+            raise ValueError(f"artifact hash mismatch: {path}")
+    if marker.get("source_artifact_identity") != metadata.get("source_artifact_identity"):
+        raise ValueError("source-run mismatch: source artifact identity differs")
+    source_manifest = Path(artifact_root) / source_run_id / "manifest.json"
+    expected_source_hash = metadata.get("source_artifact_identity", {}).get("manifest_sha256")
+    if expected_source_hash is not None and (
+        not source_manifest.is_file() or _file_sha256(source_manifest) != expected_source_hash
+    ):
+        raise ValueError("source-run mismatch: source manifest identity differs")
+    evidence = load_phase_a_foundation_evidence(
+        campaign_id=campaign_id, campaign_version=campaign_version, artifact_root=artifact_root,
+    )
+    if metadata.get("evidence_contract_version") != EVIDENCE_CONTRACT_VERSION or metadata.get("system_evidence_contract_version") != SYSTEM_EVIDENCE_CONTRACT_VERSION:
+        raise ValueError("contract-version mismatch")
+    if metadata.get("source_run_id") != source_run_id:
+        raise ValueError("source-run mismatch")
+    return evidence
 
 
 def assemble_review_results(

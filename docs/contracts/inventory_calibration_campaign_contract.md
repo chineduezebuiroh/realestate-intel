@@ -1462,10 +1462,11 @@ relative paths, sizes, SHA256 hashes (excluding the self-referential manifest an
 ZIP), identity, lineage, and explicit no-recomputation/no-promotion flags. ZIP
 entry timestamps are fixed.
 
-Run the authoritative export with:
+Run authoritative production and export as one fail-fast sequence:
 
 ```bash
-time PYTHONPATH=. python -u scripts/smoke_tests/80_89/86_inventory_review_bundle_authoritative.py
+PYTHONPATH=. python -u scripts/smoke_tests/80_89/84_inventory_candidate_scoring_authoritative.py && \
+PYTHONPATH=. python -u scripts/smoke_tests/80_89/86_inventory_review_bundle_authoritative.py
 ```
 
 The output is advisory: objective recommendation available, visual review bundle
