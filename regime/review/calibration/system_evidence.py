@@ -75,3 +75,116 @@ def validate_system_evidence(evidence: CalibrationSystemEvidence) -> None:
         raise ValueError("Representative geography selection rule is required")
     if not evidence.transition_window_rule.strip():
         raise ValueError("System transition-window selection rule is required")
+
+
+def assemble_inventory_system_evidence(
+    *, campaign, baseline_artifacts: Mapping[str, pd.DataFrame],
+    candidate_artifacts: Mapping[str, Mapping[str, pd.DataFrame]],
+    max_geographies: int = 6,
+) -> CalibrationSystemEvidence:
+    """Adapt already-produced baseline/candidate artifacts; never run engine stages."""
+    from regime.diagnostics.axis_contribution import build_axis_cancellation_from_frames
+
+    required = {"aligned_metric_scores", "dimension_scores", "axis_scores", "coordinates", "regime_assignments"}
+    if required.difference(baseline_artifacts):
+        raise ValueError(f"Baseline system artifacts missing: {sorted(required.difference(baseline_artifacts))}")
+    if tuple(candidate_artifacts) != campaign.candidate_policy_ids:
+        raise ValueError("Candidate system artifact order does not match campaign")
+    for candidate_id, artifacts in candidate_artifacts.items():
+        missing = required.difference(artifacts)
+        if missing:
+            raise ValueError(f"{candidate_id} system artifacts missing: {sorted(missing)}")
+
+    baseline_coordinates = baseline_artifacts["coordinates"].copy()
+    divergence = []
+    for candidate_id, artifacts in candidate_artifacts.items():
+        merged = baseline_coordinates[["geo_id", "date", "x_supply"]].merge(
+            artifacts["coordinates"][["geo_id", "date", "x_supply"]],
+            on=["geo_id", "date"], suffixes=("_baseline", "_candidate"), validate="one_to_one",
+        )
+        merged["absolute_divergence"] = (merged["x_supply_candidate"] - merged["x_supply_baseline"]).abs()
+        divergence.append(merged.groupby("geo_id", as_index=False)["absolute_divergence"].max())
+    geo_scores = pd.concat(divergence).groupby("geo_id")["absolute_divergence"].max().sort_values(
+        ascending=False, kind="mergesort"
+    )
+    dc = "district_of_columbia_dc__county"
+    selected: list[str] = [dc] if dc in geo_scores.index else []
+    for geo_id in list(geo_scores.index) + list(geo_scores.sort_values(kind="mergesort").index):
+        if geo_id not in selected:
+            selected.append(str(geo_id))
+        if len(selected) >= min(max_geographies, len(geo_scores)):
+            break
+    if not selected:
+        raise ValueError("No representative geography has coordinate overlap")
+
+    identities = [("baseline", baseline_artifacts)] + list(candidate_artifacts.items())
+    common = {"campaign_id": campaign.campaign_id, "campaign_version": campaign.campaign_version}
+
+    def combine(name: str, predicate=None) -> pd.DataFrame:
+        rows = []
+        for series_id, artifacts in identities:
+            frame = artifacts[name].copy()
+            frame = frame[frame["geo_id"].isin(selected)]
+            if predicate is not None:
+                frame = predicate(frame)
+            frame.insert(0, "series_id", series_id)
+            frame.insert(0, "campaign_version", common["campaign_version"])
+            frame.insert(0, "campaign_id", common["campaign_id"])
+            rows.append(frame)
+        return pd.concat(rows, ignore_index=True).sort_values(
+            ["geo_id", "series_id", "date"], kind="mergesort"
+        ).reset_index(drop=True)
+
+    dimension = combine("dimension_scores", lambda f: f[f["dimension"].eq(campaign.target_dimension)])
+    axis = combine("axis_scores", lambda f: f[f["axis"].eq(campaign.target_axis)])
+    coordinates = combine("coordinates")
+    regimes = combine("regime_assignments")
+
+    cancellation_rows = []
+    for series_id, artifacts in identities:
+        diagnostic = build_axis_cancellation_from_frames(
+            dimension_scores=artifacts["dimension_scores"], axis_scores=artifacts["axis_scores"],
+            geo_ids=selected, axis=campaign.target_axis,
+        )
+        diagnostic.insert(0, "series_id", series_id)
+        diagnostic.insert(0, "campaign_version", common["campaign_version"])
+        diagnostic.insert(0, "campaign_id", common["campaign_id"])
+        cancellation_rows.append(diagnostic)
+    cancellation = pd.concat(cancellation_rows, ignore_index=True).sort_values(
+        ["geo_id", "series_id", "date"], kind="mergesort"
+    ).reset_index(drop=True)
+
+    windows = []
+    baseline_axis = axis[axis["series_id"].eq("baseline")]
+    for geo_id, frame in baseline_axis.groupby("geo_id", sort=True):
+        frame = frame.sort_values("date", kind="mergesort")
+        changes = pd.to_numeric(frame["axis_score"], errors="coerce").diff().abs()
+        if changes.dropna().empty:
+            raise ValueError(f"No system transition observation for {geo_id}")
+        center = frame.loc[changes.idxmax(), "date"]
+        dates = frame["date"].tolist(); position = dates.index(center)
+        start, end = dates[max(0, position - 3)], dates[min(len(dates) - 1, position + 3)]
+        part = axis[axis["geo_id"].eq(geo_id) & axis["date"].between(start, end)].copy()
+        part["window_id"] = "largest_absolute_incumbent_supply_axis_change"
+        part["window_center_date"] = center
+        windows.append(part)
+    transitions = pd.concat(windows, ignore_index=True)
+
+    return CalibrationSystemEvidence(
+        campaign_id=campaign.campaign_id, campaign_version=campaign.campaign_version,
+        candidate_policy_ids=campaign.candidate_policy_ids,
+        incumbent_policy_id=campaign.incumbent_policy_id, baseline_policy_id=campaign.baseline_policy_id,
+        target_metric=campaign.target_metric, target_dimension=campaign.target_dimension,
+        target_axis=campaign.target_axis,
+        tables={"dimension_chronology": dimension, "axis_chronology": axis,
+                "coordinate_trajectories": coordinates, "regime_chronology": regimes,
+                "transition_windows": transitions, "cancellation_diagnostics": cancellation},
+        representative_geography_rule=(
+            "District of Columbia when present, then maximum and minimum candidate/incumbent "
+            "Supply-coordinate divergence with canonical geo_id tie-breaking; maximum six"
+        ),
+        transition_window_rule=(
+            "largest absolute month-over-month incumbent Supply-axis change per selected geography; "
+            "three observations of context on each side"
+        ),
+    )

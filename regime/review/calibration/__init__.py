@@ -3,6 +3,7 @@ from .gates import PromotionGate, PromotionGateResult
 from .inventory_campaign import (
     PhaseAEvidence,
     build_inventory_calibration_campaign,
+    load_phase_a_foundation_evidence,
     run_phase_a_foundation_evidence,
 )
 from .inventory_candidate_scoring import (
@@ -28,6 +29,7 @@ __all__ = [
     "build_inventory_calibration_campaign",
     "PhaseAEvidence",
     "run_phase_a_foundation_evidence",
+    "load_phase_a_foundation_evidence",
     "InventoryCandidateScoringResult",
     "InventoryScoringPolicy",
     "load_inventory_scoring_policy",

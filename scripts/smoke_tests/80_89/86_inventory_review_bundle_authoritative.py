@@ -4,7 +4,7 @@ from pathlib import Path
 from time import perf_counter
 
 from regime.artifacts import DEFAULT_ARTIFACT_ROOT
-from regime.review.calibration import run_phase_a_foundation_evidence, score_inventory_candidates
+from regime.review.calibration import load_phase_a_foundation_evidence, score_inventory_candidates
 from regime.review.calibration.inventory_review_bundle import build_inventory_review_bundle
 
 
@@ -15,11 +15,14 @@ def main() -> int:
     if missing:
         print(f"SMOKE TEST 86 — SKIP: authoritative production artifacts unavailable; missing={missing}")
         return 0
-    evidence = run_phase_a_foundation_evidence(campaign_id="inventory_phase_a_review_v1",
-                                               campaign_version="1.0", artifact_root=DEFAULT_ARTIFACT_ROOT)
+    evidence = load_phase_a_foundation_evidence(
+        campaign_id="inventory_phase_a_authoritative_v1", campaign_version="1.0",
+        artifact_root=DEFAULT_ARTIFACT_ROOT,
+    )
     scoring = score_inventory_candidates(campaign=evidence.campaign, phase_a_evidence=evidence)
     bundle = build_inventory_review_bundle(campaign=evidence.campaign, phase_a_evidence=evidence,
-                                           scoring_result=scoring, output_root=Path("artifacts/review"), overwrite=True,
+                                           scoring_result=scoring, system_evidence=evidence.system_evidence,
+                                           output_root=Path("artifacts/review"), overwrite=True,
                                            source_lineage={"authoritative_artifact_directory": str(run_dir)})
     recommendation = scoring.inventory_campaign_recommendation.iloc[0]
     assert bundle.manifest["flags"]["promotion_performed"] is False
