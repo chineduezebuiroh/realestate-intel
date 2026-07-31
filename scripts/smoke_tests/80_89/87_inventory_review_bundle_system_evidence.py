@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import runpy
 
-from regime.review.calibration.system_evidence import SYSTEM_SECTIONS, validate_system_evidence
+from regime.review.calibration.system_evidence import NORMALIZED_METRIC_SECTION, SYSTEM_SECTIONS, validate_system_evidence
 
 
 def _expect_error(call) -> None:
@@ -25,7 +25,7 @@ def main() -> int:
         evidence = scoring_fixture["_evidence"]()
     system = fixture["_system_evidence"](evidence)
     validate_system_evidence(system)
-    assert tuple(system.tables) == SYSTEM_SECTIONS
+    assert tuple(system.tables) == (*SYSTEM_SECTIONS, NORMALIZED_METRIC_SECTION)
     assert list(system.tables) == list(copy.deepcopy(system).tables)
 
     missing = copy.deepcopy(system)
@@ -35,6 +35,14 @@ def main() -> int:
     mismatch = copy.deepcopy(system)
     mismatch.tables["axis_chronology"].loc[:, "campaign_id"] = "conflicting_campaign"
     _expect_error(lambda: validate_system_evidence(mismatch))
+
+    one_dimensional = copy.deepcopy(system)
+    one_dimensional.tables["coordinate_trajectories"] = one_dimensional.tables["coordinate_trajectories"].drop(columns="y_demand")
+    _expect_error(lambda: validate_system_evidence(one_dimensional))
+
+    continuous_regime = copy.deepcopy(system)
+    continuous_regime.tables["regime_chronology"] = continuous_regime.tables["regime_chronology"].drop(columns="major_regime")
+    _expect_error(lambda: validate_system_evidence(continuous_regime))
 
     candidates = set(evidence.campaign.candidate_policy_ids)
     for frame in system.tables.values():

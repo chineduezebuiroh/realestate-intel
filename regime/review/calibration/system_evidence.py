@@ -22,6 +22,11 @@ SYSTEM_SECTIONS = (
     "cancellation_diagnostics",
 )
 
+# This is an engine-produced metric-level artifact, but it is presented with
+# Phase A technical evidence so reviewers can distinguish feature values from
+# their already-normalized downstream metric score.
+NORMALIZED_METRIC_SECTION = "normalized_metric_score_chronology"
+
 
 @dataclass(frozen=True, slots=True)
 class CalibrationSystemEvidence:
@@ -58,6 +63,17 @@ def validate_system_evidence(evidence: CalibrationSystemEvidence) -> None:
         absent = sorted(required.difference(frame.columns))
         if absent:
             raise ValueError(f"{name} is missing identity columns: {absent}")
+        semantic_columns = {
+            "dimension_chronology": {"date", "dimension_score"},
+            "axis_chronology": {"date", "axis_score"},
+            "coordinate_trajectories": {"date", "x_supply", "y_demand"},
+            "regime_chronology": {"date", "major_regime", "minor_regime", "quadrant"},
+            "transition_windows": {"date", "axis_score", "window_center_date", "window_id"},
+            "cancellation_diagnostics": {"date", "dimension_cancellation_ratio"},
+        }[name]
+        absent_semantics = sorted(semantic_columns.difference(frame.columns))
+        if absent_semantics:
+            raise ValueError(f"{name} is missing semantic columns: {absent_semantics}")
         if set(frame["campaign_id"].astype(str)) != {evidence.campaign_id} or set(
             frame["campaign_version"].astype(str)
         ) != {evidence.campaign_version}:
@@ -75,6 +91,12 @@ def validate_system_evidence(evidence: CalibrationSystemEvidence) -> None:
         raise ValueError("Representative geography selection rule is required")
     if not evidence.transition_window_rule.strip():
         raise ValueError("System transition-window selection rule is required")
+    if NORMALIZED_METRIC_SECTION in evidence.tables:
+        frame = evidence.tables[NORMALIZED_METRIC_SECTION]
+        required = {"campaign_id", "campaign_version", "series_id", "geo_id", "date", "metric_score"}
+        absent = sorted(required.difference(frame.columns))
+        if absent:
+            raise ValueError(f"{NORMALIZED_METRIC_SECTION} is missing columns: {absent}")
 
 
 def assemble_inventory_system_evidence(
@@ -139,6 +161,10 @@ def assemble_inventory_system_evidence(
     axis = combine("axis_scores", lambda f: f[f["axis"].eq(campaign.target_axis)])
     coordinates = combine("coordinates")
     regimes = combine("regime_assignments")
+    metric_scores = combine(
+        "aligned_metric_scores",
+        lambda f: f[f["canonical_metric_key"].eq(campaign.target_metric)],
+    )
 
     cancellation_rows = []
     for series_id, artifacts in identities:
@@ -178,7 +204,8 @@ def assemble_inventory_system_evidence(
         target_axis=campaign.target_axis,
         tables={"dimension_chronology": dimension, "axis_chronology": axis,
                 "coordinate_trajectories": coordinates, "regime_chronology": regimes,
-                "transition_windows": transitions, "cancellation_diagnostics": cancellation},
+                "transition_windows": transitions, "cancellation_diagnostics": cancellation,
+                NORMALIZED_METRIC_SECTION: metric_scores},
         representative_geography_rule=(
             "District of Columbia when present, then maximum and minimum candidate/incumbent "
             "Supply-coordinate divergence with canonical geo_id tie-breaking; maximum six"

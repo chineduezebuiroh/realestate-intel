@@ -25,13 +25,14 @@ from .inventory_candidate_scoring import (
 )
 from .system_evidence import (
     CalibrationSystemEvidence,
+    NORMALIZED_METRIC_SECTION,
     SYSTEM_SECTIONS,
     validate_system_evidence,
 )
 
 
 BUNDLE_CONTRACT_VERSION = "calibration_review_bundle_v2"
-GENERATOR_VERSION = "2.0"
+GENERATOR_VERSION = "3.0"
 EVIDENCE_TABLES = (
     "inventory_campaign_geography_scope",
     "inventory_candidate_feature_coverage",
@@ -268,6 +269,137 @@ def _hash(path: Path) -> str:
     digest = hashlib.sha256(); digest.update(path.read_bytes()); return digest.hexdigest()
 
 
+SERIES_COLORS = ("#111111", "#4c78a8", "#f58518", "#54a24b", "#e45756")
+
+
+def _label(series_id: str, incumbent_policy_id: str) -> str:
+    if series_id == "baseline":
+        return f"Incumbent — {incumbent_policy_id}"
+    return f"Challenger — {series_id}"
+
+
+def _chronology_plot(path: Path, frame: pd.DataFrame, *, geo_id: str, value: str,
+                     title: str, ylabel: str, incumbent: str, note: str,
+                     center_date: object | None = None) -> None:
+    image, draw = _canvas(f"{title} — {geo_id}", height=650)
+    left, top, right, bottom = 110, 90, 1160, 520
+    draw.line((left, top, left, bottom, right, bottom), fill="black", width=2)
+    draw.text((left, bottom + 25), "Observation date", fill="black")
+    draw.text((8, 280), ylabel, fill="black")
+    values = pd.to_numeric(frame[value], errors="coerce"); low, high = values.min(), values.max()
+    span = float(high - low) or 1.0
+    all_dates = pd.to_datetime(frame["date"]); date_low, date_high = all_dates.min(), all_dates.max()
+    date_span = max((date_high - date_low).total_seconds(), 1)
+    for index, (series_id, part) in enumerate(frame.groupby("series_id", sort=False)):
+        part = part.sort_values("date", kind="mergesort")
+        points = []
+        for date, number in zip(pd.to_datetime(part["date"]), pd.to_numeric(part[value], errors="coerce")):
+            if pd.notna(number):
+                x = left + (date - date_low).total_seconds() / date_span * (right - left)
+                y = bottom - (float(number) - float(low)) / span * (bottom - top)
+                points.append((x, y))
+        if len(points) > 1:
+            draw.line(points, fill=SERIES_COLORS[index % len(SERIES_COLORS)], width=4 if series_id == "baseline" else 2)
+        draw.text((760, 42 + index * 14), _label(str(series_id), incumbent), fill=SERIES_COLORS[index % len(SERIES_COLORS)])
+    if center_date is not None:
+        center = pd.Timestamp(center_date)
+        x = left + (center - date_low).total_seconds() / date_span * (right - left)
+        draw.line((x, top, x, bottom), fill="#8b0000", width=3)
+        draw.text((max(left, x - 70), top + 5), f"Center event: {center.date().isoformat()}", fill="#8b0000")
+    draw.text((left, bottom + 45), f"{date_low.date()} to {date_high.date()} | range {float(low):.3f} to {float(high):.3f}", fill="#444")
+    draw.text((20, 600), note, fill="#444")
+    _save_image(image, path)
+
+
+def _coordinate_plot(path: Path, frame: pd.DataFrame, *, geo_id: str, incumbent: str) -> None:
+    image, draw = _canvas(f"Supply–Demand Coordinate Trajectory — {geo_id}", width=900, height=800)
+    left, top, right, bottom = 110, 100, 850, 680
+    xs = pd.to_numeric(frame["x_supply"], errors="coerce"); ys = pd.to_numeric(frame["y_demand"], errors="coerce")
+    xmin, xmax, ymin, ymax = float(xs.min()), float(xs.max()), float(ys.min()), float(ys.max())
+    xspan, yspan = xmax - xmin or 1.0, ymax - ymin or 1.0
+    sx = lambda v: left + (float(v) - xmin) / xspan * (right - left)
+    sy = lambda v: bottom - (float(v) - ymin) / yspan * (bottom - top)
+    draw.rectangle((left, top, right, bottom), outline="black", width=2)
+    if xmin <= 0 <= xmax: draw.line((sx(0), top, sx(0), bottom), fill="#777", width=1)
+    if ymin <= 0 <= ymax: draw.line((left, sy(0), right, sy(0)), fill="#777", width=1)
+    for index, (series_id, part) in enumerate(frame.groupby("series_id", sort=False)):
+        part = part.sort_values("date", kind="mergesort").reset_index(drop=True)
+        # A deterministic maximum of 36 evenly spaced anchors prevents dense
+        # histories from hiding material trajectory separation.
+        anchors = np.unique(np.linspace(0, max(len(part) - 1, 0), min(len(part), 36), dtype=int))
+        shown = part.iloc[anchors]
+        x = pd.to_numeric(shown["x_supply"], errors="coerce"); y = pd.to_numeric(shown["y_demand"], errors="coerce")
+        color = SERIES_COLORS[index % len(SERIES_COLORS)]
+        points = [(sx(a), sy(b)) for a, b in zip(x, y) if pd.notna(a) and pd.notna(b)]
+        if len(points) > 1: draw.line(points, fill=color, width=4 if series_id == "baseline" else 2)
+        if len(shown):
+            draw.ellipse((sx(x.iloc[0])-5, sy(y.iloc[0])-5, sx(x.iloc[0])+5, sy(y.iloc[0])+5), outline=color, width=2)
+            draw.polygon(((sx(x.iloc[-1])+7, sy(y.iloc[-1])), (sx(x.iloc[-1])-5, sy(y.iloc[-1])-6), (sx(x.iloc[-1])-5, sy(y.iloc[-1])+6)), fill=color)
+        draw.text((500, 44 + index * 13), _label(str(series_id), incumbent), fill=color)
+    draw.text((left, 705), "Supply coordinate (x_supply; higher = greater supply pressure)", fill="black")
+    draw.text((8, 380), "Demand coordinate (y_demand; higher = stronger demand)", fill="black")
+    draw.text((20, 755), "Source: immutable coordinate_trajectories.csv. Up to 36 evenly spaced full-history anchors; circle=start, triangle=end; zero lines mark quadrant boundaries.", fill="#444")
+    _save_image(image, path)
+
+
+def _regime_plot(path: Path, frame: pd.DataFrame, *, geo_id: str, incumbent: str) -> None:
+    image, draw = _canvas(f"Assigned Major Regime Over Time — {geo_id}", height=650)
+    ordered_series = list(dict.fromkeys(frame["series_id"].astype(str)))
+    categories = sorted(frame["major_regime"].fillna("unassigned").astype(str).unique())
+    palette = ("#4c78a8", "#f58518", "#54a24b", "#e45756", "#b279a2", "#72b7b2", "#ff9da6", "#9d755d")
+    colors = {category: palette[i % len(palette)] for i, category in enumerate(categories)}
+    left, right = 310, 1160
+    dates_all = pd.to_datetime(frame["date"]); dmin, dmax = dates_all.min(), dates_all.max(); dspan=max((dmax-dmin).total_seconds(),1)
+    for row, series_id in enumerate(ordered_series):
+        part = frame[frame["series_id"].astype(str).eq(series_id)].sort_values("date")
+        dates = pd.to_datetime(part["date"])
+        y = 105 + row * 65
+        draw.text((15, y - 5), _label(series_id, incumbent), fill="black")
+        for date, category in zip(dates, part["major_regime"].fillna("unassigned").astype(str)):
+            x = left + (date-dmin).total_seconds()/dspan*(right-left)
+            draw.rectangle((x-4,y-12,x+4,y+12), fill=colors[category])
+        changed = part["major_regime"].astype(str).ne(part["major_regime"].astype(str).shift())
+        for date in dates[changed]:
+            x=left+(date-dmin).total_seconds()/dspan*(right-left); draw.line((x,y-18,x,y+18),fill="black",width=2)
+    legend_y = 105 + len(ordered_series)*65
+    for i, category in enumerate(categories):
+        x=left+(i%4)*205; y=legend_y+(i//4)*22; draw.rectangle((x,y,x+12,y+12),fill=colors[category]); draw.text((x+18,y),category,fill="black")
+    draw.text((left, 570), f"Assignment date: {dmin.date()} to {dmax.date()}", fill="black")
+    draw.text((20, 610), "Source: immutable regime_chronology.csv major_regime. Color=categorical identity; black ticks=transitions. Minor regime and quadrant remain in CSV.", fill="#444")
+    _save_image(image, path)
+
+
+def _system_figures(bundle: Path, tables: Mapping[str, pd.DataFrame], campaign: CalibrationCampaign) -> dict[str, list[Path]]:
+    outputs: dict[str, list[Path]] = {name: [] for name in SYSTEM_SECTIONS}
+    specs = {
+        "dimension_chronology": ("dimension_score", "Supply Dimension Score", "Supply dimension score (engine units)"),
+        "axis_chronology": ("axis_score", "Supply Axis Score", "Supply axis score (engine units)"),
+        "cancellation_diagnostics": ("dimension_cancellation_ratio", "Supply-Axis Contribution Cancellation", "Cancellation ratio (0=no offsetting; 1=full offsetting)"),
+    }
+    for section, (value, title, ylabel) in specs.items():
+        frame = tables[section]
+        for geo_id, geo in frame.groupby("geo_id", sort=True):
+            path = bundle / "system_evidence" / section / f"{_slug(geo_id)}.png"
+            _chronology_plot(path, geo, geo_id=str(geo_id), value=value, title=title, ylabel=ylabel,
+                             incumbent=campaign.incumbent_policy_id,
+                             note=f"Source: immutable {section}.csv. Solid black is incumbent; dashed colored lines are challengers.")
+            outputs[section].append(path)
+    for geo_id, geo in tables["coordinate_trajectories"].groupby("geo_id", sort=True):
+        path = bundle / "system_evidence/coordinate_trajectories" / f"{_slug(geo_id)}.png"
+        _coordinate_plot(path, geo, geo_id=str(geo_id), incumbent=campaign.incumbent_policy_id); outputs["coordinate_trajectories"].append(path)
+    for geo_id, geo in tables["regime_chronology"].groupby("geo_id", sort=True):
+        path = bundle / "system_evidence/regime_chronology" / f"{_slug(geo_id)}.png"
+        _regime_plot(path, geo, geo_id=str(geo_id), incumbent=campaign.incumbent_policy_id); outputs["regime_chronology"].append(path)
+    for geo_id, geo in tables["transition_windows"].groupby("geo_id", sort=True):
+        center = geo["window_center_date"].iloc[0]
+        path = bundle / "system_evidence/transition_windows" / f"{_slug(geo_id)}.png"
+        _chronology_plot(path, geo, geo_id=str(geo_id), value="axis_score", title="Incumbent Supply-Axis Transition Window",
+                         ylabel="Supply axis score (engine units)", incumbent=campaign.incumbent_policy_id, center_date=center,
+                         note="Source: immutable transition_windows.csv. Center is the largest absolute incumbent Supply-axis month-over-month change; three observations each side where available.")
+        outputs["transition_windows"].append(path)
+    return outputs
+
+
 def build_inventory_review_bundle(
     *, campaign: CalibrationCampaign, phase_a_evidence: PhaseAEvidence,
     scoring_result: InventoryCandidateScoringResult, output_root: str | Path,
@@ -320,15 +452,6 @@ def build_inventory_review_bundle(
     figures = _score_figures(bundle / "figures" / "score_summary", scoring_result, policy, candidates)
     figures += _evidence_figures(bundle / "figures", tables, candidates)
     system_tables = system_evidence.copied_tables()
-    system_links = []
-    value_columns = {
-        "dimension_chronology": ("dimension_score",),
-        "axis_chronology": ("axis_score",),
-        "coordinate_trajectories": ("x_supply", "y_demand"),
-        "regime_chronology": ("supply_pressure_score", "demand_strength_score"),
-        "transition_windows": ("axis_score", "dimension_score", "x_supply"),
-        "cancellation_diagnostics": ("dimension_cancellation_ratio", "cancellation_rate"),
-    }
     for section in SYSTEM_SECTIONS:
         frame = system_tables[section].sort_values(
             [c for c in ("geo_id", "series_id", "date", "window_id") if c in system_tables[section]],
@@ -336,18 +459,19 @@ def build_inventory_review_bundle(
         )
         csv_path = bundle / "system_evidence" / section / f"{section}.csv"
         frame.to_csv(csv_path, index=False, lineterminator="\n")
-        numeric = next((column for column in value_columns[section] if column in frame), None)
-        if numeric and "date" in frame:
-            for geo_id, geo in frame.groupby("geo_id", sort=True):
-                lines = []
-                for series_id in ("baseline", *candidates):
-                    part = geo[geo["series_id"].eq(series_id)].sort_values("date")
-                    lines.append((series_id, part["date"].tolist(), part[numeric].tolist()))
-                plot = csv_path.parent / f"{_slug(geo_id)}.png"
-                _lines(plot, f"{section.replace('_', ' ').title()} — {geo_id}", lines, numeric)
-        system_links.append(
-            f'<li><a href="{csv_path.relative_to(bundle).as_posix()}">{section.replace("_", " ").title()}</a></li>'
-        )
+    normalized = system_tables.get(NORMALIZED_METRIC_SECTION)
+    if normalized is not None:
+        normalized_path = bundle / "technical_evidence/metric_chronology/normalized_metric_score_chronology.csv"
+        normalized.sort_values(["geo_id", "series_id", "date"], kind="mergesort").to_csv(
+            normalized_path, index=False, lineterminator="\n")
+        for geo_id, geo in normalized.groupby("geo_id", sort=True):
+            path = normalized_path.parent / f"{_slug(geo_id)}__normalized_metric_score.png"
+            _chronology_plot(path, geo, geo_id=str(geo_id), value="metric_score",
+                             title="Active Inventory — Normalized Metric Score",
+                             ylabel="Normalized active_inventory metric score (engine score units)",
+                             incumbent=campaign.incumbent_policy_id,
+                             note="Source: immutable aligned metric-score evidence. This is the normalized metric stage, not the raw feature, Supply dimension, or Supply axis.")
+    system_figures = _system_figures(bundle, system_tables, campaign)
     selection = {
         "representative_geography_rule": system_evidence.representative_geography_rule,
         "selected_geographies": sorted(set(system_tables[SYSTEM_SECTIONS[0]]["geo_id"].astype(str))),
@@ -360,19 +484,55 @@ def build_inventory_review_bundle(
     recommendation = scoring_result.inventory_campaign_recommendation.iloc[0]
     failed = scoring_result.inventory_candidate_eligibility.query("not gate_pass")
     failed_html = "<p>None.</p>" if failed.empty else failed.to_html(index=False, escape=True)
+    selected_geographies = selection["selected_geographies"]
+
+    def image_tag(path: Path, caption: str) -> str:
+        relative = path.relative_to(bundle).as_posix()
+        return f'<figure><a href="{relative}"><img src="{relative}" alt="{html.escape(caption)}"></a><figcaption>{html.escape(caption)}</figcaption></figure>'
+
+    def system_panels(section: str, caption: str) -> str:
+        return "".join(image_tag(path, f"{caption} — {path.stem}") for path in system_figures[section])
+
+    raw_panels = "".join(
+        image_tag(bundle / "figures/time_series_overlays" / f"{_slug(geo)}__level.png",
+                  f"Active Inventory — Raw Observations / level feature — {geo}")
+        for geo in selected_geographies
+        if (bundle / "figures/time_series_overlays" / f"{_slug(geo)}__level.png").is_file()
+    )
+    normalized_panels = ""
+    if normalized is not None:
+        normalized_panels = "".join(
+            image_tag(bundle / "technical_evidence/metric_chronology" / f"{_slug(geo)}__normalized_metric_score.png",
+                      f"Active Inventory — Normalized Metric Score — {geo}")
+            for geo in selected_geographies
+        )
+    decomposition = image_tag(bundle / "figures/score_summary/weighted_score_decomposition.png",
+                              "Metric Score Decomposition — weighted contributions sum to each candidate total")
+    transition_centers = ", ".join(
+        f"{geo}: {pd.Timestamp(part['window_center_date'].iloc[0]).date().isoformat()}"
+        for geo, part in system_tables["transition_windows"].groupby("geo_id", sort=True)
+    )
     page = f"""<!doctype html><html><head><meta charset=\"utf-8\"><title>Inventory calibration review</title>
-<style>body{{font:14px sans-serif;max-width:1200px;margin:2rem auto;color:#222}}table{{border-collapse:collapse}}th,td{{border:1px solid #bbb;padding:.35rem}}.notice{{background:#fff3cd;padding:1rem;font-weight:bold}}</style></head><body>
-<h1>Inventory calibration human-review bundle</h1><div class=\"notice\">Objective recommendation available; visual review bundle available; human decision pending; promotion not performed.</div>
-<h2>Campaign identity</h2><p><b>{html.escape(campaign.campaign_id)} / {html.escape(campaign.campaign_version)}</b><br>Baseline: {html.escape(campaign.baseline_run_id)} ({html.escape(campaign.baseline_policy_id)}); incumbent: {html.escape(campaign.incumbent_run_id)} ({html.escape(campaign.incumbent_policy_id)})<br>Target: {campaign.target_metric} / {campaign.target_dimension} / {campaign.target_axis}<br>Candidates (canonical order): {', '.join(candidates)}</p>
-<h2>Advisory recommendation</h2><p>{html.escape(str(recommendation.get('recommended_candidate_policy_id')))} — recommended_for_human_review only. Eligible candidates: {int(ranking['eligible'].sum())}.</p>
-<h2>Candidate ranking</h2>{ranking.to_html(index=False, escape=True)}
-<h2>Technical Evidence</h2><p>Explains metric chronology, stability, transition behavior, and why each candidate received its authoritative score.</p>
-<h3>Metric Score Decomposition</h3>{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
-<p><a href="tables/">Technical evidence tables</a> · <a href="figures/">Technical evidence figures</a></p>
-<h2>System Evidence</h2><p>Traces the supplied immutable evidence through Metric → {campaign.target_dimension.title()} dimension → {campaign.target_axis.title()} axis → Coordinates → Regimes.</p>
-<ol>{''.join(system_links)}</ol>
-<h2>Failed gates</h2>{failed_html}
-<h2>Human decision status</h2><p>Pending. The recommendation remains advisory-only and no promotion occurred.</p></body></html>"""
+<style>body{{font:15px system-ui,sans-serif;max-width:1280px;margin:2rem auto;color:#20242a;line-height:1.5}}nav a{{margin-right:1rem}}table{{border-collapse:collapse;font-size:12px;display:block;overflow:auto}}th,td{{border:1px solid #bbb;padding:.35rem}}.notice{{background:#fff3cd;border-left:5px solid #d39e00;padding:1rem;font-weight:bold}}.context{{background:#eef5fb;padding:.8rem}}figure{{margin:1.2rem 0 2rem}}img{{max-width:100%;height:auto;border:1px solid #ccd}}figcaption{{font-size:13px;color:#4b5563}}code{{background:#eee;padding:.1rem .25rem}}</style></head><body>
+<h1>Calibration Review</h1><nav><a href="#summary">Summary</a><a href="#technical">Technical</a><a href="#system">System</a><a href="#supporting">Artifacts</a><a href="#decision">Decision</a></nav>
+<div class=\"notice\">Objective recommendation available; human decision pending; promotion not performed. All figures consume immutable evidence and are advisory-only.</div>
+<h2 id="summary">1. Executive Summary</h2><p><b>{html.escape(campaign.campaign_id)} / {html.escape(campaign.campaign_version)}</b><br>Incumbent: {html.escape(campaign.incumbent_policy_id)}; target chain: <code>{campaign.target_metric}</code> → {campaign.target_dimension.title()} dimension → {campaign.target_axis.title()} axis → coordinates → regimes.<br>Challengers, in canonical order: {', '.join(candidates)}.</p>
+<p>Advisory recommendation: <b>{html.escape(str(recommendation.get('recommended_candidate_policy_id')))}</b> for human review only. Smoothing can overlap at the metric layer yet diverge downstream because persisted metric, dimension, axis, coordinate, and categorical-regime artifacts represent successive engine stages. Similarity is not itself evidence of superiority.</p>
+<h3>Candidate ranking</h3>{ranking.to_html(index=False, escape=True)}
+<h2 id="technical">2. Technical Evidence</h2><p class="context">This section separates the already-produced active-inventory feature chronology from its normalized metric score and from the weighted campaign scoring components. Review suppression and reduction alongside trend-shape preservation and warmup coverage; a smoother line alone is not a decision rule.</p>
+<h3>2.1 Raw Metric Chronology</h3><p>The level feature shows the supplied active-inventory observations after each policy's already-materialized smoothing treatment; values are not normalized metric scores.</p>{raw_panels}
+<h3>2.2 Normalized Metric-Score Chronology</h3><p>The engine-produced <code>metric_score</code> for <code>active_inventory</code>. This is distinct from raw feature values and downstream Supply scores.</p>{normalized_panels or '<p>Normalized metric-score chronology was not supplied in this evidence package.</p>'}
+<h3>2.3 Metric Score Decomposition</h3><p>Stacked bars use the persisted weighted contributions; no metric definition, weight, eligibility rule, score, rank, or recommendation is recalculated. The exact values remain in the table.</p>{decomposition}{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
+<h2 id="system">3. System Evidence</h2><p class="context">Follow each selected geography through Supply dimension → Supply axis → two-dimensional Supply–Demand coordinates → categorical regimes → transition behavior → Supply-axis cancellation.</p>
+<h3>3.1 Supply Dimension Chronology</h3><p>The persisted aggregate Supply dimension score. Higher/lower meaning follows the engine's configured Supply dimension convention.</p>{system_panels('dimension_chronology', 'Supply Dimension Score')}
+<h3>3.2 Supply Axis Chronology</h3><p>The persisted Supply-axis score after configured dimension contributions.</p>{system_panels('axis_chronology', 'Supply Axis Score')}
+<h3>3.3 Supply–Demand Coordinate Trajectory</h3><p>Both <code>x_supply</code> and <code>y_demand</code> are plotted in coordinate space. Up to 36 evenly spaced full-history anchors are selected only for display; start/end markers and zero boundaries expose direction and quadrant placement.</p>{system_panels('coordinate_trajectories', 'Supply–Demand Coordinate Trajectory')}
+<h3>3.4 Regime Chronology</h3><p>Colors encode the persisted categorical <code>major_regime</code>; transition ticks show when the assignment changes. The supporting CSV also preserves <code>minor_regime</code> and <code>quadrant</code>.</p>{system_panels('regime_chronology', 'Assigned Major Regime Over Time')}
+<h3>3.5 Transition Windows</h3><p><b>Selection rule:</b> {html.escape(system_evidence.transition_window_rule)}. The vertical marker is the persisted center date. <b>Selected centers:</b> {html.escape(transition_centers)}. Inspect timing and amplitude differences without treating lag, noise reduction, or smoothness as a promotion judgment.</p>{system_panels('transition_windows', 'Incumbent Supply-Axis Transition Window')}
+<h3>3.6 Cancellation Diagnostics</h3><p><b>Target axis:</b> {html.escape(campaign.target_axis.title())}.<br><b>Contributing components:</b> Supply and Capital Markets dimension contributions to the Supply axis.<br><b>Cancellation measure:</b> <code>1 − abs(axis_score_change_1m) / gross_dimension_contribution_change_1m</code>, where gross is the sum of absolute weighted dimension-contribution changes; clipped to [0, 1] and undefined when gross is zero.<br><b>Positive/negative interpretation:</b> the ratio is non-negative: 0 means no offsetting dimension movement and 1 means complete offsetting. Larger values mean more cancellation; no separate materiality threshold is introduced.</p>{system_panels('cancellation_diagnostics', 'Supply-Axis Contribution Cancellation')}
+<h2 id="supporting">4. Supporting Tables and Artifact Links</h2><ul><li><a href="tables/">Technical evidence and exact decomposition CSVs</a></li>{''.join(f'<li><a href="system_evidence/{s}/{s}.csv">{s.replace("_", " ").title()} CSV</a></li>' for s in SYSTEM_SECTIONS)}<li><a href="metadata/system_evidence_selection.json">Representative-geography and transition selection metadata</a></li><li><a href="manifest.json">Bundle hash manifest</a></li></ul>
+<h3>Failed gates</h3>{failed_html}
+<h2 id="decision">5. Human Decision Status</h2><p>Pending. The recommendation remains advisory-only and no promotion, registry mutation, or human-decision persistence occurred.</p></body></html>"""
     (bundle / "review_summary.html").write_text(page, encoding="utf-8")
     (bundle / "README.md").write_text(
         "# Inventory calibration human-review bundle\n\nOpen `review_summary.html` locally. "
