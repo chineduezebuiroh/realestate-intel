@@ -6,6 +6,7 @@ import copy
 import hashlib
 import runpy
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -19,6 +20,7 @@ from regime.review.calibration.inventory_review_bundle import build_inventory_re
 from regime.review.results import ReviewResult
 from regime.review.calibration.system_evidence import CalibrationSystemEvidence, SYSTEM_SECTIONS
 from regime.review.calibration.system_evidence import NORMALIZED_METRIC_SECTION
+from regime.review.calibration.engine_decomposition import DECOMPOSITION_SECTIONS, EngineDecompositionEvidence
 
 
 def _expect_error(call, error=ValueError):
@@ -57,6 +59,68 @@ def _system_evidence(evidence):
         representative_geography_rule="all fixture counties ordered by geo_id",
         transition_window_rule="largest candidate/incumbent divergence; stable date tie-break")
 
+def _decomposition_evidence(evidence):
+    identity_rows = [{"campaign_id": evidence.campaign.campaign_id,
+                      "campaign_version": evidence.campaign.campaign_version,
+                      "series_id": series_id, "geo_id": "fixture__county"}
+                     for series_id in ("baseline", *evidence.campaign.candidate_policy_ids)]
+    date = pd.Timestamp("2020-01-01")
+    recon = {"reconciliation_status": "reconciled", "reconciliation_pass": True,
+             "reason_code": "none", "reason": "fixture reconciled", "parent_score": .1,
+             "summed_contributions": .1, "absolute_residual": 0., "relative_residual": 0.,
+             "tolerance": 1e-10}
+    availability = {"configured_weight": 1., "available": True,
+                    "availability_reason_code": "available", "availability_reason": "fixture available",
+                    "available_child_count": 1, "available_weight_sum": 1., "effective_weight": 1.,
+                    "weighted_contribution": .1}
+    f2m, m2d, d2a, coverage, summary, coordinates, regimes = [], [], [], [], [], [], []
+    for identity in identity_rows:
+        f2m.append({**identity, "date": date, "canonical_metric_key": "active_inventory",
+                    "feature_key": "redfin_inventory_level", "feature_type": "level",
+                    "feature_score": .1, **{**availability, "configured_weight": .25, "available_weight_sum": .25}, **recon})
+        f2m.append({**identity, "date": date, "canonical_metric_key": "permit_activity",
+                    "feature_key": "bps_total_units_short", "feature_type": "short_term_change",
+                    "feature_score": .1, **{**availability, "configured_weight": .35, "available_weight_sum": .35}, **recon})
+        m2d.append({**identity, "date": date, "dimension": "supply",
+                    "canonical_metric_key": "active_inventory", "metric_score": .1,
+                    **{**availability, "configured_weight": .3334, "available_weight_sum": .3334}, **recon})
+        m2d.append({**identity, "date": date, "dimension": "demand",
+                    "canonical_metric_key": "employment", "metric_score": .1,
+                    **{**availability, "configured_weight": .1667, "available_weight_sum": .1667}, **recon})
+        d2a.append({**identity, "date": date, "axis": "supply", "dimension": "supply",
+                    "dimension_score": .1, **{**availability, "configured_weight": .85, "available_weight_sum": .85}, **recon})
+        d2a.append({**identity, "date": date, "axis": "demand", "dimension": "demand",
+                    "dimension_score": .1, **{**availability, "configured_weight": .65, "available_weight_sum": .65}, **recon})
+        for layer, parent in (("feature_to_metric", "active_inventory"),
+                              ("metric_to_dimension", "supply"), ("dimension_to_axis", "supply")):
+            coverage.append({**identity, "layer": layer, "parent_key": parent,
+                             "expected_child_count": 1, "evaluation_universe_start": date,
+                             "evaluation_universe_end": date, "first_source_observation_date": date,
+                             "first_valid_child_date": date,
+                             "first_valid_parent_date": date, "first_fully_reconciled_date": date,
+                             "source_present_child_unavailable_rows": 0,
+                             "child_available_parent_absent_rows": 0,
+                             "partially_available_parent_date_count": 0,
+                             "one_child_only_parent_date_count": 1,
+                             "zero_available_child_dates": 0,
+                             "zero_available_weight_parent_rows": 0, "warmup_rows": 0,
+                             "fully_reconciled_row_count": 1})
+            summary.append({**identity, "date": date, "layer": layer, "parent_key": parent, **recon})
+        coordinates.append({**identity, "date": date, "supply_axis_score": .1, "x_supply": .1,
+                            "demand_axis_score": .2, "y_demand": .2, "supply_residual": 0.,
+                            "demand_residual": 0., **recon})
+        regimes.append({**identity, "date": date, "major_regime_expected": "expansion",
+                        "major_regime_actual": "expansion", "minor_regime_expected": "mid_expansion",
+                        "minor_regime_actual": "mid_expansion", "quadrant_expected": 1,
+                        "quadrant_actual": 1, **recon})
+    tables = {"feature_to_metric": pd.DataFrame(f2m), "metric_to_dimension": pd.DataFrame(m2d),
+              "dimension_to_axis": pd.DataFrame(d2a), "chronology_coverage": pd.DataFrame(coverage),
+              "reconciliation_summary": pd.DataFrame(summary),
+              "coordinate_reconciliation": pd.DataFrame(coordinates),
+              "regime_reconciliation": pd.DataFrame(regimes)}
+    return EngineDecompositionEvidence(evidence.campaign.campaign_id, evidence.campaign.campaign_version,
+                                       evidence.campaign.candidate_policy_ids, tables)
+
 def main() -> int:
     fixture = runpy.run_path("scripts/smoke_tests/80_89/83_inventory_candidate_scoring.py")
     evidence = fixture["_evidence"]()
@@ -93,6 +157,7 @@ def main() -> int:
     })
     result = score_inventory_candidates(campaign=evidence.campaign, phase_a_evidence=evidence)
     system = _system_evidence(evidence)
+    evidence = replace(evidence, decomposition_evidence=_decomposition_evidence(evidence))
 
     forbidden = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("forbidden upstream call"))
     originals = (upstream.materialize_phase_a_challengers, upstream.run_phase_a_foundation_evidence,
@@ -122,17 +187,38 @@ def main() -> int:
             assert first.manifest["recommendation_status"] == "recommended_for_human_review"
             page = (first.bundle_directory / "review_summary.html").read_text(encoding="utf-8")
             headings = ["1. Executive Summary", "2. Technical Evidence", "2.1 Raw Metric Chronology",
-                        "2.2 Normalized Metric-Score Chronology", "2.3 Metric Score Decomposition",
-                        "3.1 Supply Dimension Chronology", "3.2 Supply Axis Chronology",
-                        "3.3 Supply–Demand Coordinate Trajectory", "3.4 Regime Chronology",
-                        "3.5 Transition Windows", "3.6 Cancellation Diagnostics",
-                        "4. Supporting Tables and Artifact Links", "5. Human Decision Status"]
+                        "2.2 Normalized Metric-Score Chronology", "2.3 Candidate Calibration-Score Decomposition",
+                        "3. Engine Decomposition", "3.1 Active Inventory — Feature-to-Metric",
+                        "3.2 Building Permits (BPS / permit_activity) — Feature-to-Metric", "3.3 Supply — Metric-to-Dimension",
+                        "3.4 Supply Axis — Dimension-to-Axis", "3.5 Coverage and Start-Date Explanation",
+                        "3.6 Reconciliation Summary", "3.7 Additional Supporting Decompositions",
+                        "4.1 Supply Dimension Chronology", "4.2 Supply Axis Chronology",
+                        "4.3 Supply–Demand Coordinate Trajectory", "4.4 Regime Chronology",
+                        "4.5 Transition Windows", "4.6 Cancellation Diagnostics",
+                        "5. Supporting Tables and Artifact Links", "6. Human Decision Status"]
             positions = [page.index(heading) for heading in headings]
             assert positions == sorted(positions)
             assert "x_supply" in page and "y_demand" in page and "major_regime" in page
+            for context in ("Engine Decomposition</a>", system.transition_window_rule,
+                            "Center event:", "full-history anchors", "start/end markers",
+                            "minor_regime", "quadrant", "gross_dimension_contribution_change_1m",
+                            "Interpretation of 0:", "Interpretation of 1:",
+                            "metadata/system_evidence_selection.json", "metadata/source_lineage.json"):
+                assert context in page
             assert "dimension_cancellation_ratio" not in page or "Supply-Axis Contribution Cancellation" in page
             assert "2020-04-01" in page or "Center event" in page
             assert page.count("<img ") >= len(SYSTEM_SECTIONS) + 3
+            expected_parent_figures = (
+                "fixture__county__active_inventory__feature_to_metric.png",
+                "fixture__county__permit_activity__feature_to_metric.png",
+                "fixture__county__supply__metric_to_dimension.png",
+                "fixture__county__demand__metric_to_dimension.png",
+                "fixture__county__supply__dimension_to_axis.png",
+                "fixture__county__demand__dimension_to_axis.png",
+            )
+            for figure in expected_parent_figures:
+                assert figure in page
+                assert any(path.name == figure for path in first.generated_files)
             for geo_id in system.tables[SYSTEM_SECTIONS[0]]["geo_id"].unique():
                 assert str(geo_id) in page
             required_tables = set(result.tables) | set(upstream_name for upstream_name in (

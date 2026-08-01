@@ -32,7 +32,8 @@ def main() -> int:
     fixture = runpy.run_path("scripts/smoke_tests/80_89/85_inventory_review_bundle.py")
     scoring_fixture = runpy.run_path("scripts/smoke_tests/80_89/83_inventory_candidate_scoring.py")
     evidence = scoring_fixture["_evidence"]()
-    evidence = replace(evidence, system_evidence=fixture["_system_evidence"](evidence))
+    evidence = replace(evidence, system_evidence=fixture["_system_evidence"](evidence),
+                       decomposition_evidence=fixture["_decomposition_evidence"](evidence))
     campaign = evidence.campaign
 
     with TemporaryDirectory() as temporary:
@@ -50,6 +51,15 @@ def main() -> int:
             artifact_root=artifact_root, source_run_id=campaign.baseline_run_id,
         )
         original_manifest = manifest_path.read_bytes()
+
+        manifest_payload = json.loads(original_manifest)
+        manifest_payload["files"].append({"kind": "unknown", "name": "intruder", "sha256": "0" * 64})
+        manifest_path.write_text(json.dumps(manifest_payload))
+        _expect_error(lambda: load_phase_a_foundation_evidence(
+            campaign_id=campaign.campaign_id, campaign_version=campaign.campaign_version,
+            artifact_root=artifact_root,
+        ), "Unknown persisted evidence artifact kind")
+        manifest_path.write_bytes(original_manifest)
 
         # A new producer attempt invalidates readiness without destroying the
         # older governed package. Injected staging failures cannot publish.

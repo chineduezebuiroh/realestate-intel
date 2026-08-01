@@ -1439,6 +1439,107 @@ Section 8c campaign infrastructure is complete when:
 The production Inventory policy is not considered calibrated until Phase A and Phase B have been executed on authoritative artifacts, reviewed, approved, documented, and reflected in the appropriate production policy or registry through a separate governed change.
 # Human-review bundle (Phase 8c Slice 4)
 
+## Engine decomposition evidence (PR2A)
+
+Authoritative campaign publication includes an immutable `decomposition/`
+package with `feature_to_metric`, `metric_to_dimension`,
+`dimension_to_axis`, `chronology_coverage`, `reconciliation_summary`,
+`coordinate_reconciliation`, and `regime_reconciliation` Parquet artifacts.
+The contract version is `engine_decomposition_v4`; it is recorded in both the
+evidence manifest and producer completion marker and is required for current
+readiness. Historical packages remain loadable only when their own hashes and
+declared contracts validate.
+
+The three additive layers expose the production scorer formula
+`contribution = score * configured_weight / available_weight_sum`. Missing
+values are excluded exactly where the production scorer excludes them, so the
+remaining configured weights are renormalized into effective weights. The
+strict absolute reconciliation tolerance is `1e-10`. Supply/Demand axis values
+must equal `x_supply`/`y_demand`; regime labels are checked by calling the
+production geometry classifier rather than duplicating its boundaries. Any
+mismatch fails publication closed. Renderers copy and visualize these supplied
+tables and must not recompute an engine stage.
+
+Implementation reuse classification:
+
+* feature-to-metric: light production-safe exposure of `_03_metric_scorer`
+  arithmetic;
+* metric-to-dimension: wraps `_build_dimension_weights` and the persisted
+  aligned-score/dimension-score artifacts;
+* dimension-to-axis: wraps `_build_axis_weights` and the persisted
+  dimension/axis artifacts;
+* axis-to-coordinate: reuses the `_07_coordinate_engine` identity contract;
+* coordinate-to-regime: reuses `assign_geometry` unchanged;
+* cancellation: reuses `build_axis_cancellation_from_frames` unchanged.
+
+Production semantics differ by layer and are preserved explicitly:
+
+* `score_metrics` drops rows whose `feature_score` is missing, rejects missing
+  registry weights, divides by the sum of the remaining positive configured
+  feature weights, permits a one-feature parent, and clips the result to
+  `[-1, 1]`. It carries no freshness field. Expected registry features absent
+  from the score input are retained in decomposition as unavailable warmup or
+  prerequisite rows.
+* `score_dimensions` consumes as-of aligned metric scores, filters the registry
+  to enabled, non-diagnostic, macro metrics, drops missing scores, divides by
+  the remaining configured metric-weight sum, permits a one-metric parent, and
+  clips to `[-1, 1]`. Metric age/freshness remains on the aligned input; the
+  parent records maximum metric age. Zero total weight produces no parent.
+* `score_axes` uses enabled positive axis weights, drops missing dimension
+  scores, divides by the available dimension-weight sum, permits a
+  one-dimension parent, and clips to `[-1, 1]`. Zero total weight produces no
+  parent and maximum upstream age is retained.
+* `build_coordinates` requires both Supply and Demand, maps Supply directly to
+  `x_supply` and Demand directly to `y_demand`, and drops dates missing either
+  axis. `assign_geometry` applies the production major/minor/quadrant boundary
+  functions without additive decomposition.
+
+Every table has a versioned required-column and unique-key schema. Additive
+rows enumerate the configured child universe at each persisted parent/date,
+including unavailable children, their reason, available-child count,
+available-weight sum, and nullable effective weight/contribution. Parent rows
+are never synthesized. Exact duplicate parent rows may collapse only after
+score equality is verified; conflicting duplicates fail closed. Reconciliation
+status is one of `reconciled`, `not_applicable`, `not_reconcilable`, or
+`failed`, with a controlled reason code and human-readable reason.
+
+The governed internal score range is `[-1, 1]` at all three additive layers.
+Configured weights are nonnegative; zero-weight children contribute neither to
+the numerator nor materially to the denominator. Whenever a production parent
+exists its positive available weight is renormalized so effective weights sum
+to one. No transform occurs between weighted aggregation and the defensive
+`clip(-1, 1)` call. Consequently the pre-clip result is a convex combination:
+if every child is in `[-1, 1]`, the aggregate is also in `[-1, 1]`. The clip is
+therefore defensive against numerical drift under current registries, not a
+separate scoring behavior requiring a second decomposition field. Evidence
+validation rejects out-of-range children, negative weights, and invalid
+effective-weight sums.
+
+Coverage uses a layer-specific union of source/child/parent evaluation dates,
+not merely persisted parent dates. It separately records source-before-child,
+child-before-parent, partial-parent, one-child-only, zero-weight, warmup, and
+fully reconciled counts without synthesizing a parent or backfilling a score.
+For Metric → Dimension, persisted `metric_scores.date` establishes metric-score
+existence while `aligned_metric_scores.evaluation_date` independently
+establishes production availability on the dimension chronology; persisted
+alignment lineage remains authoritative and no alternate as-of algorithm is
+introduced. `zero_available_child_dates` counts all evaluation dates with no
+configured child available, whereas `zero_available_weight_parent_rows` counts
+only parent-present dates with zero available configured weight. Configuration
+is timeless, so no fabricated configured-child date is persisted.
+
+All child rows at one parent/date must carry identical parent score,
+contribution sum, residuals, tolerance, status/pass/reason, available-child
+count, and available-weight sum. Coordinate and regime reconciliation require
+exact key-universe equality before values or labels are compared. Review
+timelines use the campaign-governed monthly cadence: a calendar-month gap
+greater than one month starts a new segment, even for a two-observation series.
+
+The governed Building Permits identity chain is source metric
+`bps_total_units`, feature family `bps_total_units_{level,short,long}`, canonical
+metric `permit_activity`, and dimension `supply`. Review headings therefore use
+the explicit label **Building Permits (BPS / permit_activity)**.
+
 The advisory human-review stage occurs after Phase A evidence and deterministic
 candidate scoring, and before any promotion decision. Its only computational
 inputs are a reconciled `CalibrationCampaign`, `PhaseAEvidence`, and
