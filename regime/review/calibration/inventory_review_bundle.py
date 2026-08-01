@@ -29,10 +29,13 @@ from .system_evidence import (
     SYSTEM_SECTIONS,
     validate_system_evidence,
 )
+from .engine_decomposition import (
+    DECOMPOSITION_SECTIONS, EngineDecompositionEvidence, validate_engine_decomposition,
+)
 
 
-BUNDLE_CONTRACT_VERSION = "calibration_review_bundle_v2"
-GENERATOR_VERSION = "3.0"
+BUNDLE_CONTRACT_VERSION = "calibration_review_bundle_v6"
+GENERATOR_VERSION = "7.0"
 EVIDENCE_TABLES = (
     "inventory_campaign_geography_scope",
     "inventory_candidate_feature_coverage",
@@ -112,20 +115,53 @@ def _bars(path: Path, title: str, groups: list[str], series: list[tuple[str, lis
     _save_image(image, path)
 
 
+def _timeline_domain(lines: list[tuple[str, list[object], list[float]]]) -> tuple[pd.Timestamp, pd.Timestamp]:
+    dates = [pd.Timestamp(value) for _, xs, _ in lines for value in xs]
+    if not dates:
+        raise ValueError("Timeline requires at least one timestamp")
+    return min(dates), max(dates)
+
+
+def _timeline_x(value: object, start: pd.Timestamp, end: pd.Timestamp, left: int = 90, right: int = 1170) -> float:
+    span = max((end - start).total_seconds(), 1.0)
+    return left + (pd.Timestamp(value) - start).total_seconds() / span * (right - left)
+
+
+def _monthly_gap(previous: object, current: object) -> bool:
+    """Campaign-governed monthly gap rule; never infer cadence from a series."""
+    previous, current = pd.Timestamp(previous), pd.Timestamp(current)
+    return (current.year * 12 + current.month) - (previous.year * 12 + previous.month) > 1
+
+
 def _lines(path: Path, title: str, lines: list[tuple[str, list[object], list[float]]], ylabel: str) -> None:
     image, draw = _canvas(title)
     colors = ("black", "#4c78a8", "#f58518", "#54a24b", "#e45756")
     left, top, right, bottom = 90, 70, 1170, 510
     draw.line((left, top, left, bottom, right, bottom), fill="black", width=2); draw.text((5, 280), ylabel, fill="black")
     values = [float(v) for _, _, row in lines for v in row if pd.notna(v)]
-    low, high = min(values), max(values); span = high - low or 1.0
+    start_date, end_date = _timeline_domain(lines)
+    low, high = min([0.0, *values]), max([0.0, *values]); span = high - low or 1.0
+    zero_y = bottom - (0.0 - low) / span * (bottom - top)
+    draw.line((left, zero_y, right, zero_y), fill="#999999", width=1)
+    for tick in range(5):
+        fraction = tick / 4
+        tick_date = start_date + (end_date - start_date) * fraction
+        x = left + fraction * (right - left)
+        draw.line((x, bottom, x, bottom + 5), fill="black")
+        draw.text((x - 28, bottom + 9), tick_date.strftime("%Y-%m"), fill="black")
     for index, (label, xs, ys) in enumerate(lines):
-        points = []
-        for pos, value in enumerate(ys):
+        observations = sorted(zip((pd.Timestamp(x) for x in xs), ys), key=lambda item: item[0])
+        segments: list[list[tuple[float, float]]] = [[]]
+        previous = None
+        for date, value in observations:
             if pd.isna(value): continue
-            x = left + pos / max(len(ys) - 1, 1) * (right - left); y = bottom - (float(value) - low) / span * (bottom - top)
-            points.append((x, y))
-        if len(points) > 1: draw.line(points, fill=colors[index % len(colors)], width=3 if index == 0 else 2)
+            if previous is not None and _monthly_gap(previous, date):
+                segments.append([])
+            x = _timeline_x(date, start_date, end_date, left, right); y = bottom - (float(value) - low) / span * (bottom - top)
+            segments[-1].append((x, y)); previous = date
+        for points in segments:
+            if len(points) > 1: draw.line(points, fill=colors[index % len(colors)], width=3 if index == 0 else 2)
+            elif points: draw.ellipse((points[0][0]-2, points[0][1]-2, points[0][0]+2, points[0][1]+2), fill=colors[index % len(colors)])
         draw.text((900, 45 + index * 18), label, fill=colors[index % len(colors)])
     _save_image(image, path)
 
@@ -404,6 +440,7 @@ def build_inventory_review_bundle(
     *, campaign: CalibrationCampaign, phase_a_evidence: PhaseAEvidence,
     scoring_result: InventoryCandidateScoringResult, output_root: str | Path,
     system_evidence: CalibrationSystemEvidence,
+    decomposition_evidence: EngineDecompositionEvidence | None = None,
     scoring_policy: InventoryScoringPolicy | None = None,
     source_lineage: Mapping[str, object] | None = None, overwrite: bool = False,
 ) -> InventoryReviewBundleResult:
@@ -412,6 +449,14 @@ def build_inventory_review_bundle(
     tables = _evidence_tables(phase_a_evidence)
     _validate(campaign, phase_a_evidence, scoring_result, policy, tables)
     validate_system_evidence(system_evidence)
+    decomposition_evidence = decomposition_evidence or phase_a_evidence.decomposition_evidence
+    if decomposition_evidence is None:
+        raise ValueError("Immutable Engine Decomposition evidence is required")
+    validate_engine_decomposition(decomposition_evidence)
+    if (decomposition_evidence.campaign_id, decomposition_evidence.campaign_version,
+            decomposition_evidence.candidate_policy_ids) != (
+            campaign.campaign_id, campaign.campaign_version, campaign.candidate_policy_ids):
+        raise ValueError("Engine Decomposition evidence does not reconcile to the campaign")
     expected_system_identity = (
         system_evidence.campaign_id, system_evidence.campaign_version,
         system_evidence.candidate_policy_ids, system_evidence.incumbent_policy_id,
@@ -439,6 +484,7 @@ def build_inventory_review_bundle(
         "technical_evidence/metric_transition_windows",
         "technical_evidence/statistic_comparisons",
         *(f"system_evidence/{item}" for item in SYSTEM_SECTIONS),
+        *(f"engine_decomposition/{item}" for item in DECOMPOSITION_SECTIONS),
         *(f"figures/{item}" for item in FIGURE_DIRECTORIES),
     ):
         (bundle / name).mkdir(parents=True, exist_ok=True)
@@ -452,6 +498,32 @@ def build_inventory_review_bundle(
     figures = _score_figures(bundle / "figures" / "score_summary", scoring_result, policy, candidates)
     figures += _evidence_figures(bundle / "figures", tables, candidates)
     system_tables = system_evidence.copied_tables()
+    decomposition_tables = decomposition_evidence.copied_tables()
+    decomposition_figures: dict[str, list[Path]] = {name: [] for name in (
+        "feature_to_metric", "metric_to_dimension", "dimension_to_axis")}
+    for section, frame in decomposition_tables.items():
+        frame.to_csv(bundle / "engine_decomposition" / section / f"{section}.csv",
+                     index=False, lineterminator="\n")
+        if section not in decomposition_figures:
+            continue
+        label_column = {"feature_to_metric": "feature_key", "metric_to_dimension": "canonical_metric_key",
+                        "dimension_to_axis": "dimension"}[section]
+        parent_identity_column = {"feature_to_metric": "canonical_metric_key", "metric_to_dimension": "dimension",
+                         "dimension_to_axis": "axis"}[section]
+        for (geo_id, parent_key), geo in frame.groupby(["geo_id", parent_identity_column], sort=True):
+            lines = []
+            for (series_id, label), part in geo.groupby(["series_id", label_column], sort=True):
+                part = part.sort_values("date", kind="mergesort")
+                lines.append((f"{series_id}: {label}", part["date"].tolist(), part["weighted_contribution"].astype(float).tolist()))
+            for series_id, part in geo.groupby("series_id", sort=True):
+                conflicts = part.groupby("date")["parent_score"].nunique(dropna=False)
+                if (conflicts > 1).any():
+                    raise ValueError(f"Conflicting supplied parent scores for {section}/{geo_id}/{parent_key}")
+                parent = part.groupby("date", as_index=False, sort=True)["parent_score"].first()
+                lines.append((f"{series_id}: parent", parent["date"].tolist(), parent["parent_score"].astype(float).tolist()))
+            path = bundle / "engine_decomposition" / section / f"{_slug(geo_id)}__{_slug(parent_key)}__{section}.png"
+            _lines(path, f"{section.replace('_', ' ').title()} — {geo_id} — {parent_key}", lines, "Engine score / weighted contribution")
+            decomposition_figures[section].append(path)
     for section in SYSTEM_SECTIONS:
         frame = system_tables[section].sort_values(
             [c for c in ("geo_id", "series_id", "date", "window_id") if c in system_tables[section]],
@@ -507,14 +579,37 @@ def build_inventory_review_bundle(
             for geo in selected_geographies
         )
     decomposition = image_tag(bundle / "figures/score_summary/weighted_score_decomposition.png",
-                              "Metric Score Decomposition — weighted contributions sum to each candidate total")
+                              "Candidate Calibration-Score Decomposition — weighted contributions sum to each candidate total")
+    def decomposition_panels(section: str, parent: str, heading: str) -> str:
+        selected = [path for path in decomposition_figures[section] if f"__{_slug(parent)}__" in path.name]
+        return (f"<h3>{heading}</h3><p>Each chart has one parent object and sign-preserving child contributions with its persisted parent overlay.</p>" +
+                "".join(image_tag(path, f"{heading} — {path.stem}") for path in selected) +
+                f'<p><a href="engine_decomposition/{section}/{section}.csv">Direct detailed CSV</a></p>')
+    focused = "".join((
+        decomposition_panels("feature_to_metric", "active_inventory", "3.1 Active Inventory — Feature-to-Metric"),
+        decomposition_panels("feature_to_metric", "permit_activity", "3.2 Building Permits (BPS / permit_activity) — Feature-to-Metric"),
+        decomposition_panels("metric_to_dimension", "supply", "3.3 Supply — Metric-to-Dimension"),
+        decomposition_panels("dimension_to_axis", "supply", "3.4 Supply Axis — Dimension-to-Axis"),
+    ))
+    focused_names = {path for section, parent in (("feature_to_metric", "active_inventory"), ("feature_to_metric", "permit_activity"),
+                    ("metric_to_dimension", "supply"), ("dimension_to_axis", "supply"))
+                    for path in decomposition_figures[section] if f"__{_slug(parent)}__" in path.name}
+    supporting = "".join(image_tag(path, f"Additional parent-specific decomposition — {path.stem}")
+                         for paths in decomposition_figures.values() for path in paths if path not in focused_names)
+    reconciliation = decomposition_tables["reconciliation_summary"]
+    recon_summary = reconciliation.groupby(
+        ["layer", "reconciliation_status", "reason_code"], as_index=False, dropna=False
+    ).agg(
+        row_count=("parent_key", "size"),
+        max_reconciled_residual=("absolute_residual", lambda values: values.max(skipna=True)),
+    )
     transition_centers = ", ".join(
         f"{geo}: {pd.Timestamp(part['window_center_date'].iloc[0]).date().isoformat()}"
         for geo, part in system_tables["transition_windows"].groupby("geo_id", sort=True)
     )
     page = f"""<!doctype html><html><head><meta charset=\"utf-8\"><title>Inventory calibration review</title>
 <style>body{{font:15px system-ui,sans-serif;max-width:1280px;margin:2rem auto;color:#20242a;line-height:1.5}}nav a{{margin-right:1rem}}table{{border-collapse:collapse;font-size:12px;display:block;overflow:auto}}th,td{{border:1px solid #bbb;padding:.35rem}}.notice{{background:#fff3cd;border-left:5px solid #d39e00;padding:1rem;font-weight:bold}}.context{{background:#eef5fb;padding:.8rem}}figure{{margin:1.2rem 0 2rem}}img{{max-width:100%;height:auto;border:1px solid #ccd}}figcaption{{font-size:13px;color:#4b5563}}code{{background:#eee;padding:.1rem .25rem}}</style></head><body>
-<h1>Calibration Review</h1><nav><a href="#summary">Summary</a><a href="#technical">Technical</a><a href="#system">System</a><a href="#supporting">Artifacts</a><a href="#decision">Decision</a></nav>
+<h1>Calibration Review</h1><nav><a href="#summary">Summary</a><a href="#technical">Technical</a><a href="#engine">Engine Decomposition</a><a href="#system">System</a><a href="#supporting">Artifacts</a><a href="#decision">Decision</a></nav>
 <div class=\"notice\">Objective recommendation available; human decision pending; promotion not performed. All figures consume immutable evidence and are advisory-only.</div>
 <h2 id="summary">1. Executive Summary</h2><p><b>{html.escape(campaign.campaign_id)} / {html.escape(campaign.campaign_version)}</b><br>Incumbent: {html.escape(campaign.incumbent_policy_id)}; target chain: <code>{campaign.target_metric}</code> → {campaign.target_dimension.title()} dimension → {campaign.target_axis.title()} axis → coordinates → regimes.<br>Challengers, in canonical order: {', '.join(candidates)}.</p>
 <p>Advisory recommendation: <b>{html.escape(str(recommendation.get('recommended_candidate_policy_id')))}</b> for human review only. Smoothing can overlap at the metric layer yet diverge downstream because persisted metric, dimension, axis, coordinate, and categorical-regime artifacts represent successive engine stages. Similarity is not itself evidence of superiority.</p>
@@ -522,17 +617,21 @@ def build_inventory_review_bundle(
 <h2 id="technical">2. Technical Evidence</h2><p class="context">This section separates the already-produced active-inventory feature chronology from its normalized metric score and from the weighted campaign scoring components. Review suppression and reduction alongside trend-shape preservation and warmup coverage; a smoother line alone is not a decision rule.</p>
 <h3>2.1 Raw Metric Chronology</h3><p>The level feature shows the supplied active-inventory observations after each policy's already-materialized smoothing treatment; values are not normalized metric scores.</p>{raw_panels}
 <h3>2.2 Normalized Metric-Score Chronology</h3><p>The engine-produced <code>metric_score</code> for <code>active_inventory</code>. This is distinct from raw feature values and downstream Supply scores.</p>{normalized_panels or '<p>Normalized metric-score chronology was not supplied in this evidence package.</p>'}
-<h3>2.3 Metric Score Decomposition</h3><p>Stacked bars use the persisted weighted contributions; no metric definition, weight, eligibility rule, score, rank, or recommendation is recalculated. The exact values remain in the table.</p>{decomposition}{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
-<h2 id="system">3. System Evidence</h2><p class="context">Follow each selected geography through Supply dimension → Supply axis → two-dimensional Supply–Demand coordinates → categorical regimes → transition behavior → Supply-axis cancellation.</p>
-<h3>3.1 Supply Dimension Chronology</h3><p>The persisted aggregate Supply dimension score. Higher/lower meaning follows the engine's configured Supply dimension convention.</p>{system_panels('dimension_chronology', 'Supply Dimension Score')}
-<h3>3.2 Supply Axis Chronology</h3><p>The persisted Supply-axis score after configured dimension contributions.</p>{system_panels('axis_chronology', 'Supply Axis Score')}
-<h3>3.3 Supply–Demand Coordinate Trajectory</h3><p>Both <code>x_supply</code> and <code>y_demand</code> are plotted in coordinate space. Up to 36 evenly spaced full-history anchors are selected only for display; start/end markers and zero boundaries expose direction and quadrant placement.</p>{system_panels('coordinate_trajectories', 'Supply–Demand Coordinate Trajectory')}
-<h3>3.4 Regime Chronology</h3><p>Colors encode the persisted categorical <code>major_regime</code>; transition ticks show when the assignment changes. The supporting CSV also preserves <code>minor_regime</code> and <code>quadrant</code>.</p>{system_panels('regime_chronology', 'Assigned Major Regime Over Time')}
-<h3>3.5 Transition Windows</h3><p><b>Selection rule:</b> {html.escape(system_evidence.transition_window_rule)}. The vertical marker is the persisted center date. <b>Selected centers:</b> {html.escape(transition_centers)}. Inspect timing and amplitude differences without treating lag, noise reduction, or smoothness as a promotion judgment.</p>{system_panels('transition_windows', 'Incumbent Supply-Axis Transition Window')}
-<h3>3.6 Cancellation Diagnostics</h3><p><b>Target axis:</b> {html.escape(campaign.target_axis.title())}.<br><b>Contributing components:</b> Supply and Capital Markets dimension contributions to the Supply axis.<br><b>Cancellation measure:</b> <code>1 − abs(axis_score_change_1m) / gross_dimension_contribution_change_1m</code>, where gross is the sum of absolute weighted dimension-contribution changes; clipped to [0, 1] and undefined when gross is zero.<br><b>Positive/negative interpretation:</b> the ratio is non-negative: 0 means no offsetting dimension movement and 1 means complete offsetting. Larger values mean more cancellation; no separate materiality threshold is introduced.</p>{system_panels('cancellation_diagnostics', 'Supply-Axis Contribution Cancellation')}
-<h2 id="supporting">4. Supporting Tables and Artifact Links</h2><ul><li><a href="tables/">Technical evidence and exact decomposition CSVs</a></li>{''.join(f'<li><a href="system_evidence/{s}/{s}.csv">{s.replace("_", " ").title()} CSV</a></li>' for s in SYSTEM_SECTIONS)}<li><a href="metadata/system_evidence_selection.json">Representative-geography and transition selection metadata</a></li><li><a href="manifest.json">Bundle hash manifest</a></li></ul>
+<h3>2.3 Candidate Calibration-Score Decomposition</h3><p>Stacked bars use the persisted weighted contributions; no engine contribution is recalculated.</p>{decomposition}{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
+<h2 id="engine">3. Engine Decomposition</h2>{focused}
+<h3>3.5 Coverage and Start-Date Explanation</h3>{decomposition_tables['chronology_coverage'].to_html(index=False, escape=True)}
+<h3>3.6 Reconciliation Summary</h3>{recon_summary.to_html(index=False, escape=True)}<p><a href="engine_decomposition/reconciliation_summary/reconciliation_summary.csv">Detailed reconciliation evidence</a></p>
+<h3>3.7 Additional Supporting Decompositions</h3>{supporting or '<p>No additional parent objects.</p>'}
+<h2 id="system">4. System Evidence</h2><p class="context">Follow each selected geography through Supply dimension → Supply axis → coordinates → regimes → transitions → cancellation.</p>
+<h3>4.1 Supply Dimension Chronology</h3>{system_panels('dimension_chronology', 'Supply Dimension Score')}
+<h3>4.2 Supply Axis Chronology</h3>{system_panels('axis_chronology', 'Supply Axis Score')}
+<h3>4.3 Supply–Demand Coordinate Trajectory</h3><p>The supplied coordinate evidence plots <code>x_supply</code> horizontally and <code>y_demand</code> vertically. Up to 36 evenly spaced full-history anchors are selected only for display; start/end markers preserve direction and zero lines expose quadrant boundaries. Coordinates are copied from immutable engine artifacts and are not recomputed by this renderer.</p>{system_panels('coordinate_trajectories', 'Supply–Demand Coordinate Trajectory')}
+<h3>4.4 Regime Chronology</h3><p>Colors identify the persisted categorical <code>major_regime</code>; transition markers show dates where that identity changes. The exact CSV retains <code>minor_regime</code> and <code>quadrant</code> for every observation. No categorical assignment is recomputed while rendering.</p>{system_panels('regime_chronology', 'Assigned Major Regime Over Time')}
+<h3>4.5 Transition Windows</h3><p><b>Persisted selection rule:</b> {html.escape(system_evidence.transition_window_rule)}.<br><b>Center event:</b> the largest absolute month-over-month incumbent Supply-axis change for each selected geography.<br><b>Selected center dates:</b> {html.escape(transition_centers)}.<br><b>Context width:</b> up to three persisted observations on each side of the center. Review timing, amplitude, lag, and shape; this visualization does not issue a promotion judgment.</p>{system_panels('transition_windows', 'Incumbent Supply-Axis Transition Window')}
+<h3>4.6 Cancellation Diagnostics</h3><p><b>Target axis:</b> {html.escape(campaign.target_axis.title())}.<br><b>Contributing dimensions:</b> Supply and Capital Markets.<br><b>Cancellation measure:</b> <code>1 − abs(axis_score_change_1m) / gross_dimension_contribution_change_1m</code>.<br><b>Gross contribution change:</b> sum of the absolute weighted dimension-contribution changes.<br><b>Range:</b> [0, 1], undefined when gross contribution change is zero.<br><b>Interpretation of 0:</b> no offsetting dimension movement.<br><b>Interpretation of 1:</b> complete offsetting dimension movement. No new materiality threshold is introduced.</p>{system_panels('cancellation_diagnostics', 'Supply-Axis Contribution Cancellation')}
+<h2 id="supporting">5. Supporting Tables and Artifact Links</h2><ul><li><a href="tables/">Exact Technical Evidence CSVs</a></li><li><a href="engine_decomposition/">Exact Engine Decomposition evidence</a></li>{''.join(f'<li><a href="system_evidence/{s}/{s}.csv">{s.replace("_", " ").title()} CSV</a></li>' for s in SYSTEM_SECTIONS)}<li><a href="metadata/system_evidence_selection.json">System-evidence selection metadata</a></li><li><a href="metadata/source_lineage.json">Source lineage</a></li><li><a href="manifest.json">Bundle hash manifest</a></li></ul>
 <h3>Failed gates</h3>{failed_html}
-<h2 id="decision">5. Human Decision Status</h2><p>Pending. The recommendation remains advisory-only and no promotion, registry mutation, or human-decision persistence occurred.</p></body></html>"""
+<h2 id="decision">6. Human Decision Status</h2><p>Pending. The recommendation remains advisory-only and no promotion occurred.</p></body></html>"""
     (bundle / "review_summary.html").write_text(page, encoding="utf-8")
     (bundle / "README.md").write_text(
         "# Inventory calibration human-review bundle\n\nOpen `review_summary.html` locally. "
@@ -548,7 +647,7 @@ def build_inventory_review_bundle(
         "baseline_run_id": campaign.baseline_run_id, "incumbent_run_id": campaign.incumbent_run_id,
         "baseline_policy_id": campaign.baseline_policy_id, "incumbent_policy_id": campaign.incumbent_policy_id,
         "candidate_policy_ids": list(candidates),
-        "review_sections": {"technical_evidence": True, "system_evidence": list(SYSTEM_SECTIONS)},
+        "review_sections": {"technical_evidence": True, "engine_decomposition": list(DECOMPOSITION_SECTIONS), "system_evidence": list(SYSTEM_SECTIONS)},
         "system_evidence_selection": selection,
         "regime_scope": campaign.metadata.get("geography_scope", {}).get("regime_scope", "macro"),
         "included_geo_levels": campaign.metadata.get("geography_scope", {}).get("included_geo_levels", list(campaign.allowed_geo_levels)),

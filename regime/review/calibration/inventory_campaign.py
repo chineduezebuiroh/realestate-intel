@@ -50,7 +50,7 @@ FEATURE_KEYS_COLUMNS = ["geo_id", "date", "canonical_metric_key", "feature_key"]
 AUTHORITATIVE_RUN_ID = "macro_regime_v1_bps120_sources"
 EVIDENCE_CONTRACT_VERSION = "inventory_phase_a_evidence_v2"
 AUTHORITATIVE_PRODUCER_ID = "inventory_phase_a_authoritative_smoke"
-AUTHORITATIVE_PRODUCER_CODE_IDENTITY = "inventory_phase_a_authoritative_producer_v2"
+AUTHORITATIVE_PRODUCER_CODE_IDENTITY = "inventory_phase_a_authoritative_producer_v6"
 COMPLETION_MARKER = "producer_completion.json"
 GEO_METADATA_SOURCE = "config/geo_manifest.generated.csv (geo_slug/level)"
 GEO_IDENTITY_CROSSWALK = "config/inventory_phase8c_geo_identity_crosswalk.csv"
@@ -74,6 +74,7 @@ class PhaseAEvidence:
     evidence_results: Mapping[str, ReviewResult]
     review_bundle: ReviewBundle
     system_evidence: Any | None = None
+    decomposition_evidence: Any | None = None
 
 
 def _validated_frame(
@@ -106,7 +107,7 @@ def _load_authoritative_baseline(
         "source_metrics": run_dir / "source_metrics.parquet",
         "manifest": run_dir / "manifest.json",
         **({name: run_dir / f"{name}.parquet" for name in (
-            "aligned_metric_scores", "dimension_scores", "axis_scores",
+            "normalized_features", "metric_scores", "aligned_metric_scores", "dimension_scores", "axis_scores",
             "coordinates", "regime_assignments",
         )} if include_system else {}),
     }
@@ -932,11 +933,21 @@ def run_phase_a_foundation_evidence(
     system_evidence = None
     if persist_system_evidence:
         from .system_evidence import assemble_inventory_system_evidence
+        from .engine_decomposition import build_engine_decomposition
         system_evidence = assemble_inventory_system_evidence(
             campaign=campaign, baseline_artifacts=baseline.system_artifacts,
             candidate_artifacts={key: value.as_mapping() for key, value in challengers.items()},
         )
-    result = PhaseAEvidence(campaign, challengers, evidence, bundle, system_evidence)
+        selected = sorted(set(system_evidence.tables["dimension_chronology"]["geo_id"].astype(str)))
+        decomposition_evidence = build_engine_decomposition(
+            campaign=campaign,
+            series_artifacts={"baseline": baseline.system_artifacts,
+                              **{key: value.as_mapping() for key, value in challengers.items()}},
+            selected_geographies=selected,
+        )
+    else:
+        decomposition_evidence = None
+    result = PhaseAEvidence(campaign, challengers, evidence, bundle, system_evidence, decomposition_evidence)
     if persist_system_evidence:
         persist_phase_a_foundation_evidence(result, Path(artifact_root) / "calibration_campaigns")
     return result
@@ -962,19 +973,24 @@ def persist_phase_a_foundation_evidence(
     from .system_evidence import (
         CalibrationSystemEvidence, SYSTEM_EVIDENCE_CONTRACT_VERSION, validate_system_evidence,
     )
+    from .engine_decomposition import DECOMPOSITION_CONTRACT_VERSION, validate_engine_decomposition
 
     if evidence.system_evidence is None:
         raise ValueError("Complete System Evidence is required for persistence")
     validate_system_evidence(evidence.system_evidence)
+    if evidence.decomposition_evidence is None:
+        raise ValueError("Complete Engine Decomposition evidence is required for persistence")
+    validate_engine_decomposition(evidence.decomposition_evidence)
     phase_tables = _all_evidence_tables(evidence)
     directory = Path(root) / evidence.campaign.campaign_id / evidence.campaign.campaign_version
     directory.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{directory.name}.staging-", dir=directory.parent))
     backup = directory.parent / f".{directory.name}.previous"
     try:
-        (staging / "phase_a").mkdir(); (staging / "system").mkdir()
+        (staging / "phase_a").mkdir(); (staging / "system").mkdir(); (staging / "decomposition").mkdir()
         records = []
-        for kind, supplied in (("phase_a", phase_tables), ("system", evidence.system_evidence.tables)):
+        for kind, supplied in (("phase_a", phase_tables), ("system", evidence.system_evidence.tables),
+                               ("decomposition", evidence.decomposition_evidence.tables)):
             for name, frame in sorted(supplied.items()):
                 path = staging / kind / f"{name}.parquet"; frame.to_parquet(path, index=False)
                 records.append({"kind": kind, "name": name, "sha256": _file_sha256(path)})
@@ -984,6 +1000,7 @@ def persist_phase_a_foundation_evidence(
         metadata = {
             "evidence_contract_version": EVIDENCE_CONTRACT_VERSION,
             "system_evidence_contract_version": SYSTEM_EVIDENCE_CONTRACT_VERSION,
+            "decomposition_contract_version": DECOMPOSITION_CONTRACT_VERSION,
             "campaign": evidence.campaign.to_dict(), "files": records,
             "representative_geography_rule": evidence.system_evidence.representative_geography_rule,
             "transition_window_rule": evidence.system_evidence.transition_window_rule,
@@ -1017,6 +1034,15 @@ def persist_phase_a_foundation_evidence(
             representative_geography_rule=evidence.system_evidence.representative_geography_rule,
             transition_window_rule=evidence.system_evidence.transition_window_rule,
         ))
+        from .engine_decomposition import EngineDecompositionEvidence
+        staged_decomposition = {
+            record["name"]: pd.read_parquet(staging / "decomposition" / f"{record['name']}.parquet")
+            for record in records if record["kind"] == "decomposition"
+        }
+        validate_engine_decomposition(EngineDecompositionEvidence(
+            evidence.campaign.campaign_id, evidence.campaign.campaign_version,
+            evidence.campaign.candidate_policy_ids, staged_decomposition,
+        ))
         if backup.exists(): shutil.rmtree(backup)
         if directory.exists(): os.replace(directory, backup)
         try:
@@ -1031,6 +1057,7 @@ def persist_phase_a_foundation_evidence(
             "evidence_manifest_sha256": _file_sha256(directory / "evidence_manifest.json"),
             "evidence_contract_version": EVIDENCE_CONTRACT_VERSION,
             "system_evidence_contract_version": SYSTEM_EVIDENCE_CONTRACT_VERSION,
+            "decomposition_contract_version": DECOMPOSITION_CONTRACT_VERSION,
             "producer_id": AUTHORITATIVE_PRODUCER_ID,
             "producer_code_identity": AUTHORITATIVE_PRODUCER_CODE_IDENTITY,
             "source_run_id": evidence.campaign.baseline_run_id,
@@ -1060,18 +1087,30 @@ def load_phase_a_foundation_evidence(
 ) -> PhaseAEvidence:
     """Load and hash-verify renderer-ready immutable authoritative evidence."""
     from .system_evidence import CalibrationSystemEvidence, validate_system_evidence
+    from .engine_decomposition import EngineDecompositionEvidence, validate_engine_decomposition
     directory = Path(artifact_root) / "calibration_campaigns" / campaign_id / campaign_version
     manifest_path = directory / "evidence_manifest.json"
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Persisted Phase A evidence is missing: {manifest_path}")
     metadata = json.loads(manifest_path.read_text())
     campaign = CalibrationCampaign(**metadata["campaign"])
-    phase_tables, system_tables = {}, {}
+    phase_tables, system_tables, decomposition_tables = {}, {}, {}
+    destinations = {"phase_a": phase_tables, "system": system_tables,
+                    "decomposition": decomposition_tables}
+    seen: set[tuple[str, str]] = set()
     for record in metadata["files"]:
+        kind, name = record.get("kind"), record.get("name")
+        if kind not in destinations:
+            raise ValueError(f"Unknown persisted evidence artifact kind: {kind!r}")
+        if (kind, name) in seen:
+            raise ValueError(f"Duplicate persisted evidence artifact: {kind}/{name}")
+        seen.add((kind, name))
         path = directory / record["kind"] / f"{record['name']}.parquet"
+        if not path.is_file():
+            raise ValueError(f"Persisted evidence file is missing: {path}")
         if _file_sha256(path) != record["sha256"]:
             raise ValueError(f"Persisted evidence hash mismatch: {path}")
-        (phase_tables if record["kind"] == "phase_a" else system_tables)[record["name"]] = pd.read_parquet(path)
+        destinations[kind][name] = pd.read_parquet(path)
     result = ReviewResult(tables=phase_tables)
     system = CalibrationSystemEvidence(
         campaign_id=campaign.campaign_id, campaign_version=campaign.campaign_version,
@@ -1082,8 +1121,12 @@ def load_phase_a_foundation_evidence(
         transition_window_rule=metadata["transition_window_rule"],
     )
     validate_system_evidence(system)
+    decomposition = EngineDecompositionEvidence(campaign.campaign_id, campaign.campaign_version,
+                                                campaign.candidate_policy_ids, decomposition_tables)
+    validate_engine_decomposition(decomposition)
     return PhaseAEvidence(campaign, {}, {"persisted_authoritative": result},
-                          assemble_review_results(campaign.campaign_id, {"persisted_authoritative": result}), system)
+                          assemble_review_results(campaign.campaign_id, {"persisted_authoritative": result}), system,
+                          decomposition)
 
 
 def validate_current_authoritative_evidence(
@@ -1092,6 +1135,7 @@ def validate_current_authoritative_evidence(
 ) -> PhaseAEvidence:
     """Fail closed unless historical evidence has current-producer certification."""
     from .system_evidence import SYSTEM_EVIDENCE_CONTRACT_VERSION
+    from .engine_decomposition import DECOMPOSITION_CONTRACT_VERSION
     directory = evidence_directory(artifact_root, campaign_id, campaign_version)
     if not directory.is_dir(): raise FileNotFoundError(f"persisted evidence absent: {directory}")
     manifest = directory / "evidence_manifest.json"
@@ -1103,7 +1147,7 @@ def validate_current_authoritative_evidence(
         raise ValueError("producer identity stale: campaign identity mismatch")
     if marker.get("producer_id") != AUTHORITATIVE_PRODUCER_ID or marker.get("producer_code_identity") != AUTHORITATIVE_PRODUCER_CODE_IDENTITY:
         raise ValueError("producer identity stale")
-    if marker.get("evidence_contract_version") != EVIDENCE_CONTRACT_VERSION or marker.get("system_evidence_contract_version") != SYSTEM_EVIDENCE_CONTRACT_VERSION:
+    if marker.get("evidence_contract_version") != EVIDENCE_CONTRACT_VERSION or marker.get("system_evidence_contract_version") != SYSTEM_EVIDENCE_CONTRACT_VERSION or marker.get("decomposition_contract_version") != DECOMPOSITION_CONTRACT_VERSION:
         raise ValueError("contract-version mismatch")
     if marker.get("source_run_id") != source_run_id:
         raise ValueError("source-run mismatch")
@@ -1127,7 +1171,7 @@ def validate_current_authoritative_evidence(
     evidence = load_phase_a_foundation_evidence(
         campaign_id=campaign_id, campaign_version=campaign_version, artifact_root=artifact_root,
     )
-    if metadata.get("evidence_contract_version") != EVIDENCE_CONTRACT_VERSION or metadata.get("system_evidence_contract_version") != SYSTEM_EVIDENCE_CONTRACT_VERSION:
+    if metadata.get("evidence_contract_version") != EVIDENCE_CONTRACT_VERSION or metadata.get("system_evidence_contract_version") != SYSTEM_EVIDENCE_CONTRACT_VERSION or metadata.get("decomposition_contract_version") != DECOMPOSITION_CONTRACT_VERSION:
         raise ValueError("contract-version mismatch")
     if metadata.get("source_run_id") != source_run_id:
         raise ValueError("source-run mismatch")
