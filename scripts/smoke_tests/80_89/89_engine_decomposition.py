@@ -154,8 +154,22 @@ def main() -> int:
     bad_coordinates = coordinates.copy(); bad_coordinates.loc[0, "x_supply"] = .21
     assert _coordinate_reconciliation(both_axes, bad_coordinates).iloc[0].reconciliation_status == "failed"
     error(lambda: _coordinate_reconciliation(both_axes, coordinates.iloc[0:0]), "key-universe mismatch")
-    extra_coordinates = pd.concat([coordinates, coordinates.assign(date=date + pd.offsets.MonthBegin(1))])
-    error(lambda: _coordinate_reconciliation(both_axes, extra_coordinates), "key-universe mismatch")
+    extra_coordinate = coordinates.copy(deep=True)
+    extra_coordinate["date"] = (
+        pd.to_datetime(extra_coordinate["date"])
+        + pd.offsets.MonthBegin(1)
+    )
+    extra_coordinates = pd.concat(
+        [coordinates.copy(deep=True), extra_coordinate],
+        ignore_index=True,
+    )
+    error(
+        lambda: _coordinate_reconciliation(
+            both_axes,
+            extra_coordinates,
+        ),
+        "key-universe mismatch",
+    )
     regimes = assign_regimes(assign_geometry(coordinates))
     regime_check = _regime_reconciliation(coordinates, regimes)
     assert regime_check.iloc[0].reconciliation_pass
@@ -165,8 +179,22 @@ def main() -> int:
     bad_regimes = regimes.copy(); bad_regimes.loc[0, "major_regime"] = "wrong"
     assert _regime_reconciliation(coordinates, bad_regimes).iloc[0].reconciliation_status == "failed"
     error(lambda: _regime_reconciliation(coordinates, regimes.iloc[0:0]), "key-universe mismatch")
-    extra_regimes = pd.concat([regimes, regimes.assign(date=date + pd.offsets.MonthBegin(1))])
-    error(lambda: _regime_reconciliation(coordinates, extra_regimes), "key-universe mismatch")
+    extra_regime = regimes.copy(deep=True)
+    extra_regime["date"] = (
+        pd.to_datetime(extra_regime["date"])
+        + pd.offsets.MonthBegin(1)
+    )
+    extra_regimes = pd.concat(
+        [regimes.copy(deep=True), extra_regime],
+        ignore_index=True,
+    )
+    error(
+        lambda: _regime_reconciliation(
+            coordinates,
+            extra_regimes,
+        ),
+        "key-universe mismatch",
+    )
     bps = _feature_registry().query("feature_key.str.startswith('bps_total_units')", engine="python")
     assert set(bps.canonical_metric_key) == {"permit_activity"}
 
