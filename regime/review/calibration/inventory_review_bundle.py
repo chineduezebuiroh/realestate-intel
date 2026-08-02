@@ -585,14 +585,19 @@ def build_inventory_review_bundle(
         return (f"<h3>{heading}</h3><p>Each chart has one parent object and sign-preserving child contributions with its persisted parent overlay.</p>" +
                 "".join(image_tag(path, f"{heading} — {path.stem}") for path in selected) +
                 f'<p><a href="engine_decomposition/{section}/{section}.csv">Direct detailed CSV</a></p>')
+    primary_axis_panels = "".join(
+        decomposition_panels("dimension_to_axis", axis, f"3.4 {axis.title()} Axis — Dimension-to-Axis")
+        for axis in campaign.primary_decomposition_axes
+    )
     focused = "".join((
         decomposition_panels("feature_to_metric", "active_inventory", "3.1 Active Inventory — Feature-to-Metric"),
         decomposition_panels("feature_to_metric", "permit_activity", "3.2 Building Permits (BPS / permit_activity) — Feature-to-Metric"),
         decomposition_panels("metric_to_dimension", "supply", "3.3 Supply — Metric-to-Dimension"),
-        decomposition_panels("dimension_to_axis", "supply", "3.4 Supply Axis — Dimension-to-Axis"),
+        primary_axis_panels,
     ))
     focused_names = {path for section, parent in (("feature_to_metric", "active_inventory"), ("feature_to_metric", "permit_activity"),
-                    ("metric_to_dimension", "supply"), ("dimension_to_axis", "supply"))
+                    ("metric_to_dimension", "supply"),
+                    *( ("dimension_to_axis", axis) for axis in campaign.primary_decomposition_axes ))
                     for path in decomposition_figures[section] if f"__{_slug(parent)}__" in path.name}
     supporting = "".join(image_tag(path, f"Additional parent-specific decomposition — {path.stem}")
                          for paths in decomposition_figures.values() for path in paths if path not in focused_names)
@@ -618,7 +623,8 @@ def build_inventory_review_bundle(
 <h3>2.1 Raw Metric Chronology</h3><p>The level feature shows the supplied active-inventory observations after each policy's already-materialized smoothing treatment; values are not normalized metric scores.</p>{raw_panels}
 <h3>2.2 Normalized Metric-Score Chronology</h3><p>The engine-produced <code>metric_score</code> for <code>active_inventory</code>. This is distinct from raw feature values and downstream Supply scores.</p>{normalized_panels or '<p>Normalized metric-score chronology was not supplied in this evidence package.</p>'}
 <h3>2.3 Candidate Calibration-Score Decomposition</h3><p>Stacked bars use the persisted weighted contributions; no engine contribution is recalculated.</p>{decomposition}{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
-<h2 id="engine">3. Engine Decomposition</h2>{focused}
+<h2 id="engine">3. Engine Decomposition</h2>
+<h3>Axis Scope</h3><p>Strict decomposition: {', '.join(axis.title() + ' axis' for axis in campaign.primary_decomposition_axes)}.<br>Supporting coordinate/regime axes: {', '.join(axis.title() + ' axis' for axis in campaign.supporting_coordinate_axes)}.</p>{decomposition_tables['axis_scope_lineage'].to_html(index=False, escape=True)}{focused}
 <h3>3.5 Coverage and Start-Date Explanation</h3>{decomposition_tables['chronology_coverage'].to_html(index=False, escape=True)}
 <h3>3.6 Reconciliation Summary</h3>{recon_summary.to_html(index=False, escape=True)}<p><a href="engine_decomposition/reconciliation_summary/reconciliation_summary.csv">Detailed reconciliation evidence</a></p>
 <h3>3.7 Additional Supporting Decompositions</h3>{supporting or '<p>No additional parent objects.</p>'}

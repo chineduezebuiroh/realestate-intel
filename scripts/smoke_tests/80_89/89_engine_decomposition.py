@@ -4,6 +4,7 @@ import copy
 import hashlib
 import math
 import runpy
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import pandas as pd
@@ -201,6 +202,17 @@ def main() -> int:
     fixture = runpy.run_path("scripts/smoke_tests/80_89/85_inventory_review_bundle.py")
     scoring = runpy.run_path("scripts/smoke_tests/80_89/83_inventory_candidate_scoring.py")
     evidence = scoring["_evidence"](); contract = fixture["_decomposition_evidence"](evidence)
+    campaign = evidence.campaign
+    assert campaign.primary_decomposition_axes == ("supply",)
+    assert campaign.supporting_coordinate_axes == ("demand", "supply")
+    demand_campaign = replace(campaign, primary_decomposition_axes=("demand",),
+                              supporting_coordinate_axes=("supply", "demand"))
+    assert demand_campaign.primary_decomposition_axes == ("demand",)
+    assert demand_campaign.supporting_coordinate_axes == ("demand", "supply")
+    error(lambda: replace(campaign, primary_decomposition_axes=("demand",),
+                          supporting_coordinate_axes=("supply",)), "subset")
+    error(lambda: replace(campaign, primary_decomposition_axes=("invented",)), "unknown axes")
+    error(lambda: replace(campaign, primary_decomposition_axes=("supply", "supply")), "duplicate axes")
     validate_engine_decomposition(contract)
     multi = copy.deepcopy(contract)
     sibling = multi.tables["feature_to_metric"].iloc[[0]].copy()

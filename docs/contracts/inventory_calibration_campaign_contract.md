@@ -1444,8 +1444,8 @@ The production Inventory policy is not considered calibrated until Phase A and P
 Authoritative campaign publication includes an immutable `decomposition/`
 package with `feature_to_metric`, `metric_to_dimension`,
 `dimension_to_axis`, `chronology_coverage`, `reconciliation_summary`,
-`coordinate_reconciliation`, and `regime_reconciliation` Parquet artifacts.
-The contract version is `engine_decomposition_v4`; it is recorded in both the
+`coordinate_reconciliation`, `regime_reconciliation`, and `axis_scope_lineage`
+Parquet artifacts. The contract version is `engine_decomposition_v5`; it is recorded in both the
 evidence manifest and producer completion marker and is required for current
 readiness. Historical packages remain loadable only when their own hashes and
 declared contracts validate.
@@ -1562,6 +1562,19 @@ volatility, sign flips, and trend preservation. `manifest.json` records sorted
 relative paths, sizes, SHA256 hashes (excluding the self-referential manifest and
 ZIP), identity, lineage, and explicit no-recomputation/no-promotion flags. ZIP
 entry timestamps are fixed.
+
+The typed campaign axis scope declares `primary_decomposition_axes=("supply",)`
+and `supporting_coordinate_axes=("supply", "demand")`. Dimension-to-axis evidence
+is restricted to primary axes and the already-resolved campaign geography
+universe; coordinate and regime checks still require both supporting axes.
+`axis_scope_lineage` records each registry axis, its controlled scope role, strict
+and supporting requirements, reason, and registry presence. Demand is a supporting
+coordinate axis and is not contribution-decomposed in this campaign. Demand-axis
+strict decomposition is deferred until a Demand-focused campaign or until
+authoritative Demand-axis provenance is reconciled. The observed historical county
+and CBSA mismatch is retained as a likely configuration/provenance mismatch, and a
+future Demand-primary campaign fails closed unless its producing configuration
+reconciles.
 
 Run authoritative production and export as one fail-fast sequence:
 

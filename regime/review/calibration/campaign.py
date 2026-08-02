@@ -4,6 +4,8 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping
 
+from regime._06_axis_engine import _build_axis_weights
+
 
 SUPPORTED_CAMPAIGN_PHASES = frozenset({"phase_a", "phase_b"})
 
@@ -46,6 +48,8 @@ class CalibrationCampaign:
     target_metric: str
     target_dimension: str
     target_axis: str
+    primary_decomposition_axes: tuple[str, ...] = ("supply",)
+    supporting_coordinate_axes: tuple[str, ...] = ("supply", "demand")
     allowed_geo_levels: tuple[str, ...] = ("county",)
     manual_geo_ids: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -80,6 +84,22 @@ class CalibrationCampaign:
             if actual != expected_value:
                 raise ValueError(f"{name} must be {expected_value!r}; received {actual!r}")
             object.__setattr__(self, name, actual)
+
+        registry_axes = set(_build_axis_weights()["axis"].astype(str))
+        governed_axes = {}
+        for name in ("primary_decomposition_axes", "supporting_coordinate_axes"):
+            supplied = tuple(_text(value, name).lower() for value in getattr(self, name))
+            if not supplied or len(supplied) != len(set(supplied)):
+                raise ValueError(f"{name} must be non-empty and contain no duplicate axes")
+            unknown = set(supplied).difference(registry_axes)
+            if unknown:
+                raise ValueError(f"{name} contains unknown axes: {sorted(unknown)}")
+            governed_axes[name] = tuple(sorted(supplied))
+            object.__setattr__(self, name, governed_axes[name])
+        if not set(governed_axes["primary_decomposition_axes"]).issubset(
+            governed_axes["supporting_coordinate_axes"]
+        ):
+            raise ValueError("primary_decomposition_axes must be a subset of supporting_coordinate_axes")
 
         levels = tuple(sorted(_text(value, "allowed_geo_levels").lower() for value in self.allowed_geo_levels))
         if not levels or len(levels) != len(set(levels)):

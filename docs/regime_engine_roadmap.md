@@ -164,6 +164,14 @@ Current work is sequenced as follows:
    - Reassess level, short, and long feature weighting.
    - Measure seasonality, volatility, sign flips, shock timing, and regime transitions.
    - Preserve genuine structural responsiveness while reducing unnecessary jaggedness.
+   - Campaigns govern primary decomposition axes separately from supporting
+     coordinate/regime axes. Inventory strictly decomposes Supply while consuming
+     persisted Supply and Demand for geometry. Historical county and CBSA Demand
+     scores do not consistently rebuild from the current dimension configuration;
+     the likely cause remains a configuration/provenance mismatch until resolved.
+     Demand-axis decomposition is therefore a fail-closed prerequisite for a future
+     Price/Affordability or other Demand-primary campaign, not evidence that Demand
+     is globally invalid.
 
 3. Calibrate Price feature weights.
    - Hold the linked MA12 observation policy constant.
