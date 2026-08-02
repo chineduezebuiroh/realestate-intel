@@ -144,6 +144,12 @@ Current work is sequenced as follows:
    - Split full-history and recent-period Demand-delta heatmaps.
 
 2. Calibrate Inventory and the Supply axis.
+   - Demand-axis contribution provenance remains a prerequisite for a future
+     Demand-primary or Price/Affordability campaign: many historical county and
+     CBSA persisted Demand scores differ from a rebuild under current dimension
+     configuration. Treat this as a likely configuration/provenance mismatch,
+     not as globally invalid Demand evidence; supporting coordinate use remains
+     authoritative while strict Demand decomposition is deferred.
    - Macro Phase 8c v1 geography scope is county only. A future macro extension
      may add `cbsa_metro`; ZIP geography remains reserved for future local-regime
      campaigns and is not globally invalid.

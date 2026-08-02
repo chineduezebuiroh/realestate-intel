@@ -21,6 +21,11 @@ from .system_evidence import (
     SYSTEM_SECTIONS,
     validate_system_evidence,
 )
+from .engine_decomposition import (
+    DECOMPOSITION_CONTRACT_VERSION,
+    EngineDecompositionEvidence,
+    validate_engine_decomposition,
+)
 
 __all__ = [
     "CalibrationCampaign",
@@ -39,4 +44,7 @@ __all__ = [
     "CalibrationSystemEvidence",
     "SYSTEM_SECTIONS",
     "validate_system_evidence",
+    "DECOMPOSITION_CONTRACT_VERSION",
+    "EngineDecompositionEvidence",
+    "validate_engine_decomposition",
 ]

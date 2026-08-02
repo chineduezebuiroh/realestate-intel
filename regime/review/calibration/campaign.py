@@ -46,6 +46,8 @@ class CalibrationCampaign:
     target_metric: str
     target_dimension: str
     target_axis: str
+    primary_decomposition_axes: tuple[str, ...] = ()
+    supporting_coordinate_axes: tuple[str, ...] = ()
     allowed_geo_levels: tuple[str, ...] = ("county",)
     manual_geo_ids: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -70,16 +72,23 @@ class CalibrationCampaign:
             raise ValueError("incumbent_policy_id cannot also be a challenger")
         object.__setattr__(self, "candidate_policy_ids", candidates)
 
-        expected = {
-            "target_metric": "active_inventory",
-            "target_dimension": "supply",
-            "target_axis": "supply",
-        }
-        for name, expected_value in expected.items():
-            actual = _text(getattr(self, name), name)
-            if actual != expected_value:
-                raise ValueError(f"{name} must be {expected_value!r}; received {actual!r}")
-            object.__setattr__(self, name, actual)
+        for name in ("target_metric", "target_dimension", "target_axis"):
+            object.__setattr__(self, name, _text(getattr(self, name), name).lower())
+        primary = tuple(_text(value, "primary_decomposition_axes").lower()
+                        for value in (self.primary_decomposition_axes or (self.target_axis,)))
+        supporting = tuple(_text(value, "supporting_coordinate_axes").lower()
+                           for value in (self.supporting_coordinate_axes or ("supply", "demand")))
+        if len(primary) != len(set(primary)) or len(supporting) != len(set(supporting)):
+            raise ValueError("Campaign axis scopes must not contain duplicates")
+        if not primary or not set(primary).issubset(supporting):
+            raise ValueError("primary_decomposition_axes must be nonempty and a subset of supporting_coordinate_axes")
+        from regime._00_config_loader import load_regime_config
+        registered = set(load_regime_config(validate=True).axes["axis"].astype(str).str.strip().str.lower())
+        unknown = (set(primary) | set(supporting)).difference(registered)
+        if unknown:
+            raise ValueError(f"Campaign axis scope contains unknown axes: {sorted(unknown)}")
+        object.__setattr__(self, "primary_decomposition_axes", primary)
+        object.__setattr__(self, "supporting_coordinate_axes", supporting)
 
         levels = tuple(sorted(_text(value, "allowed_geo_levels").lower() for value in self.allowed_geo_levels))
         if not levels or len(levels) != len(set(levels)):
