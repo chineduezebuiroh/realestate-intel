@@ -12,12 +12,13 @@ from regime._05_dimension_scorer import _build_dimension_weights
 from regime._06_axis_engine import _build_axis_weights
 from regime._08_geometry_engine import assign_geometry
 
-DECOMPOSITION_CONTRACT_VERSION = "engine_decomposition_v4"
+DECOMPOSITION_CONTRACT_VERSION = "engine_decomposition_v5"
 RECONCILIATION_TOLERANCE = 1e-10
 DECOMPOSITION_SECTIONS = (
     "feature_to_metric", "metric_to_dimension", "dimension_to_axis",
     "chronology_coverage", "reconciliation_summary",
     "coordinate_reconciliation", "regime_reconciliation",
+    "axis_scope_lineage",
 )
 IDENTITY = ["campaign_id", "campaign_version", "series_id", "geo_id"]
 RECONCILIATION_COLUMNS = {
@@ -55,6 +56,9 @@ SCHEMAS = {
     "regime_reconciliation": ({*IDENTITY, "date", "major_regime_expected", "major_regime_actual",
         "minor_regime_expected", "minor_regime_actual", "quadrant_expected", "quadrant_actual",
         *RECONCILIATION_COLUMNS}, [*IDENTITY, "date"]),
+    "axis_scope_lineage": ({"campaign_id", "campaign_version", "axis", "axis_scope_role",
+        "strict_decomposition_required", "supporting_coordinate_required", "scope_reason",
+        "authoritative_registry_present"}, ["campaign_id", "campaign_version", "axis"]),
 }
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +67,9 @@ class EngineDecompositionEvidence:
     campaign_version: str
     candidate_policy_ids: tuple[str, ...]
     tables: Mapping[str, pd.DataFrame]
+    primary_decomposition_axes: tuple[str, ...] = ()
+    supporting_coordinate_axes: tuple[str, ...] = ()
+    approved_geographies: tuple[str, ...] = ()
     def copied_tables(self) -> dict[str, pd.DataFrame]:
         return {key: value.copy(deep=True) for key, value in self.tables.items()}
 
@@ -328,15 +335,26 @@ def _regime_reconciliation(coordinates: pd.DataFrame, regimes: pd.DataFrame) -> 
 def build_engine_decomposition(*, campaign, series_artifacts: Mapping[str, Mapping[str, pd.DataFrame]], selected_geographies: list[str]) -> EngineDecompositionEvidence:
     expected_series = ("baseline", *campaign.candidate_policy_ids)
     if tuple(series_artifacts) != expected_series: raise ValueError("Decomposition series identity/order mismatch")
-    collected = {name: [] for name in DECOMPOSITION_SECTIONS}
+    approved_geographies = tuple(sorted(set(selected_geographies)))
+    declared_geographies = tuple(campaign.metadata.get("geography_scope", {}).get("included_geo_ids", approved_geographies))
+    if set(approved_geographies).difference(declared_geographies):
+        raise ValueError("Decomposition received a geography outside the approved campaign universe")
+    collected = {name: [] for name in DECOMPOSITION_SECTIONS if name != "axis_scope_lineage"}
     for series_id, artifacts in series_artifacts.items():
         required = {"normalized_features", "metric_scores", "aligned_metric_scores", "dimension_scores", "axis_scores", "coordinates", "regime_assignments"}
         if required.difference(artifacts): raise ValueError(f"{series_id} decomposition artifacts missing: {sorted(required.difference(artifacts))}")
         f2m, r1 = build_feature_to_metric(artifacts["normalized_features"], artifacts["metric_scores"])
         m2d, r2 = build_metric_to_dimension(artifacts["aligned_metric_scores"], artifacts["dimension_scores"])
-        d2a, r3 = build_dimension_to_axis(artifacts["dimension_scores"], artifacts["axis_scores"])
-        cr = _coordinate_reconciliation(artifacts["axis_scores"], artifacts["coordinates"])
-        rr = _regime_reconciliation(artifacts["coordinates"], artifacts["regime_assignments"])
+        dimensions = artifacts["dimension_scores"]
+        axes = artifacts["axis_scores"]
+        dimensions = dimensions[dimensions["geo_id"].isin(approved_geographies)]
+        primary_axes = axes[axes["geo_id"].isin(approved_geographies) & axes["axis"].isin(campaign.primary_decomposition_axes)]
+        d2a, r3 = build_dimension_to_axis(dimensions, primary_axes)
+        supporting_axes = axes[axes["geo_id"].isin(approved_geographies) & axes["axis"].isin(campaign.supporting_coordinate_axes)]
+        coordinates = artifacts["coordinates"][artifacts["coordinates"]["geo_id"].isin(approved_geographies)]
+        regimes = artifacts["regime_assignments"][artifacts["regime_assignments"]["geo_id"].isin(approved_geographies)]
+        cr = _coordinate_reconciliation(supporting_axes, coordinates)
+        rr = _regime_reconciliation(coordinates, regimes)
         for name, frame in (("feature_to_metric", f2m), ("metric_to_dimension", m2d), ("dimension_to_axis", d2a), ("coordinate_reconciliation", cr), ("regime_reconciliation", rr)):
             collected[name].append(_add_identity(frame[frame["geo_id"].isin(selected_geographies)], campaign, series_id))
         summaries = []
@@ -344,10 +362,24 @@ def build_engine_decomposition(*, campaign, series_artifacts: Mapping[str, Mappi
             summary = rec.copy(); summary["parent_key"] = summary[parent_col].astype(str)
             summaries.append(summary[["geo_id", "date", "layer", "parent_key", *sorted(RECONCILIATION_COLUMNS)]])
         collected["reconciliation_summary"].append(_add_identity(pd.concat(summaries).query("geo_id in @selected_geographies"), campaign, series_id))
-        coverage = _coverage_tables(artifacts, f2m, r1, m2d, r2, d2a, r3)
+        scoped_artifacts = dict(artifacts); scoped_artifacts["dimension_scores"] = dimensions; scoped_artifacts["axis_scores"] = primary_axes
+        coverage = _coverage_tables(scoped_artifacts, f2m, r1, m2d, r2, d2a, r3)
         collected["chronology_coverage"].append(_add_identity(coverage[coverage["geo_id"].isin(selected_geographies)], campaign, series_id))
     tables = {name: pd.concat(parts, ignore_index=True).sort_values(SCHEMAS[name][1], kind="mergesort").reset_index(drop=True) for name, parts in collected.items()}
-    evidence = EngineDecompositionEvidence(campaign.campaign_id, campaign.campaign_version, campaign.candidate_policy_ids, tables)
+    registry_axes = tuple(sorted(set(_build_axis_weights()["axis"].astype(str))))
+    tables["axis_scope_lineage"] = pd.DataFrame([{
+        "campaign_id": campaign.campaign_id, "campaign_version": campaign.campaign_version, "axis": axis,
+        "axis_scope_role": ("primary_decomposition_axis" if axis in campaign.primary_decomposition_axes else
+                            "supporting_coordinate_axis" if axis in campaign.supporting_coordinate_axes else "out_of_scope_axis"),
+        "strict_decomposition_required": axis in campaign.primary_decomposition_axes,
+        "supporting_coordinate_required": axis in campaign.supporting_coordinate_axes,
+        "scope_reason": ("campaign_declared_primary_decomposition" if axis in campaign.primary_decomposition_axes else
+                         "supporting_axis_not_decomposed_in_this_campaign" if axis in campaign.supporting_coordinate_axes else
+                         "axis_not_declared_for_campaign"),
+        "authoritative_registry_present": True,
+    } for axis in registry_axes])
+    evidence = EngineDecompositionEvidence(campaign.campaign_id, campaign.campaign_version, campaign.candidate_policy_ids, tables,
+        campaign.primary_decomposition_axes, campaign.supporting_coordinate_axes, approved_geographies)
     validate_engine_decomposition(evidence)
     return evidence
 
@@ -357,6 +389,8 @@ def validate_engine_decomposition(evidence: EngineDecompositionEvidence) -> None
     if unknown: raise ValueError(f"Unknown decomposition artifacts: {sorted(unknown)}")
     if missing: raise ValueError(f"Missing decomposition evidence: {sorted(missing)}")
     series = {"baseline", *evidence.candidate_policy_ids}
+    if not evidence.primary_decomposition_axes or not set(evidence.primary_decomposition_axes).issubset(evidence.supporting_coordinate_axes):
+        raise ValueError("Invalid decomposition axis-scope identity")
     valid_status = {"reconciled", "not_applicable", "not_reconcilable", "failed"}
     approved_reasons = {
         "reconciled": {"none"},
@@ -376,7 +410,7 @@ def validate_engine_decomposition(evidence: EngineDecompositionEvidence) -> None
             parsed = pd.to_datetime(values, errors="coerce")
             if values.notna().any() and parsed[values.notna()].isna().any(): raise ValueError(f"{name} contains invalid {date_column}")
         if set(frame["campaign_id"].astype(str)) != {evidence.campaign_id} or set(frame["campaign_version"].astype(str)) != {evidence.campaign_version}: raise ValueError(f"{name} campaign identity mismatch")
-        if set(frame["series_id"].astype(str)) != series: raise ValueError(f"{name} candidate identity mismatch")
+        if "series_id" in frame and set(frame["series_id"].astype(str)) != series: raise ValueError(f"{name} candidate identity mismatch")
         if name in {"feature_to_metric", "metric_to_dimension", "dimension_to_axis"}:
             parent_keys = SCHEMAS[name][1][:-1]
             parent_fields = ["parent_score", "summed_contributions", "absolute_residual", "relative_residual",
@@ -421,6 +455,10 @@ def validate_engine_decomposition(evidence: EngineDecompositionEvidence) -> None
         raise ValueError("metric_to_dimension contains unexpected metric/dimension identifiers")
     if not np.allclose(metric_owned["configured_weight"], metric_owned["registry_weight"]): raise ValueError("metric_to_dimension configured weight mismatch")
     axis = evidence.tables["dimension_to_axis"]
+    if set(axis["axis"].astype(str)) != set(evidence.primary_decomposition_axes):
+        raise ValueError("dimension_to_axis must contain exactly the primary decomposition axes")
+    if set(axis["geo_id"].astype(str)).difference(evidence.approved_geographies):
+        raise ValueError("dimension_to_axis contains a geography outside the approved campaign universe")
     axis_pairs = _build_axis_weights().rename(columns={"dimension_weight": "registry_weight"})
     axis_owned = axis.merge(axis_pairs, on=["axis", "dimension"], how="left", indicator=True)
     if axis_owned["_merge"].ne("both").any():

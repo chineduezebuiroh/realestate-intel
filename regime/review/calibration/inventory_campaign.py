@@ -1042,6 +1042,8 @@ def persist_phase_a_foundation_evidence(
         validate_engine_decomposition(EngineDecompositionEvidence(
             evidence.campaign.campaign_id, evidence.campaign.campaign_version,
             evidence.campaign.candidate_policy_ids, staged_decomposition,
+            evidence.campaign.primary_decomposition_axes, evidence.campaign.supporting_coordinate_axes,
+            tuple(sorted(staged_decomposition["dimension_to_axis"]["geo_id"].astype(str).unique())),
         ))
         if backup.exists(): shutil.rmtree(backup)
         if directory.exists(): os.replace(directory, backup)
@@ -1122,7 +1124,10 @@ def load_phase_a_foundation_evidence(
     )
     validate_system_evidence(system)
     decomposition = EngineDecompositionEvidence(campaign.campaign_id, campaign.campaign_version,
-                                                campaign.candidate_policy_ids, decomposition_tables)
+                                                campaign.candidate_policy_ids, decomposition_tables,
+                                                campaign.primary_decomposition_axes,
+                                                campaign.supporting_coordinate_axes,
+                                                tuple(sorted(decomposition_tables["dimension_to_axis"]["geo_id"].astype(str).unique())))
     validate_engine_decomposition(decomposition)
     return PhaseAEvidence(campaign, {}, {"persisted_authoritative": result},
                           assemble_review_results(campaign.campaign_id, {"persisted_authoritative": result}), system,

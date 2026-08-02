@@ -89,8 +89,6 @@ def _decomposition_evidence(evidence):
                     **{**availability, "configured_weight": .1667, "available_weight_sum": .1667}, **recon})
         d2a.append({**identity, "date": date, "axis": "supply", "dimension": "supply",
                     "dimension_score": .1, **{**availability, "configured_weight": .85, "available_weight_sum": .85}, **recon})
-        d2a.append({**identity, "date": date, "axis": "demand", "dimension": "demand",
-                    "dimension_score": .1, **{**availability, "configured_weight": .65, "available_weight_sum": .65}, **recon})
         for layer, parent in (("feature_to_metric", "active_inventory"),
                               ("metric_to_dimension", "supply"), ("dimension_to_axis", "supply")):
             coverage.append({**identity, "layer": layer, "parent_key": parent,
@@ -118,8 +116,20 @@ def _decomposition_evidence(evidence):
               "reconciliation_summary": pd.DataFrame(summary),
               "coordinate_reconciliation": pd.DataFrame(coordinates),
               "regime_reconciliation": pd.DataFrame(regimes)}
+    tables["axis_scope_lineage"] = pd.DataFrame([
+        {"campaign_id": evidence.campaign.campaign_id, "campaign_version": evidence.campaign.campaign_version,
+         "axis": "supply", "axis_scope_role": "primary_decomposition_axis",
+         "strict_decomposition_required": True, "supporting_coordinate_required": True,
+         "scope_reason": "campaign_declared_primary_decomposition", "authoritative_registry_present": True},
+        {"campaign_id": evidence.campaign.campaign_id, "campaign_version": evidence.campaign.campaign_version,
+         "axis": "demand", "axis_scope_role": "supporting_coordinate_axis",
+         "strict_decomposition_required": False, "supporting_coordinate_required": True,
+         "scope_reason": "supporting_axis_not_decomposed_in_this_campaign", "authoritative_registry_present": True},
+    ])
     return EngineDecompositionEvidence(evidence.campaign.campaign_id, evidence.campaign.campaign_version,
-                                       evidence.campaign.candidate_policy_ids, tables)
+                                       evidence.campaign.candidate_policy_ids, tables,
+                                       evidence.campaign.primary_decomposition_axes,
+                                       evidence.campaign.supporting_coordinate_axes, ("fixture__county",))
 
 def main() -> int:
     fixture = runpy.run_path("scripts/smoke_tests/80_89/83_inventory_candidate_scoring.py")
@@ -214,11 +224,13 @@ def main() -> int:
                 "fixture__county__supply__metric_to_dimension.png",
                 "fixture__county__demand__metric_to_dimension.png",
                 "fixture__county__supply__dimension_to_axis.png",
-                "fixture__county__demand__dimension_to_axis.png",
             )
             for figure in expected_parent_figures:
                 assert figure in page
                 assert any(path.name == figure for path in first.generated_files)
+            assert "Axis Scope" in page
+            assert "supporting_axis_not_decomposed_in_this_campaign" in page
+            assert "fixture__county__demand__dimension_to_axis.png" not in page
             for geo_id in system.tables[SYSTEM_SECTIONS[0]]["geo_id"].unique():
                 assert str(geo_id) in page
             required_tables = set(result.tables) | set(upstream_name for upstream_name in (
