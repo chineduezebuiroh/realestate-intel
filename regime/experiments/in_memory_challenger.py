@@ -87,6 +87,40 @@ class InMemoryChallengerArtifacts:
 _TARGET_KEY_COLUMNS = ["geo_id", "date", "canonical_metric_key", "feature_key"]
 
 
+def _assemble_causal_splice(
+    *, candidate: pd.DataFrame, incumbent: pd.DataFrame,
+    identity_column: str, target_identity: str, keys: list[str], layer: str,
+) -> pd.DataFrame:
+    """Replace one governed identity and preserve all incumbent siblings exactly."""
+    if list(candidate.columns) != list(incumbent.columns):
+        raise ValueError(
+            f"Mixed {layer} schema mismatch; candidate={list(candidate.columns)}, "
+            f"incumbent={list(incumbent.columns)}"
+        )
+    for label, frame in (("candidate", candidate), ("incumbent", incumbent)):
+        duplicate = frame.duplicated(keys, keep=False)
+        if duplicate.any():
+            sample = list(frame.loc[duplicate, keys].head(5).itertuples(index=False, name=None))
+            raise ValueError(f"Mixed {layer} {label} contains duplicate governed keys: {sample}")
+
+    target = candidate[candidate[identity_column].eq(target_identity)].copy()
+    siblings = incumbent[~incumbent[identity_column].eq(target_identity)].copy()
+    mixed = pd.concat([target, siblings], ignore_index=True)
+    if mixed.duplicated(keys, keep=False).any():
+        raise ValueError(f"Mixed {layer} contains target/sibling key collisions")
+    mixed = mixed.sort_values(keys, kind="mergesort").reset_index(drop=True)
+    final_siblings = mixed[~mixed[identity_column].eq(target_identity)]
+    try:
+        pd.testing.assert_frame_equal(
+            siblings.sort_values(keys, kind="mergesort").reset_index(drop=True),
+            final_siblings.sort_values(keys, kind="mergesort").reset_index(drop=True),
+            check_dtype=True, check_exact=True,
+        )
+    except AssertionError as exc:
+        raise ValueError(f"Mixed {layer} changed preserved incumbent sibling rows") from exc
+    return mixed
+
+
 def _target_replacement_reconciliation(
     incumbent: pd.DataFrame,
     candidate: pd.DataFrame,
@@ -185,6 +219,8 @@ def build_in_memory_smoothing_challenger(
     experiment_id: str,
     incumbent_artifacts: Mapping[str, pd.DataFrame] | None = None,
     target_feature_keys: Collection[str] | None = None,
+    target_metric: str | None = None,
+    target_dimension: str | None = None,
     primary_axes: Collection[str] | None = None,
     supporting_axes: Collection[str] | None = None,
     campaign_output_geo_ids: Collection[str] | None = None,
@@ -206,12 +242,19 @@ def build_in_memory_smoothing_challenger(
     if require_complete_universe and incumbent_artifacts is None:
         raise ValueError("Complete mixed-universe construction requires incumbent_artifacts")
     if complete_mode:
-        required_artifacts = {"normalized_features", "dimension_scores", "axis_scores"}
+        required_artifacts = {
+            "normalized_features", "metric_scores", "aligned_metric_scores",
+            "dimension_scores", "axis_scores",
+        }
         missing_artifacts = required_artifacts.difference(incumbent_artifacts or {})
         if missing_artifacts:
             raise ValueError(f"Incumbent artifacts missing required tables: {sorted(missing_artifacts)}")
         if not target:
             raise ValueError("Complete mixed-universe construction requires target_feature_keys")
+        if not target_metric or not target_dimension:
+            raise ValueError(
+                "Complete mixed-universe construction requires target_metric and target_dimension"
+            )
         if not campaign_geos:
             raise ValueError("Complete mixed-universe construction requires campaign_output_geo_ids")
         if not primary or not supporting:
@@ -278,18 +321,43 @@ def build_in_memory_smoothing_challenger(
     print(f"[inventory-challenger] mixed-universe assembly/normalization {perf_counter() - started:,.1f}s", flush=True)
 
     started = perf_counter()
-    metric_scores = score_metrics(
-        normalized_features
-    )
+    recomputed_metric_scores = score_metrics(normalized_features)
     print(f"[inventory-challenger] metric scoring {perf_counter() - started:,.1f}s", flush=True)
 
     started = perf_counter()
-    aligned_metric_scores = (
-        align_metric_scores_asof(
-            metric_scores
+    if complete_mode:
+        metric_scores = _assemble_causal_splice(
+            candidate=recomputed_metric_scores,
+            incumbent=incumbent_artifacts["metric_scores"].copy(deep=True),
+            identity_column="canonical_metric_key",
+            target_identity=str(target_metric),
+            keys=["geo_id", "date", "canonical_metric_key"],
+            layer="metric universe",
         )
-    )
-    print(f"[inventory-challenger] alignment {perf_counter() - started:,.1f}s", flush=True)
+    else:
+        metric_scores = recomputed_metric_scores
+    print(f"[inventory-challenger] mixed metric assembly {perf_counter() - started:,.1f}s", flush=True)
+
+    started = perf_counter()
+    target_metrics = metric_scores[
+        metric_scores["canonical_metric_key"].eq(target_metric)
+    ].copy() if complete_mode else metric_scores
+    candidate_aligned = align_metric_scores_asof(target_metrics)
+    print(f"[inventory-challenger] target-only alignment {perf_counter() - started:,.1f}s", flush=True)
+
+    started = perf_counter()
+    if complete_mode:
+        aligned_metric_scores = _assemble_causal_splice(
+            candidate=candidate_aligned,
+            incumbent=incumbent_artifacts["aligned_metric_scores"].copy(deep=True),
+            identity_column="canonical_metric_key",
+            target_identity=str(target_metric),
+            keys=["geo_id", "evaluation_date", "canonical_metric_key"],
+            layer="aligned-metric universe",
+        )
+    else:
+        aligned_metric_scores = candidate_aligned
+    print(f"[inventory-challenger] mixed aligned-metric assembly {perf_counter() - started:,.1f}s", flush=True)
 
     started = perf_counter()
     dimension_scores = score_dimensions(
@@ -310,22 +378,26 @@ def build_in_memory_smoothing_challenger(
                 raise ValueError(
                     f"Mixed dimension universe {label} contains duplicate governed keys"
                 )
-        if set(dimension_scores.columns) != set(incumbent_dimensions.columns):
+        if list(dimension_scores.columns) != list(incumbent_dimensions.columns):
             raise ValueError(
                 "Mixed dimension universe schema mismatch; "
                 f"recomputed_only={sorted(set(dimension_scores.columns) - set(incumbent_dimensions.columns))}, "
                 f"incumbent_only={sorted(set(incumbent_dimensions.columns) - set(dimension_scores.columns))}"
             )
-        challenger_supply = dimension_scores[dimension_scores["dimension"].eq("supply")]
+        challenger_supply = dimension_scores[
+            dimension_scores["dimension"].eq(target_dimension)
+        ]
         incumbent_unaffected = incumbent_dimensions[
-            ~incumbent_dimensions["dimension"].eq("supply")
+            ~incumbent_dimensions["dimension"].eq(target_dimension)
         ]
         dimension_scores = pd.concat(
             [challenger_supply, incumbent_unaffected], ignore_index=True
         ).sort_values(dimension_keys, kind="mergesort").reset_index(drop=True)
         if dimension_scores.duplicated(dimension_keys).any():
             raise ValueError("Mixed dimension universe contains duplicate governed keys")
-        final_unaffected = dimension_scores[~dimension_scores["dimension"].eq("supply")]
+        final_unaffected = dimension_scores[
+            ~dimension_scores["dimension"].eq(target_dimension)
+        ]
         try:
             pd.testing.assert_frame_equal(
                 incumbent_unaffected.sort_values(dimension_keys, kind="mergesort").reset_index(drop=True),
@@ -335,7 +407,7 @@ def build_in_memory_smoothing_challenger(
             )
         except AssertionError as exc:
             raise ValueError("Mixed dimension universe changed preserved incumbent rows") from exc
-    print(f"[inventory-challenger] dimension scoring {perf_counter() - started:,.1f}s", flush=True)
+    print(f"[inventory-challenger] mixed dimension assembly {perf_counter() - started:,.1f}s", flush=True)
 
     started = perf_counter()
     axis_scores = score_axes(
@@ -345,6 +417,14 @@ def build_in_memory_smoothing_challenger(
         # Primary axes are recomputed. Supporting-only axes are immutable
         # incumbent coordinate inputs, independent of campaign identity.
         incumbent_axes = incumbent_artifacts["axis_scores"]
+        axis_keys = ["geo_id", "date", "axis"]
+        if list(axis_scores.columns) != list(incumbent_axes.columns):
+            raise ValueError("Mixed axis universe schema mismatch")
+        for label, frame in (("recomputed", axis_scores), ("incumbent", incumbent_axes)):
+            if frame.duplicated(axis_keys, keep=False).any():
+                raise ValueError(
+                    f"Mixed axis universe {label} contains duplicate governed keys"
+                )
         supporting_only = set(supporting).difference(primary)
         axis_scores = pd.concat(
             [axis_scores[axis_scores["axis"].isin(primary)],
@@ -360,6 +440,19 @@ def build_in_memory_smoothing_challenger(
         for axis in primary:
             if axis not in actual_axes:
                 raise ValueError(f"Primary axis was not recomputed: {axis}")
+        incumbent_supporting = incumbent_axes[
+            incumbent_axes["axis"].isin(supporting_only)
+        ].sort_values(axis_keys, kind="mergesort").reset_index(drop=True)
+        final_supporting = axis_scores[
+            axis_scores["axis"].isin(supporting_only)
+        ].sort_values(axis_keys, kind="mergesort").reset_index(drop=True)
+        try:
+            pd.testing.assert_frame_equal(
+                incumbent_supporting, final_supporting,
+                check_dtype=True, check_exact=True,
+            )
+        except AssertionError as exc:
+            raise ValueError("Mixed axis universe changed preserved supporting rows") from exc
     print(f"[inventory-challenger] axis scoring {perf_counter() - started:,.1f}s", flush=True)
 
     started = perf_counter()
