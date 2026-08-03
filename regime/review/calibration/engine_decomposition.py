@@ -12,7 +12,7 @@ from regime._05_dimension_scorer import _build_dimension_weights
 from regime._06_axis_engine import _build_axis_weights
 from regime._08_geometry_engine import assign_geometry
 
-DECOMPOSITION_CONTRACT_VERSION = "engine_decomposition_v5"
+DECOMPOSITION_CONTRACT_VERSION = "engine_decomposition_v6"
 RECONCILIATION_TOLERANCE = 1e-10
 DECOMPOSITION_SECTIONS = (
     "feature_to_metric", "metric_to_dimension", "dimension_to_axis",
@@ -214,6 +214,14 @@ def _add_identity(frame: pd.DataFrame, campaign, series_id: str) -> pd.DataFrame
     return out
 
 
+def _scope_decomposition_artifacts(artifacts: Mapping[str, pd.DataFrame],
+                                   approved_geographies: tuple[str, ...]) -> dict[str, pd.DataFrame]:
+    names = {"normalized_features", "metric_scores", "aligned_metric_scores", "dimension_scores",
+             "axis_scores", "coordinates", "regime_assignments", "features"}
+    return {name: frame[frame["geo_id"].isin(approved_geographies)].copy()
+            for name, frame in artifacts.items() if name in names}
+
+
 def _coverage_universe(*, layer: str, parent_key: str, geo_id: str,
                        expected_children: tuple[str, ...], source: pd.DataFrame,
                        source_child: str, available: pd.DataFrame, available_child: str,
@@ -343,16 +351,35 @@ def build_engine_decomposition(*, campaign, series_artifacts: Mapping[str, Mappi
     for series_id, artifacts in series_artifacts.items():
         required = {"normalized_features", "metric_scores", "aligned_metric_scores", "dimension_scores", "axis_scores", "coordinates", "regime_assignments"}
         if required.difference(artifacts): raise ValueError(f"{series_id} decomposition artifacts missing: {sorted(required.difference(artifacts))}")
-        f2m, r1 = build_feature_to_metric(artifacts["normalized_features"], artifacts["metric_scores"])
-        m2d, r2 = build_metric_to_dimension(artifacts["aligned_metric_scores"], artifacts["dimension_scores"])
-        dimensions = artifacts["dimension_scores"]
-        axes = artifacts["axis_scores"]
-        dimensions = dimensions[dimensions["geo_id"].isin(approved_geographies)]
-        primary_axes = axes[axes["geo_id"].isin(approved_geographies) & axes["axis"].isin(campaign.primary_decomposition_axes)]
+        # Geography is the first decomposition boundary: expensive builders
+        # never receive the authoritative full-universe frames.
+        scoped = _scope_decomposition_artifacts(artifacts, approved_geographies)
+        # Construct only campaign-review decomposition.  Exact parity of every
+        # preserved layer remains enforced by challenger completeness validation;
+        # it is intentionally not expanded into duplicate review evidence here.
+        metric_scope = {campaign.target_metric}
+        if series_id == "baseline":
+            metric_scope.add("permit_activity")
+        normalized = scoped["normalized_features"]
+        normalized = normalized[normalized["canonical_metric_key"].isin(metric_scope)]
+        metrics = scoped["metric_scores"]
+        metrics = metrics[metrics["canonical_metric_key"].isin(metric_scope)]
+        f2m, r1 = build_feature_to_metric(normalized, metrics)
+        aligned = scoped["aligned_metric_scores"]
+        supply_metric_keys = set(_build_dimension_weights().loc[
+            lambda frame: frame["dimension"].eq(campaign.target_dimension), "canonical_metric_key"
+        ])
+        aligned = aligned[aligned["canonical_metric_key"].isin(supply_metric_keys)]
+        target_dimensions = scoped["dimension_scores"]
+        target_dimensions = target_dimensions[target_dimensions["dimension"].eq(campaign.target_dimension)]
+        m2d, r2 = build_metric_to_dimension(aligned, target_dimensions)
+        dimensions = scoped["dimension_scores"]
+        axes = scoped["axis_scores"]
+        primary_axes = axes[axes["axis"].isin(campaign.primary_decomposition_axes)]
         d2a, r3 = build_dimension_to_axis(dimensions, primary_axes)
-        supporting_axes = axes[axes["geo_id"].isin(approved_geographies) & axes["axis"].isin(campaign.supporting_coordinate_axes)]
-        coordinates = artifacts["coordinates"][artifacts["coordinates"]["geo_id"].isin(approved_geographies)]
-        regimes = artifacts["regime_assignments"][artifacts["regime_assignments"]["geo_id"].isin(approved_geographies)]
+        supporting_axes = axes[axes["axis"].isin(campaign.supporting_coordinate_axes)]
+        coordinates = scoped["coordinates"]
+        regimes = scoped["regime_assignments"]
         cr = _coordinate_reconciliation(supporting_axes, coordinates)
         rr = _regime_reconciliation(coordinates, regimes)
         for name, frame in (("feature_to_metric", f2m), ("metric_to_dimension", m2d), ("dimension_to_axis", d2a), ("coordinate_reconciliation", cr), ("regime_reconciliation", rr)):
@@ -362,7 +389,15 @@ def build_engine_decomposition(*, campaign, series_artifacts: Mapping[str, Mappi
             summary = rec.copy(); summary["parent_key"] = summary[parent_col].astype(str)
             summaries.append(summary[["geo_id", "date", "layer", "parent_key", *sorted(RECONCILIATION_COLUMNS)]])
         collected["reconciliation_summary"].append(_add_identity(pd.concat(summaries).query("geo_id in @selected_geographies"), campaign, series_id))
-        scoped_artifacts = dict(artifacts); scoped_artifacts["dimension_scores"] = dimensions; scoped_artifacts["axis_scores"] = primary_axes
+        scoped_artifacts = dict(scoped)
+        scoped_artifacts.update({"normalized_features": normalized, "metric_scores": metrics,
+            "aligned_metric_scores": aligned,
+            "dimension_scores": target_dimensions,
+            "axis_scores": primary_axes})
+        if "features" in scoped_artifacts:
+            scoped_artifacts["features"] = scoped_artifacts["features"][
+                scoped_artifacts["features"]["canonical_metric_key"].isin(metric_scope)
+            ]
         coverage = _coverage_tables(scoped_artifacts, f2m, r1, m2d, r2, d2a, r3)
         collected["chronology_coverage"].append(_add_identity(coverage[coverage["geo_id"].isin(selected_geographies)], campaign, series_id))
     tables = {name: pd.concat(parts, ignore_index=True).sort_values(SCHEMAS[name][1], kind="mergesort").reset_index(drop=True) for name, parts in collected.items()}

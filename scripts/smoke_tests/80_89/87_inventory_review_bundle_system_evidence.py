@@ -9,7 +9,8 @@ import pandas as pd
 
 from regime.review.calibration.system_evidence import (
     NORMALIZED_METRIC_SECTION, SYSTEM_SECTIONS, adapt_aligned_metric_scores,
-    adapt_axis_scores, validate_system_evidence,
+    adapt_axis_scores, validate_system_evidence, _governed_axis_scope,
+    _validate_transition_metric_uniqueness,
 )
 
 
@@ -50,6 +51,15 @@ def main() -> int:
         scoring_fixture = runpy.run_path("scripts/smoke_tests/80_89/83_inventory_candidate_scoring.py")
         evidence = scoring_fixture["_evidence"]()
     system = fixture["_system_evidence"](evidence)
+    assert _governed_axis_scope(evidence.campaign) == ("supply", "demand")
+    custom = copy.deepcopy(evidence.campaign)
+    object.__setattr__(custom, "supporting_coordinate_axes", ("supply", "other_supporting"))
+    assert _governed_axis_scope(custom) == ("supply", "other_supporting")
+    transition_metrics = pd.DataFrame({"geo_id": ["g"], "date": [pd.Timestamp("2020-01-01")],
+                                       "series_id": ["baseline"], "metric_score": [.1]})
+    _validate_transition_metric_uniqueness(transition_metrics)
+    _expect_error(lambda: _validate_transition_metric_uniqueness(pd.concat(
+        [transition_metrics, transition_metrics], ignore_index=True)))
     validate_system_evidence(system)
     assert tuple(system.tables) == (*SYSTEM_SECTIONS, NORMALIZED_METRIC_SECTION)
     assert list(system.tables) == list(copy.deepcopy(system).tables)

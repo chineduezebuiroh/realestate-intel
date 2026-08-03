@@ -26,7 +26,17 @@ SYSTEM_SECTIONS = (
 # Phase A technical evidence so reviewers can distinguish feature values from
 # their already-normalized downstream metric score.
 NORMALIZED_METRIC_SECTION = "normalized_metric_score_chronology"
-SYSTEM_EVIDENCE_CONTRACT_VERSION = "inventory_system_evidence_v2"
+SYSTEM_EVIDENCE_CONTRACT_VERSION = "inventory_system_evidence_v3"
+
+
+def _governed_axis_scope(campaign) -> tuple[str, ...]:
+    return tuple(dict.fromkeys((campaign.target_axis, *campaign.supporting_coordinate_axes)))
+
+
+def _validate_transition_metric_uniqueness(metric_scores: pd.DataFrame) -> None:
+    keys = ["geo_id", "date", "series_id"]
+    if metric_scores.duplicated(keys).any():
+        raise ValueError("Transition metric scores contain duplicate geo_id/date/series_id rows")
 
 
 def _adapt_chronology(
@@ -245,7 +255,10 @@ def assemble_inventory_system_evidence(
         ).reset_index(drop=True)
 
     dimension = combine("dimension_scores", lambda f: f[f["dimension"].eq(campaign.target_dimension)])
-    axis = combine("axis_scores", lambda f: f[f["axis"].eq(campaign.target_axis)])
+    governed_axes = _governed_axis_scope(campaign)
+    # Supporting axes are retained as compact incumbent context, not
+    # decomposition evidence. Challenger parity is validated separately.
+    axis = combine("axis_scores", lambda f: f[f["axis"].isin(governed_axes)])
     coordinates = combine("coordinates")
     regimes = combine("regime_assignments")
     metric_scores = combine(
@@ -268,17 +281,32 @@ def assemble_inventory_system_evidence(
     ).reset_index(drop=True)
 
     windows = []
-    baseline_axis = axis[axis["series_id"].eq("baseline")]
+    baseline_axis = axis[axis["series_id"].eq("baseline") & axis["axis"].eq(campaign.target_axis)]
+    _validate_transition_metric_uniqueness(metric_scores)
+    target_availability = metric_scores[metric_scores["series_id"].eq("baseline")][
+        ["geo_id", "date", "metric_score"]
+    ]
+    candidate_metric = metric_scores[metric_scores["series_id"].ne("baseline")]
     for geo_id, frame in baseline_axis.groupby("geo_id", sort=True):
         frame = frame.sort_values("date", kind="mergesort")
         changes = pd.to_numeric(frame["axis_score"], errors="coerce").diff().abs()
+        available_dates = set(target_availability[
+            target_availability["geo_id"].eq(geo_id) & target_availability["metric_score"].notna()
+        ]["date"])
+        pivot = candidate_metric[candidate_metric["geo_id"].eq(geo_id)].pivot(
+            index="date", columns="series_id", values="metric_score"
+        )
+        baseline_metric = target_availability[target_availability["geo_id"].eq(geo_id)].set_index("date")["metric_score"]
+        differing_dates = set(pivot.index[pivot.ne(baseline_metric, axis=0).any(axis=1)])
+        eligible_dates = available_dates & differing_dates
+        changes = changes.where(frame["date"].isin(eligible_dates))
         if changes.dropna().empty:
             raise ValueError(f"No system transition observation for {geo_id}")
         center = frame.loc[changes.idxmax(), "date"]
         dates = frame["date"].tolist(); position = dates.index(center)
         start, end = dates[max(0, position - 3)], dates[min(len(dates) - 1, position + 3)]
-        part = axis[axis["geo_id"].eq(geo_id) & axis["date"].between(start, end)].copy()
-        part["window_id"] = "largest_absolute_incumbent_supply_axis_change"
+        part = axis[axis["geo_id"].eq(geo_id) & axis["axis"].eq(campaign.target_axis) & axis["date"].between(start, end)].copy()
+        part["window_id"] = "largest_target_available_incumbent_supply_axis_change"
         part["window_center_date"] = center
         windows.append(part)
     transitions = pd.concat(windows, ignore_index=True)
@@ -298,7 +326,8 @@ def assemble_inventory_system_evidence(
             "Supply-coordinate divergence with canonical geo_id tie-breaking; maximum six"
         ),
         transition_window_rule=(
-            "largest absolute month-over-month incumbent Supply-axis change per selected geography; "
+            "largest absolute month-over-month incumbent Supply-axis change on a date where "
+            "active_inventory is available and at least one candidate can differ from baseline; "
             "three observations of context on each side"
         ),
     )

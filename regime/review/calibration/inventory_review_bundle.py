@@ -10,7 +10,9 @@ import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Mapping
+from time import perf_counter
 
 import numpy as np
 import pandas as pd
@@ -34,8 +36,8 @@ from .engine_decomposition import (
 )
 
 
-BUNDLE_CONTRACT_VERSION = "calibration_review_bundle_v7"
-GENERATOR_VERSION = "8.0"
+BUNDLE_CONTRACT_VERSION = "calibration_review_bundle_v8"
+GENERATOR_VERSION = "9.0"
 EVIDENCE_TABLES = (
     "inventory_campaign_geography_scope",
     "inventory_candidate_feature_coverage",
@@ -54,6 +56,33 @@ FIGURE_DIRECTORIES = (
     "score_summary", "time_series_overlays", "transition_windows",
     "calendar_month_profiles", "volatility", "sign_flip", "trend_preservation",
 )
+
+SERIES_STYLE_REGISTRY = MappingProxyType({
+    "baseline": MappingProxyType({"color": "#111111", "display_label": "Incumbent baseline", "line_style": "solid"}),
+    "inventory_ma3_structural": MappingProxyType({"color": "#4c78a8", "display_label": "Inventory MA3 structural", "line_style": "dashed"}),
+    "inventory_ma6_structural": MappingProxyType({"color": "#f58518", "display_label": "Inventory MA6 structural", "line_style": "dashed"}),
+    "inventory_ma9_structural": MappingProxyType({"color": "#54a24b", "display_label": "Inventory MA9 structural", "line_style": "dashed"}),
+    "inventory_ma12_structural": MappingProxyType({"color": "#e45756", "display_label": "Inventory MA12 structural", "line_style": "dashed"}),
+})
+CHILD_COMPONENT_STYLE_REGISTRY = MappingProxyType({
+    "level": "#4c78a8", "short": "#f58518", "long": "#54a24b",
+    "active_inventory": "#4c78a8", "permit_activity": "#f58518",
+    "permit_intensity": "#54a24b", "supply": "#b279a2", "capital_markets": "#72b7b2",
+})
+
+def _series_style(series_id: str) -> Mapping[str, str]:
+    try:
+        return SERIES_STYLE_REGISTRY[str(series_id)]
+    except KeyError as error:
+        raise ValueError(f"Series has no governed review style: {series_id}") from error
+
+def _child_style(identity: str) -> str:
+    key = str(identity).lower().replace(" ", "_")
+    key = {"short_term_change": "short", "long_term_change": "long"}.get(key, key)
+    try:
+        return CHILD_COMPONENT_STYLE_REGISTRY[key]
+    except KeyError as error:
+        raise ValueError(f"Child component has no governed review style: {identity}") from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +121,13 @@ def _canvas(title: str, width: int = 1200, height: int = 600):
 def _save_image(image, path: Path) -> None:
     image.save(path, format="PNG", optimize=False)
 
+def _styled_line(draw, points, *, color: str, width: int, line_style: str = "solid") -> None:
+    if line_style == "solid" or len(points) < 3:
+        draw.line(points, fill=color, width=width)
+        return
+    for index in range(0, len(points) - 1, 2):
+        draw.line(points[index:index + 2], fill=color, width=width)
+
 
 def _bars(path: Path, title: str, groups: list[str], series: list[tuple[str, list[float]]], *, maximum: float | None = None, stacked: bool = False) -> None:
     image, draw = _canvas(title)
@@ -114,7 +150,9 @@ def _bars(path: Path, title: str, groups: list[str], series: list[tuple[str, lis
                 width = group_width * .75 / len(series)
                 x0 = left + gi * group_width + group_width * .1 + si * width; x1 = x0 + width * .9
                 y0, y1 = bottom - value / ceiling * (bottom - top), bottom
-            draw.rectangle((x0, y0, x1, y1), fill=colors[si % len(colors)], outline="white")
+            group_series = group if group in SERIES_STYLE_REGISTRY else None
+            outline = _series_style(group_series)["color"] if group_series else "white"
+            draw.rectangle((x0, y0, x1, y1), fill=colors[si % len(colors)], outline=outline)
     for si, (label, _) in enumerate(series):
         y = 45 + si * 18; draw.rectangle((900, y, 912, y + 12), fill=colors[si % len(colors)]); draw.text((918, y), label.replace("_", " "), fill="black")
     _save_image(image, path)
@@ -138,9 +176,9 @@ def _monthly_gap(previous: object, current: object) -> bool:
     return (current.year * 12 + current.month) - (previous.year * 12 + previous.month) > 1
 
 
-def _lines(path: Path, title: str, lines: list[tuple[str, list[object], list[float]]], ylabel: str) -> None:
+def _lines(path: Path, title: str, lines: list[tuple[str, list[object], list[float]]], ylabel: str,
+           *, identities: list[str] | None = None, parent_series_id: str | None = None) -> None:
     image, draw = _canvas(title)
-    colors = ("black", "#4c78a8", "#f58518", "#54a24b", "#e45756")
     left, top, right, bottom = 90, 70, 1170, 510
     draw.line((left, top, left, bottom, right, bottom), fill="black", width=2); draw.text((5, 280), ylabel, fill="black")
     values = [float(v) for _, _, row in lines for v in row if pd.notna(v)]
@@ -155,6 +193,15 @@ def _lines(path: Path, title: str, lines: list[tuple[str, list[object], list[flo
         draw.line((x, bottom, x, bottom + 5), fill="black")
         draw.text((x - 28, bottom + 9), tick_date.strftime("%Y-%m"), fill="black")
     for index, (label, xs, ys) in enumerate(lines):
+        identity = identities[index] if identities else label
+        if identity == "parent":
+            style = _series_style(parent_series_id or "baseline"); color = style["color"]; width = 4
+        elif identity in SERIES_STYLE_REGISTRY:
+            style = _series_style(identity); color = style["color"]; width = 4 if identity == "baseline" else 2
+        elif identities is None:
+            style = {"line_style": "solid"}; color = "#666666"; width = 2
+        else:
+            style = {"line_style": "solid"}; color = _child_style(identity); width = 2
         observations = sorted(zip((pd.Timestamp(x) for x in xs), ys), key=lambda item: item[0])
         segments: list[list[tuple[float, float]]] = [[]]
         previous = None
@@ -165,9 +212,9 @@ def _lines(path: Path, title: str, lines: list[tuple[str, list[object], list[flo
             x = _timeline_x(date, start_date, end_date, left, right); y = bottom - (float(value) - low) / span * (bottom - top)
             segments[-1].append((x, y)); previous = date
         for points in segments:
-            if len(points) > 1: draw.line(points, fill=colors[index % len(colors)], width=3 if index == 0 else 2)
-            elif points: draw.ellipse((points[0][0]-2, points[0][1]-2, points[0][0]+2, points[0][1]+2), fill=colors[index % len(colors)])
-        draw.text((900, 45 + index * 18), label, fill=colors[index % len(colors)])
+            if len(points) > 1: _styled_line(draw, points, color=color, width=width, line_style=style["line_style"])
+            elif points: draw.ellipse((points[0][0]-2, points[0][1]-2, points[0][0]+2, points[0][1]+2), fill=color)
+        draw.text((900, 45 + index * 18), label, fill=color)
     _save_image(image, path)
 
 def _ordered(frame: pd.DataFrame, candidates: tuple[str, ...]) -> pd.DataFrame:
@@ -283,21 +330,21 @@ def _evidence_figures(root: Path, tables: Mapping[str, pd.DataFrame], candidates
         for candidate in candidates:
             part = calendar[calendar["candidate_policy_id"].eq(candidate) & calendar["feature_component"].eq(component)].sort_values("calendar_month")
             lines.append((candidate, part["calendar_month"].tolist(), part["mean_absolute_monthly_change"].tolist()))
-        path = root / "calendar_month_profiles" / f"{component}.png"; _lines(path, f"Calendar-month profile — {component} (months 1 through 12)", lines, "mean absolute monthly change"); output.append(path)
+        path = root / "calendar_month_profiles" / f"{component}.png"; _lines(path, f"Calendar-month profile — {component} (months 1 through 12)", lines, "mean absolute monthly change", identities=list(candidates)); output.append(path)
     series = tables["inventory_candidate_feature_series"].copy(); series["date"] = pd.to_datetime(series["date"])
     for (geo, component), group in series.groupby(["geo_id", "feature_component"], sort=True):
         lines = []
         for series_id in ("baseline", *candidates):
             part = group[group["series_id"].eq(series_id)].sort_values("date"); lines.append((series_id, part["date"].tolist(), part["raw_feature_value"].tolist()))
         start, end = group["date"].min().date(), group["date"].max().date(); path = root / "time_series_overlays" / f"{_slug(geo)}__{component}.png"
-        _lines(path, f"{geo} — {component} ({start} to {end})", lines, "authoritative feature value"); output.append(path)
+        _lines(path, f"{geo} — {component} ({start} to {end})", lines, "authoritative feature value", identities=["baseline", *candidates]); output.append(path)
     windows = tables["inventory_transition_review_windows"]
     for row in windows.sort_values(["geo_id", "feature_component"]).itertuples(index=False):
         group = series[series["geo_id"].eq(row.geo_id) & series["feature_component"].eq(row.feature_component) & series["date"].between(pd.Timestamp(row.window_start), pd.Timestamp(row.window_end))]
         lines = []
         for series_id in ("baseline", *candidates):
             part = group[group["series_id"].eq(series_id)].sort_values("date"); lines.append((series_id, part["date"].tolist(), part["raw_feature_value"].tolist()))
-        path = root / "transition_windows" / f"{_slug(row.geo_id)}__{row.feature_component}.png"; _lines(path, f"Deterministic transition window — {row.geo_id} / {row.feature_component}", lines, "authoritative feature value"); output.append(path)
+        path = root / "transition_windows" / f"{_slug(row.geo_id)}__{row.feature_component}.png"; _lines(path, f"Deterministic transition window — {row.geo_id} / {row.feature_component}", lines, "authoritative feature value", identities=["baseline", *candidates]); output.append(path)
     specs = (("volatility", "inventory_candidate_feature_statistics", "standard_deviation", "Standard deviation (lower dispersion)"), ("sign_flip", "inventory_candidate_feature_statistics", "sign_flip_rate", "Sign-flip rate (lower is better)"), ("trend_preservation", "inventory_candidate_baseline_feature_comparison", "correlation", "Baseline correlation (higher is better)"))
     for folder, table_name, value, title in specs:
         frame = tables[table_name]; series_values = []
@@ -310,13 +357,9 @@ def _hash(path: Path) -> str:
     digest = hashlib.sha256(); digest.update(path.read_bytes()); return digest.hexdigest()
 
 
-SERIES_COLORS = ("#111111", "#4c78a8", "#f58518", "#54a24b", "#e45756")
-
-
 def _label(series_id: str, incumbent_policy_id: str) -> str:
-    if series_id == "baseline":
-        return f"Incumbent — {incumbent_policy_id}"
-    return f"Challenger — {series_id}"
+    style = _series_style(series_id)
+    return f"{style['display_label']} — {incumbent_policy_id}" if series_id == "baseline" else style["display_label"]
 
 
 def _chronology_plot(path: Path, frame: pd.DataFrame, *, geo_id: str, value: str,
@@ -331,7 +374,10 @@ def _chronology_plot(path: Path, frame: pd.DataFrame, *, geo_id: str, value: str
     span = float(high - low) or 1.0
     all_dates = pd.to_datetime(frame["date"]); date_low, date_high = all_dates.min(), all_dates.max()
     date_span = max((date_high - date_low).total_seconds(), 1)
-    for index, (series_id, part) in enumerate(frame.groupby("series_id", sort=False)):
+    ordered_ids = [series_id for series_id in SERIES_STYLE_REGISTRY if series_id in set(frame["series_id"].astype(str))]
+    for series_id in ordered_ids:
+        part = frame[frame["series_id"].astype(str).eq(series_id)]
+        style = _series_style(str(series_id))
         part = part.sort_values("date", kind="mergesort")
         points = []
         for date, number in zip(pd.to_datetime(part["date"]), pd.to_numeric(part[value], errors="coerce")):
@@ -340,8 +386,10 @@ def _chronology_plot(path: Path, frame: pd.DataFrame, *, geo_id: str, value: str
                 y = bottom - (float(number) - float(low)) / span * (bottom - top)
                 points.append((x, y))
         if len(points) > 1:
-            draw.line(points, fill=SERIES_COLORS[index % len(SERIES_COLORS)], width=4 if series_id == "baseline" else 2)
-        draw.text((760, 42 + index * 14), _label(str(series_id), incumbent), fill=SERIES_COLORS[index % len(SERIES_COLORS)])
+            _styled_line(draw, points, color=style["color"], width=4 if series_id == "baseline" else 2,
+                         line_style=style["line_style"])
+        index = list(SERIES_STYLE_REGISTRY).index(str(series_id))
+        draw.text((760, 42 + index * 14), _label(str(series_id), incumbent), fill=style["color"])
     if center_date is not None:
         center = pd.Timestamp(center_date)
         x = left + (center - date_low).total_seconds() / date_span * (right - left)
@@ -370,7 +418,7 @@ def _coordinate_plot(path: Path, frame: pd.DataFrame, *, geo_id: str, incumbent:
         anchors = np.unique(np.linspace(0, max(len(part) - 1, 0), min(len(part), 36), dtype=int))
         shown = part.iloc[anchors]
         x = pd.to_numeric(shown["x_supply"], errors="coerce"); y = pd.to_numeric(shown["y_demand"], errors="coerce")
-        color = SERIES_COLORS[index % len(SERIES_COLORS)]
+        color = _series_style(str(series_id))["color"]
         points = [(sx(a), sy(b)) for a, b in zip(x, y) if pd.notna(a) and pd.notna(b)]
         if len(points) > 1: draw.line(points, fill=color, width=4 if series_id == "baseline" else 2)
         if len(shown):
@@ -385,7 +433,7 @@ def _coordinate_plot(path: Path, frame: pd.DataFrame, *, geo_id: str, incumbent:
 
 def _regime_plot(path: Path, frame: pd.DataFrame, *, geo_id: str, incumbent: str) -> None:
     image, draw = _canvas(f"Assigned Major Regime Over Time — {geo_id}", height=650)
-    ordered_series = list(dict.fromkeys(frame["series_id"].astype(str)))
+    ordered_series = [series_id for series_id in SERIES_STYLE_REGISTRY if series_id in set(frame["series_id"].astype(str))]
     categories = sorted(frame["major_regime"].fillna("unassigned").astype(str).unique())
     palette = ("#4c78a8", "#f58518", "#54a24b", "#e45756", "#b279a2", "#72b7b2", "#ff9da6", "#9d755d")
     colors = {category: palette[i % len(palette)] for i, category in enumerate(categories)}
@@ -395,7 +443,7 @@ def _regime_plot(path: Path, frame: pd.DataFrame, *, geo_id: str, incumbent: str
         part = frame[frame["series_id"].astype(str).eq(series_id)].sort_values("date")
         dates = pd.to_datetime(part["date"])
         y = 105 + row * 65
-        draw.text((15, y - 5), _label(series_id, incumbent), fill="black")
+        draw.text((15, y - 5), _label(series_id, incumbent), fill=_series_style(series_id)["color"])
         for date, category in zip(dates, part["major_regime"].fillna("unassigned").astype(str)):
             x = left + (date-dmin).total_seconds()/dspan*(right-left)
             draw.rectangle((x-4,y-12,x+4,y+12), fill=colors[category])
@@ -419,15 +467,25 @@ def _system_figures(bundle: Path, tables: Mapping[str, pd.DataFrame], campaign: 
     }
     for section, (value, title, ylabel) in specs.items():
         frame = tables[section]
+        if section == "axis_chronology" and "axis" in frame:
+            frame = frame[frame["axis"].eq(campaign.target_axis)]
         for geo_id, geo in frame.groupby("geo_id", sort=True):
             path = bundle / "system_evidence" / section / f"{_slug(geo_id)}.png"
             _chronology_plot(path, geo, geo_id=str(geo_id), value=value, title=title, ylabel=ylabel,
                              incumbent=campaign.incumbent_policy_id,
                              note=f"Source: immutable {section}.csv. Solid black is incumbent; dashed colored lines are challengers.")
             outputs[section].append(path)
-    for geo_id, geo in tables["coordinate_trajectories"].groupby("geo_id", sort=True):
-        path = bundle / "system_evidence/coordinate_trajectories" / f"{_slug(geo_id)}.png"
-        _coordinate_plot(path, geo, geo_id=str(geo_id), incumbent=campaign.incumbent_policy_id); outputs["coordinate_trajectories"].append(path)
+    axes = tables["axis_chronology"]
+    supporting = (axes[axes["axis"].isin(set(campaign.supporting_coordinate_axes) - {campaign.target_axis}) &
+                       axes["series_id"].eq("baseline")] if "axis" in axes else axes.iloc[0:0])
+    supporting_groups = supporting.groupby(["axis", "geo_id"], sort=True) if "axis" in supporting else ()
+    for (axis_name, geo_id), geo in supporting_groups:
+        path = bundle / "system_evidence/axis_chronology" / f"{_slug(geo_id)}__{_slug(axis_name)}_incumbent.png"
+        _chronology_plot(path, geo, geo_id=str(geo_id), value="axis_score",
+                         title=f"{str(axis_name).title()} Axis — Held Constant Across Challengers",
+                         ylabel=f"{str(axis_name).title()} axis score (engine units)", incumbent=campaign.incumbent_policy_id,
+                         note="Held constant across challengers; rendered once from immutable incumbent evidence.")
+        outputs["axis_chronology"].append(path)
     for geo_id, geo in tables["regime_chronology"].groupby("geo_id", sort=True):
         path = bundle / "system_evidence/regime_chronology" / f"{_slug(geo_id)}.png"
         _regime_plot(path, geo, geo_id=str(geo_id), incumbent=campaign.incumbent_policy_id); outputs["regime_chronology"].append(path)
@@ -501,6 +559,7 @@ def build_inventory_review_bundle(
     policy.metrics.to_csv(bundle / "metadata" / "scoring_policy.csv", index=False, lineterminator="\n")
     lineage = {"baseline_run_id": campaign.baseline_run_id, "incumbent_run_id": campaign.incumbent_run_id, **dict(source_lineage or {})}
     (bundle / "metadata" / "source_lineage.json").write_text(json.dumps(lineage, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    figure_started = perf_counter()
     figures = _score_figures(bundle / "figures" / "score_summary", scoring_result, policy, candidates)
     figures += _evidence_figures(bundle / "figures", tables, candidates)
     system_tables = system_evidence.copied_tables()
@@ -512,23 +571,47 @@ def build_inventory_review_bundle(
                      index=False, lineterminator="\n")
         if section not in decomposition_figures:
             continue
+        if section == "feature_to_metric":
+            frame = frame[frame["canonical_metric_key"].eq("active_inventory") |
+                          (frame["canonical_metric_key"].eq("permit_activity") & frame["series_id"].eq("baseline"))]
+        elif section == "metric_to_dimension":
+            frame = frame[frame["dimension"].eq(campaign.target_dimension)]
+        elif section == "dimension_to_axis":
+            frame = frame[frame["axis"].isin(campaign.primary_decomposition_axes)]
         label_column = {"feature_to_metric": "feature_key", "metric_to_dimension": "canonical_metric_key",
                         "dimension_to_axis": "dimension"}[section]
         parent_identity_column = {"feature_to_metric": "canonical_metric_key", "metric_to_dimension": "dimension",
                          "dimension_to_axis": "axis"}[section]
-        for (geo_id, parent_key), geo in frame.groupby(["geo_id", parent_identity_column], sort=True):
-            lines = []
-            for (series_id, label), part in geo.groupby(["series_id", label_column], sort=True):
+        panel_groups = []
+        for geo_id in sorted(frame["geo_id"].astype(str).unique()):
+            geo_frame = frame[frame["geo_id"].astype(str).eq(geo_id)]
+            for parent_key in sorted(geo_frame[parent_identity_column].astype(str).unique()):
+                parent_frame = geo_frame[geo_frame[parent_identity_column].astype(str).eq(parent_key)]
+                for series_id in SERIES_STYLE_REGISTRY:
+                    series_frame = parent_frame[parent_frame["series_id"].astype(str).eq(series_id)]
+                    if not series_frame.empty:
+                        panel_groups.append((geo_id, series_id, parent_key, series_frame))
+        for geo_id, series_id, parent_key, geo in panel_groups:
+            lines, identities = [], []
+            for label, part in geo.groupby(label_column, sort=True):
                 part = part.sort_values("date", kind="mergesort")
-                lines.append((f"{series_id}: {label}", part["date"].tolist(), part["weighted_contribution"].astype(float).tolist()))
-            for series_id, part in geo.groupby("series_id", sort=True):
+                identity = str(part["feature_type"].iloc[0]) if section == "feature_to_metric" else str(label)
+                lines.append((str(label), part["date"].tolist(), part["weighted_contribution"].astype(float).tolist()))
+                identities.append(identity)
+            part = geo
+            if True:
                 conflicts = part.groupby("date")["parent_score"].nunique(dropna=False)
                 if (conflicts > 1).any():
                     raise ValueError(f"Conflicting supplied parent scores for {section}/{geo_id}/{parent_key}")
                 parent = part.groupby("date", as_index=False, sort=True)["parent_score"].first()
-                lines.append((f"{series_id}: parent", parent["date"].tolist(), parent["parent_score"].astype(float).tolist()))
-            path = bundle / "engine_decomposition" / section / f"{_slug(geo_id)}__{_slug(parent_key)}__{section}.png"
-            _lines(path, f"{section.replace('_', ' ').title()} — {geo_id} — {parent_key}", lines, "Engine score / weighted contribution")
+                parent_label = {"feature_to_metric": f"Persisted {parent_key} metric score",
+                                "metric_to_dimension": f"Persisted {parent_key.title()} dimension score",
+                                "dimension_to_axis": f"Persisted/recomputed {parent_key.title()} axis score"}[section]
+                lines.append((parent_label, parent["date"].tolist(), parent["parent_score"].astype(float).tolist()))
+                identities.append("parent")
+            path = bundle / "engine_decomposition" / section / f"{_slug(geo_id)}__{_slug(series_id)}__{_slug(parent_key)}__{section}.png"
+            _lines(path, f"{section.replace('_', ' ').title()} — {geo_id} — {series_id} — {parent_key}", lines,
+                   "Engine score / weighted contribution", identities=identities, parent_series_id=str(series_id))
             decomposition_figures[section].append(path)
     for section in SYSTEM_SECTIONS:
         frame = system_tables[section].sort_values(
@@ -550,6 +633,7 @@ def build_inventory_review_bundle(
                              incumbent=campaign.incumbent_policy_id,
                              note="Source: immutable aligned metric-score evidence. This is the normalized metric stage, not the raw feature, Supply dimension, or Supply axis.")
     system_figures = _system_figures(bundle, system_tables, campaign)
+    print(f"[inventory-review] review figure generation {perf_counter() - figure_started:,.1f}s", flush=True)
     selection = {
         "representative_geography_rule": system_evidence.representative_geography_rule,
         "selected_geographies": sorted(set(system_tables[SYSTEM_SECTIONS[0]]["geo_id"].astype(str))),
@@ -601,12 +685,6 @@ def build_inventory_review_bundle(
         decomposition_panels("metric_to_dimension", "supply", "3.3 Supply — Metric-to-Dimension"),
         primary_axis_panels,
     ))
-    focused_names = {path for section, parent in (("feature_to_metric", "active_inventory"), ("feature_to_metric", "permit_activity"),
-                    ("metric_to_dimension", "supply"),
-                    *( ("dimension_to_axis", axis) for axis in campaign.primary_decomposition_axes ))
-                    for path in decomposition_figures[section] if f"__{_slug(parent)}__" in path.name}
-    supporting = "".join(image_tag(path, f"Additional parent-specific decomposition — {path.stem}")
-                         for paths in decomposition_figures.values() for path in paths if path not in focused_names)
     reconciliation = decomposition_tables["reconciliation_summary"]
     recon_summary = reconciliation.groupby(
         ["layer", "reconciliation_status", "reason_code"], as_index=False, dropna=False
@@ -618,39 +696,46 @@ def build_inventory_review_bundle(
         f"{geo}: {pd.Timestamp(part['window_center_date'].iloc[0]).date().isoformat()}"
         for geo, part in system_tables["transition_windows"].groupby("geo_id", sort=True)
     )
-    parity = tables.get("inventory_challenger_unaffected_parity")
-    completeness_html = (
-        "<p>Completeness evidence was not supplied by this historical fixture.</p>"
-        if parity is None else parity[["candidate_policy_id", "layer", "object_key", "row_count_baseline",
-                                      "row_count_challenger", "changed_rows", "parity_pass"]].to_html(index=False, escape=True)
-    )
+    metric_decomp = decomposition_tables["metric_to_dimension"]
+    supply_base = metric_decomp[(metric_decomp["series_id"].eq("baseline")) & (metric_decomp["dimension"].eq("supply"))]
+    coverage_rows = []
+    for geo_id, part in supply_base.groupby("geo_id", sort=True):
+        first = lambda key: part.loc[part["canonical_metric_key"].eq(key) & part["available"], "date"].min()
+        by_date = part.groupby("date")["available"].sum()
+        parent_dates = part.loc[part["parent_score"].notna(), "date"]
+        coverage_rows.append({"geography": geo_id, "first active_inventory date": first("active_inventory"),
+            "first permit_activity date": first("permit_activity"), "first permit_intensity date": first("permit_intensity"),
+            "first Supply dimension date": parent_dates.min(),
+            "first fully populated three-metric Supply date": by_date[by_date.ge(3)].index.min() if by_date.ge(3).any() else pd.NaT})
+    coverage_summary = pd.DataFrame(coverage_rows)
+    series_key = "".join(f'<span style="border-left:12px solid {style["color"]};padding-left:.4rem;margin-right:1rem">{html.escape(style["display_label"])} ({style["line_style"]})</span>' for style in SERIES_STYLE_REGISTRY.values())
     page = f"""<!doctype html><html><head><meta charset=\"utf-8\"><title>Inventory calibration review</title>
 <style>body{{font:15px system-ui,sans-serif;max-width:1280px;margin:2rem auto;color:#20242a;line-height:1.5}}nav a{{margin-right:1rem}}table{{border-collapse:collapse;font-size:12px;display:block;overflow:auto}}th,td{{border:1px solid #bbb;padding:.35rem}}.notice{{background:#fff3cd;border-left:5px solid #d39e00;padding:1rem;font-weight:bold}}.context{{background:#eef5fb;padding:.8rem}}figure{{margin:1.2rem 0 2rem}}img{{max-width:100%;height:auto;border:1px solid #ccd}}figcaption{{font-size:13px;color:#4b5563}}code{{background:#eee;padding:.1rem .25rem}}</style></head><body>
 <h1>Calibration Review</h1><nav><a href="#summary">Summary</a><a href="#technical">Technical</a><a href="#engine">Engine Decomposition</a><a href="#system">System</a><a href="#supporting">Artifacts</a><a href="#decision">Decision</a></nav>
 <div class=\"notice\">Objective recommendation available; human decision pending; promotion not performed. All figures consume immutable evidence and are advisory-only.</div>
 <h2 id="summary">1. Executive Summary</h2><p><b>{html.escape(campaign.campaign_id)} / {html.escape(campaign.campaign_version)}</b><br>Incumbent: {html.escape(campaign.incumbent_policy_id)}; target chain: <code>{campaign.target_metric}</code> → {campaign.target_dimension.title()} dimension → {campaign.target_axis.title()} axis → coordinates → regimes.<br>Challengers, in canonical order: {', '.join(candidates)}.</p>
 <p>Advisory recommendation: <b>{html.escape(str(recommendation.get('recommended_candidate_policy_id')))}</b> for human review only. Smoothing can overlap at the metric layer yet diverge downstream because persisted metric, dimension, axis, coordinate, and categorical-regime artifacts represent successive engine stages. Similarity is not itself evidence of superiority.</p>
-<h3>Candidate ranking</h3>{ranking.to_html(index=False, escape=True)}
+<h3>Candidate ranking</h3>{ranking.to_html(index=False, escape=True)}<h3>Governed Series Key</h3><p>{series_key}</p>
 <h2 id="technical">2. Technical Evidence</h2><p class="context">This section separates the already-produced active-inventory feature chronology from its normalized metric score and from the weighted campaign scoring components. Review suppression and reduction alongside trend-shape preservation and warmup coverage; a smoother line alone is not a decision rule.</p>
 <h3>2.1 Raw Metric Chronology</h3><p>The level feature shows the supplied active-inventory observations after each policy's already-materialized smoothing treatment; values are not normalized metric scores.</p>{raw_panels}
 <h3>2.2 Normalized Metric-Score Chronology</h3><p>The engine-produced <code>metric_score</code> for <code>active_inventory</code>. This is distinct from raw feature values and downstream Supply scores.</p>{normalized_panels or '<p>Normalized metric-score chronology was not supplied in this evidence package.</p>'}
-<h3>2.3 Candidate Calibration-Score Decomposition</h3><p>Stacked bars use the persisted weighted contributions; no engine contribution is recalculated.</p>{decomposition}{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
-<h3>2.4 Challenger Completeness and Unaffected Parity</h3><p>Inventory features recomputed. active_inventory recomputed. Sibling metrics held constant. Supply dimension recomputed. Capital Markets held constant. Supply axis recomputed. Demand held constant. Coordinates/regimes recomputed. The mixed metric and dimension universes use exact persisted incumbent siblings; they do not claim that sibling metrics or Capital Markets were reproduced from current upstream code.</p>{completeness_html}
 <h2 id="engine">3. Engine Decomposition</h2>
-<h3>Axis Scope</h3><p>Strict decomposition: {', '.join(axis.title() + ' axis' for axis in campaign.primary_decomposition_axes)}.<br>Supporting coordinate/regime axes: {', '.join(axis.title() + ' axis' for axis in campaign.supporting_coordinate_axes)}.</p>{decomposition_tables['axis_scope_lineage'].to_html(index=False, escape=True)}{focused}
-<h3>3.5 Coverage and Start-Date Explanation</h3>{decomposition_tables['chronology_coverage'].to_html(index=False, escape=True)}
-<h3>3.6 Reconciliation Summary</h3>{recon_summary.to_html(index=False, escape=True)}<p><a href="engine_decomposition/reconciliation_summary/reconciliation_summary.csv">Detailed reconciliation evidence</a></p>
-<h3>3.7 Additional Supporting Decompositions</h3>{supporting or '<p>No additional parent objects.</p>'}
-<h2 id="system">4. System Evidence</h2><p class="context">Follow each selected geography through Supply dimension → Supply axis → coordinates → regimes → transitions → cancellation.</p>
+<p>Campaign-scoped evidence only; preserved unrelated families remain exact-parity validated in linked artifacts.</p>{focused}
+<h2 id="system">4. System Evidence</h2>
 <h3>4.1 Supply Dimension Chronology</h3>{system_panels('dimension_chronology', 'Supply Dimension Score')}
-<h3>4.2 Supply Axis Chronology</h3><p>Each candidate Supply parent is recomputed by the production axis scorer from its challenger Supply contribution and its held-constant Capital Markets contribution (governed available-parent renormalization applies).</p>{system_panels('axis_chronology', 'Supply Axis Score')}
-<h3>4.3 Supply–Demand Coordinate Trajectory</h3><p>The supplied coordinate evidence plots <code>x_supply</code> horizontally and <code>y_demand</code> vertically. Up to 36 evenly spaced full-history anchors are selected only for display; start/end markers preserve direction and zero lines expose quadrant boundaries. Coordinates are copied from immutable engine artifacts and are not recomputed by this renderer.</p>{system_panels('coordinate_trajectories', 'Supply–Demand Coordinate Trajectory')}
-<h3>4.4 Regime Chronology</h3><p>Colors identify the persisted categorical <code>major_regime</code>; transition markers show dates where that identity changes. The exact CSV retains <code>minor_regime</code> and <code>quadrant</code> for every observation. No categorical assignment is recomputed while rendering.</p>{system_panels('regime_chronology', 'Assigned Major Regime Over Time')}
-<h3>4.5 Transition Windows</h3><p><b>Persisted selection rule:</b> {html.escape(system_evidence.transition_window_rule)}.<br><b>Center event:</b> the largest absolute month-over-month incumbent Supply-axis change for each selected geography.<br><b>Selected center dates:</b> {html.escape(transition_centers)}.<br><b>Context width:</b> up to three persisted observations on each side of the center. Review timing, amplitude, lag, and shape; this visualization does not issue a promotion judgment.</p>{system_panels('transition_windows', 'Incumbent Supply-Axis Transition Window')}
-<h3>4.6 Cancellation Diagnostics</h3><p><b>Target axis:</b> {html.escape(campaign.target_axis.title())}.<br><b>Contributing dimensions:</b> Supply and Capital Markets.<br><b>Cancellation measure:</b> <code>1 − abs(axis_score_change_1m) / gross_dimension_contribution_change_1m</code>.<br><b>Gross contribution change:</b> sum of the absolute weighted dimension-contribution changes.<br><b>Range:</b> [0, 1], undefined when gross contribution change is zero.<br><b>Interpretation of 0:</b> no offsetting dimension movement.<br><b>Interpretation of 1:</b> complete offsetting dimension movement. No new materiality threshold is introduced.</p>{system_panels('cancellation_diagnostics', 'Supply-Axis Contribution Cancellation')}
+<p>Production missing-value renormalization can create Supply from one available child.</p>{coverage_summary.to_html(index=False, escape=True)}
+<h3>4.2 Supply Axis Chronology</h3><p>Before local Supply exists, Capital Markets may receive effective weight 1.0. DC can diverge earlier because permit_activity becomes available earlier.</p>{''.join(image_tag(p, 'Supply Axis Score — '+p.stem) for p in system_figures['axis_chronology'] if 'demand_incumbent' not in p.name)}
+<h3>4.3 Demand Axis Chronology — Held Constant</h3><p>Held constant across challengers; one incumbent trace per geography.</p>{''.join(image_tag(p, 'Demand Axis Held Constant — '+p.stem) for p in system_figures['axis_chronology'] if 'demand_incumbent' in p.name)}
+<h3>4.4 Regime Chronology</h3><p>Categorical chronology remains; minor regime and quadrant remain in CSV.</p>{system_panels('regime_chronology', 'Assigned Major Regime Over Time')}
+<h3>4.5 Inventory-Relevant Transition Windows</h3><p><b>Filtered selection rule:</b> {html.escape(system_evidence.transition_window_rule)}.<br><b>Selected center dates:</b> {html.escape(transition_centers)}.</p>{system_panels('transition_windows', 'Inventory-Relevant Supply-Axis Transition Window')}
 <h2 id="supporting">5. Supporting Tables and Artifact Links</h2><ul><li><a href="tables/">Exact Technical Evidence CSVs</a></li><li><a href="engine_decomposition/">Exact Engine Decomposition evidence</a></li>{''.join(f'<li><a href="system_evidence/{s}/{s}.csv">{s.replace("_", " ").title()} CSV</a></li>' for s in SYSTEM_SECTIONS)}<li><a href="metadata/system_evidence_selection.json">System-evidence selection metadata</a></li><li><a href="metadata/source_lineage.json">Source lineage</a></li><li><a href="manifest.json">Bundle hash manifest</a></li></ul>
 <h3>Failed gates</h3>{failed_html}
-<h2 id="decision">6. Human Decision Status</h2><p>Pending. The recommendation remains advisory-only and no promotion occurred.</p></body></html>"""
+<h2 id="decision">6. Human Decision Status</h2><p>Pending. The MA12 recommendation remains advisory-only and no promotion occurred.</p>
+<h2>7. Appendix</h2><h3>Candidate Ranking Arithmetic</h3><p>Criterion score × criterion weight → weighted criterion contribution → total candidate calibration score.</p>{decomposition}{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
+<h3>Compact Coverage Summary</h3>{coverage_summary.to_html(index=False, escape=True)}<p><a href="engine_decomposition/chronology_coverage/chronology_coverage.csv">Exhaustive coverage CSV</a></p>
+<h3>Compact Reconciliation Summary</h3>{recon_summary.to_html(index=False, escape=True)}<p><a href="engine_decomposition/reconciliation_summary/reconciliation_summary.csv">Exhaustive reconciliation CSV</a></p>
+<h3>Compact Parity Summary</h3><p>All preserved layers are validated exactly. <a href="tables/inventory_challenger_unaffected_parity.csv">Exhaustive parity CSV</a></p></body></html>"""
+    html_started = perf_counter()
     (bundle / "review_summary.html").write_text(page, encoding="utf-8")
     (bundle / "README.md").write_text(
         "# Inventory calibration human-review bundle\n\nOpen `review_summary.html` locally. "
@@ -658,6 +743,7 @@ def build_inventory_review_bundle(
         "The manifest reconciles file hashes and lineage. The recommendation is advisory, human review is pending, and no promotion occurred.\n",
         encoding="utf-8",
     )
+    print(f"[inventory-review] HTML assembly {perf_counter() - html_started:,.1f}s", flush=True)
     files = sorted(path for path in bundle.rglob("*") if path.is_file())
     manifest: dict[str, object] = {
         "bundle_contract_version": BUNDLE_CONTRACT_VERSION,
@@ -691,6 +777,7 @@ def build_inventory_review_bundle(
     }
     (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     files = sorted(path for path in bundle.rglob("*") if path.is_file())
+    zip_started = perf_counter()
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zipped:
         for path in files:
             info = zipfile.ZipInfo(path.relative_to(bundle.parent).as_posix(), date_time=(1980, 1, 1, 0, 0, 0))
@@ -700,4 +787,5 @@ def build_inventory_review_bundle(
         expected = {path.relative_to(bundle.parent).as_posix() for path in files}
         if set(zipped.namelist()) != expected:
             raise ValueError("ZIP is missing required review files")
+    print(f"[inventory-review] ZIP creation {perf_counter() - zip_started:,.1f}s", flush=True)
     return InventoryReviewBundleResult(bundle, archive, manifest, tuple(files))
