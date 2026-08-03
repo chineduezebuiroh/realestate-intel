@@ -206,7 +206,7 @@ def build_in_memory_smoothing_challenger(
     if require_complete_universe and incumbent_artifacts is None:
         raise ValueError("Complete mixed-universe construction requires incumbent_artifacts")
     if complete_mode:
-        required_artifacts = {"normalized_features", "axis_scores"}
+        required_artifacts = {"normalized_features", "dimension_scores", "axis_scores"}
         missing_artifacts = required_artifacts.difference(incumbent_artifacts or {})
         if missing_artifacts:
             raise ValueError(f"Incumbent artifacts missing required tables: {sorted(missing_artifacts)}")
@@ -295,6 +295,46 @@ def build_in_memory_smoothing_challenger(
     dimension_scores = score_dimensions(
         aligned_metric_scores
     )
+    if complete_mode:
+        # Inventory is the only intervened dimension.  Current-pipeline
+        # reconstruction of an unaffected dimension is not its counterfactual:
+        # splice the exact persisted incumbent rows before scoring the affected
+        # axis, and never rebuild those rows again.
+        incumbent_dimensions = incumbent_artifacts["dimension_scores"].copy(deep=True)
+        dimension_keys = ["geo_id", "date", "dimension"]
+        for label, frame in (
+            ("recomputed", dimension_scores),
+            ("incumbent", incumbent_dimensions),
+        ):
+            if frame.duplicated(dimension_keys).any():
+                raise ValueError(
+                    f"Mixed dimension universe {label} contains duplicate governed keys"
+                )
+        if set(dimension_scores.columns) != set(incumbent_dimensions.columns):
+            raise ValueError(
+                "Mixed dimension universe schema mismatch; "
+                f"recomputed_only={sorted(set(dimension_scores.columns) - set(incumbent_dimensions.columns))}, "
+                f"incumbent_only={sorted(set(incumbent_dimensions.columns) - set(dimension_scores.columns))}"
+            )
+        challenger_supply = dimension_scores[dimension_scores["dimension"].eq("supply")]
+        incumbent_unaffected = incumbent_dimensions[
+            ~incumbent_dimensions["dimension"].eq("supply")
+        ]
+        dimension_scores = pd.concat(
+            [challenger_supply, incumbent_unaffected], ignore_index=True
+        ).sort_values(dimension_keys, kind="mergesort").reset_index(drop=True)
+        if dimension_scores.duplicated(dimension_keys).any():
+            raise ValueError("Mixed dimension universe contains duplicate governed keys")
+        final_unaffected = dimension_scores[~dimension_scores["dimension"].eq("supply")]
+        try:
+            pd.testing.assert_frame_equal(
+                incumbent_unaffected.sort_values(dimension_keys, kind="mergesort").reset_index(drop=True),
+                final_unaffected.sort_values(dimension_keys, kind="mergesort").reset_index(drop=True),
+                check_dtype=True,
+                check_exact=True,
+            )
+        except AssertionError as exc:
+            raise ValueError("Mixed dimension universe changed preserved incumbent rows") from exc
     print(f"[inventory-challenger] dimension scoring {perf_counter() - started:,.1f}s", flush=True)
 
     started = perf_counter()

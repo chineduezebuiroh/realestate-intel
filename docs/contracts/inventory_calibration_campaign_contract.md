@@ -1455,6 +1455,17 @@ is a supporting coordinate input and is preserved exactly; it is not
 reinterpreted by this campaign. Capital Markets remains an input to the
 challenger Supply axis wherever it exists for the incumbent.
 
+After metric and dimension production, the causal challenger retains the
+recomputed Supply dimension and replaces every non-Supply dimension with the
+exact persisted incumbent rows at campaign geography/date grain. The splice is
+schema-strict, null-safe, and duplicate-intolerant. Supply is then scored from
+challenger Supply plus incumbent Capital Markets (governed weights 0.85 and
+0.15 where both exist); Demand and supporting-only axes remain exact incumbent
+artifacts. Coordinates, geometry, and regimes are recomputed from that mixed
+axis universe. Current-pipeline recomputation differed from persisted Capital
+Markets for 10,758 of 33,578 county-date rows in the historical authoritative
+diagnostic; this historical fact is not a production validation threshold.
+
 Publication includes `inventory_challenger_unaffected_parity`,
 `inventory_challenger_axis_input_parity`, and
 `inventory_challenger_mixed_universe_lineage`. These tables fail closed on a
