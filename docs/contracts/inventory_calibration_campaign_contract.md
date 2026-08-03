@@ -11,9 +11,12 @@ IDs, or counties without required target coverage.
 
 The generated `config/geo_manifest.generated.csv` is the authoritative runtime
 registry (`geo_slug` to `level`). Older persisted `geo_id` values resolve first
-through the governed `config/inventory_phase8c_geo_identity_crosswalk.csv`, then
-both persisted baseline frames are filtered before any
-challenger is materialized. The immutable
+through the governed `config/inventory_phase8c_geo_identity_crosswalk.csv`.
+Raw candidate-construction frames are filtered before materialization, while
+persisted normalized features retain their complete upstream dependency
+geography universe through every production scoring stage. Only after scoring
+are dimensions, axes, coordinates, geometry, and regimes filtered to the
+resolved campaign counties. The immutable
 `inventory_campaign_geography_scope` evidence table records included and
 excluded source and canonical IDs, resolution methods, levels, reasons, and
 metadata source; compact campaign metadata
@@ -25,7 +28,8 @@ The old `config/geo_manifest.csv` is migration evidence only, never runtime
 authority. `cbsa_metro` is a future macro extension. ZIP remains supported and
 reserved for future local-regime campaigns; it is excluded here. City is
 outside both the current macro regime and planned local regimes. Every
-non-county level is excluded before challenger materialization.
+non-county level is excluded from campaign outputs, but governed upstream
+dependency rows are not inferred from ID suffixes or filtered before scoring.
 The earlier MA12 recommendation and score are provisional until corrected
 county-only authoritative Smokes 84 and 86 pass. No promotion follows from this
 advisory campaign without human review.
@@ -1441,9 +1445,11 @@ The production Inventory policy is not considered calibrated until Phase A and P
 ## Complete mixed-universe challengers (PR2B)
 
 Inventory challengers use the full authoritative incumbent normalized-feature
-universe. The producer removes only `redfin_inventory_level`,
-`redfin_inventory_short`, and `redfin_inventory_long`, inserts the normalized
-candidate versions, and invokes the production metric, alignment, dimension,
+universe. The producer removes `redfin_inventory_level`,
+`redfin_inventory_short`, and `redfin_inventory_long` only for resolved campaign
+geographies, inserts candidate versions at that exact feature-and-geography
+grain, and preserves target rows outside the campaign. It invokes the production
+metric, alignment, dimension,
 Supply-axis, coordinate, geometry, and regime stages. The persisted Demand axis
 is a supporting coordinate input and is preserved exactly; it is not
 reinterpreted by this campaign. Capital Markets remains an input to the

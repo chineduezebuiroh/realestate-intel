@@ -92,6 +92,7 @@ def build_in_memory_smoothing_challenger(
     target_feature_keys: Collection[str] | None = None,
     primary_axes: Collection[str] | None = None,
     supporting_axes: Collection[str] | None = None,
+    campaign_output_geo_ids: Collection[str] | None = None,
     require_complete_universe: bool = False,
 ) -> InMemoryChallengerArtifacts:
     """
@@ -105,6 +106,7 @@ def build_in_memory_smoothing_challenger(
     target = tuple(target_feature_keys or ())
     primary = tuple(primary_axes or ())
     supporting = tuple(supporting_axes or ())
+    campaign_geos = frozenset(str(item) for item in (campaign_output_geo_ids or ()))
     complete_mode = incumbent_artifacts is not None or require_complete_universe
     if require_complete_universe and incumbent_artifacts is None:
         raise ValueError("Complete mixed-universe construction requires incumbent_artifacts")
@@ -115,6 +117,8 @@ def build_in_memory_smoothing_challenger(
             raise ValueError(f"Incumbent artifacts missing required tables: {sorted(missing_artifacts)}")
         if not target:
             raise ValueError("Complete mixed-universe construction requires target_feature_keys")
+        if not campaign_geos:
+            raise ValueError("Complete mixed-universe construction requires campaign_output_geo_ids")
         if not primary or not supporting:
             raise ValueError("Complete mixed-universe construction requires primary_axes and supporting_axes")
         if len(primary) != len(set(primary)) or len(supporting) != len(set(supporting)):
@@ -143,32 +147,51 @@ def build_in_memory_smoothing_challenger(
         normalized_features = candidate_normalized
     else:
         incumbent_normalized = incumbent_artifacts["normalized_features"].copy(deep=True)
-        incumbent_targets = set(incumbent_normalized.loc[
-            incumbent_normalized["feature_key"].isin(target), "feature_key"
-        ].astype(str))
-        candidate_targets = set(candidate_normalized.loc[
-            candidate_normalized["feature_key"].isin(target), "feature_key"
-        ].astype(str))
+        incumbent_target_mask = (
+            incumbent_normalized["feature_key"].isin(target)
+            & incumbent_normalized["geo_id"].astype(str).isin(campaign_geos)
+        )
+        candidate_target_mask = candidate_normalized["feature_key"].isin(target)
+        incumbent_targets = set(incumbent_normalized.loc[incumbent_target_mask, "feature_key"].astype(str))
+        candidate_targets = set(candidate_normalized.loc[candidate_target_mask, "feature_key"].astype(str))
+        candidate_geographies = set(candidate_normalized.loc[candidate_target_mask, "geo_id"].astype(str))
+        if not candidate_geographies.issubset(campaign_geos):
+            raise ValueError("Candidate target rows exist outside approved campaign output scope")
+        replacement_keys = ["geo_id", "date", "canonical_metric_key", "feature_key"]
+        incumbent_key_set = set(map(tuple, incumbent_normalized.loc[incumbent_target_mask, replacement_keys]
+                                    .itertuples(index=False, name=None)))
+        candidate_key_set = set(map(tuple, candidate_normalized.loc[candidate_target_mask, replacement_keys]
+                                    .itertuples(index=False, name=None)))
+        if incumbent_key_set != candidate_key_set:
+            raise ValueError("Missing or unexpected replacement rows for approved campaign geographies")
         if incumbent_targets != set(target) or candidate_targets != set(target):
             raise ValueError(
                 "Target feature family is incomplete; "
                 f"incumbent={sorted(incumbent_targets)}, candidate={sorted(candidate_targets)}, expected={sorted(target)}"
             )
-        incumbent_non_target = incumbent_normalized[~incumbent_normalized["feature_key"].isin(target)]
+        # The upstream dependency universe remains complete.  Replacement is
+        # bounded by both target identity and campaign geography; target rows
+        # outside the campaign are immutable dependencies too.
+        incumbent_preserved = incumbent_normalized[~incumbent_target_mask]
         normalized_features = pd.concat(
-            [incumbent_non_target,
-             candidate_normalized[candidate_normalized["feature_key"].isin(target)]],
+            [incumbent_preserved, candidate_normalized[candidate_target_mask]],
             ignore_index=True,
         )
         keys = ["geo_id", "date", "canonical_metric_key", "feature_key"]
         if normalized_features.duplicated(keys).any():
             raise ValueError("Mixed normalized-feature universe contains duplicate keys")
         normalized_features = normalized_features.sort_values(keys, kind="mergesort").reset_index(drop=True)
-        mixed_non_target = normalized_features[~normalized_features["feature_key"].isin(target)]
-        if set(map(tuple, incumbent_non_target[keys].itertuples(index=False, name=None))) != set(
-            map(tuple, mixed_non_target[keys].itertuples(index=False, name=None))
-        ):
-            raise ValueError("Mixed normalized-feature universe changed the non-target key set")
+        mixed_preserved = normalized_features[~(
+            normalized_features["feature_key"].isin(target)
+            & normalized_features["geo_id"].astype(str).isin(campaign_geos)
+        )]
+        try:
+            pd.testing.assert_frame_equal(
+                incumbent_preserved.sort_values(keys, kind="mergesort").reset_index(drop=True),
+                mixed_preserved.sort_values(keys, kind="mergesort").reset_index(drop=True),
+            )
+        except AssertionError as exc:
+            raise ValueError("Mixed normalized-feature universe changed preserved dependency rows") from exc
     print(f"[inventory-challenger] mixed-universe assembly/normalization {perf_counter() - started:,.1f}s", flush=True)
 
     started = perf_counter()
@@ -229,6 +252,20 @@ def build_in_memory_smoothing_challenger(
         geometry
     )
     print(f"[inventory-challenger] coordinate/regime generation {perf_counter() - started:,.1f}s", flush=True)
+
+    if complete_mode:
+        started = perf_counter()
+        # This is the sole downstream campaign-output filtering point. Scoring
+        # above consumes the complete upstream dependency universe.
+        def campaign_only(frame: pd.DataFrame) -> pd.DataFrame:
+            return frame[frame["geo_id"].astype(str).isin(campaign_geos)].copy().reset_index(drop=True)
+
+        dimension_scores = campaign_only(dimension_scores)
+        axis_scores = campaign_only(axis_scores)
+        coordinates = campaign_only(coordinates)
+        geometry = campaign_only(geometry)
+        regime_assignments = campaign_only(regime_assignments)
+        print(f"[inventory-challenger] downstream campaign-output filtering {perf_counter() - started:,.1f}s", flush=True)
 
     return InMemoryChallengerArtifacts(
         features=challenger_features,
