@@ -37,6 +37,10 @@ def _incumbent_normalized() -> pd.DataFrame:
     rows = []
     for key, score in zip(sorted(INVENTORY_FEATURE_KEYS), (0.1, 0.2, 0.3)):
         rows.append(_normalized_row(GEO, "active_inventory", key, score))
+    # Target-family rows outside the county campaign are upstream dependencies,
+    # not replacement candidates.
+    for key, score in zip(sorted(INVENTORY_FEATURE_KEYS), (-0.1, -0.2, -0.3)):
+        rows.append(_normalized_row(NATION, "active_inventory", key, score))
     for key, score in zip(sorted(BPS_KEYS), (0.35, 0.4, 0.45)):
         rows.append(_normalized_row(GEO, "permit_activity", key, score))
     for key, score in zip(
@@ -100,6 +104,7 @@ def main() -> int:
     baseline = _incumbent_artifacts()
     target_candidate = baseline["normalized_features"][
         baseline["normalized_features"]["feature_key"].isin(INVENTORY_FEATURE_KEYS)
+        & baseline["normalized_features"]["geo_id"].eq(GEO)
     ].copy()
     target_candidate["feature_score"] = (target_candidate["feature_score"] + 0.5).clip(-1, 1)
     target_candidate["percentile"] = (target_candidate["feature_score"] + 1) / 2
@@ -124,12 +129,22 @@ def main() -> int:
             target_feature_keys=INVENTORY_FEATURE_KEYS,
             primary_axes=campaign.primary_decomposition_axes,
             supporting_axes=campaign.supporting_coordinate_axes,
+            campaign_output_geo_ids=(GEO,),
             require_complete_universe=True,
         )
         assert set(challenger.normalized_features.feature_key).issuperset(BPS_KEYS)
         non_target_base = baseline["normalized_features"][~baseline["normalized_features"].feature_key.isin(INVENTORY_FEATURE_KEYS)]
         non_target_new = challenger.normalized_features[~challenger.normalized_features.feature_key.isin(INVENTORY_FEATURE_KEYS)]
         pd.testing.assert_frame_equal(non_target_base.reset_index(drop=True), non_target_new.reset_index(drop=True))
+        outside_targets = lambda frame: frame.query("geo_id == @NATION and feature_key in @INVENTORY_FEATURE_KEYS").reset_index(drop=True)
+        pd.testing.assert_frame_equal(
+            outside_targets(baseline["normalized_features"]),
+            outside_targets(challenger.normalized_features),
+        )
+        assert NATION in set(challenger.normalized_features.geo_id)
+        for frame in (challenger.dimension_scores, challenger.axis_scores, challenger.coordinates,
+                      challenger.geometry, challenger.regime_assignments):
+            assert set(frame.geo_id) == {GEO}
         assert not challenger.metric_scores.query("canonical_metric_key == 'active_inventory'").metric_score.equals(
             baseline["metric_scores"].query("canonical_metric_key == 'active_inventory'").metric_score)
         pd.testing.assert_frame_equal(
@@ -154,6 +169,34 @@ def main() -> int:
         evidence = _challenger_completeness_evidence(
             campaign, baseline, {"inventory_ma3_structural": challenger})
         assert evidence.tables["inventory_challenger_unaffected_parity"].parity_pass.all()
+
+        def expect_replacement_failure(candidate_frame, expected):
+            constructor_module.normalize_features = lambda _: candidate_frame.copy()
+            try:
+                constructor_module.build_in_memory_smoothing_challenger(
+                    baseline_features=raw_target, source_metrics=pd.DataFrame(),
+                    experiment_id="inventory_ma3_structural", incumbent_artifacts=baseline,
+                    target_feature_keys=INVENTORY_FEATURE_KEYS, primary_axes=("supply",),
+                    supporting_axes=("supply", "demand"), campaign_output_geo_ids=(GEO,),
+                    require_complete_universe=True,
+                )
+            except ValueError as exc:
+                assert expected in str(exc), str(exc)
+            else:
+                raise AssertionError(f"Expected replacement-boundary failure: {expected}")
+
+        outside_candidate = pd.concat([
+            partial_candidate,
+            baseline["normalized_features"].query(
+                "geo_id == @NATION and feature_key in @INVENTORY_FEATURE_KEYS"
+            ).iloc[[0]],
+        ], ignore_index=True)
+        expect_replacement_failure(outside_candidate, "outside approved")
+        expect_replacement_failure(
+            partial_candidate.drop(partial_candidate.index[0]).reset_index(drop=True),
+            "Missing or unexpected replacement rows",
+        )
+        constructor_module.normalize_features = lambda _: partial_candidate.copy()
         dropped_capital = challenger.dimension_scores[
             ~challenger.dimension_scores["dimension"].eq("capital_markets")
         ]
@@ -286,6 +329,7 @@ def main() -> int:
                 baseline_features=raw_target, source_metrics=pd.DataFrame(),
                 experiment_id="inventory_ma3_structural", target_feature_keys=INVENTORY_FEATURE_KEYS,
                 primary_axes=("supply",), supporting_axes=("supply", "demand"),
+                campaign_output_geo_ids=(GEO,),
                 require_complete_universe=True)
         except ValueError as exc:
             assert "requires incumbent_artifacts" in str(exc)
@@ -296,7 +340,8 @@ def main() -> int:
         demand_primary = constructor_module.build_in_memory_smoothing_challenger(
             baseline_features=raw_target, source_metrics=pd.DataFrame(), experiment_id="inventory_ma3_structural",
             incumbent_artifacts=baseline, target_feature_keys=INVENTORY_FEATURE_KEYS,
-            primary_axes=("demand",), supporting_axes=("supply", "demand"), require_complete_universe=True)
+            primary_axes=("demand",), supporting_axes=("supply", "demand"),
+            campaign_output_geo_ids=(GEO,), require_complete_universe=True)
         pd.testing.assert_frame_equal(
             demand_primary.axis_scores.query("axis == 'supply'").reset_index(drop=True),
             baseline["axis_scores"].query("axis == 'supply'").reset_index(drop=True))
@@ -311,6 +356,7 @@ def main() -> int:
                 constructor_module.build_in_memory_smoothing_challenger(
                     baseline_features=raw_target, source_metrics=pd.DataFrame(), experiment_id="inventory_ma3_structural",
                     incumbent_artifacts=baseline, target_feature_keys=INVENTORY_FEATURE_KEYS,
+                    campaign_output_geo_ids=(GEO,),
                     require_complete_universe=True, **kwargs)
             except ValueError as exc:
                 assert message in str(exc)

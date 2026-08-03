@@ -430,6 +430,7 @@ def materialize_phase_a_challengers(
             target_feature_keys=INVENTORY_FEATURE_KEYS,
             primary_axes=campaign.primary_decomposition_axes,
             supporting_axes=campaign.supporting_coordinate_axes,
+            campaign_output_geo_ids=approved_geos,
             require_complete_universe=incumbent_artifacts is not None,
         )
 
@@ -486,13 +487,20 @@ def materialize_phase_a_challengers(
 def _scope_incumbent_artifacts(
     artifacts: Mapping[str, pd.DataFrame], geography_lineage: pd.DataFrame,
 ) -> dict[str, pd.DataFrame]:
-    """Apply the exact campaign geography identity to the full incumbent universe."""
+    """Preserve upstream dependencies and scope only downstream campaign outputs."""
     included = geography_lineage[geography_lineage["included"]]
     identity = dict(zip(included["source_geo_id"].astype(str), included["canonical_geo_slug"].astype(str)))
     output: dict[str, pd.DataFrame] = {}
+    upstream_layers = {"normalized_features", "metric_scores", "aligned_metric_scores"}
     for name, supplied in artifacts.items():
-        frame = supplied[supplied["geo_id"].astype(str).isin(identity)].copy(deep=True)
-        frame["geo_id"] = frame["geo_id"].astype(str).map(identity)
+        frame = supplied.copy(deep=True)
+        source_ids = frame["geo_id"].astype(str)
+        if name not in upstream_layers:
+            frame = frame[source_ids.isin(identity)].copy()
+            source_ids = frame["geo_id"].astype(str)
+        # Canonicalize included campaign identities without interpreting or
+        # filtering any other upstream geography level.
+        frame["geo_id"] = source_ids.map(identity).fillna(source_ids)
         output[name] = frame.reset_index(drop=True)
     return output
 
@@ -617,6 +625,17 @@ def _challenger_completeness_evidence(campaign, baseline, challengers) -> Review
                 ~merged["parity_expected"]
                 | (both_present & (both_null | both_non_null_equal))
             )
+            if axis == "supply" and dimension == "capital_markets":
+                changed = int((both_present & ~(both_null | both_non_null_equal)).sum())
+                missing = int(merged["_merge"].eq("left_only").sum())
+                print(
+                    "[inventory-phase-a] capital_markets "
+                    f"candidate={candidate_id} baseline_rows={len(left)} "
+                    f"challenger_rows={len(right)} overlap_rows={int(both_present.sum())} "
+                    f"changed_rows={changed} missing_rows={missing} "
+                    f"parity_status={'pass' if merged['parity_pass'].all() else 'fail'}",
+                    flush=True,
+                )
             if not merged["parity_pass"].all(): raise ValueError(f"Axis-input parity failure for {candidate_id}/{axis}/{dimension}")
             axis_rows.extend(merged.drop(columns="_merge").to_dict("records"))
         for layer, key, left, right, keys, required in pairs:
@@ -1087,10 +1106,18 @@ def run_phase_a_foundation_evidence(
     campaign, scoped_features, scoped_sources, geography_lineage = resolve_phase_a_geography_scope(
         campaign, baseline.features, baseline.source_metrics
     )
-    scoped_incumbent = (
-        _scope_incumbent_artifacts(baseline.system_artifacts, geography_lineage)
-        if persist_system_evidence else None
-    )
+    if persist_system_evidence:
+        from time import perf_counter
+        started = perf_counter()
+        scoped_incumbent = _scope_incumbent_artifacts(
+            baseline.system_artifacts, geography_lineage
+        )
+        print(
+            f"[inventory-phase-a] upstream dependency scoping {perf_counter() - started:,.1f}s",
+            flush=True,
+        )
+    else:
+        scoped_incumbent = None
     challengers = materialize_phase_a_challengers(
         campaign, scoped_features, scoped_sources, scoped_incumbent
     )
