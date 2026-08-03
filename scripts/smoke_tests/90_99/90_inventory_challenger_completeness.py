@@ -170,6 +170,32 @@ def main() -> int:
             campaign, baseline, {"inventory_ma3_structural": challenger})
         assert evidence.tables["inventory_challenger_unaffected_parity"].parity_pass.all()
 
+        # Authoritative-style sentinel: incumbent keys are strictly larger,
+        # while the normalized challenger is a valid leading-warmup suffix.
+        early_targets = pd.concat([
+            target_candidate.assign(date=pd.Timestamp("2023-11-30")),
+            target_candidate.assign(date=pd.Timestamp("2023-12-31")),
+        ], ignore_index=True)
+        warm_baseline = dict(baseline)
+        warm_baseline["normalized_features"] = pd.concat([
+            early_targets, baseline["normalized_features"]
+        ], ignore_index=True).sort_values(
+            ["geo_id", "date", "canonical_metric_key", "feature_key"], kind="mergesort"
+        ).reset_index(drop=True)
+        warm_challenger = constructor_module.build_in_memory_smoothing_challenger(
+            baseline_features=raw_target, source_metrics=pd.DataFrame(),
+            experiment_id="inventory_ma3_structural", incumbent_artifacts=warm_baseline,
+            target_feature_keys=INVENTORY_FEATURE_KEYS, primary_axes=("supply",),
+            supporting_axes=("supply", "demand"), campaign_output_geo_ids=(GEO,),
+            require_complete_universe=True,
+        )
+        reconciliation = warm_challenger.target_replacement_reconciliation
+        assert reconciliation.leading_warmup_rows.eq(2).all()
+        mixed_campaign_targets = warm_challenger.normalized_features.query(
+            "geo_id == @GEO and feature_key in @INVENTORY_FEATURE_KEYS"
+        )
+        assert set(mixed_campaign_targets.date) == {DATE}  # warmup was not backfilled
+
         def expect_replacement_failure(candidate_frame, expected):
             constructor_module.normalize_features = lambda _: candidate_frame.copy()
             try:
@@ -191,10 +217,10 @@ def main() -> int:
                 "geo_id == @NATION and feature_key in @INVENTORY_FEATURE_KEYS"
             ).iloc[[0]],
         ], ignore_index=True)
-        expect_replacement_failure(outside_candidate, "outside approved")
+        expect_replacement_failure(outside_candidate, "out_of_scope_target_rows")
         expect_replacement_failure(
             partial_candidate.drop(partial_candidate.index[0]).reset_index(drop=True),
-            "Missing or unexpected replacement rows",
+            "missing_target_series",
         )
         constructor_module.normalize_features = lambda _: partial_candidate.copy()
         dropped_capital = challenger.dimension_scores[
