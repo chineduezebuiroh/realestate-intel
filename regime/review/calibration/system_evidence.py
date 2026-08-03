@@ -296,8 +296,32 @@ def assemble_inventory_system_evidence(
         pivot = candidate_metric[candidate_metric["geo_id"].eq(geo_id)].pivot(
             index="date", columns="series_id", values="metric_score"
         )
-        baseline_metric = target_availability[target_availability["geo_id"].eq(geo_id)].set_index("date")["metric_score"]
-        differing_dates = set(pivot.index[pivot.ne(baseline_metric, axis=0).any(axis=1)])
+        baseline_metric = target_availability[
+            target_availability["geo_id"].eq(geo_id)
+        ].set_index("date")["metric_score"]
+
+        # Compare only on the candidate chronology. Pandas otherwise
+        # aligns to the union of baseline and candidate dates, producing
+        # a Boolean mask longer than pivot.index.
+        baseline_on_candidate_dates = baseline_metric.reindex(pivot.index)
+
+        candidate_differs = pivot.ne(
+            baseline_on_candidate_dates,
+            axis=0,
+        )
+
+        # Missing challenger warmup rows are not divergence.
+        candidate_differs[pivot.isna()] = False
+        candidate_differs.loc[
+            baseline_on_candidate_dates.isna(),
+            :,
+        ] = False
+
+        differing_dates = set(
+            candidate_differs.index[
+                candidate_differs.any(axis=1)
+            ]
+        )
         eligible_dates = available_dates & differing_dates
         changes = changes.where(frame["date"].isin(eligible_dates))
         if changes.dropna().empty:
