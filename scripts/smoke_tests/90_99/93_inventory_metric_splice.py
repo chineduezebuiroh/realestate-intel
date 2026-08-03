@@ -36,7 +36,12 @@ def main() -> int:
     assert mixed.query("canonical_metric_key == 'active_inventory'").iloc[0].metric_score == 0.8
     assert mixed.query("canonical_metric_key == 'permit_activity'").iloc[0].metric_score == 0.4
 
-    early_target = incumbent.iloc[[0]].assign(date=pd.Timestamp("2023-12-31"))
+    early_target = incumbent.iloc[[0]].copy(deep=True)
+    early_target["date"] = pd.Series(
+        [pd.Timestamp("2023-12-31")],
+        index=early_target.index,
+        dtype="datetime64[ns]",
+    )
     warm_incumbent = pd.concat([early_target, incumbent], ignore_index=True)
     warm_mixed = _assemble_causal_splice(
         candidate=recomputed, incumbent=warm_incumbent,
