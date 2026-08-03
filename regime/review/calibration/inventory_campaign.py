@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from regime._00_config_loader import load_regime_config
+from regime._06_axis_engine import _build_axis_weights
 from regime.review.models import ReviewBundle
 from regime.review.results import ReviewResult
 from regime.experiments.in_memory_challenger import (
@@ -48,9 +49,9 @@ INVENTORY_FEATURE_KEYS = frozenset(COMPONENT_BY_FEATURE_KEY)
 FEATURE_KEYS = [FEATURE_KEY_BY_COMPONENT[item] for item in FEATURE_COMPONENTS]
 FEATURE_KEYS_COLUMNS = ["geo_id", "date", "canonical_metric_key", "feature_key"]
 AUTHORITATIVE_RUN_ID = "macro_regime_v1_bps120_sources"
-EVIDENCE_CONTRACT_VERSION = "inventory_phase_a_evidence_v2"
+EVIDENCE_CONTRACT_VERSION = "inventory_phase_a_evidence_v3"
 AUTHORITATIVE_PRODUCER_ID = "inventory_phase_a_authoritative_smoke"
-AUTHORITATIVE_PRODUCER_CODE_IDENTITY = "inventory_phase_a_authoritative_producer_v6"
+AUTHORITATIVE_PRODUCER_CODE_IDENTITY = "inventory_phase_a_authoritative_producer_v7"
 COMPLETION_MARKER = "producer_completion.json"
 GEO_METADATA_SOURCE = "config/geo_manifest.generated.csv (geo_slug/level)"
 GEO_IDENTITY_CROSSWALK = "config/inventory_phase8c_geo_identity_crosswalk.csv"
@@ -396,6 +397,7 @@ def materialize_phase_a_challengers(
     campaign: CalibrationCampaign,
     baseline_features: pd.DataFrame,
     source_metrics: pd.DataFrame,
+    incumbent_artifacts: Mapping[str, pd.DataFrame] | None = None,
 ) -> dict[str, InMemoryChallengerArtifacts]:
     """Build every canonical candidate once, preserving campaign order."""
     
@@ -424,6 +426,11 @@ def materialize_phase_a_challengers(
             baseline_features=baseline_features,
             source_metrics=source_metrics,
             experiment_id=candidate_id,
+            incumbent_artifacts=incumbent_artifacts,
+            target_feature_keys=INVENTORY_FEATURE_KEYS,
+            primary_axes=campaign.primary_decomposition_axes,
+            supporting_axes=campaign.supporting_coordinate_axes,
+            require_complete_universe=incumbent_artifacts is not None,
         )
 
         elapsed = perf_counter() - started
@@ -474,6 +481,168 @@ def materialize_phase_a_challengers(
     if tuple(output) != campaign.candidate_policy_ids:
         raise ValueError("Missing or unexpected Phase A candidate")
     return output
+
+
+def _scope_incumbent_artifacts(
+    artifacts: Mapping[str, pd.DataFrame], geography_lineage: pd.DataFrame,
+) -> dict[str, pd.DataFrame]:
+    """Apply the exact campaign geography identity to the full incumbent universe."""
+    included = geography_lineage[geography_lineage["included"]]
+    identity = dict(zip(included["source_geo_id"].astype(str), included["canonical_geo_slug"].astype(str)))
+    output: dict[str, pd.DataFrame] = {}
+    for name, supplied in artifacts.items():
+        frame = supplied[supplied["geo_id"].astype(str).isin(identity)].copy(deep=True)
+        frame["geo_id"] = frame["geo_id"].astype(str).map(identity)
+        output[name] = frame.reset_index(drop=True)
+    return output
+
+
+def _parity_comparison(
+    *, candidate_id: str, layer: str, object_key: str,
+    baseline: pd.DataFrame, challenger: pd.DataFrame, keys: list[str],
+    required_columns: set[str],
+) -> dict[str, object]:
+    """Exact, null-safe, fail-closed parity at a governed artifact grain."""
+    left = baseline.copy(); right = challenger.copy()
+    baseline_columns, challenger_columns = set(left.columns), set(right.columns)
+    missing_baseline = required_columns.difference(baseline_columns)
+    missing_challenger = required_columns.difference(challenger_columns)
+    schema_equal = baseline_columns == challenger_columns
+    if missing_baseline or missing_challenger or not schema_equal:
+        details = []
+        if missing_baseline:
+            details.append(f"baseline_missing={sorted(missing_baseline)}")
+        if missing_challenger:
+            details.append(f"challenger_missing={sorted(missing_challenger)}")
+        baseline_only_columns = sorted(baseline_columns.difference(challenger_columns))
+        challenger_only_columns = sorted(challenger_columns.difference(baseline_columns))
+        if baseline_only_columns:
+            details.append(f"baseline_only_columns={baseline_only_columns}")
+        if challenger_only_columns:
+            details.append(f"challenger_only_columns={challenger_only_columns}")
+        return {"candidate_policy_id": candidate_id, "layer": layer, "object_key": object_key,
+                "row_count_baseline": len(left), "row_count_challenger": len(right),
+                "overlap_rows": 0, "baseline_only_rows": 0, "challenger_only_rows": 0,
+                "changed_rows": 0, "maximum_absolute_delta": 0.0, "parity_pass": False,
+                "failure_reason": "schema_mismatch:" + ";".join(details)}
+    if left.duplicated(keys).any() or right.duplicated(keys).any():
+        raise ValueError(f"{layer}/{object_key} contains duplicate governed keys")
+    value_columns = sorted(baseline_columns.difference(keys))
+    merged = left.merge(right, on=keys, how="outer", suffixes=("_baseline", "_challenger"), indicator=True)
+    overlap = merged["_merge"].eq("both")
+    changed = pd.Series(False, index=merged.index)
+    maximum_delta = 0.0
+    for column in value_columns:
+        a, b = merged[f"{column}_baseline"], merged[f"{column}_challenger"]
+        equal = a.eq(b) | (a.isna() & b.isna())
+        changed |= overlap & ~equal
+        numeric_a, numeric_b = pd.to_numeric(a, errors="coerce"), pd.to_numeric(b, errors="coerce")
+        finite = overlap & numeric_a.notna() & numeric_b.notna()
+        if finite.any(): maximum_delta = max(maximum_delta, float((numeric_a[finite] - numeric_b[finite]).abs().max()))
+    baseline_only = int(merged["_merge"].eq("left_only").sum())
+    challenger_only = int(merged["_merge"].eq("right_only").sum())
+    changed_rows = int(changed.sum())
+    passed = baseline_only == challenger_only == changed_rows == 0
+    return {"candidate_policy_id": candidate_id, "layer": layer, "object_key": object_key,
+            "row_count_baseline": len(left), "row_count_challenger": len(right),
+            "overlap_rows": int(overlap.sum()), "baseline_only_rows": baseline_only,
+            "challenger_only_rows": challenger_only, "changed_rows": changed_rows,
+            "maximum_absolute_delta": maximum_delta, "parity_pass": passed,
+            "failure_reason": None if passed else "missing_extra_or_changed_non_target_rows"}
+
+
+def _challenger_completeness_evidence(campaign, baseline, challengers) -> ReviewResult:
+    target_features = INVENTORY_FEATURE_KEYS
+    rows, axis_rows, lineage = [], [], []
+    for candidate_id, challenger in challengers.items():
+        pairs = [
+            ("normalized_feature", "non_target", baseline["normalized_features"][~baseline["normalized_features"]["feature_key"].isin(target_features)],
+             challenger.normalized_features[~challenger.normalized_features["feature_key"].isin(target_features)], ["geo_id", "date", "canonical_metric_key", "feature_key"],
+             {"geo_id", "date", "canonical_metric_key", "feature_key", "raw_feature_value", "feature_score", "percentile", "normalization_method", "score_direction", "lookback_periods", "min_periods", "source_family"}),
+            ("metric", "non_target", baseline["metric_scores"][~baseline["metric_scores"]["canonical_metric_key"].eq("active_inventory")],
+             challenger.metric_scores[~challenger.metric_scores["canonical_metric_key"].eq("active_inventory")], ["geo_id", "date", "canonical_metric_key"],
+             {"geo_id", "date", "canonical_metric_key", "metric_score", "feature_count", "feature_weight_sum", "min_feature_score", "max_feature_score"}),
+            ("aligned_metric", "non_target", baseline["aligned_metric_scores"][~baseline["aligned_metric_scores"]["canonical_metric_key"].eq("active_inventory")],
+             challenger.aligned_metric_scores[~challenger.aligned_metric_scores["canonical_metric_key"].eq("active_inventory")], ["geo_id", "evaluation_date", "canonical_metric_key"],
+             {"geo_id", "evaluation_date", "metric_date", "canonical_metric_key", "metric_score", "feature_count", "feature_weight_sum", "min_feature_score", "max_feature_score", "metric_age_days"}),
+            ("dimension", "non_supply", baseline["dimension_scores"][~baseline["dimension_scores"]["dimension"].eq("supply")],
+             challenger.dimension_scores[~challenger.dimension_scores["dimension"].eq("supply")], ["geo_id", "date", "dimension"],
+             {"geo_id", "date", "dimension", "dimension_score", "metric_count", "metric_weight_sum", "min_metric_score", "max_metric_score", "max_metric_age_days"}),
+            ("supporting_axis", "demand", baseline["axis_scores"][baseline["axis_scores"]["axis"].eq("demand")],
+             challenger.axis_scores[challenger.axis_scores["axis"].eq("demand")], ["geo_id", "date", "axis"],
+             {"geo_id", "date", "axis", "axis_score", "dimension_count", "dimension_weight_sum", "min_dimension_score", "max_dimension_score", "max_dimension_age_days"}),
+        ]
+        base_dims = baseline["dimension_scores"]
+        cand_dims = challenger.dimension_scores
+        weights = {("supply", "supply"): True, ("supply", "capital_markets"): False}
+        demand_dimensions = _build_axis_weights().query("axis == 'demand'")["dimension"].astype(str)
+        weights.update({("demand", item): False for item in demand_dimensions})
+        for (axis, dimension), affected in weights.items():
+            left = base_dims[base_dims["dimension"].eq(dimension)][["geo_id", "date", "dimension_score"]]
+            right = cand_dims[cand_dims["dimension"].eq(dimension)][["geo_id", "date", "dimension_score"]]
+            keys = ["geo_id", "date"]
+            if left.duplicated(keys).any():
+                raise ValueError(
+                    f"Axis-input parity failure for {candidate_id}/{axis}/{dimension}: "
+                    "baseline contains duplicate governed keys"
+                )
+            if right.duplicated(keys).any():
+                raise ValueError(
+                    f"Axis-input parity failure for {candidate_id}/{axis}/{dimension}: "
+                    "challenger contains duplicate governed keys"
+                )
+            merged = left.merge(
+                right, on=keys, how="outer", suffixes=("_baseline", "_challenger"),
+                indicator=True, validate="one_to_one",
+            )
+            merged = merged.rename(columns={"dimension_score_baseline": "baseline_dimension_score",
+                                            "dimension_score_challenger": "challenger_dimension_score"})
+            merged.insert(0, "campaign_id", campaign.campaign_id)
+            merged.insert(1, "campaign_version", campaign.campaign_version)
+            merged.insert(2, "candidate_policy_id", candidate_id); merged["axis"] = axis; merged["dimension"] = dimension
+            merged["target_affected"] = affected
+            merged["absolute_delta"] = (merged["baseline_dimension_score"] - merged["challenger_dimension_score"]).abs()
+            merged["parity_expected"] = not affected
+            both_present = merged["_merge"].eq("both")
+            both_null = (
+                merged["baseline_dimension_score"].isna()
+                & merged["challenger_dimension_score"].isna()
+            )
+            both_non_null_equal = (
+                merged["baseline_dimension_score"].notna()
+                & merged["challenger_dimension_score"].notna()
+                & merged["baseline_dimension_score"].eq(merged["challenger_dimension_score"])
+            )
+            merged["parity_pass"] = (
+                ~merged["parity_expected"]
+                | (both_present & (both_null | both_non_null_equal))
+            )
+            if not merged["parity_pass"].all(): raise ValueError(f"Axis-input parity failure for {candidate_id}/{axis}/{dimension}")
+            axis_rows.extend(merged.drop(columns="_merge").to_dict("records"))
+        for layer, key, left, right, keys, required in pairs:
+            row = _parity_comparison(candidate_id=candidate_id, layer=layer, object_key=key,
+                                     baseline=left, challenger=right, keys=keys,
+                                     required_columns=required)
+            row.update(campaign_id=campaign.campaign_id, campaign_version=campaign.campaign_version)
+            rows.append(row)
+            if not row["parity_pass"]:
+                raise ValueError(
+                    f"Unaffected {layer} parity failure for {candidate_id}: {row['failure_reason']}"
+                )
+        for artifact_layer, role, identity, action, reason in (
+            ("normalized_feature", "replaced_target", "redfin_inventory_level|redfin_inventory_short|redfin_inventory_long", "remove_incumbent_add_candidate", "declared_inventory_target_family"),
+            ("normalized_feature", "preserved_incumbent", "all_non_target_features", "preserve_exact", "outside_target_boundary"),
+            ("metric_dimension_supply_axis_coordinate_regime", "recomputed_downstream", "active_inventory_and_descendants", "production_scorers", "causally_affected_downstream"),
+            ("axis", "supporting_axis_preserved", "demand", "preserve_exact", "supporting_axis_not_reinterpreted"),
+        ):
+            lineage.append({"campaign_id": campaign.campaign_id, "campaign_version": campaign.campaign_version,
+                            "candidate_policy_id": candidate_id, "artifact_layer": artifact_layer,
+                            "source_role": role, "object_identity": identity,
+                            "replacement_action": action, "lineage_reason": reason})
+    return ReviewResult(tables={"inventory_challenger_unaffected_parity": pd.DataFrame(rows),
+                                "inventory_challenger_axis_input_parity": pd.DataFrame(axis_rows),
+                                "inventory_challenger_mixed_universe_lineage": pd.DataFrame(lineage)},
+                        metadata={"generator_id": "inventory_challenger_completeness", "generator_version": "1.0"})
 
 
 def _candidate_ids(challengers: Mapping[str, InMemoryChallengerArtifacts]) -> tuple[str, ...]:
@@ -918,7 +1087,13 @@ def run_phase_a_foundation_evidence(
     campaign, scoped_features, scoped_sources, geography_lineage = resolve_phase_a_geography_scope(
         campaign, baseline.features, baseline.source_metrics
     )
-    challengers = materialize_phase_a_challengers(campaign, scoped_features, scoped_sources)
+    scoped_incumbent = (
+        _scope_incumbent_artifacts(baseline.system_artifacts, geography_lineage)
+        if persist_system_evidence else None
+    )
+    challengers = materialize_phase_a_challengers(
+        campaign, scoped_features, scoped_sources, scoped_incumbent
+    )
     evidence = {
         "campaign_definition": _campaign_definition_evidence(campaign),
         "geography_scope": ReviewResult(
@@ -929,22 +1104,29 @@ def run_phase_a_foundation_evidence(
         "structural_window_behavior": _structural_behavior_evidence(challengers),
         "baseline_comparison": _baseline_comparison_evidence(scoped_features, challengers),
     }
+    if scoped_incumbent is not None:
+        evidence["challenger_completeness"] = _challenger_completeness_evidence(
+            campaign, scoped_incumbent, challengers
+        )
     bundle = assemble_review_results(campaign.campaign_id, evidence)
     system_evidence = None
     if persist_system_evidence:
+        from time import perf_counter
         from .system_evidence import assemble_inventory_system_evidence
         from .engine_decomposition import build_engine_decomposition
+        started = perf_counter()
         system_evidence = assemble_inventory_system_evidence(
-            campaign=campaign, baseline_artifacts=baseline.system_artifacts,
+            campaign=campaign, baseline_artifacts=scoped_incumbent,
             candidate_artifacts={key: value.as_mapping() for key, value in challengers.items()},
         )
         selected = sorted(set(system_evidence.tables["dimension_chronology"]["geo_id"].astype(str)))
         decomposition_evidence = build_engine_decomposition(
             campaign=campaign,
-            series_artifacts={"baseline": baseline.system_artifacts,
+            series_artifacts={"baseline": scoped_incumbent,
                               **{key: value.as_mapping() for key, value in challengers.items()}},
             selected_geographies=selected,
         )
+        print(f"[inventory-phase-a] decomposition construction/validation {perf_counter() - started:,.1f}s", flush=True)
     else:
         decomposition_evidence = None
     result = PhaseAEvidence(campaign, challengers, evidence, bundle, system_evidence, decomposition_evidence)
@@ -970,23 +1152,27 @@ def persist_phase_a_foundation_evidence(
     evidence: PhaseAEvidence, root: str | Path, *, _failure_point: str | None = None,
 ) -> Path:
     """Validate, stage, hash, atomically publish, then certify immutable evidence."""
+    from time import perf_counter
     from .system_evidence import (
         CalibrationSystemEvidence, SYSTEM_EVIDENCE_CONTRACT_VERSION, validate_system_evidence,
     )
     from .engine_decomposition import DECOMPOSITION_CONTRACT_VERSION, validate_engine_decomposition
 
+    started = perf_counter()
     if evidence.system_evidence is None:
         raise ValueError("Complete System Evidence is required for persistence")
     validate_system_evidence(evidence.system_evidence)
     if evidence.decomposition_evidence is None:
         raise ValueError("Complete Engine Decomposition evidence is required for persistence")
     validate_engine_decomposition(evidence.decomposition_evidence)
+    print(f"[inventory-phase-a] validation {perf_counter() - started:,.1f}s", flush=True)
     phase_tables = _all_evidence_tables(evidence)
     directory = Path(root) / evidence.campaign.campaign_id / evidence.campaign.campaign_version
     directory.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{directory.name}.staging-", dir=directory.parent))
     backup = directory.parent / f".{directory.name}.previous"
     try:
+        persist_started = perf_counter()
         (staging / "phase_a").mkdir(); (staging / "system").mkdir(); (staging / "decomposition").mkdir()
         records = []
         for kind, supplied in (("phase_a", phase_tables), ("system", evidence.system_evidence.tables),
@@ -996,6 +1182,7 @@ def persist_phase_a_foundation_evidence(
                 records.append({"kind": kind, "name": name, "sha256": _file_sha256(path)})
                 if _failure_point == "write":
                     raise RuntimeError("injected staging write failure")
+        print(f"[inventory-phase-a] staged persistence {perf_counter() - persist_started:,.1f}s", flush=True)
         source_manifest = Path(root).parent / evidence.campaign.baseline_run_id / "manifest.json"
         metadata = {
             "evidence_contract_version": EVIDENCE_CONTRACT_VERSION,
@@ -1017,6 +1204,7 @@ def persist_phase_a_foundation_evidence(
             path = staging / record["kind"] / f"{record['name']}.parquet"
             if not path.is_file() or _file_sha256(path) != record["sha256"]:
                 raise ValueError(f"Staging artifact hash mismatch: {path}")
+        reload_started = perf_counter()
         staged_system = {
             record["name"]: pd.read_parquet(staging / "system" / f"{record['name']}.parquet")
             for record in records if record["kind"] == "system"
@@ -1045,6 +1233,7 @@ def persist_phase_a_foundation_evidence(
             evidence.campaign.primary_decomposition_axes, evidence.campaign.supporting_coordinate_axes,
             tuple(sorted(staged_decomposition["dimension_to_axis"]["geo_id"].astype(str).unique())),
         ))
+        print(f"[inventory-phase-a] staged reload validation {perf_counter() - reload_started:,.1f}s", flush=True)
         if backup.exists(): shutil.rmtree(backup)
         if directory.exists(): os.replace(directory, backup)
         try:

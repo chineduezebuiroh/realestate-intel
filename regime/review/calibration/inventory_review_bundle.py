@@ -34,8 +34,8 @@ from .engine_decomposition import (
 )
 
 
-BUNDLE_CONTRACT_VERSION = "calibration_review_bundle_v6"
-GENERATOR_VERSION = "7.0"
+BUNDLE_CONTRACT_VERSION = "calibration_review_bundle_v7"
+GENERATOR_VERSION = "8.0"
 EVIDENCE_TABLES = (
     "inventory_campaign_geography_scope",
     "inventory_candidate_feature_coverage",
@@ -44,6 +44,11 @@ EVIDENCE_TABLES = (
     "inventory_candidate_baseline_feature_comparison",
     "inventory_candidate_target_replacement",
     "inventory_candidate_non_target_parity",
+)
+COMPLETENESS_TABLES = (
+    "inventory_challenger_unaffected_parity",
+    "inventory_challenger_axis_input_parity",
+    "inventory_challenger_mixed_universe_lineage",
 )
 FIGURE_DIRECTORIES = (
     "score_summary", "time_series_overlays", "transition_windows",
@@ -489,7 +494,8 @@ def build_inventory_review_bundle(
     ):
         (bundle / name).mkdir(parents=True, exist_ok=True)
     candidates = campaign.candidate_policy_ids
-    for name, frame in {**scoring_result.tables, **{key: tables[key] for key in EVIDENCE_TABLES}}.items():
+    review_table_names = (*EVIDENCE_TABLES, *(key for key in COMPLETENESS_TABLES if key in tables))
+    for name, frame in {**scoring_result.tables, **{key: tables[key] for key in review_table_names}}.items():
         _ordered(frame, candidates).to_csv(bundle / "tables" / f"{name}.csv", index=False, lineterminator="\n")
     (bundle / "metadata" / "campaign.json").write_text(json.dumps(campaign.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     policy.metrics.to_csv(bundle / "metadata" / "scoring_policy.csv", index=False, lineterminator="\n")
@@ -612,6 +618,12 @@ def build_inventory_review_bundle(
         f"{geo}: {pd.Timestamp(part['window_center_date'].iloc[0]).date().isoformat()}"
         for geo, part in system_tables["transition_windows"].groupby("geo_id", sort=True)
     )
+    parity = tables.get("inventory_challenger_unaffected_parity")
+    completeness_html = (
+        "<p>Completeness evidence was not supplied by this historical fixture.</p>"
+        if parity is None else parity[["candidate_policy_id", "layer", "object_key", "row_count_baseline",
+                                      "row_count_challenger", "changed_rows", "parity_pass"]].to_html(index=False, escape=True)
+    )
     page = f"""<!doctype html><html><head><meta charset=\"utf-8\"><title>Inventory calibration review</title>
 <style>body{{font:15px system-ui,sans-serif;max-width:1280px;margin:2rem auto;color:#20242a;line-height:1.5}}nav a{{margin-right:1rem}}table{{border-collapse:collapse;font-size:12px;display:block;overflow:auto}}th,td{{border:1px solid #bbb;padding:.35rem}}.notice{{background:#fff3cd;border-left:5px solid #d39e00;padding:1rem;font-weight:bold}}.context{{background:#eef5fb;padding:.8rem}}figure{{margin:1.2rem 0 2rem}}img{{max-width:100%;height:auto;border:1px solid #ccd}}figcaption{{font-size:13px;color:#4b5563}}code{{background:#eee;padding:.1rem .25rem}}</style></head><body>
 <h1>Calibration Review</h1><nav><a href="#summary">Summary</a><a href="#technical">Technical</a><a href="#engine">Engine Decomposition</a><a href="#system">System</a><a href="#supporting">Artifacts</a><a href="#decision">Decision</a></nav>
@@ -623,6 +635,7 @@ def build_inventory_review_bundle(
 <h3>2.1 Raw Metric Chronology</h3><p>The level feature shows the supplied active-inventory observations after each policy's already-materialized smoothing treatment; values are not normalized metric scores.</p>{raw_panels}
 <h3>2.2 Normalized Metric-Score Chronology</h3><p>The engine-produced <code>metric_score</code> for <code>active_inventory</code>. This is distinct from raw feature values and downstream Supply scores.</p>{normalized_panels or '<p>Normalized metric-score chronology was not supplied in this evidence package.</p>'}
 <h3>2.3 Candidate Calibration-Score Decomposition</h3><p>Stacked bars use the persisted weighted contributions; no engine contribution is recalculated.</p>{decomposition}{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
+<h3>2.4 Challenger Completeness and Unaffected Parity</h3><p>The mixed universe replaces only the three Inventory normalized features. Non-target features and metrics, non-Supply dimensions, Capital Markets axis input, and the persisted Demand supporting axis are fail-closed parity contracts.</p>{completeness_html}
 <h2 id="engine">3. Engine Decomposition</h2>
 <h3>Axis Scope</h3><p>Strict decomposition: {', '.join(axis.title() + ' axis' for axis in campaign.primary_decomposition_axes)}.<br>Supporting coordinate/regime axes: {', '.join(axis.title() + ' axis' for axis in campaign.supporting_coordinate_axes)}.</p>{decomposition_tables['axis_scope_lineage'].to_html(index=False, escape=True)}{focused}
 <h3>3.5 Coverage and Start-Date Explanation</h3>{decomposition_tables['chronology_coverage'].to_html(index=False, escape=True)}
