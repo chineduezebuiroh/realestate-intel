@@ -53,14 +53,50 @@ def _system_evidence(evidence):
                          "metric_score": number / 10 + series_number / 100,
                          "dimension_cancellation_ratio": series_number / 10})
     base = pd.DataFrame(rows)
+
+    dimension_chronology = base.copy(deep=True)
+
+    supply_axis = base.copy(deep=True)
+    supply_axis["axis"] = "supply"
+
+    demand_axis = base.copy(deep=True)
+    demand_axis["axis"] = "demand"
+    demand_axis["axis_score"] = demand_axis["y_demand"]
+
+    axis_chronology = pd.concat(
+        [supply_axis, demand_axis],
+        ignore_index=True,
+    ).sort_values(
+        ["geo_id", "series_id", "date", "axis"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+    transition_windows = base.copy(deep=True)
+    transition_windows["axis"] = "supply"
+
+    tables = {
+        "dimension_chronology": dimension_chronology,
+        "axis_chronology": axis_chronology,
+        "coordinate_trajectories": base.copy(deep=True),
+        "regime_chronology": base.copy(deep=True),
+        "transition_windows": transition_windows,
+        "cancellation_diagnostics": base.copy(deep=True),
+        NORMALIZED_METRIC_SECTION: base.copy(deep=True),
+    }
+
     return CalibrationSystemEvidence(
-        campaign_id=evidence.campaign.campaign_id, campaign_version=evidence.campaign.campaign_version,
-        candidate_policy_ids=candidates, incumbent_policy_id=evidence.campaign.incumbent_policy_id,
-        baseline_policy_id=evidence.campaign.baseline_policy_id, target_metric=evidence.campaign.target_metric,
-        target_dimension=evidence.campaign.target_dimension, target_axis=evidence.campaign.target_axis,
-        tables={name: base.copy() for name in (*SYSTEM_SECTIONS, NORMALIZED_METRIC_SECTION)},
+        campaign_id=evidence.campaign.campaign_id,
+        campaign_version=evidence.campaign.campaign_version,
+        candidate_policy_ids=candidates,
+        incumbent_policy_id=evidence.campaign.incumbent_policy_id,
+        baseline_policy_id=evidence.campaign.baseline_policy_id,
+        target_metric=evidence.campaign.target_metric,
+        target_dimension=evidence.campaign.target_dimension,
+        target_axis=evidence.campaign.target_axis,
+        tables=tables,
         representative_geography_rule="all fixture counties ordered by geo_id",
-        transition_window_rule="largest candidate/incumbent divergence; stable date tie-break")
+        transition_window_rule="largest candidate/incumbent divergence; stable date tie-break",
+    )
 
 def _decomposition_evidence(evidence):
     identity_rows = [{"campaign_id": evidence.campaign.campaign_id,

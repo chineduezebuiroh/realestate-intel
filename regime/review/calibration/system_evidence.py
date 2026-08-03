@@ -156,10 +156,13 @@ def validate_system_evidence(evidence: CalibrationSystemEvidence) -> None:
             raise ValueError(f"{name} is missing identity columns: {absent}")
         semantic_columns = {
             "dimension_chronology": {"date", "dimension_score"},
-            "axis_chronology": {"date", "axis_score"},
+            "axis_chronology": {"date", "axis", "axis_score"},
             "coordinate_trajectories": {"date", "x_supply", "y_demand"},
             "regime_chronology": {"date", "major_regime", "minor_regime", "quadrant"},
-            "transition_windows": {"date", "axis_score", "window_center_date", "window_id"},
+            "transition_windows": {
+                "date", "axis", "axis_score",
+                "window_center_date", "window_id",
+            },
             "cancellation_diagnostics": {"date", "dimension_cancellation_ratio"},
         }[name]
         absent_semantics = sorted(semantic_columns.difference(frame.columns))
@@ -175,7 +178,18 @@ def validate_system_evidence(evidence: CalibrationSystemEvidence) -> None:
         selected = geos if selected is None else selected
         if geos != selected:
             raise ValueError(f"{name} representative geography mismatch")
-        keys = [c for c in ("series_id", "geo_id", "date", "window_id") if c in frame]
+        keys = [
+            column
+            for column in (
+                "series_id",
+                "geo_id",
+                "date",
+                "dimension",
+                "axis",
+                "window_id",
+            )
+            if column in frame.columns
+        ]
         if keys and frame.duplicated(keys).any():
             raise ValueError(f"{name} contains duplicate evidence keys")
     if not evidence.representative_geography_rule.strip():

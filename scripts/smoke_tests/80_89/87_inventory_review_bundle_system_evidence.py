@@ -61,6 +61,31 @@ def main() -> int:
     _expect_error(lambda: _validate_transition_metric_uniqueness(pd.concat(
         [transition_metrics, transition_metrics], ignore_index=True)))
     validate_system_evidence(system)
+
+    # Supply and Demand are distinct governed axis rows and may coexist at
+    # the same campaign/series/geography/date without being duplicates.
+    multi_axis = copy.deepcopy(system)
+    axis_frame = multi_axis.tables["axis_chronology"]
+    shared_keys = ["campaign_id", "campaign_version", "series_id", "geo_id", "date"]
+    shared_group = (
+        axis_frame.groupby(shared_keys, dropna=False, sort=False)["axis"]
+        .nunique()
+    )
+    assert shared_group.ge(2).any()
+    validate_system_evidence(multi_axis)
+
+    # A repeated row within the same axis identity remains a true duplicate
+    # and must fail closed.
+    duplicate_axis = copy.deepcopy(system)
+    duplicate_axis.tables["axis_chronology"] = pd.concat(
+        [
+            duplicate_axis.tables["axis_chronology"],
+            duplicate_axis.tables["axis_chronology"].iloc[[0]].copy(deep=True),
+        ],
+        ignore_index=True,
+    )
+    _expect_error(lambda: validate_system_evidence(duplicate_axis))
+
     assert tuple(system.tables) == (*SYSTEM_SECTIONS, NORMALIZED_METRIC_SECTION)
     assert list(system.tables) == list(copy.deepcopy(system).tables)
 
