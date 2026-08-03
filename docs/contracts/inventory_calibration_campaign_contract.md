@@ -1437,6 +1437,48 @@ Section 8c campaign infrastructure is complete when:
 * recommended commit scope.
 
 The production Inventory policy is not considered calibrated until Phase A and Phase B have been executed on authoritative artifacts, reviewed, approved, documented, and reflected in the appropriate production policy or registry through a separate governed change.
+
+## Complete mixed-universe challengers (PR2B)
+
+Inventory challengers use the full authoritative incumbent normalized-feature
+universe. The producer removes only `redfin_inventory_level`,
+`redfin_inventory_short`, and `redfin_inventory_long`, inserts the normalized
+candidate versions, and invokes the production metric, alignment, dimension,
+Supply-axis, coordinate, geometry, and regime stages. The persisted Demand axis
+is a supporting coordinate input and is preserved exactly; it is not
+reinterpreted by this campaign. Capital Markets remains an input to the
+challenger Supply axis wherever it exists for the incumbent.
+
+Publication includes `inventory_challenger_unaffected_parity`,
+`inventory_challenger_axis_input_parity`, and
+`inventory_challenger_mixed_universe_lineage`. These tables fail closed on a
+missing, extra, or changed non-target feature/metric/dimension row, a changed
+Capital Markets input, or a changed Demand-axis row. Strict
+`dimension_to_axis` chronology coverage is limited to primary decomposition
+axes; supporting-axis availability remains explicit in `axis_scope_lineage`
+and coordinate reconciliation evidence.
+
+This persisted evidence change advances the Phase A evidence contract to
+`inventory_phase_a_evidence_v3`, the review bundle contract to
+`calibration_review_bundle_v7`, and the producer code identity to
+`inventory_phase_a_authoritative_producer_v7`. The decomposition contract
+remains `engine_decomposition_v5` because its schema and arithmetic are
+unchanged.
+
+The mixed-universe constructor receives the target feature family and the
+campaign-declared primary and supporting axis scopes explicitly. It recomputes
+every primary axis, copies supporting-only axes from the incumbent, and rejects
+duplicate, unknown, or inconsistent axis scopes. This permits a future
+Demand-primary campaign to recompute Demand and preserve Supply without an
+Inventory- or Supply-specific branch. Authoritative construction requires the
+incumbent normalized-feature and axis artifacts and has no partial-universe
+fallback.
+
+Unaffected parity is schema-strict. Normalized-feature, metric, aligned-metric,
+dimension, and supporting-axis layers each declare required score, count,
+weight, freshness, and lineage fields. Baseline and challenger column sets must
+also match exactly; missing, renamed, or unexpected columns fail with the
+controlled `schema_mismatch` reason before row values are compared.
 # Human-review bundle (Phase 8c Slice 4)
 
 ## Engine decomposition evidence (PR2A)
