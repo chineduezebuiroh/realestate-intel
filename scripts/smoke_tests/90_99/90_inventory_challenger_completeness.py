@@ -119,8 +119,16 @@ def main() -> int:
     lineage = raw_target.assign(experiment_id="inventory_ma3_structural")
     original_apply = constructor_module.apply_smoothing_experiment
     original_normalize = constructor_module.normalize_features
+    original_score_dimensions = constructor_module.score_dimensions
     constructor_module.apply_smoothing_experiment = lambda **_: (raw_target.copy(), lineage.copy())
     constructor_module.normalize_features = lambda _: partial_candidate.copy()
+    def recompute_with_historical_drift(frame):
+        rebuilt = original_score_dimensions(frame)
+        rebuilt.loc[rebuilt["dimension"].eq("capital_markets"), "dimension_score"] += 0.123
+        return rebuilt
+    # Simulate the confirmed historical condition: current-pipeline Capital
+    # Markets differs even though Inventory did not cause that branch.
+    constructor_module.score_dimensions = recompute_with_historical_drift
     try:
         campaign = _campaign()
         challenger = constructor_module.build_in_memory_smoothing_challenger(
@@ -154,6 +162,10 @@ def main() -> int:
         new_dims = challenger.dimension_scores.set_index(["geo_id", "date", "dimension"])
         assert "capital_markets" in new_dims.index.get_level_values("dimension")
         assert "demand" in new_dims.index.get_level_values("dimension")
+        pd.testing.assert_frame_equal(
+            baseline["dimension_scores"].query("dimension != 'supply'").reset_index(drop=True),
+            challenger.dimension_scores.query("dimension != 'supply'").reset_index(drop=True),
+        )
         assert new_dims.loc[(GEO, DATE, "supply"), "dimension_score"] != base_dims.loc[(GEO, DATE, "supply"), "dimension_score"]
         demand_base = baseline["axis_scores"].query("axis == 'demand'").reset_index(drop=True)
         demand_new = challenger.axis_scores.query("axis == 'demand'").reset_index(drop=True)
@@ -426,6 +438,7 @@ def main() -> int:
     finally:
         constructor_module.apply_smoothing_experiment = original_apply
         constructor_module.normalize_features = original_normalize
+        constructor_module.score_dimensions = original_score_dimensions
     print("SMOKE TEST 90 — INVENTORY CHALLENGER COMPLETENESS: PASS")
     return 0
 

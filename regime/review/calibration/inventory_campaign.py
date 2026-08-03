@@ -651,8 +651,12 @@ def _challenger_completeness_evidence(campaign, baseline, challengers) -> Review
         for artifact_layer, role, identity, action, reason in (
             ("normalized_feature", "replaced_target", "redfin_inventory_level|redfin_inventory_short|redfin_inventory_long", "remove_incumbent_add_candidate", "declared_inventory_target_family"),
             ("normalized_feature", "preserved_incumbent", "all_non_target_features", "preserve_exact", "outside_target_boundary"),
-            ("metric_dimension_supply_axis_coordinate_regime", "recomputed_downstream", "active_inventory_and_descendants", "production_scorers", "causally_affected_downstream"),
-            ("axis", "supporting_axis_preserved", "demand", "preserve_exact", "supporting_axis_not_reinterpreted"),
+            ("dimension", "recomputed_target_descendant", "supply", "production_scorer", "causally_affected_downstream"),
+            ("dimension", "preserved_incumbent_unaffected_dimension", "capital_markets", "preserve_exact", "unaffected_by_inventory_intervention"),
+            ("dimension", "preserved_incumbent_unaffected_dimension", "all_other_non_supply_dimensions", "preserve_exact", "unaffected_by_inventory_intervention"),
+            ("axis", "recomputed_mixed_parent", "supply", "production_scorer", "challenger_supply_plus_incumbent_capital_markets"),
+            ("axis", "preserved_incumbent_supporting_axis", "demand", "preserve_exact", "supporting_axis_not_reinterpreted"),
+            ("coordinate_regime", "recomputed_from_mixed_axes", "coordinates_and_regimes", "production_scorers", "challenger_supply_axis_plus_preserved_demand_axis"),
         ):
             lineage.append({"campaign_id": campaign.campaign_id, "campaign_version": campaign.campaign_version,
                             "candidate_policy_id": candidate_id, "artifact_layer": artifact_layer,
