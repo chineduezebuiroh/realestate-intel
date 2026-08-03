@@ -53,6 +53,7 @@ class InMemoryChallengerArtifacts:
     coordinates: pd.DataFrame
     geometry: pd.DataFrame
     regime_assignments: pd.DataFrame
+    target_replacement_reconciliation: pd.DataFrame
 
     def as_mapping(
         self,
@@ -81,6 +82,100 @@ class InMemoryChallengerArtifacts:
                 self.regime_assignments
             ),
         }
+
+
+_TARGET_KEY_COLUMNS = ["geo_id", "date", "canonical_metric_key", "feature_key"]
+
+
+def _target_replacement_reconciliation(
+    incumbent: pd.DataFrame,
+    candidate: pd.DataFrame,
+    *,
+    experiment_id: str,
+    target_feature_keys: Collection[str],
+    campaign_geo_ids: Collection[str],
+) -> pd.DataFrame:
+    """Validate and describe governed target replacement chronology."""
+    target = frozenset(str(value) for value in target_feature_keys)
+    geos = frozenset(str(value) for value in campaign_geo_ids)
+    incumbent_mask = incumbent["feature_key"].isin(target) & incumbent["geo_id"].astype(str).isin(geos)
+    candidate_family = candidate["feature_key"].isin(target)
+    outside = candidate_family & ~candidate["geo_id"].astype(str).isin(geos)
+
+    def fail(reason: str, count: int, sample: list[object]) -> None:
+        raise ValueError(
+            f"Target replacement reconciliation failed: candidate={experiment_id}; "
+            f"reason={reason}; count={count}; sample={sample[:5]}"
+        )
+
+    if outside.any():
+        sample = list(candidate.loc[outside, _TARGET_KEY_COLUMNS].itertuples(index=False, name=None))
+        fail("out_of_scope_target_rows", int(outside.sum()), sample)
+
+    base = incumbent.loc[incumbent_mask, _TARGET_KEY_COLUMNS].copy()
+    challenger = candidate.loc[candidate_family, _TARGET_KEY_COLUMNS].copy()
+    for label, frame in (("incumbent", base), ("candidate", challenger)):
+        duplicate = frame.duplicated(_TARGET_KEY_COLUMNS, keep=False)
+        if duplicate.any():
+            sample = list(frame.loc[duplicate, _TARGET_KEY_COLUMNS].itertuples(index=False, name=None))
+            fail("duplicate_target_keys", int(duplicate.sum()), [(label, *row) for row in sample])
+        duplicate_date = frame.duplicated(["geo_id", "feature_key", "date"], keep=False)
+        if duplicate_date.any():
+            sample = list(frame.loc[duplicate_date, _TARGET_KEY_COLUMNS].itertuples(index=False, name=None))
+            fail("duplicate_target_keys", int(duplicate_date.sum()), [(label, *row) for row in sample])
+
+    base_keys = set(base.itertuples(index=False, name=None))
+    candidate_keys = set(challenger.itertuples(index=False, name=None))
+    candidate_only = candidate_keys - base_keys
+    if candidate_only:
+        fail("candidate_only_target_keys", len(candidate_only), sorted(candidate_only, key=str))
+
+    rows: list[dict[str, object]] = []
+    expected_series = [(geo, feature) for geo in sorted(geos) for feature in sorted(target)]
+    for geo_id, feature_key in expected_series:
+        base_part = base[base["geo_id"].astype(str).eq(geo_id) & base["feature_key"].astype(str).eq(feature_key)]
+        candidate_part = challenger[
+            challenger["geo_id"].astype(str).eq(geo_id)
+            & challenger["feature_key"].astype(str).eq(feature_key)
+        ]
+        base_dates = sorted(pd.to_datetime(base_part["date"]).unique())
+        candidate_dates = sorted(pd.to_datetime(candidate_part["date"]).unique())
+        if not base_dates or not candidate_dates:
+            fail("missing_target_series", 1, [(geo_id, feature_key)])
+        first = candidate_dates[0]
+        last = candidate_dates[-1]
+        missing = sorted(set(base_dates) - set(candidate_dates))
+        leading = [date for date in missing if date < first]
+        interior = [date for date in missing if first < date < last]
+        trailing = [date for date in missing if date > last]
+        # A missing key at the first candidate date (for example because its
+        # canonical metric differs) is already caught as candidate-only.
+        if interior:
+            fail("interior_target_gap", len(interior), [(geo_id, feature_key, date) for date in interior])
+        if trailing:
+            fail("trailing_target_gap", len(trailing), [(geo_id, feature_key, date) for date in trailing])
+        expected_leading = [date for date in base_dates if date < first]
+        if leading != expected_leading or missing != leading:
+            fail("interior_target_gap", len(set(missing) ^ set(expected_leading)) or 1,
+                 [(geo_id, feature_key, date) for date in missing])
+        rows.append({
+            "candidate_policy_id": experiment_id,
+            "geo_id": geo_id,
+            "feature_key": feature_key,
+            "incumbent_first_date": base_dates[0],
+            "candidate_first_date": first,
+            "incumbent_last_date": base_dates[-1],
+            "candidate_last_date": last,
+            "incumbent_row_count": len(base_part),
+            "candidate_row_count": len(candidate_part),
+            "leading_warmup_rows": len(leading),
+            "interior_missing_rows": 0,
+            "trailing_missing_rows": 0,
+            "candidate_only_rows": 0,
+            "warmup_reconciliation_pass": True,
+            "failure_reason": "leading_warmup_valid",
+        })
+    return pd.DataFrame(rows)
 
 
 def build_in_memory_smoothing_challenger(
@@ -143,6 +238,7 @@ def build_in_memory_smoothing_challenger(
 
     started = perf_counter()
     candidate_normalized = normalize_features(challenger_features)
+    target_reconciliation = pd.DataFrame()
     if incumbent_artifacts is None:
         normalized_features = candidate_normalized
     else:
@@ -152,23 +248,10 @@ def build_in_memory_smoothing_challenger(
             & incumbent_normalized["geo_id"].astype(str).isin(campaign_geos)
         )
         candidate_target_mask = candidate_normalized["feature_key"].isin(target)
-        incumbent_targets = set(incumbent_normalized.loc[incumbent_target_mask, "feature_key"].astype(str))
-        candidate_targets = set(candidate_normalized.loc[candidate_target_mask, "feature_key"].astype(str))
-        candidate_geographies = set(candidate_normalized.loc[candidate_target_mask, "geo_id"].astype(str))
-        if not candidate_geographies.issubset(campaign_geos):
-            raise ValueError("Candidate target rows exist outside approved campaign output scope")
-        replacement_keys = ["geo_id", "date", "canonical_metric_key", "feature_key"]
-        incumbent_key_set = set(map(tuple, incumbent_normalized.loc[incumbent_target_mask, replacement_keys]
-                                    .itertuples(index=False, name=None)))
-        candidate_key_set = set(map(tuple, candidate_normalized.loc[candidate_target_mask, replacement_keys]
-                                    .itertuples(index=False, name=None)))
-        if incumbent_key_set != candidate_key_set:
-            raise ValueError("Missing or unexpected replacement rows for approved campaign geographies")
-        if incumbent_targets != set(target) or candidate_targets != set(target):
-            raise ValueError(
-                "Target feature family is incomplete; "
-                f"incumbent={sorted(incumbent_targets)}, candidate={sorted(candidate_targets)}, expected={sorted(target)}"
-            )
+        target_reconciliation = _target_replacement_reconciliation(
+            incumbent_normalized, candidate_normalized, experiment_id=experiment_id,
+            target_feature_keys=target, campaign_geo_ids=campaign_geos,
+        )
         # The upstream dependency universe remains complete.  Replacement is
         # bounded by both target identity and campaign geography; target rows
         # outside the campaign are immutable dependencies too.
@@ -284,4 +367,5 @@ def build_in_memory_smoothing_challenger(
         regime_assignments=(
             regime_assignments
         ),
+        target_replacement_reconciliation=target_reconciliation,
     )
