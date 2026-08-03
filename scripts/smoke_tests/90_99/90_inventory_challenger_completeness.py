@@ -172,10 +172,27 @@ def main() -> int:
 
         # Authoritative-style sentinel: incumbent keys are strictly larger,
         # while the normalized challenger is a valid leading-warmup suffix.
-        early_targets = pd.concat([
-            target_candidate.assign(date=pd.Timestamp("2023-11-30")),
-            target_candidate.assign(date=pd.Timestamp("2023-12-31")),
-        ], ignore_index=True)
+        early_november = target_candidate.copy(deep=True)
+        early_november["date"] = pd.Series(
+            [pd.Timestamp("2023-11-30")] * len(early_november),
+            index=early_november.index,
+            dtype="datetime64[ns]",
+        )
+
+        early_december = target_candidate.copy(deep=True)
+        early_december["date"] = pd.Series(
+            [pd.Timestamp("2023-12-31")] * len(early_december),
+            index=early_december.index,
+            dtype="datetime64[ns]",
+        )
+
+        early_targets = pd.concat(
+            [
+                early_november,
+                early_december,
+            ],
+            ignore_index=True,
+        )
         warm_baseline = dict(baseline)
         warm_baseline["normalized_features"] = pd.concat([
             early_targets, baseline["normalized_features"]

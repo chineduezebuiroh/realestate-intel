@@ -8,7 +8,7 @@ from regime.experiments.in_memory_challenger import _target_replacement_reconcil
 
 KEYS = ("inventory_level", "inventory_short", "inventory_long")
 GEOS = ("alpha__county", "beta__county")
-DATES = pd.date_range("2024-01-31", periods=6, freq="ME")
+DATES = pd.date_range("2024-01-31", periods=6, freq="M")
 
 
 def rows(starts: dict[tuple[str, str], int] | None = None) -> pd.DataFrame:
@@ -58,7 +58,19 @@ def main() -> int:
         ("alpha__county", "inventory_short"), "leading_warmup_rows"
     ] == 5
 
-    candidate_only = pd.concat([candidate, candidate.iloc[[0]].assign(date=pd.Timestamp("2024-07-31"))])
+    candidate_only_row = candidate.iloc[[0]].copy(deep=True)
+    candidate_only_row["date"] = pd.Series(
+        [pd.Timestamp("2024-07-31")],
+        index=candidate_only_row.index,
+        dtype="datetime64[ns]",
+    )
+    candidate_only = pd.concat(
+        [
+            candidate.copy(deep=True),
+            candidate_only_row,
+        ],
+        ignore_index=True,
+    )
     must_fail(candidate_only, "candidate_only_target_keys")
     must_fail(candidate[candidate.feature_key.ne("inventory_long")], "missing_target_series")
 
