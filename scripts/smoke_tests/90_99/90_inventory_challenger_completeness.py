@@ -134,7 +134,7 @@ def main() -> int:
         challenger = constructor_module.build_in_memory_smoothing_challenger(
             baseline_features=raw_target, source_metrics=pd.DataFrame(),
             experiment_id="inventory_ma3_structural", incumbent_artifacts=baseline,
-            target_feature_keys=INVENTORY_FEATURE_KEYS,
+            target_feature_keys=INVENTORY_FEATURE_KEYS, target_metric="active_inventory", target_dimension="supply",
             primary_axes=campaign.primary_decomposition_axes,
             supporting_axes=campaign.supporting_coordinate_axes,
             campaign_output_geo_ids=(GEO,),
@@ -214,7 +214,7 @@ def main() -> int:
         warm_challenger = constructor_module.build_in_memory_smoothing_challenger(
             baseline_features=raw_target, source_metrics=pd.DataFrame(),
             experiment_id="inventory_ma3_structural", incumbent_artifacts=warm_baseline,
-            target_feature_keys=INVENTORY_FEATURE_KEYS, primary_axes=("supply",),
+            target_feature_keys=INVENTORY_FEATURE_KEYS, target_metric="active_inventory", target_dimension="supply", primary_axes=("supply",),
             supporting_axes=("supply", "demand"), campaign_output_geo_ids=(GEO,),
             require_complete_universe=True,
         )
@@ -231,7 +231,7 @@ def main() -> int:
                 constructor_module.build_in_memory_smoothing_challenger(
                     baseline_features=raw_target, source_metrics=pd.DataFrame(),
                     experiment_id="inventory_ma3_structural", incumbent_artifacts=baseline,
-                    target_feature_keys=INVENTORY_FEATURE_KEYS, primary_axes=("supply",),
+                    target_feature_keys=INVENTORY_FEATURE_KEYS, target_metric="active_inventory", target_dimension="supply", primary_axes=("supply",),
                     supporting_axes=("supply", "demand"), campaign_output_geo_ids=(GEO,),
                     require_complete_universe=True,
                 )
@@ -382,7 +382,7 @@ def main() -> int:
         try:
             constructor_module.build_in_memory_smoothing_challenger(
                 baseline_features=raw_target, source_metrics=pd.DataFrame(),
-                experiment_id="inventory_ma3_structural", target_feature_keys=INVENTORY_FEATURE_KEYS,
+                experiment_id="inventory_ma3_structural", target_feature_keys=INVENTORY_FEATURE_KEYS, target_metric="active_inventory", target_dimension="supply",
                 primary_axes=("supply",), supporting_axes=("supply", "demand"),
                 campaign_output_geo_ids=(GEO,),
                 require_complete_universe=True)
@@ -394,7 +394,7 @@ def main() -> int:
         # Generic axis scope: Demand primary recomputes Demand and preserves Supply.
         demand_primary = constructor_module.build_in_memory_smoothing_challenger(
             baseline_features=raw_target, source_metrics=pd.DataFrame(), experiment_id="inventory_ma3_structural",
-            incumbent_artifacts=baseline, target_feature_keys=INVENTORY_FEATURE_KEYS,
+            incumbent_artifacts=baseline, target_feature_keys=INVENTORY_FEATURE_KEYS, target_metric="active_inventory", target_dimension="supply",
             primary_axes=("demand",), supporting_axes=("supply", "demand"),
             campaign_output_geo_ids=(GEO,), require_complete_universe=True)
         pd.testing.assert_frame_equal(
@@ -410,7 +410,7 @@ def main() -> int:
             try:
                 constructor_module.build_in_memory_smoothing_challenger(
                     baseline_features=raw_target, source_metrics=pd.DataFrame(), experiment_id="inventory_ma3_structural",
-                    incumbent_artifacts=baseline, target_feature_keys=INVENTORY_FEATURE_KEYS,
+                    incumbent_artifacts=baseline, target_feature_keys=INVENTORY_FEATURE_KEYS, target_metric="active_inventory", target_dimension="supply",
                     campaign_output_geo_ids=(GEO,),
                     require_complete_universe=True, **kwargs)
             except ValueError as exc:

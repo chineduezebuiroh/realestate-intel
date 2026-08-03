@@ -428,6 +428,8 @@ def materialize_phase_a_challengers(
             experiment_id=candidate_id,
             incumbent_artifacts=incumbent_artifacts,
             target_feature_keys=INVENTORY_FEATURE_KEYS,
+            target_metric=campaign.target_metric,
+            target_dimension=campaign.target_dimension,
             primary_axes=campaign.primary_decomposition_axes,
             supporting_axes=campaign.supporting_coordinate_axes,
             campaign_output_geo_ids=approved_geos,
@@ -644,18 +646,31 @@ def _challenger_completeness_evidence(campaign, baseline, challengers) -> Review
                                      required_columns=required)
             row.update(campaign_id=campaign.campaign_id, campaign_version=campaign.campaign_version)
             rows.append(row)
+            print(
+                f"[inventory-phase-a] {layer} candidate={candidate_id} "
+                f"baseline_rows={row['row_count_baseline']} "
+                f"challenger_rows={row['row_count_challenger']} "
+                f"overlap_rows={row['overlap_rows']} changed_rows={row['changed_rows']} "
+                f"missing_rows={row['baseline_only_rows']} "
+                f"parity_status={'pass' if row['parity_pass'] else 'fail'}",
+                flush=True,
+            )
             if not row["parity_pass"]:
                 raise ValueError(
                     f"Unaffected {layer} parity failure for {candidate_id}: {row['failure_reason']}"
                 )
         for artifact_layer, role, identity, action, reason in (
-            ("normalized_feature", "replaced_target", "redfin_inventory_level|redfin_inventory_short|redfin_inventory_long", "remove_incumbent_add_candidate", "declared_inventory_target_family"),
+            ("normalized_feature", "recomputed_target_input", "redfin_inventory_level|redfin_inventory_short|redfin_inventory_long", "remove_incumbent_add_candidate", "declared_inventory_target_family"),
             ("normalized_feature", "preserved_incumbent", "all_non_target_features", "preserve_exact", "outside_target_boundary"),
+            ("metric", "recomputed_target_parent", campaign.target_metric, "production_scorer", "declared_metric_parent"),
+            ("metric", "preserved_incumbent_siblings", "all_non_target_metrics", "preserve_exact", "outside_target_boundary"),
+            ("aligned_metric", "recomputed_target_alignment", campaign.target_metric, "production_aligner", "declared_metric_parent"),
+            ("aligned_metric", "preserved_incumbent_siblings", "all_non_target_aligned_metrics", "preserve_exact", "outside_target_boundary"),
             ("dimension", "recomputed_target_descendant", "supply", "production_scorer", "causally_affected_downstream"),
-            ("dimension", "preserved_incumbent_unaffected_dimension", "capital_markets", "preserve_exact", "unaffected_by_inventory_intervention"),
-            ("dimension", "preserved_incumbent_unaffected_dimension", "all_other_non_supply_dimensions", "preserve_exact", "unaffected_by_inventory_intervention"),
+            ("dimension", "preserved_incumbent_unaffected", "capital_markets", "preserve_exact", "unaffected_by_inventory_intervention"),
+            ("dimension", "preserved_incumbent_unaffected", "all_other_non_supply_dimensions", "preserve_exact", "unaffected_by_inventory_intervention"),
             ("axis", "recomputed_mixed_parent", "supply", "production_scorer", "challenger_supply_plus_incumbent_capital_markets"),
-            ("axis", "preserved_incumbent_supporting_axis", "demand", "preserve_exact", "supporting_axis_not_reinterpreted"),
+            ("axis", "preserved_incumbent_supporting", "demand", "preserve_exact", "supporting_axis_not_reinterpreted"),
             ("coordinate_regime", "recomputed_from_mixed_axes", "coordinates_and_regimes", "production_scorers", "challenger_supply_axis_plus_preserved_demand_axis"),
         ):
             lineage.append({"campaign_id": campaign.campaign_id, "campaign_version": campaign.campaign_version,

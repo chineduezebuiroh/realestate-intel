@@ -1449,13 +1449,17 @@ universe. The producer removes `redfin_inventory_level`,
 `redfin_inventory_short`, and `redfin_inventory_long` only for resolved campaign
 geographies, inserts candidate versions at that exact feature-and-geography
 grain, and preserves target rows outside the campaign. It invokes the production
-metric, alignment, dimension,
+metric scorer, keeps only the campaign-declared target metric from that result,
+and combines it with exact persisted incumbent sibling metrics. The production
+aligner runs only on the recomputed target metric; its result is combined with
+exact persisted incumbent non-target aligned metrics before dimension scoring.
+It then invokes the production dimension,
 Supply-axis, coordinate, geometry, and regime stages. The persisted Demand axis
 is a supporting coordinate input and is preserved exactly; it is not
 reinterpreted by this campaign. Capital Markets remains an input to the
 challenger Supply axis wherever it exists for the incumbent.
 
-After metric and dimension production, the causal challenger retains the
+After mixed aligned-metric dimension production, the causal challenger retains the
 recomputed Supply dimension and replaces every non-Supply dimension with the
 exact persisted incumbent rows at campaign geography/date grain. The splice is
 schema-strict, null-safe, and duplicate-intolerant. Supply is then scored from
@@ -1482,14 +1486,17 @@ This persisted evidence change advances the Phase A evidence contract to
 remains `engine_decomposition_v5` because its schema and arithmetic are
 unchanged.
 
-The mixed-universe constructor receives the target feature family and the
-campaign-declared primary and supporting axis scopes explicitly. It recomputes
+The mixed-universe constructor receives the target feature family, target metric,
+target dimension, and campaign-declared primary and supporting axis scopes
+explicitly. It recomputes
 every primary axis, copies supporting-only axes from the incumbent, and rejects
 duplicate, unknown, or inconsistent axis scopes. This permits a future
 Demand-primary campaign to recompute Demand and preserve Supply without an
 Inventory- or Supply-specific branch. Authoritative construction requires the
-incumbent normalized-feature and axis artifacts and has no partial-universe
-fallback.
+incumbent normalized-feature, metric, aligned-metric, dimension, and axis
+artifacts and has no partial-universe fallback. Candidate target warmup remains
+visible at both metric grains; absent leading target rows are never backfilled
+from the incumbent.
 
 Unaffected parity is schema-strict. Normalized-feature, metric, aligned-metric,
 dimension, and supporting-axis layers each declare required score, count,
