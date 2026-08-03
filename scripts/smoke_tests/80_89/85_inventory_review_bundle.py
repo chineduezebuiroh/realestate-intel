@@ -16,7 +16,10 @@ import pandas as pd
 import regime.review.calibration.inventory_campaign as upstream
 import regime.review.calibration.inventory_candidate_scoring as scoring_module
 from regime.review.calibration import score_inventory_candidates
-from regime.review.calibration.inventory_review_bundle import build_inventory_review_bundle
+from regime.review.calibration.inventory_review_bundle import (
+    CHILD_COMPONENT_STYLE_REGISTRY, SERIES_STYLE_REGISTRY, _child_style,
+    _series_style, build_inventory_review_bundle,
+)
 from regime.review.results import ReviewResult
 from regime.review.calibration.system_evidence import CalibrationSystemEvidence, SYSTEM_SECTIONS
 from regime.review.calibration.system_evidence import NORMALIZED_METRIC_SECTION
@@ -132,6 +135,10 @@ def _decomposition_evidence(evidence):
                                        evidence.campaign.supporting_coordinate_axes, ("fixture__county",))
 
 def main() -> int:
+    expected_series_colors = {key: value["color"] for key, value in SERIES_STYLE_REGISTRY.items()}
+    assert {key: _series_style(key)["color"] for key in reversed(tuple(SERIES_STYLE_REGISTRY))} == expected_series_colors
+    expected_child_colors = dict(CHILD_COMPONENT_STYLE_REGISTRY)
+    assert {key: _child_style(key) for key in reversed(tuple(CHILD_COMPONENT_STYLE_REGISTRY))} == expected_child_colors
     fixture = runpy.run_path("scripts/smoke_tests/80_89/83_inventory_candidate_scoring.py")
     evidence = fixture["_evidence"]()
     candidates = evidence.campaign.candidate_policy_ids
@@ -197,40 +204,45 @@ def main() -> int:
             assert first.manifest["recommendation_status"] == "recommended_for_human_review"
             page = (first.bundle_directory / "review_summary.html").read_text(encoding="utf-8")
             headings = ["1. Executive Summary", "2. Technical Evidence", "2.1 Raw Metric Chronology",
-                        "2.2 Normalized Metric-Score Chronology", "2.3 Candidate Calibration-Score Decomposition",
+                        "2.2 Normalized Metric-Score Chronology",
                         "3. Engine Decomposition", "3.1 Active Inventory — Feature-to-Metric",
                         "3.2 Building Permits (BPS / permit_activity) — Feature-to-Metric", "3.3 Supply — Metric-to-Dimension",
-                        "3.4 Supply Axis — Dimension-to-Axis", "3.5 Coverage and Start-Date Explanation",
-                        "3.6 Reconciliation Summary", "3.7 Additional Supporting Decompositions",
+                        "3.4 Supply Axis — Dimension-to-Axis",
                         "4.1 Supply Dimension Chronology", "4.2 Supply Axis Chronology",
-                        "4.3 Supply–Demand Coordinate Trajectory", "4.4 Regime Chronology",
-                        "4.5 Transition Windows", "4.6 Cancellation Diagnostics",
-                        "5. Supporting Tables and Artifact Links", "6. Human Decision Status"]
+                        "4.3 Demand Axis Chronology — Held Constant", "4.4 Regime Chronology",
+                        "4.5 Inventory-Relevant Transition Windows",
+                        "5. Supporting Tables and Artifact Links", "6. Human Decision Status",
+                        "7. Appendix", "Candidate Ranking Arithmetic"]
             positions = [page.index(heading) for heading in headings]
             assert positions == sorted(positions)
-            assert "x_supply" in page and "y_demand" in page and "major_regime" in page
+            assert "Supply–Demand Coordinate Trajectory" not in page
             for context in ("Engine Decomposition</a>", system.transition_window_rule,
-                            "Center event:", "full-history anchors", "start/end markers",
-                            "minor_regime", "quadrant", "gross_dimension_contribution_change_1m",
-                            "Interpretation of 0:", "Interpretation of 1:",
+                            "minor regime", "quadrant", "Held constant across challengers",
+                            "first active_inventory date", "Exhaustive reconciliation CSV",
                             "metadata/system_evidence_selection.json", "metadata/source_lineage.json"):
                 assert context in page
-            assert "dimension_cancellation_ratio" not in page or "Supply-Axis Contribution Cancellation" in page
-            assert "2020-04-01" in page or "Center event" in page
-            assert page.count("<img ") >= len(SYSTEM_SECTIONS) + 3
+            assert page.count("<img ") >= 8
             expected_parent_figures = (
-                "fixture__county__active_inventory__feature_to_metric.png",
-                "fixture__county__permit_activity__feature_to_metric.png",
-                "fixture__county__supply__metric_to_dimension.png",
-                "fixture__county__demand__metric_to_dimension.png",
-                "fixture__county__supply__dimension_to_axis.png",
+                "fixture__county__baseline__active_inventory__feature_to_metric.png",
+                "fixture__county__baseline__permit_activity__feature_to_metric.png",
+                "fixture__county__baseline__supply__metric_to_dimension.png",
+                "fixture__county__baseline__supply__dimension_to_axis.png",
             )
             for figure in expected_parent_figures:
                 assert figure in page
                 assert any(path.name == figure for path in first.generated_files)
-            assert "Axis Scope" in page
-            assert "supporting_axis_not_decomposed_in_this_campaign" in page
-            assert "fixture__county__demand__dimension_to_axis.png" not in page
+            assert "fixture__county__baseline__demand__metric_to_dimension.png" not in page
+            assert not list((first.bundle_directory / "system_evidence/coordinate_trajectories").glob("*.png"))
+            assert len(list((first.bundle_directory / "engine_decomposition/feature_to_metric").glob("*permit_activity*.png"))) == 1
+            assert len(list((first.bundle_directory / "engine_decomposition/feature_to_metric").glob("*active_inventory*.png"))) == 5
+            canonical_series = tuple(SERIES_STYLE_REGISTRY)
+            for parent, section in (("active_inventory", "feature_to_metric"),
+                                    ("supply", "metric_to_dimension"),
+                                    ("supply", "dimension_to_axis")):
+                names = [f"fixture__county__{series_id}__{parent}__{section}.png"
+                         for series_id in canonical_series]
+                positions = [page.index(name) for name in names]
+                assert positions == sorted(positions), f"Non-canonical {section}/{parent} panel order"
             for geo_id in system.tables[SYSTEM_SECTIONS[0]]["geo_id"].unique():
                 assert str(geo_id) in page
             required_tables = set(result.tables) | set(upstream_name for upstream_name in (

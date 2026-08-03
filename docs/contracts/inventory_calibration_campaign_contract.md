@@ -1481,10 +1481,13 @@ and coordinate reconciliation evidence.
 
 This persisted evidence change advances the Phase A evidence contract to
 `inventory_phase_a_evidence_v3`, the review bundle contract to
-`calibration_review_bundle_v7`, and the producer code identity to
+`calibration_review_bundle_v8`, and the producer code identity to
 `inventory_phase_a_authoritative_producer_v7`. The decomposition contract
-remains `engine_decomposition_v5` because its schema and arithmetic are
-unchanged.
+is `engine_decomposition_v6`; its arithmetic is unchanged, while construction
+is campaign-scoped to active Inventory, incumbent permit activity, Supply, and
+the Supply axis. The system-evidence contract is
+`inventory_system_evidence_v3` because axis chronology now includes incumbent
+Demand context and transition centers are target-availability filtered.
 
 The mixed-universe constructor receives the target feature family, target metric,
 target dimension, and campaign-declared primary and supporting axis scopes
@@ -1511,7 +1514,7 @@ Authoritative campaign publication includes an immutable `decomposition/`
 package with `feature_to_metric`, `metric_to_dimension`,
 `dimension_to_axis`, `chronology_coverage`, `reconciliation_summary`,
 `coordinate_reconciliation`, `regime_reconciliation`, and `axis_scope_lineage`
-Parquet artifacts. The contract version is `engine_decomposition_v5`; it is recorded in both the
+Parquet artifacts. The contract version is `engine_decomposition_v6`; it is recorded in both the
 evidence manifest and producer completion marker and is required for current
 readiness. Historical packages remain loadable only when their own hashes and
 declared contracts validate.
@@ -1525,6 +1528,16 @@ must equal `x_supply`/`y_demand`; regime labels are checked by calling the
 production geometry classifier rather than duplicating its boundaries. Any
 mismatch fails publication closed. Renderers copy and visualize these supplied
 tables and must not recompute an engine stage.
+
+Detailed additive evidence is limited to approved campaign geographies and the
+Inventory causal chain: `active_inventory` feature-to-metric for every series,
+`permit_activity` feature-to-metric for the incumbent only, Supply
+metric-to-dimension, and Supply dimension-to-axis. Unrelated Price,
+Affordability, Liquidity, Transaction Activity, Demand, Employment, GDP, and
+other preserved families remain subject to exact causal parity validation but
+are not expanded into campaign review panels. Coordinate and categorical-regime
+reconciliation remain fail-closed validation evidence; the review does not
+render a two-dimensional coordinate trajectory.
 
 Implementation reuse classification:
 

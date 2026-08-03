@@ -15,7 +15,7 @@ from regime._06_axis_engine import score_axes
 from regime.review.calibration.engine_decomposition import (
     build_dimension_to_axis, build_feature_to_metric, build_metric_to_dimension,
     validate_engine_decomposition, _coordinate_reconciliation, _regime_reconciliation,
-    _coverage_universe, _feature_registry,
+    _coverage_universe, _feature_registry, _scope_decomposition_artifacts,
 )
 from regime.review.calibration.inventory_review_bundle import _lines, _monthly_gap, _timeline_domain, _timeline_x
 from regime._07_coordinate_engine import build_coordinates
@@ -30,6 +30,12 @@ def error(call, text):
 
 def main() -> int:
     date = pd.Timestamp("2020-01-01")
+    scoped = _scope_decomposition_artifacts({name: pd.DataFrame({"geo_id": ["approved", "unrelated"], "value": [1, 2]})
+        for name in ("normalized_features", "metric_scores", "aligned_metric_scores", "features",
+                     "dimension_scores", "axis_scores", "coordinates", "regime_assignments")}, ("approved",))
+    assert set(scoped) == {"normalized_features", "metric_scores", "aligned_metric_scores", "features",
+                           "dimension_scores", "axis_scores", "coordinates", "regime_assignments"}
+    assert all(frame["geo_id"].tolist() == ["approved"] for frame in scoped.values())
     normalized = pd.DataFrame([
         {"geo_id":"g", "date":date, "canonical_metric_key":"active_inventory", "feature_key":"redfin_inventory_level", "feature_score":-0.5},
         {"geo_id":"g", "date":date, "canonical_metric_key":"active_inventory", "feature_key":"redfin_inventory_long", "feature_score":0.75},
