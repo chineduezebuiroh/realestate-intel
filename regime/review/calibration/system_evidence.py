@@ -7,9 +7,12 @@ contract which the bundle renderer can validate, copy, and plot.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping
 
+import numpy as np
 import pandas as pd
 
 
@@ -27,6 +30,155 @@ SYSTEM_SECTIONS = (
 # their already-normalized downstream metric score.
 NORMALIZED_METRIC_SECTION = "normalized_metric_score_chronology"
 SYSTEM_EVIDENCE_CONTRACT_VERSION = "inventory_system_evidence_v3"
+REPRESENTATIVE_GEOGRAPHY_DIAGNOSTIC = "representative_geography_diagnostic"
+REPRESENTATIVE_GEOGRAPHY_SELECTION = "representative_geography_selection"
+PREFERRED_REVIEW_GEOGRAPHIES = (
+    ("district_of_columbia_dc__county", "DC", "dense urban anchor; strongest known historical BPS context"),
+    ("essex_county_nj__county", "NJ", "dense urban New Jersey comparison; required user-selected anchor"),
+    ("montgomery_county_md__county", "MD", "affluent suburban Maryland context"),
+    ("prince_george_s_county_md__county", "MD", "contrasting suburban/growth Maryland context"),
+    ("fairfax_county_va__county", "VA", "major Virginia employment-center context"),
+    ("san_francisco_county_ca__county", "CA", "dense urban California context"),
+    ("los_angeles_county_ca__county", "CA", "large, diverse California market context"),
+)
+REPRESENTATIVE_TIE_BREAK_RULE = (
+    "descending all-three Supply-date share, fully populated Supply observations, "
+    "permit_activity observations, permit_intensity observations, active_inventory observations; "
+    "ascending canonical geo_id"
+)
+
+
+def _manifest_counties(manifest_path: str | Path) -> pd.DataFrame:
+    manifest = pd.read_csv(manifest_path, dtype=str)
+    required = {"geo_slug", "geo_name", "level"}
+    if not required.issubset(manifest):
+        raise ValueError(f"Authoritative geography manifest is missing columns: {sorted(required.difference(manifest))}")
+    counties = manifest[manifest["level"].eq("county")].copy()
+    counties["state"] = counties["geo_name"].str.extract(r",\s*(CA|MD|VA|NJ|DC)(?:\s|$)", expand=False)
+    counties = counties[counties["state"].notna()]
+    if counties["geo_slug"].duplicated().any():
+        raise ValueError("Authoritative geography manifest contains duplicate county geo_slug values")
+    return counties[["geo_slug", "geo_name", "state"]].sort_values("geo_slug", kind="mergesort")
+
+
+def build_representative_geography_diagnostic(
+    *, baseline_artifacts: Mapping[str, pd.DataFrame], manifest_path: str | Path,
+) -> pd.DataFrame:
+    """Describe review coverage for the governed manifest universe without changing policy."""
+    manifest = _manifest_counties(manifest_path)
+    metrics = adapt_aligned_metric_scores(baseline_artifacts["aligned_metric_scores"])
+    dimensions = adapt_dimension_scores(baseline_artifacts["dimension_scores"])
+    metric_keys = ("active_inventory", "permit_activity", "permit_intensity")
+    metrics = metrics[metrics["canonical_metric_key"].isin(metric_keys)].copy()
+    metrics["metric_score"] = pd.to_numeric(metrics["metric_score"], errors="coerce")
+    supply = dimensions[dimensions["dimension"].astype(str).str.lower().eq("supply")].copy()
+    supply["dimension_score"] = pd.to_numeric(supply["dimension_score"], errors="coerce")
+    artifact_sets = {
+        name: set(ARTIFACT_ADAPTERS[name](baseline_artifacts[name])["geo_id"].astype(str))
+        for name in ARTIFACT_ADAPTERS
+    }
+    rows = []
+    for item in manifest.itertuples(index=False):
+        geo_id = str(item.geo_slug)
+        geo_metrics = metrics[metrics["geo_id"].astype(str).eq(geo_id)]
+        geo_supply = supply[supply["geo_id"].astype(str).eq(geo_id) & supply["dimension_score"].notna()]
+        supply_dates = set(geo_supply["date"])
+        facts: dict[str, object] = {
+            "geo_id": geo_id, "geo_name": item.geo_name, "state": item.state,
+            "present_in_manifest": True,
+        }
+        available_dates = {}
+        for key in metric_keys:
+            part = geo_metrics[geo_metrics["canonical_metric_key"].eq(key) & geo_metrics["metric_score"].notna()]
+            dates = set(part["date"])
+            available_dates[key] = dates
+            facts[f"first_{key}_date"] = part["date"].min()
+            facts[f"{key}_observation_count"] = len(part)
+        all_dates = set.intersection(*(available_dates[key] for key in metric_keys))
+        fully = sorted(supply_dates & all_dates)
+        facts["first_fully_populated_supply_date"] = fully[0] if fully else pd.NaT
+        facts["fully_populated_supply_observation_count"] = len(fully)
+        denominator = len(supply_dates)
+        for key in metric_keys:
+            facts[f"share_supply_dates_with_{key}"] = (
+                len(supply_dates & available_dates[key]) / denominator if denominator else np.nan
+            )
+        facts["share_supply_dates_with_all_three"] = len(supply_dates & all_dates) / denominator if denominator else np.nan
+        permit = geo_metrics.pivot(index="date", columns="canonical_metric_key", values="metric_score")
+        facts["permit_activity_score_volatility"] = permit.get("permit_activity", pd.Series(dtype=float)).std()
+        facts["permit_intensity_score_volatility"] = permit.get("permit_intensity", pd.Series(dtype=float)).std()
+        facts["permit_activity_permit_intensity_score_correlation"] = (
+            permit["permit_activity"].corr(permit["permit_intensity"])
+            if {"permit_activity", "permit_intensity"}.issubset(permit) else np.nan
+        )
+        missing_artifacts = sorted(name for name, geos in artifact_sets.items() if geo_id not in geos)
+        facts["required_artifacts_present"] = not missing_artifacts
+        facts["missing_required_artifacts"] = ";".join(missing_artifacts)
+        facts["valid_review_evidence"] = bool(
+            not missing_artifacts and denominator
+            and all(facts[f"{key}_observation_count"] > 0 for key in metric_keys)
+        )
+        facts["invalid_evidence_reason"] = "" if facts["valid_review_evidence"] else (
+            f"missing required artifacts: {','.join(missing_artifacts)}" if missing_artifacts
+            else "missing active_inventory, permit_activity, permit_intensity, or Supply observations"
+        )
+        rows.append(facts)
+    return pd.DataFrame(rows).sort_values("geo_id", kind="mergesort").reset_index(drop=True)
+
+
+def select_representative_geographies(diagnostic: pd.DataFrame) -> pd.DataFrame:
+    """Resolve preferred anchors and explicit deterministic fallbacks."""
+    ranked = diagnostic.sort_values(
+        ["share_supply_dates_with_all_three", "fully_populated_supply_observation_count",
+         "permit_activity_observation_count", "permit_intensity_observation_count",
+         "active_inventory_observation_count", "geo_id"],
+        ascending=[False, False, False, False, False, True], na_position="last", kind="mergesort",
+    )
+    by_geo = diagnostic.set_index("geo_id", drop=False)
+    selected: set[str] = set()
+    reserved_preferred = {item[0] for item in PREFERRED_REVIEW_GEOGRAPHIES}
+    rows = []
+    for preferred, state, reason in PREFERRED_REVIEW_GEOGRAPHIES:
+        present = preferred in by_geo.index
+        valid = bool(present and by_geo.loc[preferred, "valid_review_evidence"])
+        final = preferred if valid else None
+        fallback_reason = None
+        role = "preferred_anchor"
+        if not valid:
+            failure = "absent from authoritative generated manifest" if not present else str(by_geo.loc[preferred, "invalid_evidence_reason"])
+            same_state = ranked[
+                ranked["state"].eq(state) & ranked["valid_review_evidence"].eq(True)
+                & ~ranked["geo_id"].isin(selected)
+                & ~ranked["geo_id"].isin(reserved_preferred)
+            ]
+            pool = same_state
+            fallback_scope = "same-state"
+            if pool.empty:
+                pool = ranked[ranked["valid_review_evidence"].eq(True)
+                              & ~ranked["geo_id"].isin(selected)
+                              & ~ranked["geo_id"].isin(reserved_preferred)]
+                fallback_scope = "best remaining manifest county; no same-state replacement available"
+            if not pool.empty:
+                final = str(pool.iloc[0]["geo_id"])
+                role = "fallback"
+                fallback_reason = f"{failure}; {fallback_scope} fallback selected"
+            else:
+                role = "unresolved"
+                fallback_reason = f"{failure}; no valid manifest fallback available"
+        if final is not None:
+            selected.add(final)
+            coverage = by_geo.loc[final].to_dict()
+        else:
+            coverage = {}
+        rows.append({
+            "preferred_geo_id": preferred, "final_selected_geo_id": final,
+            "preferred_present": present, "preferred_valid_evidence": valid,
+            "selection_role": role, "selection_reason": reason,
+            "fallback_reason": fallback_reason,
+            "coverage_facts": json.dumps(coverage, sort_keys=True, default=str),
+            "deterministic_tie_break_rule": REPRESENTATIVE_TIE_BREAK_RULE,
+        })
+    return pd.DataFrame(rows)
 
 
 def _governed_axis_scope(campaign) -> tuple[str, ...]:
@@ -202,12 +354,34 @@ def validate_system_evidence(evidence: CalibrationSystemEvidence) -> None:
         absent = sorted(required.difference(frame.columns))
         if absent:
             raise ValueError(f"{NORMALIZED_METRIC_SECTION} is missing columns: {absent}")
+    diagnostic = evidence.tables.get(REPRESENTATIVE_GEOGRAPHY_DIAGNOSTIC)
+    selection = evidence.tables.get(REPRESENTATIVE_GEOGRAPHY_SELECTION)
+    if (diagnostic is None) != (selection is None):
+        raise ValueError("Representative geography diagnostic and selection must be supplied together")
+    if diagnostic is not None and selection is not None:
+        required_diagnostic = {"geo_id", "present_in_manifest", "valid_review_evidence"}
+        required_selection = {"preferred_geo_id", "final_selected_geo_id", "preferred_present",
+                              "preferred_valid_evidence", "selection_role", "selection_reason",
+                              "fallback_reason", "coverage_facts", "deterministic_tie_break_rule"}
+        if not required_diagnostic.issubset(diagnostic):
+            raise ValueError("Representative geography diagnostic schema is incomplete")
+        if not required_selection.issubset(selection):
+            raise ValueError("Representative geography selection schema is incomplete")
+        if diagnostic["geo_id"].duplicated().any() or selection["preferred_geo_id"].duplicated().any():
+            raise ValueError("Representative geography artifacts contain duplicate identities")
+        final = set(selection["final_selected_geo_id"].dropna().astype(str))
+        manifest_geos = set(diagnostic["geo_id"].astype(str))
+        if final != selected or not final.issubset(manifest_geos):
+            raise ValueError("Representative geography selection does not match governed system evidence")
+        anchors = {"district_of_columbia_dc__county", "essex_county_nj__county"}
+        if not anchors.issubset(set(selection["preferred_geo_id"].astype(str))):
+            raise ValueError("DC and Essex selection outcomes must be explicit")
 
 
 def assemble_inventory_system_evidence(
     *, campaign, baseline_artifacts: Mapping[str, pd.DataFrame],
     candidate_artifacts: Mapping[str, Mapping[str, pd.DataFrame]],
-    max_geographies: int = 6,
+    max_geographies: int | None = None,
 ) -> CalibrationSystemEvidence:
     """Adapt already-produced baseline/candidate artifacts; never run engine stages."""
     from regime.diagnostics.axis_contribution import build_axis_cancellation_from_frames
@@ -228,25 +402,15 @@ def assemble_inventory_system_evidence(
         candidate_id: {name: ARTIFACT_ADAPTERS[name](artifacts[name]) for name in required_order}
         for candidate_id, artifacts in candidate_artifacts.items()
     }
-    baseline_coordinates = normalized_baseline["coordinates"]
-    divergence = []
-    for candidate_id, artifacts in normalized_candidates.items():
-        merged = baseline_coordinates[["geo_id", "date", "x_supply"]].merge(
-            artifacts["coordinates"][["geo_id", "date", "x_supply"]],
-            on=["geo_id", "date"], suffixes=("_baseline", "_candidate"), validate="one_to_one",
-        )
-        merged["absolute_divergence"] = (merged["x_supply_candidate"] - merged["x_supply_baseline"]).abs()
-        divergence.append(merged.groupby("geo_id", as_index=False)["absolute_divergence"].max())
-    geo_scores = pd.concat(divergence).groupby("geo_id")["absolute_divergence"].max().sort_values(
-        ascending=False, kind="mergesort"
+    del max_geographies  # retained as a compatibility keyword; the governed shortlist controls size.
+    manifest_path = campaign.metadata.get("geography_scope", {}).get(
+        "authoritative_geography_manifest_path", "config/geo_manifest.generated.csv"
     )
-    dc = "district_of_columbia_dc__county"
-    selected: list[str] = [dc] if dc in geo_scores.index else []
-    for geo_id in list(geo_scores.index) + list(geo_scores.sort_values(kind="mergesort").index):
-        if geo_id not in selected:
-            selected.append(str(geo_id))
-        if len(selected) >= min(max_geographies, len(geo_scores)):
-            break
+    diagnostic = build_representative_geography_diagnostic(
+        baseline_artifacts=baseline_artifacts, manifest_path=manifest_path,
+    )
+    selection = select_representative_geographies(diagnostic)
+    selected = selection["final_selected_geo_id"].dropna().astype(str).tolist()
     if not selected:
         raise ValueError("No representative geography has coordinate overlap")
 
@@ -358,10 +522,12 @@ def assemble_inventory_system_evidence(
         tables={"dimension_chronology": dimension, "axis_chronology": axis,
                 "coordinate_trajectories": coordinates, "regime_chronology": regimes,
                 "transition_windows": transitions, "cancellation_diagnostics": cancellation,
-                NORMALIZED_METRIC_SECTION: metric_scores},
+                NORMALIZED_METRIC_SECTION: metric_scores,
+                REPRESENTATIVE_GEOGRAPHY_DIAGNOSTIC: diagnostic,
+                REPRESENTATIVE_GEOGRAPHY_SELECTION: selection},
         representative_geography_rule=(
-            "District of Columbia when present, then maximum and minimum candidate/incumbent "
-            "Supply-coordinate divergence with canonical geo_id tie-breaking; maximum six"
+            "validated seven-county preferred shortlist; at most one same-state deterministic "
+            "diagnostic fallback per invalid preferred geography, then best remaining manifest county"
         ),
         transition_window_rule=(
             "largest absolute month-over-month incumbent Supply-axis change on a date where "

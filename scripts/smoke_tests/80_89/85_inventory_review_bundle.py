@@ -173,6 +173,7 @@ def _decomposition_evidence(evidence):
 def main() -> int:
     expected_series_colors = {key: value["color"] for key, value in SERIES_STYLE_REGISTRY.items()}
     assert {key: _series_style(key)["color"] for key in reversed(tuple(SERIES_STYLE_REGISTRY))} == expected_series_colors
+    assert all(style["line_style"] == "solid" for style in SERIES_STYLE_REGISTRY.values())
     expected_child_colors = dict(CHILD_COMPONENT_STYLE_REGISTRY)
     assert {key: _child_style(key) for key in reversed(tuple(CHILD_COMPONENT_STYLE_REGISTRY))} == expected_child_colors
     fixture = runpy.run_path("scripts/smoke_tests/80_89/83_inventory_candidate_scoring.py")
@@ -232,6 +233,8 @@ def main() -> int:
             assert (first.bundle_directory / "README.md").is_file()
             assert (first.bundle_directory / "review_summary.html").is_file()
             assert (first.bundle_directory / "manifest.json").is_file() and first.zip_path.is_file()
+            assert (first.bundle_directory / "metadata/representative_geography_diagnostic.csv").is_file()
+            assert (first.bundle_directory / "metadata/representative_geography_selection.json").is_file()
             assert all((first.bundle_directory / name).is_dir() for name in ("tables", "figures", "metadata"))
             assert (first.bundle_directory / "technical_evidence").is_dir()
             assert all((first.bundle_directory / "system_evidence" / name).is_dir() for name in SYSTEM_SECTIONS)
@@ -252,6 +255,9 @@ def main() -> int:
             positions = [page.index(heading) for heading in headings]
             assert positions == sorted(positions)
             assert "Supply–Demand Coordinate Trajectory" not in page
+            assert "dashed colored lines" not in page
+            assert page.count("(solid;") == len(SERIES_STYLE_REGISTRY)
+            assert "normalized transformed feature-score contributions, not raw permit counts" in page
             for context in ("Engine Decomposition</a>", system.transition_window_rule,
                             "minor regime", "quadrant", "Held constant across challengers",
                             "first active_inventory date", "Exhaustive reconciliation CSV",

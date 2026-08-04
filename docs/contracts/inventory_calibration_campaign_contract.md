@@ -1642,6 +1642,16 @@ relative paths, sizes, SHA256 hashes (excluding the self-referential manifest an
 ZIP), identity, lineage, and explicit no-recomputation/no-promotion flags. ZIP
 entry timestamps are fixed.
 
+The review metadata also contains a manifest-bounded representative-geography
+coverage diagnostic and an explicit preferred-anchor/fallback selection record.
+The governed presentation shortlist is DC, Essex County NJ, Montgomery County
+MD, Prince George's County MD, Fairfax County VA, San Francisco County CA, and
+Los Angeles County CA when each exact manifest identity has valid evidence.
+Missing or invalid preferred identities are recorded rather than silently
+substituted; selection permits at most one deterministic same-state fallback,
+then the best remaining valid manifest county. Review series use governed colors
+and solid lines, with a heavier incumbent and thinner challengers.
+
 The typed campaign axis scope declares `primary_decomposition_axes=("supply",)`
 and `supporting_coordinate_axes=("supply", "demand")`. Dimension-to-axis evidence
 is restricted to primary axes and the already-resolved campaign geography

@@ -10,7 +10,8 @@ import pandas as pd
 from regime.review.calibration.system_evidence import (
     NORMALIZED_METRIC_SECTION, SYSTEM_SECTIONS, adapt_aligned_metric_scores,
     adapt_axis_scores, validate_system_evidence, _governed_axis_scope,
-    _validate_transition_metric_uniqueness,
+    _validate_transition_metric_uniqueness, PREFERRED_REVIEW_GEOGRAPHIES,
+    select_representative_geographies,
 )
 
 
@@ -61,6 +62,35 @@ def main() -> int:
     _expect_error(lambda: _validate_transition_metric_uniqueness(pd.concat(
         [transition_metrics, transition_metrics], ignore_index=True)))
     validate_system_evidence(system)
+
+    preferred_rows = []
+    for number, (geo_id, state, _reason) in enumerate(PREFERRED_REVIEW_GEOGRAPHIES):
+        preferred_rows.append({"geo_id": geo_id, "state": state, "valid_review_evidence": True,
+                               "invalid_evidence_reason": "", "share_supply_dates_with_all_three": .8,
+                               "fully_populated_supply_observation_count": 20,
+                               "permit_activity_observation_count": 30 + number,
+                               "permit_intensity_observation_count": 30,
+                               "active_inventory_observation_count": 40})
+    diagnostic = pd.DataFrame(preferred_rows)
+    selection = select_representative_geographies(diagnostic.sample(frac=1, random_state=7))
+    permuted = select_representative_geographies(diagnostic.sample(frac=1, random_state=11))
+    assert selection.to_dict("records") == permuted.to_dict("records")
+    assert selection["final_selected_geo_id"].tolist() == [row[0] for row in PREFERRED_REVIEW_GEOGRAPHIES]
+    assert "prince_george_s_county_md__county" in set(selection["preferred_geo_id"])
+    assert {"district_of_columbia_dc__county", "essex_county_nj__county",
+            "san_francisco_county_ca__county", "los_angeles_county_ca__county"}.issubset(
+                set(selection["final_selected_geo_id"]))
+    fallback_input = diagnostic[diagnostic["geo_id"].ne("essex_county_nj__county")].copy()
+    fallback_input.loc[len(fallback_input)] = {
+        "geo_id": "fallback_nj__county", "state": "NJ", "valid_review_evidence": True,
+        "invalid_evidence_reason": "", "share_supply_dates_with_all_three": .7,
+        "fully_populated_supply_observation_count": 15, "permit_activity_observation_count": 20,
+        "permit_intensity_observation_count": 20, "active_inventory_observation_count": 20,
+    }
+    fallback = select_representative_geographies(fallback_input)
+    essex = fallback[fallback["preferred_geo_id"].eq("essex_county_nj__county")].iloc[0]
+    assert essex["final_selected_geo_id"] == "fallback_nj__county"
+    assert essex["selection_role"] == "fallback" and "same-state" in essex["fallback_reason"]
 
     # Supply and Demand are distinct governed axis rows and may coexist at
     # the same campaign/series/geography/date without being duplicates.
