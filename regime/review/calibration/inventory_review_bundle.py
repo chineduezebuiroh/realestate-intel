@@ -28,6 +28,8 @@ from .inventory_candidate_scoring import (
 from .system_evidence import (
     CalibrationSystemEvidence,
     NORMALIZED_METRIC_SECTION,
+    REPRESENTATIVE_GEOGRAPHY_DIAGNOSTIC,
+    REPRESENTATIVE_GEOGRAPHY_SELECTION,
     SYSTEM_SECTIONS,
     validate_system_evidence,
 )
@@ -59,10 +61,10 @@ FIGURE_DIRECTORIES = (
 
 SERIES_STYLE_REGISTRY = MappingProxyType({
     "baseline": MappingProxyType({"color": "#111111", "display_label": "Incumbent baseline", "line_style": "solid"}),
-    "inventory_ma3_structural": MappingProxyType({"color": "#4c78a8", "display_label": "Inventory MA3 structural", "line_style": "dashed"}),
-    "inventory_ma6_structural": MappingProxyType({"color": "#f58518", "display_label": "Inventory MA6 structural", "line_style": "dashed"}),
-    "inventory_ma9_structural": MappingProxyType({"color": "#54a24b", "display_label": "Inventory MA9 structural", "line_style": "dashed"}),
-    "inventory_ma12_structural": MappingProxyType({"color": "#e45756", "display_label": "Inventory MA12 structural", "line_style": "dashed"}),
+    "inventory_ma3_structural": MappingProxyType({"color": "#4c78a8", "display_label": "Inventory MA3 structural", "line_style": "solid"}),
+    "inventory_ma6_structural": MappingProxyType({"color": "#f58518", "display_label": "Inventory MA6 structural", "line_style": "solid"}),
+    "inventory_ma9_structural": MappingProxyType({"color": "#54a24b", "display_label": "Inventory MA9 structural", "line_style": "solid"}),
+    "inventory_ma12_structural": MappingProxyType({"color": "#e45756", "display_label": "Inventory MA12 structural", "line_style": "solid"}),
 })
 CHILD_COMPONENT_STYLE_REGISTRY = MappingProxyType({
     "level": "#4c78a8", "short": "#f58518", "long": "#54a24b",
@@ -322,7 +324,8 @@ def _score_figures(directory: Path, scoring: InventoryCandidateScoringResult,
     return [first, second, third]
 
 
-def _evidence_figures(root: Path, tables: Mapping[str, pd.DataFrame], candidates: tuple[str, ...]) -> list[Path]:
+def _evidence_figures(root: Path, tables: Mapping[str, pd.DataFrame], candidates: tuple[str, ...],
+                      selected_geographies: set[str]) -> list[Path]:
     output = []
     calendar = tables["inventory_candidate_calendar_month_behavior"]
     for component in FEATURE_COMPONENTS:
@@ -331,7 +334,9 @@ def _evidence_figures(root: Path, tables: Mapping[str, pd.DataFrame], candidates
             part = calendar[calendar["candidate_policy_id"].eq(candidate) & calendar["feature_component"].eq(component)].sort_values("calendar_month")
             lines.append((candidate, part["calendar_month"].tolist(), part["mean_absolute_monthly_change"].tolist()))
         path = root / "calendar_month_profiles" / f"{component}.png"; _lines(path, f"Calendar-month profile — {component} (months 1 through 12)", lines, "mean absolute monthly change", identities=list(candidates)); output.append(path)
-    series = tables["inventory_candidate_feature_series"].copy(); series["date"] = pd.to_datetime(series["date"])
+    series = tables["inventory_candidate_feature_series"].copy()
+    series = series[series["geo_id"].astype(str).isin(selected_geographies)]
+    series["date"] = pd.to_datetime(series["date"])
     for (geo, component), group in series.groupby(["geo_id", "feature_component"], sort=True):
         lines = []
         for series_id in ("baseline", *candidates):
@@ -339,6 +344,7 @@ def _evidence_figures(root: Path, tables: Mapping[str, pd.DataFrame], candidates
         start, end = group["date"].min().date(), group["date"].max().date(); path = root / "time_series_overlays" / f"{_slug(geo)}__{component}.png"
         _lines(path, f"{geo} — {component} ({start} to {end})", lines, "authoritative feature value", identities=["baseline", *candidates]); output.append(path)
     windows = tables["inventory_transition_review_windows"]
+    windows = windows[windows["geo_id"].astype(str).isin(selected_geographies)]
     for row in windows.sort_values(["geo_id", "feature_component"]).itertuples(index=False):
         group = series[series["geo_id"].eq(row.geo_id) & series["feature_component"].eq(row.feature_component) & series["date"].between(pd.Timestamp(row.window_start), pd.Timestamp(row.window_end))]
         lines = []
@@ -473,7 +479,7 @@ def _system_figures(bundle: Path, tables: Mapping[str, pd.DataFrame], campaign: 
             path = bundle / "system_evidence" / section / f"{_slug(geo_id)}.png"
             _chronology_plot(path, geo, geo_id=str(geo_id), value=value, title=title, ylabel=ylabel,
                              incumbent=campaign.incumbent_policy_id,
-                             note=f"Source: immutable {section}.csv. Solid black is incumbent; dashed colored lines are challengers.")
+                             note=f"Source: immutable {section}.csv. All lines are solid; the incumbent is heavier and challengers are thinner.")
             outputs[section].append(path)
     axes = tables["axis_chronology"]
     supporting = (axes[axes["axis"].isin(set(campaign.supporting_coordinate_axes) - {campaign.target_axis}) &
@@ -559,10 +565,11 @@ def build_inventory_review_bundle(
     policy.metrics.to_csv(bundle / "metadata" / "scoring_policy.csv", index=False, lineterminator="\n")
     lineage = {"baseline_run_id": campaign.baseline_run_id, "incumbent_run_id": campaign.incumbent_run_id, **dict(source_lineage or {})}
     (bundle / "metadata" / "source_lineage.json").write_text(json.dumps(lineage, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    system_tables = system_evidence.copied_tables()
+    selected_geography_set = set(system_tables[SYSTEM_SECTIONS[0]]["geo_id"].astype(str))
     figure_started = perf_counter()
     figures = _score_figures(bundle / "figures" / "score_summary", scoring_result, policy, candidates)
-    figures += _evidence_figures(bundle / "figures", tables, candidates)
-    system_tables = system_evidence.copied_tables()
+    figures += _evidence_figures(bundle / "figures", tables, candidates, selected_geography_set)
     decomposition_tables = decomposition_evidence.copied_tables()
     decomposition_figures: dict[str, list[Path]] = {name: [] for name in (
         "feature_to_metric", "metric_to_dimension", "dimension_to_axis")}
@@ -639,6 +646,41 @@ def build_inventory_review_bundle(
         "selected_geographies": sorted(set(system_tables[SYSTEM_SECTIONS[0]]["geo_id"].astype(str))),
         "transition_window_rule": system_evidence.transition_window_rule,
     }
+    diagnostic = system_tables.get(REPRESENTATIVE_GEOGRAPHY_DIAGNOSTIC)
+    selection_frame = system_tables.get(REPRESENTATIVE_GEOGRAPHY_SELECTION)
+    if diagnostic is not None and selection_frame is not None:
+        diagnostic.to_csv(bundle / "metadata" / "representative_geography_diagnostic.csv",
+                          index=False, lineterminator="\n")
+        records = []
+        for record in selection_frame.to_dict("records"):
+            record["coverage_facts"] = json.loads(record["coverage_facts"])
+            record["preferred_present"] = bool(record["preferred_present"])
+            record["preferred_valid_evidence"] = bool(record["preferred_valid_evidence"])
+            records.append(record)
+        representative_selection = {
+            "selections": records,
+            "selected_geographies": selection["selected_geographies"],
+            "representative_geography_rule": system_evidence.representative_geography_rule,
+        }
+    else:
+        pd.DataFrame({"geo_id": selection["selected_geographies"],
+                      "valid_review_evidence": True,
+                      "diagnostic_status": "legacy_or_fixture_supplied_selection"}).to_csv(
+            bundle / "metadata" / "representative_geography_diagnostic.csv",
+            index=False, lineterminator="\n")
+        representative_selection = {
+            "selections": [{"preferred_geo_id": geo, "final_selected_geo_id": geo,
+                            "preferred_present": True, "preferred_valid_evidence": True,
+                            "selection_role": "fixture_or_legacy_supplied_selection",
+                            "selection_reason": system_evidence.representative_geography_rule,
+                            "fallback_reason": None, "coverage_facts": {},
+                            "deterministic_tie_break_rule": "supplied immutable evidence order"}
+                           for geo in selection["selected_geographies"]],
+            "selected_geographies": selection["selected_geographies"],
+            "representative_geography_rule": system_evidence.representative_geography_rule,
+        }
+    (bundle / "metadata" / "representative_geography_selection.json").write_text(
+        json.dumps(representative_selection, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (bundle / "metadata" / "system_evidence_selection.json").write_text(
         json.dumps(selection, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -708,7 +750,7 @@ def build_inventory_review_bundle(
             "first Supply dimension date": parent_dates.min(),
             "first fully populated three-metric Supply date": by_date[by_date.ge(3)].index.min() if by_date.ge(3).any() else pd.NaT})
     coverage_summary = pd.DataFrame(coverage_rows)
-    series_key = "".join(f'<span style="border-left:12px solid {style["color"]};padding-left:.4rem;margin-right:1rem">{html.escape(style["display_label"])} ({style["line_style"]})</span>' for style in SERIES_STYLE_REGISTRY.values())
+    series_key = "".join(f'<span style="border-left:12px solid {style["color"]};padding-left:.4rem;margin-right:1rem">{html.escape(style["display_label"])} ({style["line_style"]}; {"heavier" if series_id == "baseline" else "thinner"})</span>' for series_id, style in SERIES_STYLE_REGISTRY.items())
     page = f"""<!doctype html><html><head><meta charset=\"utf-8\"><title>Inventory calibration review</title>
 <style>body{{font:15px system-ui,sans-serif;max-width:1280px;margin:2rem auto;color:#20242a;line-height:1.5}}nav a{{margin-right:1rem}}table{{border-collapse:collapse;font-size:12px;display:block;overflow:auto}}th,td{{border:1px solid #bbb;padding:.35rem}}.notice{{background:#fff3cd;border-left:5px solid #d39e00;padding:1rem;font-weight:bold}}.context{{background:#eef5fb;padding:.8rem}}figure{{margin:1.2rem 0 2rem}}img{{max-width:100%;height:auto;border:1px solid #ccd}}figcaption{{font-size:13px;color:#4b5563}}code{{background:#eee;padding:.1rem .25rem}}</style></head><body>
 <h1>Calibration Review</h1><nav><a href="#summary">Summary</a><a href="#technical">Technical</a><a href="#engine">Engine Decomposition</a><a href="#system">System</a><a href="#supporting">Artifacts</a><a href="#decision">Decision</a></nav>
@@ -720,7 +762,7 @@ def build_inventory_review_bundle(
 <h3>2.1 Raw Metric Chronology</h3><p>The level feature shows the supplied active-inventory observations after each policy's already-materialized smoothing treatment; values are not normalized metric scores.</p>{raw_panels}
 <h3>2.2 Normalized Metric-Score Chronology</h3><p>The engine-produced <code>metric_score</code> for <code>active_inventory</code>. This is distinct from raw feature values and downstream Supply scores.</p>{normalized_panels or '<p>Normalized metric-score chronology was not supplied in this evidence package.</p>'}
 <h2 id="engine">3. Engine Decomposition</h2>
-<p>Campaign-scoped evidence only; preserved unrelated families remain exact-parity validated in linked artifacts.</p>{focused}
+    <p>Campaign-scoped evidence only; preserved unrelated families remain exact-parity validated in linked artifacts. Building Permits (BPS) panels show normalized transformed feature-score contributions, not raw permit counts. Raw BPS observations may be noisy even when transformed and normalized contribution lines appear smoother.</p>{focused}
 <h2 id="system">4. System Evidence</h2>
 <h3>4.1 Supply Dimension Chronology</h3>{system_panels('dimension_chronology', 'Supply Dimension Score')}
 <p>Production missing-value renormalization can create Supply from one available child.</p>{coverage_summary.to_html(index=False, escape=True)}
@@ -728,7 +770,7 @@ def build_inventory_review_bundle(
 <h3>4.3 Demand Axis Chronology — Held Constant</h3><p>Held constant across challengers; one incumbent trace per geography.</p>{''.join(image_tag(p, 'Demand Axis Held Constant — '+p.stem) for p in system_figures['axis_chronology'] if 'demand_incumbent' in p.name)}
 <h3>4.4 Regime Chronology</h3><p>Categorical chronology remains; minor regime and quadrant remain in CSV.</p>{system_panels('regime_chronology', 'Assigned Major Regime Over Time')}
 <h3>4.5 Inventory-Relevant Transition Windows</h3><p><b>Filtered selection rule:</b> {html.escape(system_evidence.transition_window_rule)}.<br><b>Selected center dates:</b> {html.escape(transition_centers)}.</p>{system_panels('transition_windows', 'Inventory-Relevant Supply-Axis Transition Window')}
-<h2 id="supporting">5. Supporting Tables and Artifact Links</h2><ul><li><a href="tables/">Exact Technical Evidence CSVs</a></li><li><a href="engine_decomposition/">Exact Engine Decomposition evidence</a></li>{''.join(f'<li><a href="system_evidence/{s}/{s}.csv">{s.replace("_", " ").title()} CSV</a></li>' for s in SYSTEM_SECTIONS)}<li><a href="metadata/system_evidence_selection.json">System-evidence selection metadata</a></li><li><a href="metadata/source_lineage.json">Source lineage</a></li><li><a href="manifest.json">Bundle hash manifest</a></li></ul>
+    <h2 id="supporting">5. Supporting Tables and Artifact Links</h2><ul><li><a href="tables/">Exact Technical Evidence CSVs</a></li><li><a href="engine_decomposition/">Exact Engine Decomposition evidence</a></li>{''.join(f'<li><a href="system_evidence/{s}/{s}.csv">{s.replace("_", " ").title()} CSV</a></li>' for s in SYSTEM_SECTIONS)}<li><a href="metadata/representative_geography_diagnostic.csv">Representative geography diagnostic</a></li><li><a href="metadata/representative_geography_selection.json">Representative geography selection rationale</a></li><li><a href="metadata/system_evidence_selection.json">System-evidence selection metadata</a></li><li><a href="metadata/source_lineage.json">Source lineage</a></li><li><a href="manifest.json">Bundle hash manifest</a></li></ul>
 <h3>Failed gates</h3>{failed_html}
 <h2 id="decision">6. Human Decision Status</h2><p>Pending. The MA12 recommendation remains advisory-only and no promotion occurred.</p>
 <h2>7. Appendix</h2><h3>Candidate Ranking Arithmetic</h3><p>Criterion score × criterion weight → weighted criterion contribution → total candidate calibration score.</p>{decomposition}{scoring_result.inventory_candidate_weighted_scores.to_html(index=False, escape=True)}
