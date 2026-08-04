@@ -56,8 +56,11 @@ def main() -> None:
     assert ALTERNATIVES["alternative_c"] == {"level": .60, "short": .20, "long": .20}
     assert all(np.isclose(sum(weights.values()), 1.0) for weights in ALTERNATIVES.values())
     assert len(policies[policies.status.eq("incumbent")]) == 7
-    assert len(policies[policies.status.eq("challenger")]) == 21
-    assert tuple(policies.policy.unique()) == ("incumbent", "alternative_a", "alternative_b", "alternative_c")
+    assert len(policies) == 35
+    assert len(policies[policies.status.eq("challenger")]) == 28
+    assert tuple(policies.policy.unique()) == ("incumbent", "ma12_incumbent", "alternative_a", "alternative_b", "alternative_c")
+    assert set(policies.feature_definition) == {"incumbent", "ma12_structural"}
+    assert not policies.policy.astype(str).str.contains("ma6|ma9", case=False).any()
     rows=[]; dates=pd.date_range("2021-01-31", periods=6, freq="ME")
     for gi, geo in enumerate(REVIEW_GEOGRAPHIES):
         for mi, metric_name in enumerate(TARGET_METRICS):
@@ -65,8 +68,11 @@ def main() -> None:
                 for di,date in enumerate(dates):
                     rows.append({"geo_id":geo,"date":date,"feature_key":key,
                                  "feature_score":np.sin(di*.7+fi)+gi*.01+mi*.02})
-    evidence=build_evidence(pd.DataFrame(rows),feature,metric,source)
-    assert set(evidence.tables) >= {"stability_diagnostics","level_influence_diagnostics","coverage_and_warmup"}
+    synthetic = pd.DataFrame(rows)
+    synthetic["date"] = pd.to_datetime(synthetic["date"])
+    evidence=build_evidence(synthetic,feature,metric,source)
+    assert set(evidence.tables) >= {"stability_diagnostics","trend_preservation_diagnostics",
+                                    "level_influence_diagnostics","coverage_and_warmup"}
     assert evidence.tables["feature_to_metric_decomposition"].pass_status.all()
     assert evidence.tables["coverage_and_warmup"].pass_status.eq("pass").all()
     # One metric per challenger policy; no production object was changed.
@@ -93,7 +99,7 @@ def main() -> None:
         _,z2,_=write_review_bundle(evidence,two,{"unaffected_parity":parity})
         assert z1.read_bytes()==z2.read_bytes() and count < 300
         page=(one/"index.html").read_text()
-        for heading in ("Executive Summary","Active Inventory","Alternative C","Human Decision Status"): assert heading in page
+        for heading in ("Executive Summary","Active Inventory","MA12 Incumbent","Alternative C","Human Decision Status"): assert heading in page
         manifest=(one/"manifest.json").read_text(); assert '"promotion": "none"' in manifest and '"recommendation": "none"' in manifest
         runner_root=Path(tmp)/"runner"
         incomplete=_runner_fixture(runner_root,"incomplete",status="initialized")

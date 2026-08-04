@@ -20,7 +20,7 @@ import zipfile
 import numpy as np
 import pandas as pd
 
-CONTRACT_VERSION = "level_biased_feature_weight_experiment_v1"
+CONTRACT_VERSION = "ma12_structural_feature_weight_experiment_v1"
 TARGET_METRICS = (
     "active_inventory", "permit_activity", "permit_intensity",
     "median_sale_price", "median_ppsf", "price_to_income", "payment_burden",
@@ -39,8 +39,8 @@ ALTERNATIVES = MappingProxyType({
     "alternative_b": MappingProxyType({"level": .45, "short": .25, "long": .30}),
     "alternative_c": MappingProxyType({"level": .60, "short": .20, "long": .20}),
 })
-POLICY_ORDER = ("incumbent", "alternative_a", "alternative_b", "alternative_c")
-POLICY_COLORS = MappingProxyType({"incumbent": "#172554", "alternative_a": "#2563eb",
+POLICY_ORDER = ("incumbent", "ma12_incumbent", "alternative_a", "alternative_b", "alternative_c")
+POLICY_COLORS = MappingProxyType({"incumbent": "#172554", "ma12_incumbent": "#059669", "alternative_a": "#2563eb",
                                   "alternative_b": "#d97706", "alternative_c": "#7c3aed"})
 COMPONENT_COLORS = MappingProxyType({"level": "#166534", "short": "#dc2626", "long": "#0891b2"})
 
@@ -102,26 +102,28 @@ def build_policy_registry(audit: pd.DataFrame) -> pd.DataFrame:
     for metric in TARGET_METRICS:
         current = audit[audit.metric.eq(metric)].set_index("feature_type").current_weight.to_dict()
         for policy in POLICY_ORDER:
-            weights = current if policy == "incumbent" else ALTERNATIVES[policy]
+            weights = current if policy in {"incumbent", "ma12_incumbent"} else ALTERNATIVES[policy]
+            definition = "incumbent" if policy == "incumbent" else "ma12_structural"
             rows.append({"policy_id": f"{metric}__{policy}", "metric": metric,
                          "policy": policy, "status": "incumbent" if policy == "incumbent" else "challenger",
+                         "feature_definition": definition,
                          **{f"{kind}_weight": float(weights[kind]) for kind in ("level", "short", "long")},
                          "total_weight": float(sum(weights.values())),
                          "registry_lineage": "config/feature_registry.csv",
                          "diagnostic_only": True, "recommendation": "none", "promotion": "none"})
     result = pd.DataFrame(rows)
-    if len(result) != 28 or not np.allclose(result.total_weight, 1.0):
-        raise AssertionError("Exactly four unit-weight policies are required per target metric")
+    if len(result) != 35 or not np.allclose(result.total_weight, 1.0):
+        raise AssertionError("Exactly five unit-weight definition/weight policies are required per target metric")
     return result
 
 
 def decompose_feature_scores(features: pd.DataFrame, audit: pd.DataFrame,
                              policies: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Reweight normalized governed features; never normalize or align here."""
+    """Apply weights to already production-normalized incumbent/MA12 features."""
     required = {"geo_id", "date", "feature_key", "feature_score"}
     missing = required.difference(features.columns)
     if missing: raise ValueError(f"Feature scores missing columns: {sorted(missing)}")
-    if features.duplicated(["geo_id", "date", "feature_key"]).any():
+    if features.duplicated(["feature_definition", "geo_id", "date", "feature_key"]).any():
         raise ValueError("Duplicate governed normalized feature rows")
     if not set(features.geo_id).issubset(REVIEW_GEOGRAPHIES):
         raise ValueError("Feature evidence contains a non-governed review geography")
@@ -131,7 +133,8 @@ def decompose_feature_scores(features: pd.DataFrame, audit: pd.DataFrame,
     rows = []
     chronology = []
     for policy in policies.itertuples(index=False):
-        part = source[source.metric.eq(policy.metric)].copy()
+        part = source[(source.metric.eq(policy.metric)) &
+                      (source.feature_definition.eq(policy.feature_definition))].copy()
         weight_map = {kind: getattr(policy, f"{kind}_weight") for kind in ("level", "short", "long")}
         part["configured_weight"] = part.feature_type.map(weight_map)
         available = part.feature_score.notna()
@@ -140,10 +143,13 @@ def decompose_feature_scores(features: pd.DataFrame, audit: pd.DataFrame,
         part["weighted_contribution"] = part.feature_score * part.effective_weight
         metric_score = part.groupby(["geo_id", "date"], dropna=False).weighted_contribution.transform("sum", min_count=1)
         part["recomputed_metric_score"] = metric_score
+        incumbent = source[(source.metric.eq(policy.metric)) & source.feature_definition.eq("incumbent")].copy()
         incumbent_weights = audit[audit.metric.eq(policy.metric)].set_index("feature_type").current_weight
-        inc_w = part.feature_type.map(incumbent_weights)
-        inc_total = inc_w.where(available, 0).groupby([part.geo_id, part.date]).transform("sum")
-        part["incumbent_metric_score"] = (part.feature_score * inc_w.div(inc_total).where(available)).groupby([part.geo_id, part.date]).transform("sum", min_count=1)
+        inc_w = incumbent.feature_type.map(incumbent_weights); inc_available = incumbent.feature_score.notna()
+        inc_total = inc_w.where(inc_available, 0).groupby([incumbent.geo_id, incumbent.date]).transform("sum")
+        incumbent["incumbent_metric_score"] = (incumbent.feature_score * inc_w.div(inc_total).where(inc_available)).groupby([incumbent.geo_id, incumbent.date]).transform("sum", min_count=1)
+        inc_scores = incumbent.drop_duplicates(["geo_id", "date"]).set_index(["geo_id", "date"]).incumbent_metric_score
+        part["incumbent_metric_score"] = pd.MultiIndex.from_frame(part[["geo_id", "date"]]).map(inc_scores)
         part["signed_delta"] = part.recomputed_metric_score - part.incumbent_metric_score
         part["absolute_delta"] = part.signed_delta.abs()
         part["availability_reason"] = np.where(available, "available", "governed_feature_missing")
@@ -246,15 +252,23 @@ def build_evidence(features: pd.DataFrame, feature_registry: pd.DataFrame,
                    metric_registry: pd.DataFrame, source_registry: pd.DataFrame) -> FeatureWeightEvidence:
     started = time.perf_counter(); audit = audit_feature_registry(feature_registry, metric_registry, source_registry)
     print(f"[feature-weight] registry audit: {time.perf_counter()-started:.3f}s")
+    if "feature_definition" not in features:
+        features = pd.concat([features.assign(feature_definition="incumbent"),
+                              features.assign(feature_definition="ma12_structural")], ignore_index=True)
     policies = build_policy_registry(audit)
     decomposition, chronology = decompose_feature_scores(features, audit, policies)
     coverage = coverage_diagnostics(chronology)
     stability, influence, shares = diagnostic_tables(decomposition, chronology)
+    trend = stability[["metric", "policy", "geo_id", "correlation_with_incumbent",
+                       "sign_flip_count", "sign_flip_rate", "mean_absolute_delta",
+                       "maximum_absolute_delta"]].copy()
+    trend["interpretation"] = "descriptive_trend_preservation_only"
     decision = pd.DataFrame([{"contract_version": CONTRACT_VERSION, "decision": "pending_human_review",
                               "recommendation": "none", "promotion": "none", "diagnostic_only": True}])
     tables = {"registry_audit": audit, "policy_registry": policies,
               "feature_to_metric_decomposition": decomposition, "metric_chronology_comparison": chronology,
               "feature_contribution_shares": shares, "stability_diagnostics": stability,
+              "trend_preservation_diagnostics": trend,
               "level_influence_diagnostics": influence, "coverage_and_warmup": coverage,
               "human_decision_status": decision}
     return FeatureWeightEvidence(CONTRACT_VERSION, MappingProxyType(tables))
@@ -319,7 +333,7 @@ def write_review_bundle(evidence: FeatureWeightEvidence, output: Path,
                 "<h2>Registry and Current Weights</h2>", "<h2>Experiment Policies</h2>"]
     for metric in TARGET_METRICS:
         images="".join(f"<figure><img src='figures/{name}' alt='{html.escape(metric)} diagnostic'><figcaption>{html.escape(name.removesuffix('.svg'))}</figcaption></figure>" for name in figure_paths[metric])
-        sections.append(f"<h2>{html.escape(labels[metric])}</h2><p>Incumbent, Alternative A, Alternative B, and Alternative C chronology and separate feature-contribution panels. Real timestamps and missing observations are retained; no interpolation is used.</p>{images}")
+        sections.append(f"<h2>{html.escape(labels[metric])}</h2><p>Incumbent, MA12 Incumbent, Alternative A, Alternative B, and Alternative C chronology and separate feature-contribution panels. Real timestamps and missing observations are retained; no interpolation is used.</p>{images}")
     sections += ["<h2>Cross-Metric Comparison</h2>", "<h2>Downstream Propagation</h2>",
                  "<h2>Coverage and Warmup</h2>", "<h2>Supporting Artifacts</h2><ul>" + "".join(f"<li><a href='artifacts/{n}.csv'>{n}</a></li>" for n in sorted(tables)) + "</ul>",
                  "<h2>Human Decision Status</h2><p>Pending. Closer to level is not automatically better.</p>"]
