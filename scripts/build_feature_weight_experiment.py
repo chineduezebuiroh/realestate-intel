@@ -97,9 +97,81 @@ def load_authoritative_inputs(run_directory: Path) -> AuthoritativeInputs:
     return AuthoritativeInputs(identity, manifest, frames)
 
 
-def _splice(parent: pd.DataFrame, replacement: pd.DataFrame, column: str, value: str) -> pd.DataFrame:
-    return pd.concat([parent[~parent[column].eq(value)], replacement], ignore_index=True).sort_values(
-        [c for c in ("geo_id", "date", "evaluation_date", column) if c in parent.columns], kind="mergesort").reset_index(drop=True)
+def _splice(
+    parent: pd.DataFrame,
+    replacement: pd.DataFrame,
+    column: str,
+    value: str,
+) -> pd.DataFrame:
+    """Replace one governed identity with strict schema and dtype parity."""
+    if parent.columns.duplicated().any():
+        raise ValueError("Splice parent contains duplicate columns")
+    if replacement.columns.duplicated().any():
+        raise ValueError("Splice replacement contains duplicate columns")
+
+    parent_columns = list(parent.columns)
+    parent_set = set(parent_columns)
+    replacement_set = set(replacement.columns)
+    if parent_set != replacement_set:
+        raise ValueError(
+            "Splice schema mismatch; "
+            f"parent_only={sorted(parent_set - replacement_set)}, "
+            f"replacement_only={sorted(replacement_set - parent_set)}"
+        )
+
+    replacement = replacement.loc[:, parent_columns].copy()
+
+    if not replacement[column].eq(value).all():
+        raise ValueError(
+            f"Splice replacement contains identities outside {column}={value!r}"
+        )
+
+    # Production artifacts may persist nanosecond timestamps while frames
+    # derived from Parquet-backed normalized features retain microseconds.
+    # Normalize equivalent datetime columns to the incumbent artifact dtype.
+    for name in parent_columns:
+        parent_dtype = parent[name].dtype
+        replacement_dtype = replacement[name].dtype
+
+        if (
+            pd.api.types.is_datetime64_any_dtype(parent_dtype)
+            and pd.api.types.is_datetime64_any_dtype(replacement_dtype)
+        ):
+            replacement[name] = replacement[name].astype(parent_dtype)
+        elif parent_dtype != replacement_dtype:
+            raise ValueError(
+                "Splice dtype mismatch; "
+                f"column={name!r}, parent={parent_dtype}, "
+                f"replacement={replacement_dtype}"
+            )
+
+    chronology = (
+        "evaluation_date"
+        if "evaluation_date" in parent_columns
+        else "date"
+    )
+    keys = ["geo_id", chronology, column]
+
+    if parent.duplicated(keys).any():
+        raise ValueError("Splice parent contains duplicate governed keys")
+    if replacement.duplicated(keys).any():
+        raise ValueError("Splice replacement contains duplicate governed keys")
+
+    mixed = pd.concat(
+        [
+            parent.loc[~parent[column].eq(value)],
+            replacement,
+        ],
+        ignore_index=True,
+    )
+
+    if mixed.duplicated(keys).any():
+        raise ValueError("Splice result contains duplicate governed keys")
+
+    return mixed.sort_values(
+        keys,
+        kind="mergesort",
+    ).reset_index(drop=True)
 
 
 def _regime_changes(incumbent: pd.DataFrame, challenger: pd.DataFrame, metric: str, policy: str) -> pd.DataFrame:
