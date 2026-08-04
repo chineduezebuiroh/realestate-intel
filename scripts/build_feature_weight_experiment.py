@@ -11,6 +11,7 @@ from typing import Mapping, Sequence
 
 import pandas as pd
 
+from regime._02_feature_normalizer import normalize_features
 from regime._04_asof_aligner import align_metric_scores_asof
 from regime._05_dimension_scorer import score_dimensions
 from regime._06_axis_engine import score_axes
@@ -18,6 +19,9 @@ from regime._07_coordinate_engine import build_coordinates
 from regime._08_geometry_engine import assign_geometry
 from regime._09_regime_assignment import assign_regimes
 from regime.artifacts import RegimeArtifactStore
+from regime.experiments.linked_price_family_features import build_linked_price_family_features
+from regime.smoothing_features import build_smoothed_metric_features_wide
+from regime.smoothing_policy import SmoothingMetricPolicy
 from regime.diagnostics.feature_weight_experiment import (
     ALTERNATIVES, CONTRACT_VERSION, POLICY_ORDER, REVIEW_GEOGRAPHIES,
     TARGET_METRICS, audit_feature_registry, build_evidence,
@@ -111,6 +115,51 @@ def _regime_changes(incumbent: pd.DataFrame, challenger: pd.DataFrame, metric: s
     return merged
 
 
+def build_ma12_feature_cache(source_metrics: pd.DataFrame, audit: pd.DataFrame) -> Mapping[str, pd.DataFrame]:
+    """Reconstruct each governed MA12 family once, then production-normalize it."""
+    source = source_metrics[source_metrics.geo_id.isin(REVIEW_GEOGRAPHIES)].copy()
+    source["date"] = pd.to_datetime(source["date"])
+    cache: dict[str, pd.DataFrame] = {}
+    price_metrics = {"median_sale_price", "median_ppsf", "price_to_income", "payment_burden"}
+    linked = build_linked_price_family_features(
+        source_metrics[source_metrics.geo_id.isin(REVIEW_GEOGRAPHIES)],
+        experiment_id="price_family_ma12_structural_linked",
+    ).feature_history
+    for metric in TARGET_METRICS:
+        family = audit[audit.metric.eq(metric)].set_index("feature_type")
+        key_map = family.feature_key.to_dict()
+        if metric in price_metrics:
+            raw = linked[linked.canonical_metric_key.eq(metric)][
+                ["geo_id", "date", "canonical_metric_key", "feature_component", "raw_feature_value"]
+            ].copy()
+            raw["feature_key"] = raw.feature_component.map(key_map)
+        else:
+            observations = source[source.canonical_metric_key.eq(metric)].copy()
+            if observations.empty:
+                raise ValueError(f"MA12 reconstruction source is missing {metric}")
+            policy = SmoothingMetricPolicy(
+                experiment_id=f"{metric}_ma12_structural", metric_key=metric,
+                policy_role="direct", transform_strategy="ma_structural",
+                level_window=12, short_window=12, short_lag_periods=3,
+                long_window=12, long_lag_periods=12, recompute_dependents=False,
+            )
+            wide = build_smoothed_metric_features_wide(observations, policy=policy, value_column="value")
+            raw = wide.melt(
+                id_vars=["geo_id", "date", "canonical_metric_key"],
+                value_vars=["smoothed_level_value", "smoothed_short_value", "smoothed_long_value"],
+                var_name="feature_component", value_name="raw_feature_value",
+            )
+            components = {"smoothed_level_value": "level", "smoothed_short_value": "short",
+                          "smoothed_long_value": "long"}
+            raw["feature_key"] = raw.feature_component.map(components).map(key_map)
+        raw = raw[["geo_id", "date", "canonical_metric_key", "feature_key", "raw_feature_value"]].dropna()
+        normalized = normalize_features(raw)
+        normalized["feature_definition"] = "ma12_structural"
+        cache[metric] = normalized.sort_values(["geo_id", "date", "feature_key"], kind="mergesort").reset_index(drop=True)
+        print(f"[feature-weight] MA12 cache miss/build {metric}: rows={len(cache[metric])}")
+    return cache
+
+
 def run_authoritative_experiment(inputs: AuthoritativeInputs) -> tuple[object, Mapping[str, pd.DataFrame]]:
     frames = inputs.frames
     registry = pd.read_csv("config/feature_registry.csv")
@@ -118,21 +167,26 @@ def run_authoritative_experiment(inputs: AuthoritativeInputs) -> tuple[object, M
     source_registry = pd.read_csv("config/source_metric_registry.csv")
     axis_registry = pd.read_csv("config/axis_registry.csv")
     audit = audit_feature_registry(registry, metric_registry, source_registry)
-    governed = frames["normalized_features"][
+    incumbent = frames["normalized_features"][
         frames["normalized_features"].geo_id.isin(REVIEW_GEOGRAPHIES)
         & frames["normalized_features"].feature_key.isin(audit.feature_key)
-    ]
+    ].assign(feature_definition="incumbent")
+    cache = build_ma12_feature_cache(frames["source_metrics"], audit)
+    governed = pd.concat([incumbent, *cache.values()], ignore_index=True)
     evidence = build_evidence(governed, registry, metric_registry, source_registry)
     policy_rows = evidence.tables["policy_registry"]
     dimension_rows=[]; axis_rows=[]; coordinate_rows=[]; regime_rows=[]; parity_rows=[]
     for metric in TARGET_METRICS:
         dimension = metric_registry.loc[metric_registry.canonical_metric_key.eq(metric), "dimension"].iloc[0]
-        target_features = frames["normalized_features"][frames["normalized_features"].canonical_metric_key.eq(metric)]
+        target_features_by_definition = {
+            "incumbent": frames["normalized_features"][frames["normalized_features"].canonical_metric_key.eq(metric)],
+            "ma12_structural": cache[metric],
+        }
         family = audit[audit.metric.eq(metric)].set_index("feature_key")
         for policy in POLICY_ORDER[1:]:
             started=time.perf_counter(); p=policy_rows[(policy_rows.metric.eq(metric)) & (policy_rows.policy.eq(policy))].iloc[0]
             weights={row.Index: float(getattr(p, f"{row.feature_type}_weight")) for row in family.itertuples()}
-            work=target_features.copy(); work["feature_weight"]=work.feature_key.map(weights)
+            work=target_features_by_definition[p.feature_definition].copy(); work["feature_weight"]=work.feature_key.map(weights)
             available=work.feature_score.notna(); totals=work.feature_weight.where(available,0).groupby([work.geo_id,work.date]).transform("sum")
             work["contribution"]=work.feature_score*work.feature_weight.div(totals).where(available)
             scored=work.groupby(["geo_id","date","canonical_metric_key"],as_index=False).agg(
@@ -178,7 +232,17 @@ def run_authoritative_experiment(inputs: AuthoritativeInputs) -> tuple[object, M
            "downstream_axis_propagation":pd.concat(axis_rows,ignore_index=True),
            "coordinate_regime_changes":pd.concat(regime_rows,ignore_index=True),
            "coordinate_propagation_summary":pd.concat(coordinate_rows,ignore_index=True),
-           "unaffected_parity":pd.concat(parity_rows,ignore_index=True)}
+           "unaffected_parity":pd.concat(parity_rows,ignore_index=True),
+           "ma12_rebuilt_features":pd.concat([
+               value[["geo_id","date","canonical_metric_key","feature_key","raw_feature_value"]]
+               for value in cache.values()], ignore_index=True),
+           "ma12_normalized_feature_scores":pd.concat([
+               value[["geo_id","date","canonical_metric_key","feature_key","feature_score",
+                      "percentile","normalization_method","score_direction"]]
+               for value in cache.values()], ignore_index=True),
+           "ma12_cache_behavior":pd.DataFrame([
+               {"metric":metric,"cache_build_count":1,"policy_consumers":4,"cache_reuse_count":3,
+                "feature_definition":"ma12_structural"} for metric in TARGET_METRICS])}
     return evidence, extra
 
 
@@ -191,11 +255,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     started=time.perf_counter(); evidence, extra=run_authoritative_experiment(inputs)
     print(f"[feature-weight] challenger construction, unaffected-parity validation, and diagnostic calculations: {time.perf_counter()-started:.3f}s")
     started=time.perf_counter(); review,archive,count=write_review_bundle(evidence,args.output_directory,extra,
-        {"authoritative_input_identity":inputs.identity,"metric_count":7,"challenger_count":21,
+        {"authoritative_input_identity":inputs.identity,"metric_count":7,"policy_record_count":35,"challenger_count":28,
+         "ma12_cache_builds":7,"ma12_cache_reuses":21,"excluded_windows":["MA6","MA9"],
          "recommendation_state":"none","promotion_state":"none"})
     print(f"[feature-weight] HTML assembly + ZIP creation: {time.perf_counter()-started:.3f}s")
     print(f"[feature-weight] review={review} zip={archive} files={count} zip_bytes={archive.stat().st_size}")
-    print(f"[feature-weight] metric_count=7 challenger_count=21 contract_identity={CONTRACT_VERSION} recommendation_state=none promotion_state=none")
+    print(f"[feature-weight] metric_count=7 policy_records=35 challenger_count=28 cache_builds=7 cache_reuses=21 excluded=MA6,MA9 contract_identity={CONTRACT_VERSION} recommendation_state=none promotion_state=none")
     print(f"[feature-weight] total runtime: {time.perf_counter()-total:.3f}s")
 
 
