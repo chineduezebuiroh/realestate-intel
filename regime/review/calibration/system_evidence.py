@@ -446,14 +446,24 @@ def assemble_inventory_system_evidence(
 
     cancellation_rows = []
     for series_id, artifacts in identities:
-        diagnostic = build_axis_cancellation_from_frames(
-            dimension_scores=artifacts["dimension_scores"], axis_scores=artifacts["axis_scores"],
-            geo_ids=selected, axis=campaign.target_axis,
+        cancellation_diagnostic = build_axis_cancellation_from_frames(
+            dimension_scores=artifacts["dimension_scores"],
+            axis_scores=artifacts["axis_scores"],
+            geo_ids=selected,
+            axis=campaign.target_axis,
         )
-        diagnostic.insert(0, "series_id", series_id)
-        diagnostic.insert(0, "campaign_version", common["campaign_version"])
-        diagnostic.insert(0, "campaign_id", common["campaign_id"])
-        cancellation_rows.append(diagnostic)
+        cancellation_diagnostic.insert(0, "series_id", series_id)
+        cancellation_diagnostic.insert(
+            0,
+            "campaign_version",
+            common["campaign_version"],
+        )
+        cancellation_diagnostic.insert(
+            0,
+            "campaign_id",
+            common["campaign_id"],
+        )
+        cancellation_rows.append(cancellation_diagnostic)
     cancellation = pd.concat(cancellation_rows, ignore_index=True).sort_values(
         ["geo_id", "series_id", "date"], kind="mergesort"
     ).reset_index(drop=True)
