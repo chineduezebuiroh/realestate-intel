@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from regime._00_config_loader import load_regime_config
+
 from regime._05_dimension_scorer import _build_dimension_weights, score_dimensions
 from regime._06_axis_engine import _build_axis_weights, score_axes
 from regime._07_coordinate_engine import build_coordinates
@@ -27,6 +29,12 @@ REVIEW_GEOS = (
 )
 POLICY_COLORS = {"incumbent": "#111827", "challenger_a_60_20_20": "#2563eb", "challenger_b_67_165_165": "#dc2626"}
 METRIC_COLORS = {"active_inventory": "#059669", "permit_activity": "#7c3aed", "permit_intensity": "#f59e0b", "supply": "#111827"}
+STABILITY_SCOPES = ("all_emitted_dates", "all_three_available_dates")
+DIRECTION_TOLERANCE = 1e-12
+TURN_PERSISTENCE_MONTHS = 3
+TURN_FIXED_THRESHOLD = 0.05
+TURN_PROMINENCE_MULTIPLIER = 2.0
+MATCH_WINDOW_MONTHS = 6
 
 @dataclass(frozen=True)
 class Timings:
@@ -100,26 +108,149 @@ def _avail_class(p):
     if not s: return "zero_available_metrics"
     return "single_permit_only"
 
+def _validate_source_run(src: Path, frames: dict[str, pd.DataFrame]) -> None:
+    config = load_regime_config(validate=True)
+    metric = config.metric_dimensions[["metric_key", "canonical_metric_key"]]
+    features = config.features.merge(metric, on="metric_key", how="left")
+    expected = {
+        "level": ("ma_level", "12m", 0.50),
+        "short_term_change": ("ma_pct_change", "12m/lag3m", 0.25),
+        "long_term_change": ("ma_pct_change", "12m/lag12m", 0.25),
+    }
+    for metric_key in SUPPLY_METRICS:
+        fam = features[features.canonical_metric_key.eq(metric_key)]
+        if set(fam.feature_type) != set(expected) or len(fam) != 3:
+            raise ValueError(f"source run is not settled MA12 production feature registry for {metric_key}")
+        for ft, exp in expected.items():
+            row = fam[fam.feature_type.eq(ft)].iloc[0]
+            got = (row["transform"], row["feature_window"], float(row["feature_weight"]))
+            if got != exp:
+                raise ValueError(f"source run is not settled MA12 production feature registry for {metric_key}/{ft}: {got}")
+    manifest = frames.get("manifest", {})
+    proof = " ".join(str(manifest.get(k, "")) for k in sorted(manifest)) + " " + src.name
+    if "settled_ma12" not in proof:
+        raise ValueError("source run does not prove settled_ma12 production feature policy; stale pre-promotion runs are rejected")
+
+def _month_diff(a, b):
+    return (pd.Timestamp(a).year - pd.Timestamp(b).year) * 12 + (pd.Timestamp(a).month - pd.Timestamp(b).month)
+
+def _is_next_month(a, b):
+    return _month_diff(a, b) == 1
+
+def _direction(x, tol=DIRECTION_TOLERANCE):
+    if pd.isna(x): return None
+    if x > tol: return "positive"
+    if x < -tol: return "negative"
+    return "flat"
+
+def _calendar_delta(g, months, col="supply_dimension_score"):
+    x = g[["date", col]].copy().sort_values("date")
+    x["lag_date"] = x.date.map(lambda d: pd.Timestamp(d) - pd.offsets.MonthEnd(months))
+    lag = x[["date", col]].rename(columns={"date":"lag_date", col:"lag_score"})
+    out = x.merge(lag, on="lag_date", how="left")
+    out["delta"] = out[col] - out.lag_score
+    return out
+
 def _stability(chron):
     rows=[]
-    for (geo,pid), g in chron.groupby(["geo_id","policy_id"]):
-        s=g.sort_values("date").supply_dimension_score; d=s.diff(); ad=d.abs(); flips=((d*d.shift(1))<0).sum(); thr=max(float(ad.quantile(.90) or 0), .05)
-        rows.append({"geo_id":geo,"policy_id":pid,"scope":"all_emitted_dates","standard_deviation":s.std(),"median_abs_mom_change":ad.median(),"p90_abs_mom_change":ad.quantile(.9),"p99_abs_mom_change":ad.quantile(.99),"maximum_abs_jump":ad.max(),"sign_flip_count":int(flips),"sign_flip_rate":float(flips/max(len(d.dropna()),1)),"rolling_volatility_3m_median":d.rolling(3).std().median(),"rolling_volatility_12m_median":d.rolling(12).std().median(),"large_jump_threshold":thr,"large_jump_count":int((ad>thr).sum())})
+    for scope in STABILITY_SCOPES:
+        base = chron if scope == "all_emitted_dates" else chron[chron.available_metric_count.eq(3)]
+        for (geo,pid), g in base.groupby(["geo_id","policy_id"]):
+            g=g.sort_values("date").copy(); g["date"]=pd.to_datetime(g.date)
+            gaps = 0; changes=[]; prev_dir=None; flips=0
+            vals=list(g[["date","supply_dimension_score"]].itertuples(index=False, name=None))
+            for (d0,v0),(d1,v1) in zip(vals, vals[1:]):
+                if not _is_next_month(d1,d0): gaps += 1; prev_dir=None; continue
+                if pd.isna(v0) or pd.isna(v1): continue
+                delta=float(v1)-float(v0); changes.append(delta); cur=_direction(delta)
+                if prev_dir in {"positive","negative"} and cur in {"positive","negative"} and cur != prev_dir: flips += 1
+                if cur in {"positive","negative"}: prev_dir=cur
+            d=pd.Series(changes, dtype=float); ad=d.abs(); s=g.supply_dimension_score.astype(float)
+            roll=d.rolling(12).std()
+            thr=max(float(ad.quantile(.90)) if len(ad) else 0.0, .05)
+            rows.append({"geo_id":geo,"policy_id":pid,"scope":scope,"observation_count":len(g),"standard_deviation":s.std(),"median_abs_mom_change":ad.median(),"p90_abs_mom_change":ad.quantile(.9),"p99_abs_mom_change":ad.quantile(.99),"maximum_abs_jump":ad.max(),"sign_flip_count":int(flips),"sign_flip_rate":float(flips/len(d)) if len(d) else 0.0,"rolling_volatility_12m_median":roll.median(),"rolling_volatility_12m_p90":roll.quantile(.9),"large_jump_threshold":thr,"large_jump_count":int((ad>thr).sum()),"excluded_chronology_gap_comparisons":int(gaps)})
     return pd.DataFrame(rows)
 
-def _turns(g):
-    d=g.sort_values("date").supply_dimension_score.diff(); sg=d.apply(lambda x: 1 if x>0 else (-1 if x<0 else 0)); return list(g.sort_values("date").date[(sg*sg.shift(1)<0).fillna(False)])
+def _detect_turns(g):
+    g=g.sort_values("date").copy(); g["date"]=pd.to_datetime(g.date)
+    vals=list(g[["date","supply_dimension_score"]].itertuples(index=False, name=None)); rows=[]; changes=[]
+    for (d0,v0),(d1,v1) in zip(vals, vals[1:]):
+        if not _is_next_month(d1,d0) or pd.isna(v0) or pd.isna(v1): changes.append({"end":d1,"delta":math.nan,"dir":None}); continue
+        delta=float(v1)-float(v0); changes.append({"end":d1,"delta":delta,"dir":_direction(delta)})
+    ad=pd.Series([c["delta"] for c in changes if pd.notna(c["delta"])], dtype=float).abs(); threshold=max(TURN_FIXED_THRESHOLD, TURN_PROMINENCE_MULTIPLIER*(float(ad.median()) if len(ad) else 0.0))
+    for i in range(TURN_PERSISTENCE_MONTHS, len(changes)-TURN_PERSISTENCE_MONTHS+1):
+        pre=changes[i-TURN_PERSISTENCE_MONTHS:i]; post=changes[i:i+TURN_PERSISTENCE_MONTHS]
+        pre_dirs=[c["dir"] for c in pre]; post_dirs=[c["dir"] for c in post]
+        if len(set(pre_dirs))==1 and len(set(post_dirs))==1 and pre_dirs[0] in {"positive","negative"} and post_dirs[0] in {"positive","negative"} and pre_dirs[0]!=post_dirs[0]:
+            prom=abs(sum(c["delta"] for c in pre))+abs(sum(c["delta"] for c in post))
+            q=prom > threshold; tp="peak" if pre_dirs[0]=="positive" else "trough"
+            rows.append({"turning_point_date":changes[i-1]["end"],"turning_point_type":tp,"pre_turn_direction":pre_dirs[0],"post_turn_direction":post_dirs[0],"pre_persistence_count":TURN_PERSISTENCE_MONTHS,"post_persistence_count":TURN_PERSISTENCE_MONTHS,"prominence":prom,"threshold":threshold,"qualification_status":"qualified" if q else "rejected_prominence"})
+    return pd.DataFrame(rows)
+
+def _directional_detail(chron):
+    rows=[]
+    inc = {geo:g for geo,g in chron[chron.policy_id.eq("incumbent")].groupby("geo_id")}
+    for (geo,pid), g in chron.groupby(["geo_id","policy_id"]):
+        for horizon in (1,3,6,12):
+            a=_calendar_delta(g,horizon); b=_calendar_delta(inc[geo],horizon).rename(columns={"delta":"inc_delta"})[["date","inc_delta","lag_score"]]
+            m=a.merge(b,on="date",how="left",suffixes=("","_inc")); gaps=int(m.lag_score.isna().sum()); nulls=int(m.delta.isna().sum()+m.inc_delta.isna().sum()-gaps)
+            valid=m[m.delta.notna() & m.inc_delta.notna()].copy(); dirs=valid.delta.map(_direction); idirs=valid.inc_delta.map(_direction)
+            pos=int(((dirs==idirs)&(dirs=="positive")).sum()); neg=int(((dirs==idirs)&(dirs=="negative")).sum()); flat=int(((dirs==idirs)&(dirs=="flat")).sum()); dis=int((dirs!=idirs).sum()); vc=len(valid)
+            rows.append({"geo_id":geo,"policy_id":pid,"horizon_months":horizon,"positive_agreements":pos,"negative_agreements":neg,"flat_agreements":flat,"disagreements":dis,"valid_comparisons":vc,"agreement_share":(pos+neg+flat)/vc if vc else math.nan,"excluded_chronology_gaps":gaps,"excluded_nulls":max(nulls,0),"direction_tolerance":DIRECTION_TOLERANCE})
+    return pd.DataFrame(rows)
+
+def _match_turns(turns):
+    rows=[]
+    inc=turns[turns.policy_id.eq("incumbent")]
+    for (geo,pid), ch in turns[~turns.policy_id.eq("incumbent")].groupby(["geo_id","policy_id"]):
+        used=set(); incg=inc[inc.geo_id.eq(geo)]
+        for ir in incg.sort_values("turning_point_date").itertuples():
+            cand=ch[(ch.turning_point_type.eq(ir.turning_point_type)) & (~ch.index.isin(used))].copy()
+            cand["signed_delay_months"]=cand.turning_point_date.map(lambda d:_month_diff(d, ir.turning_point_date)); cand=cand[cand.signed_delay_months.abs()<=MATCH_WINDOW_MONTHS]
+            if cand.empty: rows.append({"geo_id":geo,"policy_id":pid,"turning_point_type":ir.turning_point_type,"incumbent_date":ir.turning_point_date,"challenger_date":pd.NaT,"signed_delay_months":math.nan,"absolute_delay_months":math.nan,"unmatched_incumbent":True,"unmatched_challenger":False}); continue
+            pick=cand.assign(absd=cand.signed_delay_months.abs()).sort_values(["absd","turning_point_date"]).iloc[0]; used.add(pick.name)
+            rows.append({"geo_id":geo,"policy_id":pid,"turning_point_type":ir.turning_point_type,"incumbent_date":ir.turning_point_date,"challenger_date":pick.turning_point_date,"signed_delay_months":int(pick.signed_delay_months),"absolute_delay_months":int(abs(pick.signed_delay_months)),"unmatched_incumbent":False,"unmatched_challenger":False})
+        for cr in ch[~ch.index.isin(used)].itertuples(): rows.append({"geo_id":geo,"policy_id":pid,"turning_point_type":cr.turning_point_type,"incumbent_date":pd.NaT,"challenger_date":cr.turning_point_date,"signed_delay_months":math.nan,"absolute_delay_months":math.nan,"unmatched_incumbent":False,"unmatched_challenger":True})
+    cols=["geo_id","policy_id","turning_point_type","incumbent_date","challenger_date","signed_delay_months","absolute_delay_months","unmatched_incumbent","unmatched_challenger"]
+    return pd.DataFrame(rows, columns=cols)
+
+def _turn_summary(turns, matches):
+    rows=[]
+    for geo in REVIEW_GEOS:
+      incn=len(turns[(turns.geo_id.eq(geo))&(turns.policy_id.eq("incumbent"))])
+      for pid in ["challenger_a_60_20_20","challenger_b_67_165_165"]:
+        chn=len(turns[(turns.geo_id.eq(geo))&(turns.policy_id.eq(pid))]); m=matches[(matches.geo_id.eq(geo))&(matches.policy_id.eq(pid))]; mat=m[m.absolute_delay_months.notna()]
+        rows.append({"geo_id":geo,"policy_id":pid,"incumbent_turning_point_count":incn,"challenger_turning_point_count":chn,"matched_count":len(mat),"unmatched_incumbent":int(m.unmatched_incumbent.sum()) if not m.empty else incn,"unmatched_challenger":int(m.unmatched_challenger.sum()) if not m.empty else chn,"median_matched_delay_months":mat.absolute_delay_months.median(),"p90_matched_delay_months":mat.absolute_delay_months.quantile(.9),"maximum_matched_delay_months":mat.absolute_delay_months.max(),"peak_matched_count":int(mat.turning_point_type.eq("peak").sum()),"trough_matched_count":int(mat.turning_point_type.eq("trough").sum())})
+    return pd.DataFrame(rows)
 
 def _trend(chron):
-    rows=[]; turns=[]
-    inc = {geo:g.sort_values("date") for geo,g in chron[chron.policy_id.eq("incumbent")].groupby("geo_id")}
+    dirs=_directional_detail(chron); turns=[]
     for (geo,pid), g in chron.groupby(["geo_id","policy_id"]):
-        g=g.sort_values("date"); merged=g[["date","supply_dimension_score"]].merge(inc[geo][["date","supply_dimension_score"]],on="date",suffixes=("","_inc"))
-        dm=merged.supply_dimension_score.diff(); di=merged.supply_dimension_score_inc.diff(); rev=merged.loc[(dm*di<0).fillna(False),"date"]
-        t=_turns(g); ti=_turns(inc[geo]); delays=[min([abs((x-y).days) for y in ti], default=0) for x in t]
-        for x in t: turns.append({"geo_id":geo,"policy_id":pid,"turning_point_date":x})
-        rows.append({"geo_id":geo,"policy_id":pid,"directional_agreement_with_incumbent":float((dm.apply(math.copysign,args=(1,))==di.apply(math.copysign,args=(1,))).mean()) if len(dm)>1 else math.nan,"turning_point_disagreement_count":abs(len(t)-len(ti)),"median_turning_point_delay_days":pd.Series(delays).median() if delays else 0,"maximum_turning_point_delay_days":max(delays) if delays else 0,"recent_3m_signed_change":g.supply_dimension_score.diff(3).iloc[-1] if len(g)>3 else math.nan,"recent_6m_signed_change":g.supply_dimension_score.diff(6).iloc[-1] if len(g)>6 else math.nan,"recent_12m_signed_change":g.supply_dimension_score.diff(12).iloc[-1] if len(g)>12 else math.nan,"challenger_reversal_dates":";".join(str(x.date()) for x in rev)})
-    return pd.DataFrame(rows), pd.DataFrame(turns)
+        t=_detect_turns(g)
+        if not t.empty:
+            t.insert(0,"policy_id",pid); t.insert(0,"geo_id",geo); turns.append(t)
+    turn_df=pd.concat(turns, ignore_index=True) if turns else pd.DataFrame(columns=["geo_id","policy_id","turning_point_date","turning_point_type","pre_turn_direction","post_turn_direction","pre_persistence_count","post_persistence_count","prominence","threshold","qualification_status"])
+    matches=_match_turns(turn_df); summ=_turn_summary(turn_df,matches)
+    return dirs, turn_df, matches, summ
+
+def _comparison(stability, permit, turn_summary):
+    rows=[]
+    def add(geo, scope, metric, inc, a, b):
+        rows.append({"geo_id":geo,"scope":scope,"metric":metric,"incumbent":inc,"challenger_a_60_20_20":a,"challenger_b_67_165_165":b,"challenger_a_abs_diff_vs_incumbent":a-inc,"challenger_b_abs_diff_vs_incumbent":b-inc,"challenger_a_pct_diff_vs_incumbent":(a-inc)/inc if pd.notna(inc) and inc else math.nan,"challenger_b_pct_diff_vs_incumbent":(b-inc)/inc if pd.notna(inc) and inc else math.nan,"a_versus_b_difference":a-b})
+    piv=stability.pivot_table(index=["geo_id","scope"], columns="policy_id", values=["median_abs_mom_change","p90_abs_mom_change","sign_flip_rate","rolling_volatility_12m_median"], aggfunc="first")
+    for (geo,scope), r in piv.iterrows():
+      for metric in ["median_abs_mom_change","p90_abs_mom_change","sign_flip_rate","rolling_volatility_12m_median"]:
+        add(geo, scope, metric, r.get((metric,"incumbent"), math.nan), r.get((metric,"challenger_a_60_20_20"), math.nan), r.get((metric,"challenger_b_67_165_165"), math.nan))
+    pp=permit.pivot_table(index="geo_id", columns="policy_id", values="combined_permit_abs_contribution_share", aggfunc="first")
+    ts=turn_summary.pivot_table(index="geo_id", columns="policy_id", values=["matched_count","median_matched_delay_months","unmatched_incumbent","unmatched_challenger"], aggfunc="first")
+    for geo in sorted(set(permit.geo_id) | set(turn_summary.geo_id)):
+        for scope in STABILITY_SCOPES:
+            pr=pp.loc[geo] if geo in pp.index else pd.Series(dtype=float)
+            add(geo, scope, "permit_family_contribution_share", pr.get("incumbent", math.nan), pr.get("challenger_a_60_20_20", math.nan), pr.get("challenger_b_67_165_165", math.nan))
+            tr=ts.loc[geo] if geo in ts.index else pd.Series(dtype=float)
+            for metric in ["matched_count","median_matched_delay_months","unmatched_incumbent","unmatched_challenger"]:
+                add(geo, scope, metric, math.nan, tr.get((metric,"challenger_a_60_20_20"), math.nan), tr.get((metric,"challenger_b_67_165_165"), math.nan))
+    return pd.DataFrame(rows)
 
 def _permit(decomp):
     p=decomp.pivot_table(index=["geo_id","date","policy_id","supply_dimension_score"],columns="canonical_metric_key",values=["weighted_contribution","effective_weight"],aggfunc="first").reset_index(); p.columns=["_".join([str(x) for x in c if x]) for c in p.columns]
@@ -136,7 +267,7 @@ def _coverage(decomp):
         rows.append({"geo_id":geo,"policy_id":pid,"first_supply_date":g.date.min(),"first_fully_populated_three_metric_date":g.loc[g.available_metric_count.eq(3),"date"].min(),"total_supply_observations":len(g),"all_three_available_observations":int(g.available_metric_count.eq(3).sum()),"one_or_two_metric_observations":int(g.available_metric_count.isin([1,2]).sum()),"inventory_only_observations":int(g.availability_class.eq("inventory_only").sum()),"missingness_share":float(1-g.available_metric_count.mean()/3),"scope_note":"reported separately for all emitted dates; fully populated dates are available via all_three_available_observations"})
     return pd.DataFrame(rows)
 
-def _html(chron, decomp):
+def _html(chron, decomp, stability=None, turns=None, matches=None, dirs=None):
     parts=["<html><head><meta charset='utf-8'><title>Supply Metric Weight Diagnostic</title><style>body{font-family:sans-serif}svg{border:1px solid #ddd;margin:6px} .small{font-size:12px}</style></head><body>",f"<h1>{CONTRACT_IDENTITY}</h1><p>recommendation_state: none; promotion_state: none. Human decision pending.</p>"]
     for geo in REVIEW_GEOS:
         parts.append(f"<h2>{geo}</h2><h3>Supply Dimension Chronology</h3><p class='small'>Zero reference line included; gaps follow real timestamps in artifact table.</p>")
@@ -144,7 +275,10 @@ def _html(chron, decomp):
         parts.append(_svg_lines(sub,"supply_dimension_score","policy_id"))
         for pid in ["incumbent","challenger_a_60_20_20","challenger_b_67_165_165"]:
             parts.append(f"<h3>Metric Contributions — {pid}</h3>"); dd=decomp[(decomp.geo_id.eq(geo))&(decomp.policy_id.eq(pid))].copy(); parts.append(_svg_lines(dd,"weighted_contribution","canonical_metric_key"))
-        parts.append("<h3>Stability, Turning Points, Missingness / Effective Weights</h3><p class='small'>See CSV artifacts for monthly absolute changes, turning-point delay, large-jump dates, and renormalized effective weights.</p>")
+        parts.append("<h3>Stability Comparison — all emitted dates and all three available dates</h3><p class='small'>Stability is reported side-by-side by explicit scope in stability_diagnostics.csv and stability_policy_comparison.csv.</p>")
+        parts.append("<h3>Turning-point Overlay and Matching Summary</h3><p class='small'>Qualified persistent/prominent peaks and troughs plus ±6 month one-to-one matches are persisted in turning_point_diagnostics.csv, turning_point_matches.csv, and turning_point_summary.csv.</p>")
+        parts.append("<h3>Directional Agreement — 1m, 3m, 6m, 12m</h3><p class='small'>Direction uses positive/negative/flat with tolerance 1e-12; flat-versus-flat is agreement; calendar lags exclude gaps.</p>")
+        parts.append("<h3>Missingness / Effective-weight Summary</h3><p class='small'>See coverage_and_missingness.csv and effective_weight_diagnostics.csv.</p>")
     return "".join(parts)+"</body></html>"
 
 def _svg_lines(df,y,col):
@@ -175,7 +309,7 @@ def _write(outdir, tables):
     return z
 
 def main(argv):
-    start=time.perf_counter(); src_arg=Path(argv[1]); outdir=Path(argv[2]); t=time.perf_counter(); src,tmp=_resolve_source(src_arg); frames=_load(src); load=time.perf_counter()-t
+    start=time.perf_counter(); src_arg=Path(argv[1]); outdir=Path(argv[2]); t=time.perf_counter(); src,tmp=_resolve_source(src_arg); frames=_load(src); _validate_source_run(src, frames); load=time.perf_counter()-t
     aligned=frames["aligned_metric_scores"]; reg=_registry(); decomp=_decomp(aligned,reg); chron=decomp.drop_duplicates(["geo_id","date","policy_id"])[["geo_id","date","policy_id","supply_dimension_score","available_metric_count","availability_class"]]
     dim_all=[]
     for pid in reg.policy_id.unique():
@@ -183,9 +317,9 @@ def main(argv):
     dims=pd.concat(dim_all); axes=[]; coords=[]; geoms=[]; regimes=[]
     for pid,d in dims.groupby("policy_id"):
         ax=score_axes(d); ax["policy_id"]=pid; axes.append(ax); co=build_coordinates(ax); co["policy_id"]=pid; coords.append(co); gm=assign_geometry(co); gm["policy_id"]=pid; geoms.append(gm); rg=assign_regimes(gm); rg["policy_id"]=pid; regimes.append(rg)
-    stability=_stability(chron); trend,turns=_trend(chron); permit=_permit(decomp); coverage=_coverage(decomp); evidence=time.perf_counter()-start-load
-    html=_html(chron,decomp); figures=0; ht=time.perf_counter(); (outdir/".").mkdir(parents=True,exist_ok=True); (outdir/"index.html").write_text(html); htmlt=time.perf_counter()-ht
-    tables={"policy_registry":reg,"metric_to_supply_decomposition":decomp,"supply_chronology":chron,"stability_diagnostics":stability,"trend_responsiveness_diagnostics":trend,"turning_point_diagnostics":turns,"permit_family_influence":permit,"coverage_and_missingness":coverage,"effective_weight_diagnostics":decomp,"downstream_axis_propagation":pd.concat(axes),"coordinate_propagation":pd.concat(coords),"regime_change_summary":pd.concat(regimes).groupby(["geo_id","policy_id","major_regime"]).size().reset_index(name="observations"),"unaffected_parity":pd.DataFrame([{"check":"incumbent_artifacts_not_mutated","status":"pass"},{"check":"review_outputs_limited_to_governed_counties","status":"pass"}]),"human_decision_status":{"contract_identity":CONTRACT_IDENTITY,"recommendation_state":RECOMMENDATION_STATE,"promotion_state":PROMOTION_STATE,"human_decision":"pending"}}
+    stability=_stability(chron); trend,turns,turn_matches,turn_summary=_trend(chron); permit=_permit(decomp); coverage=_coverage(decomp); stability_comparison=_comparison(stability, permit, turn_summary); evidence=time.perf_counter()-start-load
+    html=_html(chron,decomp,stability,turns,turn_matches,trend); figures=0; ht=time.perf_counter(); (outdir/".").mkdir(parents=True,exist_ok=True); (outdir/"index.html").write_text(html); htmlt=time.perf_counter()-ht
+    tables={"policy_registry":reg,"metric_to_supply_decomposition":decomp,"supply_chronology":chron,"stability_diagnostics":stability,"trend_responsiveness_diagnostics":trend,"directional_agreement_detail":trend,"turning_point_diagnostics":turns,"turning_point_matches":turn_matches,"turning_point_summary":turn_summary,"stability_policy_comparison":stability_comparison,"permit_family_influence":permit,"coverage_and_missingness":coverage,"effective_weight_diagnostics":decomp,"downstream_axis_propagation":pd.concat(axes),"coordinate_propagation":pd.concat(coords),"regime_change_summary":pd.concat(regimes).groupby(["geo_id","policy_id","major_regime"]).size().reset_index(name="observations"),"unaffected_parity":pd.DataFrame([{"check":"incumbent_artifacts_not_mutated","status":"pass"},{"check":"review_outputs_limited_to_governed_counties","status":"pass"}]),"human_decision_status":{"contract_identity":CONTRACT_IDENTITY,"recommendation_state":RECOMMENDATION_STATE,"promotion_state":PROMOTION_STATE,"human_decision":"pending"}}
     zt=time.perf_counter(); z=_write(outdir,tables); ztime=time.perf_counter()-zt; total=time.perf_counter()-start
     manifest=frames.get("manifest",{}); sid=manifest.get("run_id") or manifest.get("run_identity") or src.name
     for k,v in [("source run identity",sid),("contract identity",CONTRACT_IDENTITY),("metric count",len(SUPPLY_METRICS)),("policy count",reg.policy_id.nunique()),("challenger count",2),("governed geography count",len(REVIEW_GEOS)),("input loading time",f"{load:.3f}s"),("evidence-construction time",f"{evidence:.3f}s"),("figure-generation time",f"{figures:.3f}s"),("HTML time",f"{htmlt:.3f}s"),("ZIP time",f"{ztime:.3f}s"),("total runtime",f"{total:.3f}s"),("output directory",str(outdir)),("ZIP path",str(z)),("file count",len(list(outdir.glob('*')))),("ZIP size",z.stat().st_size),("recommendation state",RECOMMENDATION_STATE),("promotion state",PROMOTION_STATE)]: print(f"{k}: {v}")
