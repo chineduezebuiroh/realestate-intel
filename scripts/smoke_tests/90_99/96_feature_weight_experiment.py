@@ -84,8 +84,28 @@ def main() -> None:
         try: validate_unaffected_parity(unchanged,bad,["id"],artifact="bad")
         except ValueError: pass
         else: raise AssertionError("invalid parity evidence accepted")
-    inc=pd.DataFrame({"id":[1,2],"score":[0.,1.]}); chal=pd.DataFrame({"id":[1,2],"score":[.1,.8]})
-    assert summarize_propagation(inc,chal,["id"],"score",artifact="dimension").changed_count.iat[0]==2
+    propagation_dates = pd.to_datetime(
+        ["2021-01-31", "2021-02-28"]
+    )
+    inc = pd.DataFrame({
+        "id": [1, 2],
+        "date": propagation_dates,
+        "score": [0.0, 1.0],
+    })
+    chal = pd.DataFrame({
+        "id": [1, 2],
+        "date": propagation_dates,
+        "score": [0.1, 0.8],
+    })
+    propagation = summarize_propagation(
+        inc,
+        chal,
+        ["id", "date"],
+        "score",
+        artifact="dimension",
+    )
+    assert propagation.changed_count.iat[0] == 2
+    assert propagation.leading_warmup_rows.iat[0] == 0
     chronology=evidence.tables["metric_chronology_comparison"].copy()
     mask=(chronology.metric.eq(TARGET_METRICS[0]) & chronology.policy.eq("alternative_a") &
           chronology.geo_id.eq(REVIEW_GEOGRAPHIES[0]))

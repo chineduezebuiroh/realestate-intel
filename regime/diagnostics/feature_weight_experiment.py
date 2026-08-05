@@ -238,14 +238,120 @@ def validate_unaffected_parity(incumbent: pd.DataFrame, challenger: pd.DataFrame
                           "schema_match": True, "null_safe_exact_match": True, "pass_status": "pass"}])
 
 
-def summarize_propagation(incumbent: pd.DataFrame, challenger: pd.DataFrame,
-                          keys: list[str], value: str, *, artifact: str) -> pd.DataFrame:
-    merged = incumbent[keys+[value]].merge(challenger[keys+[value]], on=keys, suffixes=("_incumbent", "_challenger"), validate="one_to_one")
-    if len(merged) != len(incumbent) or len(merged) != len(challenger): raise ValueError(f"{artifact}: propagation key mismatch")
-    merged["delta"] = merged[f"{value}_challenger"] - merged[f"{value}_incumbent"]
-    return pd.DataFrame([{"artifact": artifact, "mean_absolute_delta": merged.delta.abs().mean(),
-        "maximum_absolute_delta": merged.delta.abs().max(), "changed_count": int(merged.delta.ne(0).sum()),
-        "changed_share": merged.delta.ne(0).mean(), "row_count": len(merged)}])
+def summarize_propagation(
+    incumbent: pd.DataFrame,
+    challenger: pd.DataFrame,
+    keys: list[str],
+    value: str,
+    *,
+    artifact: str,
+) -> pd.DataFrame:
+    """Summarize downstream deltas on overlap while allowing MA12 leading warmup."""
+    if "date" not in keys:
+        raise ValueError(f"{artifact}: propagation keys must include date")
+
+    required = set(keys) | {value}
+    for side, frame in (("incumbent", incumbent), ("challenger", challenger)):
+        missing = sorted(required.difference(frame.columns))
+        if missing:
+            raise ValueError(
+                f"{artifact}: {side} propagation schema missing {missing}"
+            )
+        if frame.duplicated(keys).any():
+            raise ValueError(
+                f"{artifact}: {side} contains duplicate propagation keys"
+            )
+
+    left = incumbent[keys + [value]].copy()
+    right = challenger[keys + [value]].copy()
+
+    merged = left.merge(
+        right,
+        on=keys,
+        how="outer",
+        suffixes=("_incumbent", "_challenger"),
+        indicator=True,
+        validate="one_to_one",
+    )
+
+    candidate_only = merged["_merge"].eq("right_only")
+    if candidate_only.any():
+        sample = merged.loc[candidate_only, keys].head(5)
+        raise ValueError(
+            f"{artifact}: challenger-only propagation keys; "
+            f"count={int(candidate_only.sum())}\n"
+            f"{sample.to_string(index=False)}"
+        )
+
+    identity_keys = [column for column in keys if column != "date"]
+    overlap = merged["_merge"].eq("both")
+    incumbent_only = merged["_merge"].eq("left_only")
+
+    first_challenger = (
+        merged.loc[overlap, identity_keys + ["date"]]
+        .groupby(identity_keys, dropna=False, sort=False)["date"]
+        .min()
+        .rename("first_challenger_date")
+        .reset_index()
+    )
+
+    missing_with_bounds = merged.loc[
+        incumbent_only,
+        keys,
+    ].merge(
+        first_challenger,
+        on=identity_keys,
+        how="left",
+        validate="many_to_one",
+    )
+
+    missing_series = missing_with_bounds["first_challenger_date"].isna()
+    if missing_series.any():
+        sample = missing_with_bounds.loc[missing_series, keys].head(5)
+        raise ValueError(
+            f"{artifact}: challenger is missing complete propagation series\n"
+            f"{sample.to_string(index=False)}"
+        )
+
+    invalid_gap = (
+        missing_with_bounds["date"]
+        >= missing_with_bounds["first_challenger_date"]
+    )
+    if invalid_gap.any():
+        sample = missing_with_bounds.loc[
+            invalid_gap,
+            keys + ["first_challenger_date"],
+        ].head(5)
+        raise ValueError(
+            f"{artifact}: interior or trailing propagation gap\n"
+            f"{sample.to_string(index=False)}"
+        )
+
+    compared = merged.loc[overlap].copy()
+    incumbent_value = compared[f"{value}_incumbent"]
+    challenger_value = compared[f"{value}_challenger"]
+
+    both_null = incumbent_value.isna() & challenger_value.isna()
+    both_equal = (
+        incumbent_value.notna()
+        & challenger_value.notna()
+        & incumbent_value.eq(challenger_value)
+    )
+    compared["changed"] = ~(both_null | both_equal)
+    compared["delta"] = challenger_value - incumbent_value
+
+    return pd.DataFrame([{
+        "artifact": artifact,
+        "mean_absolute_delta": compared["delta"].abs().mean(),
+        "maximum_absolute_delta": compared["delta"].abs().max(),
+        "changed_count": int(compared["changed"].sum()),
+        "changed_share": compared["changed"].mean(),
+        "row_count": len(compared),
+        "overlap_rows": len(compared),
+        "leading_warmup_rows": int(incumbent_only.sum()),
+        "challenger_only_rows": 0,
+        "interior_or_trailing_gap_rows": 0,
+    }])
 
 
 def build_evidence(features: pd.DataFrame, feature_registry: pd.DataFrame,

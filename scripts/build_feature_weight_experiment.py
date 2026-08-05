@@ -102,8 +102,10 @@ def _splice(
     replacement: pd.DataFrame,
     column: str,
     value: str,
+    *,
+    geo_ids: Sequence[str] | None = None,
 ) -> pd.DataFrame:
-    """Replace one governed identity with strict schema and dtype parity."""
+    """Replace one governed identity with strict schema and scoped parity."""
     if parent.columns.duplicated().any():
         raise ValueError("Splice parent contains duplicate columns")
     if replacement.columns.duplicated().any():
@@ -126,9 +128,24 @@ def _splice(
             f"Splice replacement contains identities outside {column}={value!r}"
         )
 
+    replace_mask = parent[column].eq(value)
+
+    governed_geos: set[str] | None = None
+    if geo_ids is not None:
+        governed_geos = {str(geo_id) for geo_id in geo_ids}
+        replacement_geos = set(replacement["geo_id"].astype(str))
+
+        unexpected_geos = replacement_geos.difference(governed_geos)
+        if unexpected_geos:
+            raise ValueError(
+                "Splice replacement contains geography outside governed scope: "
+                f"{sorted(unexpected_geos)}"
+            )
+
+        replace_mask &= parent["geo_id"].astype(str).isin(governed_geos)
+
     # Production artifacts may persist nanosecond timestamps while frames
-    # derived from Parquet-backed normalized features retain microseconds.
-    # Normalize equivalent datetime columns to the incumbent artifact dtype.
+    # derived from Parquet-backed features retain microseconds.
     for name in parent_columns:
         parent_dtype = parent[name].dtype
         replacement_dtype = replacement[name].dtype
@@ -157,9 +174,20 @@ def _splice(
     if replacement.duplicated(keys).any():
         raise ValueError("Splice replacement contains duplicate governed keys")
 
+    preserved_out_of_scope = None
+    if governed_geos is not None:
+        preserved_out_of_scope = (
+            parent.loc[
+                parent[column].eq(value)
+                & ~parent["geo_id"].astype(str).isin(governed_geos)
+            ]
+            .sort_values(keys, kind="mergesort")
+            .reset_index(drop=True)
+        )
+
     mixed = pd.concat(
         [
-            parent.loc[~parent[column].eq(value)],
+            parent.loc[~replace_mask],
             replacement,
         ],
         ignore_index=True,
@@ -168,10 +196,33 @@ def _splice(
     if mixed.duplicated(keys).any():
         raise ValueError("Splice result contains duplicate governed keys")
 
-    return mixed.sort_values(
+    mixed = mixed.sort_values(
         keys,
         kind="mergesort",
     ).reset_index(drop=True)
+
+    if preserved_out_of_scope is not None:
+        mixed_out_of_scope = (
+            mixed.loc[
+                mixed[column].eq(value)
+                & ~mixed["geo_id"].astype(str).isin(governed_geos)
+            ]
+            .sort_values(keys, kind="mergesort")
+            .reset_index(drop=True)
+        )
+        try:
+            pd.testing.assert_frame_equal(
+                preserved_out_of_scope,
+                mixed_out_of_scope,
+                check_exact=True,
+                check_dtype=True,
+            )
+        except AssertionError as exc:
+            raise ValueError(
+                "Splice changed target rows outside governed geography scope"
+            ) from exc
+
+    return mixed
 
 
 def _regime_changes(incumbent: pd.DataFrame, challenger: pd.DataFrame, metric: str, policy: str) -> pd.DataFrame:
@@ -193,10 +244,16 @@ def build_ma12_feature_cache(source_metrics: pd.DataFrame, audit: pd.DataFrame) 
     source["date"] = pd.to_datetime(source["date"])
     cache: dict[str, pd.DataFrame] = {}
     price_metrics = {"median_sale_price", "median_ppsf", "price_to_income", "payment_burden"}
+    # Linked affordability metrics require the complete upstream dependency
+    # universe, including national mortgage inputs. Scope to review counties
+    # only after linked feature construction.
     linked = build_linked_price_family_features(
-        source_metrics[source_metrics.geo_id.isin(REVIEW_GEOGRAPHIES)],
+        source_metrics,
         experiment_id="price_family_ma12_structural_linked",
     ).feature_history
+    linked = linked[
+        linked["geo_id"].isin(REVIEW_GEOGRAPHIES)
+    ].copy()
     for metric in TARGET_METRICS:
         family = audit[audit.metric.eq(metric)].set_index("feature_type")
         key_map = family.feature_key.to_dict()
@@ -264,26 +321,120 @@ def run_authoritative_experiment(inputs: AuthoritativeInputs) -> tuple[object, M
             scored=work.groupby(["geo_id","date","canonical_metric_key"],as_index=False).agg(
                 metric_score=("contribution","sum"), feature_count=("feature_score","count"),
                 feature_weight_sum=("feature_weight","sum"), min_feature_score=("feature_score","min"), max_feature_score=("feature_score","max"))
-            mixed_metrics=_splice(frames["metric_scores"],scored,"canonical_metric_key",metric)
-            aligned_target=align_metric_scores_asof(mixed_metrics)
-            aligned_target=aligned_target[aligned_target.canonical_metric_key.eq(metric)]
-            mixed_aligned=_splice(frames["aligned_metric_scores"],aligned_target,"canonical_metric_key",metric)
+            mixed_metrics = _splice(
+                frames["metric_scores"],
+                scored,
+                "canonical_metric_key",
+                metric,
+                geo_ids=REVIEW_GEOGRAPHIES,
+            )
+            aligned_target = align_metric_scores_asof(mixed_metrics)
+            aligned_target = aligned_target[
+                aligned_target["canonical_metric_key"].eq(metric)
+                & aligned_target["geo_id"].isin(REVIEW_GEOGRAPHIES)
+            ].copy()
+            mixed_aligned = _splice(
+                frames["aligned_metric_scores"],
+                aligned_target,
+                "canonical_metric_key",
+                metric,
+                geo_ids=REVIEW_GEOGRAPHIES,
+            )
             dimension_metrics=set(metric_registry.loc[metric_registry.dimension.eq(dimension),"canonical_metric_key"])
             rebuilt_dimension=score_dimensions(mixed_aligned[mixed_aligned.canonical_metric_key.isin(dimension_metrics)])
             target_dimension=rebuilt_dimension[rebuilt_dimension.dimension.eq(dimension)]
-            mixed_dimensions=_splice(frames["dimension_scores"],target_dimension,"dimension",dimension)
+            mixed_dimensions = _splice(
+                frames["dimension_scores"],
+                target_dimension[
+                    target_dimension["geo_id"].isin(REVIEW_GEOGRAPHIES)
+                ],
+                "dimension",
+                dimension,
+                geo_ids=REVIEW_GEOGRAPHIES,
+            )
             impacted_axes=tuple(axis_registry.loc[axis_registry.dimension.eq(dimension),"axis"].drop_duplicates())
             axis_dimensions=set(axis_registry.loc[axis_registry.axis.isin(impacted_axes),"dimension"])
             rebuilt_axes=score_axes(mixed_dimensions[mixed_dimensions.dimension.isin(axis_dimensions)])
             affected_axes=frames["axis_scores"].copy()
             for axis in impacted_axes:
-                affected_axes=_splice(affected_axes,rebuilt_axes[rebuilt_axes.axis.eq(axis)],"axis",axis)
+                affected_axes = _splice(
+                    affected_axes,
+                    rebuilt_axes[
+                        rebuilt_axes["axis"].eq(axis)
+                        & rebuilt_axes["geo_id"].isin(REVIEW_GEOGRAPHIES)
+                    ],
+                    "axis",
+                    axis,
+                    geo_ids=REVIEW_GEOGRAPHIES,
+                )
             coordinates=build_coordinates(affected_axes); geometry=assign_geometry(coordinates); regimes=assign_regimes(geometry)
             tag={"metric":metric,"policy":policy}
-            dimension_rows.append(summarize_propagation(frames["dimension_scores"],mixed_dimensions,["geo_id","date","dimension"],"dimension_score",artifact="dimension").assign(**tag))
-            axis_rows.append(summarize_propagation(frames["axis_scores"],affected_axes,["geo_id","date","axis"],"axis_score",artifact="axis").assign(**tag))
-            coordinate_rows.append(summarize_propagation(frames["coordinates"],coordinates,["geo_id","date"],"radius",artifact="coordinates").assign(**tag))
-            regime_rows.append(_regime_changes(frames["regime_assignments"],regimes,metric,policy))
+            incumbent_dimension = frames["dimension_scores"][
+                frames["dimension_scores"].dimension.eq(dimension)
+                & frames["dimension_scores"]["geo_id"].isin(REVIEW_GEOGRAPHIES)
+            ]
+            challenger_dimension = mixed_dimensions[
+                mixed_dimensions.dimension.eq(dimension)
+                & mixed_dimensions["geo_id"].isin(REVIEW_GEOGRAPHIES)
+            ]
+            dimension_rows.append(
+                summarize_propagation(
+                    incumbent_dimension,
+                    challenger_dimension,
+                    ["geo_id", "date", "dimension"],
+                    "dimension_score",
+                    artifact="dimension",
+                ).assign(**tag)
+            )
+
+            incumbent_axes = frames["axis_scores"][
+                frames["axis_scores"].axis.isin(impacted_axes)
+                & frames["axis_scores"]["geo_id"].isin(REVIEW_GEOGRAPHIES)
+            ]
+            challenger_axes = affected_axes[
+                affected_axes.axis.isin(impacted_axes)
+                & affected_axes["geo_id"].isin(REVIEW_GEOGRAPHIES)
+            ]
+            axis_rows.append(
+                summarize_propagation(
+                    incumbent_axes,
+                    challenger_axes,
+                    ["geo_id", "date", "axis"],
+                    "axis_score",
+                    artifact="axis",
+                ).assign(**tag)
+            )
+
+            incumbent_coordinates = frames["coordinates"][
+                frames["coordinates"]["geo_id"].isin(REVIEW_GEOGRAPHIES)
+            ]
+            challenger_coordinates = coordinates[
+                coordinates["geo_id"].isin(REVIEW_GEOGRAPHIES)
+            ]
+            coordinate_rows.append(
+                summarize_propagation(
+                    incumbent_coordinates,
+                    challenger_coordinates,
+                    ["geo_id", "date"],
+                    "radius",
+                    artifact="coordinates",
+                ).assign(**tag)
+            )
+
+            incumbent_regimes = frames["regime_assignments"][
+                frames["regime_assignments"]["geo_id"].isin(REVIEW_GEOGRAPHIES)
+            ]
+            challenger_regimes = regimes[
+                regimes["geo_id"].isin(REVIEW_GEOGRAPHIES)
+            ]
+            regime_rows.append(
+                _regime_changes(
+                    incumbent_regimes,
+                    challenger_regimes,
+                    metric,
+                    policy,
+                )
+            )
             unaffected_inc=frames["metric_scores"][~frames["metric_scores"].canonical_metric_key.eq(metric)]
             unaffected_ch=mixed_metrics[~mixed_metrics.canonical_metric_key.eq(metric)]
             parity_rows.append(validate_unaffected_parity(unaffected_inc,unaffected_ch,["geo_id","date","canonical_metric_key"],artifact=f"{metric}__{policy}__sibling_metrics").assign(**tag))
