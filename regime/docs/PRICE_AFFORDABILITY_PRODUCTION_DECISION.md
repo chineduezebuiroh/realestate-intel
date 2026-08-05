@@ -2,15 +2,20 @@
 
 ## Decision status
 
-**Status:** Provisional production freeze  
-**Selected policy:** `MA12 structural-linked`  
-**Decision scope:** Price and Affordability metric family  
-**Implementation status:** Not yet promoted into final production configuration  
+**Status:** Provisional production freeze
+**Selected policy:** `MA12 structural-linked`
+**Decision scope:** Price and Affordability metric family
+**Implementation status:** Direct price metrics promoted on 2026-08-05;
+affordability feature weights remain pending
 **Revisit condition:** Completion of the broader Demand-axis architecture review
 
 This decision freezes `MA12 structural-linked` as the preferred production
 smoothing policy for the Price / Affordability family unless subsequent
-integrated Demand-axis testing produces material contrary evidence.
+integrated Demand-axis testing produces material contrary evidence. The
+`settled_ma12_feature_policy_promotion_2026_08_05` production promotion applies
+the governed MA12 direct feature family and Alternative A feature weights
+(`0.50 / 0.25 / 0.25`) to `median_sale_price` and `median_ppsf` only.
+`price_to_income` and `payment_burden` remain pending and unchanged.
 
 “Provisional” does not mean that MA9 and MA12 remain equally preferred.
 MA12 is the selected incumbent. A different policy must demonstrate a
@@ -271,15 +276,39 @@ Minor numerical differences are not sufficient to reopen the decision.
 
 ## 8. Configuration policy
 
-This decision record does not by itself modify production configuration.
+The machine-readable production configuration now promotes the settled direct
+price metrics:
 
-Production registry or policy changes should occur only after:
+| Canonical metric | Production feature definition | Production feature weights |
+|---|---|---:|
+| `median_sale_price` | `ma_level` (`12m`); `ma_pct_change` (`12m/lag3m`); `ma_pct_change` (`12m/lag12m`) | `0.50 / 0.25 / 0.25` |
+| `median_ppsf` | `ma_level` (`12m`); `ma_pct_change` (`12m/lag3m`); `ma_pct_change` (`12m/lag12m`) | `0.50 / 0.25 / 0.25` |
 
-- the Demand architecture review is complete;
-- the integrated axis has been rerun;
-- required artifacts have been persisted;
-- lineage and hashes have been validated;
-- and the provisional decision has been confirmed or amended.
+The governed formulas are:
+
+```text
+level = trailing MA12(raw metric)
+short = trailing MA12(raw metric) / lag3(trailing MA12(raw metric)) - 1
+long  = trailing MA12(raw metric) / lag12(trailing MA12(raw metric)) - 1
+```
+
+The linked observation policy continues to substitute structural
+`median_sale_price` only into the derived affordability input panel. Direct
+source observations are not silently replaced.
+
+This promotion does not change:
+
+- `price_to_income`;
+- `payment_burden`;
+- Capital Markets;
+- Demand or Supply dimension/axis weights;
+- metric-to-dimension weights;
+- source precedence;
+- geography policy;
+- normalization method;
+- regime geometry, transition, or cancellation logic.
+
+Broader Affordability and Demand-axis decisions remain pending.
 
 ---
 
@@ -333,4 +362,3 @@ artifacts/regime/comparisons/price_family_structural_windows/
 | Primary reason      | Structural interpretability without material downstream penalty  |
 | Immediate next step | Demand-axis volatility attribution                               |
 | Revisit standard    | Material integrated evidence, not marginal candidate differences |
-

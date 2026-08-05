@@ -116,10 +116,10 @@ def _decomposition_evidence(evidence):
     for identity in identity_rows:
         f2m.append({**identity, "date": date, "canonical_metric_key": "active_inventory",
                     "feature_key": "redfin_inventory_level", "feature_type": "level",
-                    "feature_score": .1, **{**availability, "configured_weight": .25, "available_weight_sum": .25}, **recon})
+                    "feature_score": .1, **{**availability, "configured_weight": .50, "available_weight_sum": .50}, **recon})
         f2m.append({**identity, "date": date, "canonical_metric_key": "permit_activity",
                     "feature_key": "bps_total_units_short", "feature_type": "short_term_change",
-                    "feature_score": .1, **{**availability, "configured_weight": .35, "available_weight_sum": .35}, **recon})
+                    "feature_score": .1, **{**availability, "configured_weight": .25, "available_weight_sum": .25}, **recon})
         m2d.append({**identity, "date": date, "dimension": "supply",
                     "canonical_metric_key": "active_inventory", "metric_score": .1,
                     **{**availability, "configured_weight": .3334, "available_weight_sum": .3334}, **recon})

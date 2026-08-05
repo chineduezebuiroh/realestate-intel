@@ -41,17 +41,17 @@ def main() -> int:
         {"geo_id":"g", "date":date, "canonical_metric_key":"active_inventory", "feature_key":"redfin_inventory_long", "feature_score":0.75},
     ])
     # Production parent is supplied, but expected arithmetic below is independent:
-    # denominator=.25+.40=.65; contributions=-.5*(.25/.65), .75*(.40/.65).
-    expected_parent = -.5 * (.25/.65) + .75 * (.40/.65)
+    # denominator=.50+.25=.75; contributions=-.5*(.50/.75), .75*(.25/.75).
+    expected_parent = -.5 * (.50/.75) + .75 * (.25/.75)
     metrics = pd.DataFrame([{"geo_id":"g", "date":date, "canonical_metric_key":"active_inventory", "metric_score":expected_parent}])
     rows, rec = build_feature_to_metric(normalized, metrics)
     level = rows[rows.feature_key.eq("redfin_inventory_level")].iloc[0]
     short = rows[rows.feature_key.eq("redfin_inventory_short")].iloc[0]
     long = rows[rows.feature_key.eq("redfin_inventory_long")].iloc[0]
-    assert level.configured_weight == .25 and level.available_weight_sum == .65
-    assert math.isclose(level.effective_weight, .25/.65) and math.isclose(level.weighted_contribution, -.5*(.25/.65))
+    assert level.configured_weight == .50 and level.available_weight_sum == .75
+    assert math.isclose(level.effective_weight, .50/.75) and math.isclose(level.weighted_contribution, -.5*(.50/.75))
     assert not short.available and short.availability_reason_code == "feature_score_missing" and pd.isna(short.effective_weight)
-    assert math.isclose(long.weighted_contribution, .75*(.40/.65))
+    assert math.isclose(long.weighted_contribution, .75*(.25/.75))
     assert math.isclose(rec.iloc[0].parent_score, expected_parent) and rec.iloc[0].absolute_residual < 1e-12
     assert rec.iloc[0].reconciliation_status == "reconciled"
     wrong = normalized.copy(); wrong.loc[0, "canonical_metric_key"] = "permit_activity"
@@ -223,7 +223,7 @@ def main() -> int:
     multi = copy.deepcopy(contract)
     sibling = multi.tables["feature_to_metric"].iloc[[0]].copy()
     sibling["feature_key"] = "redfin_inventory_short"; sibling["feature_type"] = "short_term_change"
-    sibling["configured_weight"] = .35; sibling["available"] = False
+    sibling["configured_weight"] = .25; sibling["available"] = False
     sibling[["feature_score", "effective_weight", "weighted_contribution"]] = float("nan")
     sibling["availability_reason_code"] = "feature_score_missing"; sibling["availability_reason"] = "fixture unavailable"
     multi.tables["feature_to_metric"] = pd.concat([multi.tables["feature_to_metric"], sibling], ignore_index=True)
