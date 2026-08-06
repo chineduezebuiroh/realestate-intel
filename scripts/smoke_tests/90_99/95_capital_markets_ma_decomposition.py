@@ -63,14 +63,63 @@ def main() -> None:
     assert not unmatched.matched.iloc[0] and pd.isna(unmatched.signed_delay_months.iloc[0])
     assert len(REVIEW_GEOGRAPHIES)==7 and NATIVE_GEOGRAPHY not in REVIEW_GEOGRAPHIES
     # Challenger scoring is native-national first; county copies are created only afterward.
-    aligned_fixture=pd.DataFrame([
-        {"geo_id":geo,"evaluation_date":date,"metric_date":date,
-         "canonical_metric_key":metric,"metric_score":.1}
-        for geo in (NATIVE_GEOGRAPHY,"unrelated_cbsa__cbsa")
-        for date in dates[:2] for metric in expected
+    native_metric_fixture = pd.DataFrame([
+        {
+            "geo_id": NATIVE_GEOGRAPHY,
+            "date": date,
+            "canonical_metric_key": metric,
+            "metric_score": 0.1,
+            "feature_count": 3,
+            "feature_weight_sum": 1.0,
+            "min_feature_score": 0.0,
+            "max_feature_score": 0.2,
+        }
+        for date in dates[:2]
+        for metric in expected
     ])
-    national_universe=_national_capital_metric_universe(aligned_fixture,tuple(sorted(expected)))
-    assert len(national_universe)==12 and national_universe.geo_id.unique().tolist()==[NATIVE_GEOGRAPHY]
+
+    national_universe = _national_capital_metric_universe(
+        native_metric_fixture,
+        tuple(sorted(expected)),
+    )
+
+    assert len(national_universe) == 12
+    assert national_universe.geo_id.unique().tolist() == [
+        NATIVE_GEOGRAPHY
+    ]
+    assert set(national_universe.columns) == {
+        "geo_id",
+        "evaluation_date",
+        "metric_date",
+        "canonical_metric_key",
+        "metric_score",
+        "feature_count",
+        "feature_weight_sum",
+        "min_feature_score",
+        "max_feature_score",
+        "metric_age_days",
+    }
+    assert national_universe["evaluation_date"].equals(
+        national_universe["metric_date"]
+    )
+    assert national_universe["metric_age_days"].eq(0).all()
+
+    contaminated_native_fixture = pd.concat(
+        [
+            native_metric_fixture,
+            native_metric_fixture.iloc[[0]].assign(
+                geo_id="unrelated_cbsa__cbsa_metro"
+            ),
+        ],
+        ignore_index=True,
+    )
+
+    # Non-national rows are ignored rather than entering native scoring.
+    uncontaminated_universe = _national_capital_metric_universe(
+        contaminated_native_fixture,
+        tuple(sorted(expected)),
+    )
+    assert uncontaminated_universe.equals(national_universe)
     national_dimension=pd.DataFrame({"geo_id":NATIVE_GEOGRAPHY,"date":dates[:2],
         "dimension":"capital_markets","dimension_score":[.1,.2]})
     county_calendar=pd.DataFrame([{"geo_id":geo,"date":date} for geo in REVIEW_GEOGRAPHIES for date in dates[:2]])

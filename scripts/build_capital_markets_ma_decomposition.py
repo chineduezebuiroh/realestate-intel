@@ -288,18 +288,121 @@ def _progress(message: str) -> None:
 
 
 def _national_capital_metric_universe(
-    aligned: pd.DataFrame, active: tuple[str, ...]
+    metric_scores: pd.DataFrame,
+    active: tuple[str, ...],
 ) -> pd.DataFrame:
-    """Slice the only metric universe a challenger dimension may score."""
-    out = aligned.loc[
-        aligned["geo_id"].eq(NATIVE_GEOGRAPHY)
-        & aligned["canonical_metric_key"].isin(active)
+    """
+    Build the single native national Capital Markets metric universe.
+
+    Native Capital Markets observations come from persisted metric_scores.
+    The returned frame is adapted to the aligned-metric schema required by
+    the production dimension scorer, with each native date serving as both
+    evaluation_date and metric_date and with zero metric age.
+    """
+    required = {
+        "geo_id",
+        "date",
+        "canonical_metric_key",
+        "metric_score",
+        "feature_count",
+        "feature_weight_sum",
+        "min_feature_score",
+        "max_feature_score",
+    }
+    missing = required.difference(metric_scores.columns)
+    if missing:
+        raise ValueError(
+            "Native metric_scores schema is incomplete; "
+            f"missing={sorted(missing)}"
+        )
+
+    if metric_scores.columns.duplicated().any():
+        raise ValueError(
+            "Native metric_scores contains duplicate columns"
+        )
+
+    out = metric_scores.loc[
+        metric_scores["geo_id"].eq(NATIVE_GEOGRAPHY)
+        & metric_scores["canonical_metric_key"].isin(active)
     ].copy()
-    if out.empty or set(out["canonical_metric_key"].unique()) != set(active):
-        raise ValueError("Native national Capital Markets metric universe is incomplete")
+
+    if out.empty:
+        raise ValueError(
+            "Native national Capital Markets metric universe is empty"
+        )
+
+    found_metrics = set(
+        out["canonical_metric_key"].dropna().unique()
+    )
+    expected_metrics = set(active)
+    if found_metrics != expected_metrics:
+        raise ValueError(
+            "Native national Capital Markets metric universe "
+            "is incomplete; "
+            f"missing={sorted(expected_metrics - found_metrics)}, "
+            f"unexpected={sorted(found_metrics - expected_metrics)}"
+        )
+
     if out["geo_id"].nunique() != 1:
-        raise ValueError("Challenger dimension scope expanded beyond one national geography")
-    return out
+        raise ValueError(
+            "Native Capital Markets scope expanded beyond "
+            "one national geography"
+        )
+
+    if not out["geo_id"].eq(NATIVE_GEOGRAPHY).all():
+        raise ValueError(
+            "Native Capital Markets universe contains "
+            "non-national geography rows"
+        )
+
+    native_keys = [
+        "geo_id",
+        "date",
+        "canonical_metric_key",
+    ]
+    if out.duplicated(native_keys).any():
+        raise ValueError(
+            "Native national Capital Markets universe contains "
+            "duplicate metric-date keys"
+        )
+
+    # Adapt native metric rows to the production aligned-metric schema.
+    # A native observation is evaluated on its own date and has zero age.
+    out = out.rename(
+        columns={"date": "evaluation_date"}
+    )
+    out["metric_date"] = out["evaluation_date"]
+    out["metric_age_days"] = 0
+
+    aligned_columns = [
+        "geo_id",
+        "evaluation_date",
+        "metric_date",
+        "canonical_metric_key",
+        "metric_score",
+        "feature_count",
+        "feature_weight_sum",
+        "min_feature_score",
+        "max_feature_score",
+        "metric_age_days",
+    ]
+    out = out.loc[:, aligned_columns]
+
+    governed_keys = [
+        "geo_id",
+        "evaluation_date",
+        "canonical_metric_key",
+    ]
+    if out.duplicated(governed_keys).any():
+        raise ValueError(
+            "Adapted national Capital Markets universe contains "
+            "duplicate governed keys"
+        )
+
+    return out.sort_values(
+        governed_keys,
+        kind="mergesort",
+    ).reset_index(drop=True)
 
 
 def _align_national_dimension_to_counties(
@@ -328,12 +431,54 @@ def _align_national_dimension_to_counties(
         )
         part["geo_id"] = geo_id; parts.append(part)
     out = pd.concat(parts, ignore_index=True)
-    if out.dimension_score.isna().any():
-        raise ValueError("National Capital Markets chronology does not cover county review dates")
+
+    # A structural MA challenger may begin later than the incumbent county
+    # review calendar. Only leading pre-warmup rows may be unavailable.
+    unavailable = out["dimension_score"].isna()
+    leading_warmup_rows = int(unavailable.sum())
+
+    if unavailable.any():
+        first_native_date = source["native_dimension_date"].min()
+
+        invalid_missing = unavailable & out["date"].ge(
+            first_native_date
+        )
+        if invalid_missing.any():
+            bad = out.loc[
+                invalid_missing,
+                ["geo_id", "date"],
+            ].head(20)
+            raise ValueError(
+                "National Capital Markets chronology contains "
+                "interior or trailing county-alignment gaps:\n"
+                f"{bad.to_string(index=False)}"
+            )
+
+        # Do not backfill unavailable challenger dates from the incumbent.
+        out = out.loc[~unavailable].copy()
+
+    if out.empty:
+        raise ValueError(
+            "National Capital Markets challenger has no governed "
+            "county chronology after warmup"
+        )
+
+    if out["date"].max() < keys["date"].max():
+        raise ValueError(
+            "National Capital Markets challenger has trailing "
+            "coverage loss"
+        )
+
     out["dimension"] = "capital_markets"
-    return out[["geo_id", "date", "dimension", "dimension_score"]].sort_values(
-        ["geo_id", "date"], kind="mergesort"
+    out = out[
+        ["geo_id", "date", "dimension", "dimension_score"]
+    ].sort_values(
+        ["geo_id", "date"],
+        kind="mergesort",
     ).reset_index(drop=True)
+
+    out.attrs["leading_warmup_rows"] = leading_warmup_rows
+    return out
 
 
 def _recompute_governed_descendants(
@@ -346,15 +491,40 @@ def _recompute_governed_descendants(
     chronology = governed.loc[governed.dimension.eq("capital_markets"), ["geo_id", "date"]]
     aligned = _align_national_dimension_to_counties(national_dimension, chronology)
     key = ["geo_id", "date", "dimension"]
-    replacement_keys = pd.MultiIndex.from_frame(aligned[key])
-    incumbent_keys = pd.MultiIndex.from_frame(governed[key])
-    kept = governed.loc[~incumbent_keys.isin(replacement_keys)].copy()
-    # Restore scorer diagnostics from incumbent Capital Markets rows while replacing its score.
-    incumbent_capital = governed.loc[governed.dimension.eq("capital_markets")].copy()
-    replacement = incumbent_capital.drop(columns=["dimension_score"]).merge(
-        aligned, on=key, how="inner", validate="one_to_one"
+
+    # Remove every incumbent Capital Markets row first. Reinsert challenger
+    # rows only where the challenger has completed its governed warmup.
+    # This prevents accidental incumbent backfill on leading warmup dates.
+    kept = governed.loc[
+        governed["dimension"].ne("capital_markets")
+    ].copy()
+
+    incumbent_capital = governed.loc[
+        governed["dimension"].eq("capital_markets")
+    ].copy()
+
+    replacement = incumbent_capital.drop(
+        columns=["dimension_score"]
+    ).merge(
+        aligned,
+        on=key,
+        how="inner",
+        validate="one_to_one",
     )[incumbent_capital.columns]
-    dimensions = pd.concat([kept, replacement], ignore_index=True).sort_values(key, kind="mergesort")
+
+    if len(replacement) != len(aligned):
+        raise ValueError(
+            "Aligned Capital Markets challenger rows did not map "
+            "one-to-one to the governed county dimension universe"
+        )
+
+    dimensions = pd.concat(
+        [kept, replacement],
+        ignore_index=True,
+    ).sort_values(
+        key,
+        kind="mergesort",
+    )
     if dimensions.geo_id.nunique() != 7:
         raise ValueError("Axis challenger scope expanded beyond seven governed counties")
     axes = score_axes(dimensions)
@@ -433,7 +603,10 @@ def main() -> None:
     tables["incumbent_stability"] = pd.DataFrame([_stability(native_dims, "dimension_score", policy_id="incumbent")])
     incumbent_turns = detect_turning_points(native_dims, "dimension_score")
     incumbent_series = native_dims.set_index("date").dimension_score
-    national_metrics = _national_capital_metric_universe(frames["aligned_metric_scores"], active)
+    national_metrics = _national_capital_metric_universe(
+        frames["metric_scores"],
+        active,
+    )
     national_raw = frames["source_metrics"].loc[
         frames["source_metrics"].geo_id.eq(NATIVE_GEOGRAPHY)
         & frames["source_metrics"].canonical_metric_key.isin(active)].copy()
