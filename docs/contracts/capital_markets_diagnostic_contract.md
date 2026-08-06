@@ -62,3 +62,44 @@ The review bundle contains a compact HTML landing page, deterministic linked CSV
 files, a hash manifest with `promotion_state: none`, and a deterministic ZIP.
 Generated exports are review artifacts and are not committed. Human decision
 status is always pending in this phase.
+
+## Structural-MA decomposition extension
+
+`capital_markets_ma_decomposition_v1` extends the incumbent evidence without
+changing it. It accepts only the complete, hash-valid
+`macro_regime_v1_frozen_supply_20260806` run produced by
+`supply_metric_weight_promotion_2026_08_06`, and additionally requires manifest
+proof of `supply_dimension_frozen_v1`, Supply weights 0.60/0.20/0.20, and the
+settled Supply MA12 structural formulas.
+
+The extension caches MA6, MA9, and MA12 structural feature families once per
+active Capital Markets metric. Short means lag three of the same moving-average
+state, not MA3 divided by MA12. Each challenger replaces one metric only and
+retains the incumbent feature and metric weights. It then calls the production
+normalizer and metric, dimension, axis, coordinate, geometry, and regime
+engines. Native review is one `united_states__nation` chronology; the governed
+seven counties are explicitly aligned copies rather than seven independent
+observations.
+
+The deterministic review includes registry/lineage, raw and transformed
+chronologies, both decomposition levels, missingness and effective weights,
+volatility, cancellation, exact-calendar directional agreement, governed
+persistence/prominence turning points, propagation and parity evidence, and a
+payment-burden dependency audit. Its recommendation and promotion states are
+both `none`; human interpretation remains pending.
+
+The same v1 contract also owns a backward-compatible second-stage control set:
+MA6, MA9, and MA12 applied separately to the mortgage, policy/yield, and spread
+families, plus three all-active-metric controls (12 policies total). The three
+families must be an exact disjoint partition of the registry-discovered active
+set. These controls reuse the metric-policy caches built by the primary
+one-metric pass and cannot replace its evidence.
+
+The variance budget reports standalone weighted-contribution variance and a
+separate additive absolute-movement attribution at feature, metric, family, and
+dimension levels. Because correlated child variances are not additive, a
+separate covariance budget reconciles each parent using
+`Var(sum Xi) = sum Var(Xi) + 2 sum Cov(Xi, Xj)`. Standalone variance shares are
+therefore not presented as covariance-inclusive variance explained. Family
+interaction rows compare observed stability changes with the sum of the
+corresponding one-metric changes and remain descriptive rather than causal.
