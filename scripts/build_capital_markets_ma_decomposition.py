@@ -24,6 +24,7 @@ from regime.diagnostics.capital_markets_ma import (
     CONTRACT_IDENTITY, MA_WINDOWS, NATIVE_GEOGRAPHY, PROMOTION_STATE,
     RECOMMENDATION_STATE, REVIEW_GEOGRAPHIES, active_registry,
     build_structural_features, detect_turning_points, directional_agreement, match_turning_points,
+    direction,
     build_covariance_budget, build_variance_budget, family_challenger_registry,
     governed_families, human_status, interaction_diagnostics, payment_burden_audit, validate_source_run,
 )
@@ -881,10 +882,98 @@ def main() -> None:
                 "capital_markets_dimension_sign_flip_delta":dimstats["sign_flip_count"]-incumbent_dimstats["sign_flip_count"],
                 "interpretation_status":"human_review_pending","recommendation_state":RECOMMENDATION_STATE,"promotion_state":PROMOTION_STATE})
     tables["metric_raw_and_ma_chronology"]=pd.concat(raw_rows,ignore_index=True)
-    tables["metric_feature_chronology"]=pd.concat(feature_rows,ignore_index=True)
-    tables["metric_normalized_feature_scores"]=pd.concat(normalized_rows,ignore_index=True)
-    tables["metric_score_chronology"]=pd.concat(metric_score_rows,ignore_index=True)
-    tables["metric_only_dimension_chronology"]=pd.concat(dimension_rows,ignore_index=True)
+    def _concat_decision_frames(
+        frames: list[pd.DataFrame],
+        *,
+        artifact: str,
+    ) -> pd.DataFrame:
+        """Concatenate decision evidence with strict schema/dtype parity."""
+        if not frames:
+            raise ValueError(
+                f"{artifact}: no frames were supplied"
+            )
+
+        reference_columns = list(frames[0].columns)
+        prepared: list[pd.DataFrame] = []
+
+        for index, frame in enumerate(frames):
+            if frame.columns.duplicated().any():
+                duplicates = list(
+                    frame.columns[frame.columns.duplicated()]
+                )
+                raise ValueError(
+                    f"{artifact}: duplicate columns at index "
+                    f"{index}: {duplicates}"
+                )
+
+            if list(frame.columns) != reference_columns:
+                raise ValueError(
+                    f"{artifact}: inconsistent schema at index "
+                    f"{index}; expected={reference_columns}, "
+                    f"actual={list(frame.columns)}"
+                )
+
+            work = frame.copy()
+
+            # Persisted production frames and freshly constructed challenger
+            # frames may use equivalent datetime values with different units
+            # (for example ns versus us). Pandas can fail concatenation of
+            # those extension arrays with a misleading row-dimension error.
+            for column in reference_columns:
+                if pd.api.types.is_datetime64_any_dtype(
+                    work[column].dtype
+                ):
+                    work[column] = pd.to_datetime(
+                        work[column]
+                    ).astype("datetime64[ns]")
+
+            prepared.append(
+                work.reset_index(drop=True)
+            )
+
+        result = pd.concat(
+            prepared,
+            ignore_index=True,
+            sort=False,
+        )
+
+        if list(result.columns) != reference_columns:
+            raise ValueError(
+                f"{artifact}: concatenation changed column order"
+            )
+
+        return result
+
+    tables["metric_raw_and_ma_chronology"] = (
+        _concat_decision_frames(
+            raw_rows,
+            artifact="metric_raw_and_ma_chronology",
+        )
+    )
+    tables["metric_feature_chronology"] = (
+        _concat_decision_frames(
+            feature_rows,
+            artifact="metric_feature_chronology",
+        )
+    )
+    tables["metric_normalized_feature_scores"] = (
+        _concat_decision_frames(
+            normalized_rows,
+            artifact="metric_normalized_feature_scores",
+        )
+    )
+    tables["metric_score_chronology"] = (
+        _concat_decision_frames(
+            metric_score_rows,
+            artifact="metric_score_chronology",
+        )
+    )
+    tables["metric_only_dimension_chronology"] = (
+        _concat_decision_frames(
+            dimension_rows,
+            artifact="metric_only_dimension_chronology",
+        )
+    )
     tables["metric_directional_agreement"]=pd.DataFrame(agreement_rows)
     tables["metric_turning_point_matches"]=pd.concat(turn_match_rows,ignore_index=True)
     tables["metric_turning_point_summary"]=pd.DataFrame(turn_summary_rows)
