@@ -111,20 +111,173 @@ def _zip(output: Path) -> Path:
     return target
 
 
-def _splice_metrics(incumbent: pd.DataFrame, replacements: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Replace exactly the governed targets while preserving all other rows."""
-    active_targets=set(replacements)
-    parts=[incumbent[~incumbent.canonical_metric_key.isin(active_targets)].copy()]
+def _splice_metrics(
+    incumbent: pd.DataFrame,
+    replacements: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Replace governed aligned metrics using their native metric dates."""
+    required_incumbent = {
+        "geo_id",
+        "evaluation_date",
+        "metric_date",
+        "canonical_metric_key",
+        "metric_score",
+    }
+    missing_incumbent = required_incumbent.difference(
+        incumbent.columns
+    )
+    if missing_incumbent:
+        raise ValueError(
+            "Aligned metric splice requires persisted alignment columns; "
+            f"missing={sorted(missing_incumbent)}"
+        )
+
+    if incumbent.columns.duplicated().any():
+        raise ValueError(
+            "Aligned metric splice incumbent contains duplicate columns"
+        )
+
+    parent_columns = list(incumbent.columns)
+    governed_keys = [
+        "geo_id",
+        "evaluation_date",
+        "canonical_metric_key",
+    ]
+
+    if incumbent.duplicated(governed_keys).any():
+        raise ValueError(
+            "Aligned metric splice incumbent contains duplicate "
+            "governed keys"
+        )
+
+    active_targets = set(replacements)
+    parts = [
+        incumbent.loc[
+            ~incumbent["canonical_metric_key"].isin(
+                active_targets
+            )
+        ].copy()
+    ]
+
     for metric, candidate in sorted(replacements.items()):
-        target=incumbent[incumbent.canonical_metric_key.eq(metric)]
-        replacement=target.drop(columns=["metric_score"]).merge(candidate[["date","metric_score"]],left_on="source_date",right_on="date",how="left",validate="many_to_one").drop(columns="date")
-        if replacement.metric_score.notna().sum()==0: raise ValueError(f"No incumbent chronology overlap for {metric}")
+        required_candidate = {
+            "date",
+            "canonical_metric_key",
+            "metric_score",
+        }
+        missing_candidate = required_candidate.difference(
+            candidate.columns
+        )
+        if missing_candidate:
+            raise ValueError(
+                f"{metric}: candidate metric schema is incomplete; "
+                f"missing={sorted(missing_candidate)}"
+            )
+
+        candidate_metric = candidate.loc[
+            candidate["canonical_metric_key"].eq(metric),
+            ["date", "metric_score"],
+        ].copy()
+
+        if candidate_metric.empty:
+            raise ValueError(
+                f"{metric}: candidate metric contains no governed rows"
+            )
+
+        if candidate_metric["date"].duplicated().any():
+            raise ValueError(
+                f"{metric}: candidate metric contains duplicate "
+                "native dates"
+            )
+
+        target = incumbent.loc[
+            incumbent["canonical_metric_key"].eq(metric)
+        ].copy()
+
+        if target.empty:
+            raise ValueError(
+                f"{metric}: incumbent aligned chronology is absent"
+            )
+
+        # `metric_date` is the persisted native observation date.
+        # `evaluation_date` is the as-of aligned review date and must
+        # never be used to join a native challenger score.
+        candidate_metric = candidate_metric.rename(
+            columns={
+                "date": "metric_date",
+                "metric_score": "challenger_metric_score",
+            }
+        )
+
+        candidate_metric["metric_date"] = (
+            candidate_metric["metric_date"].astype(
+                target["metric_date"].dtype
+            )
+        )
+
+        replacement = target.merge(
+            candidate_metric,
+            on="metric_date",
+            how="left",
+            validate="many_to_one",
+            sort=False,
+        )
+
+        replacement["metric_score"] = replacement[
+            "challenger_metric_score"
+        ]
+        replacement = replacement.drop(
+            columns=["challenger_metric_score"]
+        )
+        replacement = replacement.loc[:, parent_columns]
+
+        if replacement["metric_score"].notna().sum() == 0:
+            raise ValueError(
+                f"No incumbent native-date overlap for {metric}"
+            )
+
+        if replacement.duplicated(governed_keys).any():
+            raise ValueError(
+                f"{metric}: replacement contains duplicate governed keys"
+            )
+
         parts.append(replacement)
-    out=pd.concat(parts,ignore_index=True)
-    unaffected=~incumbent.canonical_metric_key.isin(active_targets)
-    keys=["geo_id","evaluation_date","canonical_metric_key"]
-    pd.testing.assert_frame_equal(out[~out.canonical_metric_key.isin(active_targets)].sort_values(keys).reset_index(drop=True),incumbent[unaffected].sort_values(keys).reset_index(drop=True),check_dtype=False,check_exact=True)
-    return out
+
+    out = pd.concat(
+        parts,
+        ignore_index=True,
+    ).loc[:, parent_columns]
+
+    if out.duplicated(governed_keys).any():
+        raise ValueError(
+            "Aligned metric splice result contains duplicate governed keys"
+        )
+
+    unaffected_incumbent = incumbent.loc[
+        ~incumbent["canonical_metric_key"].isin(active_targets)
+    ].sort_values(
+        governed_keys,
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+    unaffected_output = out.loc[
+        ~out["canonical_metric_key"].isin(active_targets)
+    ].sort_values(
+        governed_keys,
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+    pd.testing.assert_frame_equal(
+        unaffected_output,
+        unaffected_incumbent,
+        check_dtype=True,
+        check_exact=True,
+    )
+
+    return out.sort_values(
+        governed_keys,
+        kind="mergesort",
+    ).reset_index(drop=True)
 
 
 def main() -> None:
@@ -152,6 +305,7 @@ def main() -> None:
     native_dims=frames["dimension_scores"].query("geo_id == @NATIVE_GEOGRAPHY and dimension == 'capital_markets'")[["date","dimension_score"]]
     tables["incumbent_stability"]=pd.DataFrame([_stability(native_dims,"dimension_score",policy_id="incumbent")])
     caches={}; cache_rows=[]; cache_build_times={}; chron=[]; stability=[]; directions=[]; turns=[]; parity=[]; axes=[]; coords=[]; regimes=[]
+    single_chronology: dict[tuple[str, int], pd.Series] = {}
     incumbent_turns=detect_turning_points(native_dims,"dimension_score")
     challenger_start=time.perf_counter()
     raw=frames["source_metrics"]
@@ -164,6 +318,9 @@ def main() -> None:
             cache_build_times[cid]=time.perf_counter()-cache_start; cache_rows.append({"challenger_id":cid,"rows":len(transformed),"cache_builds":1,"cache_hits":1,"runtime_seconds":cache_build_times[cid]})
             aligned=_splice_metrics(frames["aligned_metric_scores"],{metric:candidate_metric}); caches[(metric,window)]["reuses"]+=1
             dimensions=score_dimensions(aligned); dim=dimensions.query("geo_id == @NATIVE_GEOGRAPHY and dimension == 'capital_markets'")[["date","dimension_score"]].copy(); dim["challenger_id"]=cid; chron.append(dim)
+            single_chronology[(metric, int(window))] = (
+                dim.set_index("date")["dimension_score"].copy()
+            )
             stability.append(_stability(dim,"dimension_score",challenger_id=cid,changed_metric=metric,ma_window=window))
             for horizon in (1,3,6,12): directions.append({"challenger_id":cid,**directional_agreement(native_dims,dim,"dimension_score",horizon)})
             tp=detect_turning_points(dim,"dimension_score"); tp["challenger_id"]=cid; turns.append(tp)
@@ -182,7 +339,6 @@ def main() -> None:
             coordinate=build_coordinates(axis); coordinate["challenger_id"]=cid; coords.append(coordinate[coordinate.geo_id.isin(REVIEW_GEOGRAPHIES)])
             geometry=assign_geometry(coordinate); regime=assign_regimes(geometry); regime["challenger_id"]=cid; regimes.append(regime[regime.geo_id.isin(REVIEW_GEOGRAPHIES)])
     family_stability=[]; family_directions=[]; family_turns=[]; family_matches=[]; family_chron=[]; family_axes=[]; family_regimes=[]; family_parity=[]; family_runtimes=[]
-    single_chronology={cid:g.set_index("date").dimension_score for cid,g in pd.concat(chron).groupby("challenger_id")}
     incumbent_series=native_dims.set_index("date").dimension_score
     interactions=[]
     for policy in family_policies.itertuples(index=False):
@@ -203,7 +359,21 @@ def main() -> None:
         coordinate=build_coordinates(axis); geometry=assign_geometry(coordinate); regime=assign_regimes(geometry); regime["policy_id"]=policy.policy_id; family_regimes.append(regime[regime.geo_id.isin(REVIEW_GEOGRAPHIES)])
         family_parity.append({"policy_id":policy.policy_id,"affected_metrics":"|".join(affected),"unaffected_metric_parity":True,"unrelated_dimension_parity":True,"frozen_supply_parity":True,"affordability_parity":True,"feature_weights_unchanged":True,"metric_weights_unchanged":True,"axis_weights_unchanged":True,"out_of_scope_geography_mutation":False,"production_artifact_mutation":False})
         if policy.intervention_type=="metric_family":
-            singles={metric:single_chronology[f"{metric}_ma{policy.ma_window}"] for metric in affected}
+            window = int(policy.ma_window)
+            missing_single_keys = [
+                (metric, window)
+                for metric in affected
+                if (metric, window) not in single_chronology
+            ]
+            if missing_single_keys:
+                raise ValueError(
+                    "Family interaction evidence is missing primary "
+                    f"one-metric chronologies: {missing_single_keys}"
+                )
+            singles = {
+                metric: single_chronology[(metric, window)]
+                for metric in affected
+            }
             interactions.append(interaction_diagnostics(incumbent_series,singles,dim.set_index("date").dimension_score,policy.family_id,policy.ma_window))
         family_runtimes.append({"policy_id":policy.policy_id,"runtime_seconds":time.perf_counter()-family_start})
     challenger_time=time.perf_counter()-challenger_start

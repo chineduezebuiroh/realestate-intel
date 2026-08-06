@@ -38,7 +38,7 @@ def main() -> None:
     try: reject_forbidden_formula("ma3_vs_ma12_pct", "3m/12m")
     except ValueError: pass
     else: raise AssertionError("forbidden formula accepted")
-    dates = pd.date_range("2018-01-31", periods=36, freq="ME")
+    dates = pd.date_range("2018-01-31", periods=36, freq="M")
     raw = pd.DataFrame({"geo_id":NATIVE_GEOGRAPHY,"date":dates,"canonical_metric_key":"mortgage_30y","value":np.arange(1,37,dtype=float),"metric_origin":"fred_mortgage_30y"})
     for window in MA_WINDOWS:
         built=build_structural_features(raw,"mortgage_30y",window,registry)
@@ -71,7 +71,7 @@ def main() -> None:
     assert (candidate.score!=universe.score).sum()==1 and candidate.query("metric=='fedfunds'").equals(universe.query("metric=='fedfunds'"))
     unrelated=pd.DataFrame({"dimension":["supply","affordability"],"score":[.2,.3]}); assert unrelated.copy().equals(unrelated)
     # Exact standalone variance, covariance, additive movement, and deterministic ranks.
-    dts=pd.date_range("2020-01-31",periods=8,freq="ME"); feature_rows=[]; metric_rows=[]
+    dts=pd.date_range("2020-01-31",periods=8,freq="M"); feature_rows=[]; metric_rows=[]
     metric_values={"mortgage_30y":np.arange(8)/10,"mortgage_15y":np.arange(8)[::-1]/20,"fedfunds":np.sin(np.arange(8))/10,"treasury_10y":np.cos(np.arange(8))/10,"spread_2y10y":np.arange(8)/30,"spread_10y_fedfunds":-np.arange(8)/40}
     metric_weights=expected
     for metric,values in metric_values.items():
