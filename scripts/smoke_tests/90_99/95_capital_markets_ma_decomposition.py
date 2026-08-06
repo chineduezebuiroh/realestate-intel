@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib
 import tempfile
+import re
 
 import numpy as np
 import pandas as pd
@@ -11,6 +12,7 @@ from scripts.build_capital_markets_ma_decomposition import (
     _align_national_dimension_to_counties, _national_capital_metric_universe,
     _aggregate_ratio_diagnostics, _exact_policy_overlap, _overlap_comparison,
     _render_metric_page, _summarize_transform_features, _zip,
+    VISUALIZATION_REGRESSION_TABLES,
 )
 from regime.diagnostics.capital_markets_ma import (
     MA_WINDOWS, NATIVE_GEOGRAPHY, REVIEW_GEOGRAPHIES, active_registry,
@@ -40,6 +42,7 @@ def main() -> None:
     assert families=={"mortgage_family":("mortgage_30y","mortgage_15y"),"policy_yield_family":("fedfunds","treasury_10y"),"spread_family":("spread_2y10y","spread_10y_fedfunds")}
     assert len({m for members in families.values() for m in members})==6
     assert MA_WINDOWS == (3,6,9,12)
+    assert set(VISUALIZATION_REGRESSION_TABLES) == {"capital_markets_transform_policy_scorecard", "capital_markets_transform_decision_matrix", "capital_markets_ratio_vs_difference_pairwise", "capital_markets_ratio_denominator_diagnostics", "capital_markets_transform_directional_agreement", "capital_markets_transform_turning_point_matches", "capital_markets_transform_warmup_coverage", "common_ma_state_cache_audit", "transformed_feature_cache_audit"}
     family_policies=family_challenger_registry(registry); assert len(family_policies)==12 and set(family_policies.ma_window)=={6,9,12}
     assert registry.groupby("canonical_metric_key").feature_weight.apply(tuple).map(sum).eq(1).all()
     for window in MA_WINDOWS:
@@ -228,21 +231,88 @@ def main() -> None:
         assert _zip(first).read_bytes()==_zip(second).read_bytes()
     with tempfile.TemporaryDirectory() as tmp:
         review = Path(tmp)
-        policies = ("incumbent", "ma3_structural", "ma6_structural", "ma9_structural", "ma12_structural")
-        raw = pd.DataFrame([{"date": date, "series": policy, "value": value} for policy in ("raw", "ma3", "ma6", "ma9", "ma12") for date, value in zip(dates[:3], (.1, .2, .3))])
-        features = pd.DataFrame([{"date": date, "feature_type": feature, "policy": policy, "value": value} for feature in ("level", "short_term_change", "long_term_change") for policy in policies for date, value in zip(dates[:3], (.1, .2, .3))])
+        policies = ("incumbent",) + tuple(
+            f"{transform}_ma{window}"
+            for transform in ("ratio", "difference") for window in MA_WINDOWS
+        )
+        raw = pd.DataFrame([{"date": date, "series": policy, "value": value}
+            for policy in ("raw", "ma3", "ma6", "ma9", "ma12")
+            for date, value in zip(dates[:3], (.1, .2, .3))])
+        features = pd.DataFrame([{"date": date, "feature_type": feature, "policy": policy, "value": value}
+            for feature in ("level", "short_term_change", "long_term_change")
+            for policy in policies[1:] for date, value in zip(dates[:3], (.1, .2, .3))])
         normalized = features.rename(columns={"value": "feature_score"})
-        scores = pd.DataFrame([{"date": date, "policy": policy, "metric_score": value} for policy in policies for date, value in zip(dates[:3], (.1, .2, .3))])
+        scores = pd.DataFrame([{"date": date, "policy": policy, "metric_score": value}
+            for policy in policies for date, value in zip(dates[:3], (.1, .2, .3))])
         dimensions = scores.rename(columns={"metric_score": "dimension_score"})
-        decision = pd.DataFrame({"Metric": list(expected), "Policy": ["incumbent"] * 6})
+        decision = pd.DataFrame({"Metric": list(expected), "Policy": ["incumbent"] * 6,
+            "recommendation_state": ["none"] * 6, "promotion_state": ["none"] * 6,
+            "human_decision": ["pending"] * 6})
         for metric in expected:
-            _render_metric_page(review, metric, raw, features, normalized, scores, dimensions, decision.query("Metric == @metric"))
+            _render_metric_page(review, metric, raw, features, normalized, scores,
+                                dimensions, decision.query("Metric == @metric"))
         pages = sorted((review / "metrics").glob("*.html"))
-        assert len(pages) == 6
+        assert [page.name for page in pages] == sorted(f"{metric}.html" for metric in expected)
+        required_sections = {
+            "raw-ma": ("Raw and MA levels", True),
+            "short-features": ("Short features", False),
+            "long-features": ("Long features", False),
+            "normalized": ("Normalized feature scores", False),
+            "metric-score": ("Metric-score impact", True),
+            "dimension-score": ("Capital Markets dimension impact", True),
+            "decision-table": ("Decision table", True),
+        }
         for page in pages:
             contents = page.read_text()
             assert "<svg" in contents and "../figures/" not in contents
-            assert "metric-policy-decision-table" in contents
+            assert "metric-policy-decision-table" in contents and "href='../index.html'" in contents
+            for section, (label, opened) in required_sections.items():
+                tag = re.search(rf"<details data-section='{section}'([^>]*)><summary>{re.escape(label)}</summary>", contents)
+                assert tag and (("open" in tag.group(1)) == opened)
+            charts = re.findall(r"<svg .*?</svg>", contents)
+            by_kind = {}
+            for chart in charts:
+                kind = re.search(r"data-chart-kind='([^']+)'", chart).group(1)
+                by_kind.setdefault(kind, []).append(chart)
+                count = int(re.search(r"data-series-count='(\d+)'", chart).group(1))
+                assert len(re.findall(r"class='data-series'", chart)) == count
+                assert "<title>" in chart and "x-axis-label" in chart and "y-axis-label" in chart
+            assert {kind: len(by_kind.get(kind, [])) for kind in (
+                "raw-ma", "ratio-short", "difference-short", "ratio-long", "difference-long",
+                "normalized-short", "normalized-long", "metric-score", "dimension-score")
+            } == {"raw-ma":1, "ratio-short":4, "difference-short":4, "ratio-long":4,
+                  "difference-long":4, "normalized-short":4, "normalized-long":4,
+                  "metric-score":4, "dimension-score":4}
+            raw_chart = by_kind["raw-ma"][0]
+            assert "data-series-count='5'" in raw_chart
+            assert all(f"data-label='{label}'" in raw_chart for label in ("Raw","MA3","MA6","MA9","MA12"))
+            colors = re.findall(r"class='data-series'[^>]+stroke='([^']+)'", raw_chart)
+            widths = [float(value) for value in re.findall(r"class='data-series'[^>]+stroke-width='([^']+)'", raw_chart)]
+            assert len(set(colors)) == 5 and widths[0] > max(widths[1:])
+            for kind in ("normalized-short", "normalized-long"):
+                for chart in by_kind[kind]:
+                    assert "data-series-count='2'" in chart and "Normalized feature score" in chart
+                    assert all(f"data-label='{label}'" in chart for label in ("Ratio","Arithmetic difference"))
+            for kind in ("metric-score", "dimension-score"):
+                for chart in by_kind[kind]:
+                    assert "data-series-count='3'" in chart
+                    assert all(f"data-label='{label}'" in chart for label in ("Production incumbent","Ratio","Arithmetic difference"))
+                    widths = {label:float(width) for label,width in re.findall(r"data-series='([^']+)'[^>]+stroke-width='([^']+)'", chart)}
+                    assert widths["Production incumbent"] > widths["Ratio"] == widths["Arithmetic difference"]
+            comparison = [chart for kind, group in by_kind.items() if kind.startswith("normalized") or kind in ("metric-score","dimension-score") for chart in group]
+            assert all("data-style='arithmetic_difference'" in chart and "stroke-dasharray='7 4'" in chart for chart in comparison)
+            required_zero = [chart for kind, group in by_kind.items() if kind != "raw-ma" for chart in group]
+            assert all("class='zero-reference'" in chart for chart in required_zero)
+            assert all("Ratio" in chart for kind in ("ratio-short","ratio-long") for chart in by_kind[kind])
+            assert all("Basis points" in chart for kind in ("difference-short","difference-long") for chart in by_kind[kind])
+        # HTML and the bundle ZIP are byte-deterministic across identical renders.
+        first_html = {page.name: page.read_bytes() for page in pages}
+        first_zip = _zip(review).read_bytes()
+        for metric in expected:
+            _render_metric_page(review, metric, raw, features, normalized, scores,
+                                dimensions, decision.query("Metric == @metric"))
+        assert first_html == {page.name: page.read_bytes() for page in pages}
+        assert first_zip == _zip(review).read_bytes()
     assert before == {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in policy_paths}
     print("Capital Markets MA decomposition smoke test passed")
 

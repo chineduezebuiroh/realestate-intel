@@ -64,6 +64,32 @@ TABLES = (
     "runtime_summary",
 )
 
+# One semantic visual vocabulary is shared by every metric review chart.  Keep
+# presentation policy here rather than encoding colors and line styles at call
+# sites.
+CHART_STYLES = {
+    "raw": {"color": "#1f2937", "width": 3.5, "dash": None},
+    "ma3": {"color": "#2563eb", "width": 1.6, "dash": None},
+    "ma6": {"color": "#d97706", "width": 1.6, "dash": None},
+    "ma9": {"color": "#059669", "width": 1.6, "dash": None},
+    "ma12": {"color": "#7c3aed", "width": 1.6, "dash": None},
+    "incumbent": {"color": "#1f2937", "width": 3.0, "dash": None},
+    "ratio": {"color": "#2563eb", "width": 1.8, "dash": None},
+    "arithmetic_difference": {"color": "#c2410c", "width": 1.8, "dash": "7 4"},
+}
+
+VISUALIZATION_REGRESSION_TABLES = (
+    "capital_markets_transform_policy_scorecard",
+    "capital_markets_transform_decision_matrix",
+    "capital_markets_ratio_vs_difference_pairwise",
+    "capital_markets_ratio_denominator_diagnostics",
+    "capital_markets_transform_directional_agreement",
+    "capital_markets_transform_turning_point_matches",
+    "capital_markets_transform_warmup_coverage",
+    "common_ma_state_cache_audit",
+    "transformed_feature_cache_audit",
+)
+
 
 def _stability(frame: pd.DataFrame, value: str, **identity: object) -> dict:
     work = frame[["date", value]].sort_values("date").copy()
@@ -99,19 +125,29 @@ def _policy_registry(registry: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _svg(path: Path, title: str, frame: pd.DataFrame, value: str, group: str | None = None) -> None:
+def _svg(path: Path, title: str, frame: pd.DataFrame, value: str, group: str | None = None,
+         *, y_label: str = "Score", chart_kind: str = "supporting",
+         series_styles: dict[str, str] | None = None,
+         series_labels: dict[str, str] | None = None, zero_line: bool = True) -> None:
     order = {"incumbent": 0, "ma3_structural": 1, "ma6_structural": 2,
         "ma9_structural": 3, "ma12_structural": 4, "raw": 0, "ma3": 1,
         "ma6": 2, "ma9": 3, "ma12": 4}
     series = [("series", frame)] if group is None else sorted(
         frame.groupby(group, sort=True), key=lambda item: order.get(str(item[0]), 99))
-    colors = ["#111827", "#2563eb", "#dc2626", "#059669", "#9333ea"]
+    fallback_styles = ("raw", "ma3", "ma6", "ma9", "ma12")
     paths = []
     values = pd.to_numeric(frame[value], errors="coerce"); dates = pd.to_datetime(frame.date)
     good = values.notna() & dates.notna()
+    if not good.any():
+        raise ValueError(f"Chart {title!r} has no finite dated values")
     low, high = min(0.0, values[good].min()), max(0.0, values[good].max()); span = high-low or 1
     start, end = dates[good].min(), dates[good].max(); duration = max((end-start).total_seconds(), 1)
-    for no, (_, part) in enumerate(series):
+    legends = []
+    for no, (identity, part) in enumerate(series):
+        identity = str(identity)
+        semantic = (series_styles or {}).get(identity, fallback_styles[no % len(fallback_styles)])
+        style = CHART_STYLES[semantic]
+        label = (series_labels or {}).get(identity, identity)
         points = []
         for row in part.sort_values("date").itertuples(index=False):
             date, val = pd.Timestamp(row.date), getattr(row, value)
@@ -121,8 +157,19 @@ def _svg(path: Path, title: str, frame: pd.DataFrame, value: str, group: str | N
         for point in points:
             if point is None: penup=True; continue
             command.append(("M" if penup else "L")+f" {point[0]:.2f} {point[1]:.2f}"); penup=False
-        paths.append(f"<path d='{' '.join(command)}' fill='none' stroke='{colors[no%len(colors)]}' stroke-width='{3 if no == 0 else 1.5}'/>")
-    content = f"<svg xmlns='http://www.w3.org/2000/svg' width='800' height='300'><title>{html.escape(title)}</title><rect width='800' height='300' fill='white'/><line x1='50' y1='260' x2='750' y2='260' stroke='#777'/>{''.join(paths)}</svg>"
+        dash = f" stroke-dasharray='{style['dash']}'" if style["dash"] else ""
+        paths.append(f"<path class='data-series' data-series='{html.escape(label)}' data-style='{semantic}' d='{' '.join(command)}' fill='none' stroke='{style['color']}' stroke-width='{style['width']}'{dash}/>")
+        x = 60 + no * 140
+        legends.append(f"<g class='legend-item' data-label='{html.escape(label)}'><line x1='{x}' y1='286' x2='{x+25}' y2='286' stroke='{style['color']}' stroke-width='{style['width']}'{dash}/><text x='{x+31}' y='290'>{html.escape(label)}</text></g>")
+    zero_y = 260 - (0-low)/span*220
+    zero = f"<line class='zero-reference' x1='55' y1='{zero_y:.2f}' x2='750' y2='{zero_y:.2f}' stroke='#9ca3af' stroke-dasharray='3 3'/>" if zero_line else ""
+    y_ticks = "".join(f"<g><line x1='50' y1='{40+i*55}' x2='55' y2='{40+i*55}' stroke='#6b7280'/><text x='46' y='{44+i*55}' text-anchor='end'>{high-i*span/4:.3g}</text></g>" for i in range(5))
+    date_ticks = "".join(f"<g><line x1='{50+i*175}' y1='260' x2='{50+i*175}' y2='265' stroke='#6b7280'/><text x='{50+i*175}' y='277' text-anchor='middle'>{(start+(end-start)*i/4).strftime('%Y-%m')}</text></g>" for i in range(5))
+    content = (f"<svg xmlns='http://www.w3.org/2000/svg' class='review-chart' data-chart-kind='{chart_kind}' data-series-count='{len(series)}' viewBox='0 0 800 310' width='800' height='310'>"
+        f"<title>{html.escape(title)}</title><rect width='800' height='310' fill='white'/><text class='chart-title' x='400' y='20' text-anchor='middle'>{html.escape(title)}</text>"
+        f"<line x1='50' y1='260' x2='750' y2='260' stroke='#374151'/><line x1='50' y1='40' x2='50' y2='260' stroke='#374151'/>{zero}{y_ticks}{date_ticks}"
+        f"<text class='y-axis-label' transform='translate(14 150) rotate(-90)' text-anchor='middle'>{html.escape(y_label)}</text><text class='x-axis-label' x='400' y='306' text-anchor='middle'>Date</text>"
+        f"{''.join(paths)}<g class='legend'>{''.join(legends)}</g></svg>")
     path.write_text(content, encoding="utf-8", newline="\n")
 
 
@@ -479,34 +526,73 @@ def _render_metric_page(output: Path, metric: str, raw: pd.DataFrame,
     """Write one deterministic, self-contained metric review."""
     page_dir = output / "metrics"; figure_dir = output / "figures" / metric
     page_dir.mkdir(exist_ok=True); figure_dir.mkdir(parents=True, exist_ok=True)
-    panels: list[tuple[str, str]] = []
-    def render(name: str, title: str, frame: pd.DataFrame, value: str, group: str | None = None) -> str:
-        path = figure_dir / name
-        _svg(path, title, frame, value, group)
-        return path.read_text(encoding="utf-8")
-    panels.append(("A. Raw and MA levels", render("raw.svg", f"{metric}: raw and moving averages", raw, "value", "series")))
-    for number, feature_type, heading in (("A","level","Common MA level state"),("B","short_term_change","Short-feature comparison by window (ratio and difference/bps)"),("C","long_term_change","Long-feature comparison by window (ratio and difference/bps)")):
-        part=features.loc[features.feature_type.eq(feature_type)]
-        if feature_type == "level":
-            panels.append((f"{number}. {heading}", render(f"{feature_type}.svg", f"{metric}: {heading}", part, "value", "policy")))
-        else:
-            ratio=part.loc[part.policy.astype(str).str.startswith("ratio")]
-            difference=part.loc[part.policy.astype(str).str.startswith("difference")]
-            panels.append((f"{number}. {heading}", render(f"{feature_type}_ratio.svg", f"{metric}: ratio {heading}", ratio, "value", "policy") + render(f"{feature_type}_difference.svg", f"{metric}: difference (basis points) {heading}", difference, "value", "policy")))
-    normalized_images=[]
-    for feature_type in ("level","short_term_change","long_term_change"):
-        part=normalized.loc[normalized.feature_type.eq(feature_type)]
-        normalized_images.append(render(f"normalized_{feature_type}.svg", f"{metric}: normalized {feature_type}", part, "feature_score", "policy"))
-    metric_svg = render("metric_score.svg", f"{metric}: metric score", scores, "metric_score", "policy")
-    dimension_svg = render("dimension.svg", f"{metric}: metric-only Capital Markets dimension", dimensions, "dimension_score", "policy")
-    sections = "".join(f"<section><h2>{html.escape(title)}</h2>{svg}</section>" for title,svg in panels)
-    sections += f"<section><h2>D. Normalized feature scores</h2>{''.join(normalized_images)}</section>"
-    sections += f"<section><h2>E. Metric-score chronology</h2>{metric_svg}</section>"
-    sections += f"<section><h2>F. Capital Markets dimension chronology</h2>{dimension_svg}</section>"
-    table = decision.to_html(index=False, border=0, classes="metric-policy-decision-table")
-    css="body{font-family:system-ui;max-width:1100px;margin:auto;padding:24px;color:#172033}section{margin:32px 0}svg{width:100%;height:auto;border:1px solid #d8dee9}table{border-collapse:collapse;font-size:12px}th,td{padding:5px;border-bottom:1px solid #ddd;text-align:right}th:first-child,td:first-child{text-align:left}"
-    (page_dir/f"{metric}.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>{metric} smoothing review</title><style>{css}</style></head><body><a href='../index.html'>Back to main review</a><h1>{metric}: ratio vs arithmetic-difference review</h1><p>Incumbent is held against ratio MA3/6/9/12 and arithmetic difference MA3/6/9/12. Diagnostic only.</p>{sections}<section><h2>G. Compact decision table</h2>{table}</section></body></html>\n",encoding="utf-8",newline="\n")
 
+    def render(name: str, title: str, frame: pd.DataFrame, value: str,
+               group: str | None, y_label: str, chart_kind: str,
+               styles: dict[str, str], labels: dict[str, str]) -> str:
+        path = figure_dir / name
+        _svg(path, title, frame, value, group, y_label=y_label,
+             chart_kind=chart_kind, series_styles=styles,
+             series_labels=labels, zero_line=chart_kind != "raw-ma")
+        return path.read_text(encoding="utf-8")
+
+    raw_svg = render("raw.svg", f"{metric}: Raw and MA levels", raw, "value", "series",
+        "Source value (percentage points)", "raw-ma",
+        {key:key for key in ("raw","ma3","ma6","ma9","ma12")},
+        {"raw":"Raw","ma3":"MA3","ma6":"MA6","ma9":"MA9","ma12":"MA12"})
+
+    def feature_charts(feature_type: str, horizon: str) -> str:
+        charts=[]
+        for transform, heading, unit, semantic in (
+                ("ratio", "Ratio", "Ratio", "ratio"),
+                ("difference", "Arithmetic difference", "Basis points", "arithmetic_difference")):
+            charts.append(f"<h3>{heading} {horizon.lower()} feature</h3><div class='chart-grid'>")
+            for window in MA_WINDOWS:
+                policy=f"{transform}_ma{window}"
+                part=features.loc[features.feature_type.eq(feature_type) & features.policy.eq(policy)]
+                title=f"{metric}: {heading} {horizon.lower()} feature — MA{window}"
+                charts.append(render(f"{transform}_{horizon.lower()}_ma{window}.svg", title, part,
+                    "value", "policy", unit, f"{transform}-{horizon.lower()}",
+                    {policy:semantic}, {policy:heading}))
+            charts.append("</div>")
+        return "".join(charts)
+
+    normalized_charts=[]
+    for feature_type,horizon in (("short_term_change","short"),("long_term_change","long")):
+        normalized_charts.append(f"<h3>{horizon.title()} normalized score</h3><div class='chart-grid'>")
+        for window in MA_WINDOWS:
+            policies=(f"ratio_ma{window}",f"difference_ma{window}")
+            part=normalized.loc[normalized.feature_type.eq(feature_type) & normalized.policy.isin(policies)]
+            normalized_charts.append(render(f"normalized_{horizon}_ma{window}.svg",
+                f"{metric}: Normalized {horizon} score — MA{window}", part, "feature_score", "policy",
+                "Normalized feature score", f"normalized-{horizon}",
+                {policies[0]:"ratio",policies[1]:"arithmetic_difference"},
+                {policies[0]:"Ratio",policies[1]:"Arithmetic difference"}))
+        normalized_charts.append("</div>")
+
+    def impact_charts(frame: pd.DataFrame, value: str, kind: str, heading: str, unit: str) -> str:
+        charts=["<div class='chart-grid'>"]
+        for window in MA_WINDOWS:
+            policies=("incumbent",f"ratio_ma{window}",f"difference_ma{window}")
+            part=frame.loc[frame.policy.isin(policies)]
+            charts.append(render(f"{kind}_ma{window}.svg", f"{metric}: {heading} — MA{window}",
+                part, value, "policy", unit, kind,
+                {policies[0]:"incumbent",policies[1]:"ratio",policies[2]:"arithmetic_difference"},
+                {policies[0]:"Production incumbent",policies[1]:"Ratio",policies[2]:"Arithmetic difference"}))
+        charts.append("</div>")
+        return "".join(charts)
+
+    sections = (
+        f"<details data-section='raw-ma' open><summary>Raw and MA levels</summary>{raw_svg}</details>"
+        f"<details data-section='short-features'><summary>Short features</summary>{feature_charts('short_term_change','Short')}</details>"
+        f"<details data-section='long-features'><summary>Long features</summary>{feature_charts('long_term_change','Long')}</details>"
+        f"<details data-section='normalized'><summary>Normalized feature scores</summary>{''.join(normalized_charts)}</details>"
+        f"<details data-section='metric-score' open><summary>Metric-score impact</summary>{impact_charts(scores,'metric_score','metric-score','Metric score','Metric score')}</details>"
+        f"<details data-section='dimension-score' open><summary>Capital Markets dimension impact</summary>{impact_charts(dimensions,'dimension_score','dimension-score','Capital Markets dimension','Capital Markets dimension score')}</details>")
+    table = decision.to_html(index=False, border=0, classes="metric-policy-decision-table")
+    css="body{font-family:system-ui;max-width:1200px;margin:auto;padding:24px;color:#172033}details{margin:24px 0;border:1px solid #d8dee9;border-radius:6px;padding:10px}summary{font-size:1.35rem;font-weight:700;cursor:pointer}.chart-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:16px;margin:14px 0}svg{width:100%;height:auto;border:1px solid #d8dee9}svg text{font:11px system-ui}.chart-title{font-size:13px;font-weight:600}.table-scroll{overflow-x:auto}table{border-collapse:collapse;font-size:12px;white-space:nowrap}th,td{padding:5px;border-bottom:1px solid #ddd;text-align:right}th:first-child,td:first-child{text-align:left}"
+    decision_section=f"<details data-section='decision-table' open><summary>Decision table</summary><div class='table-scroll'>{table}</div></details>"
+    (page_dir/f"{metric}.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>{metric} smoothing review</title><style>{css}</style></head><body><a href='../index.html'>Back to main review</a><h1>{metric}: ratio vs arithmetic-difference review</h1><p>Incumbent is held against ratio MA3/6/9/12 and arithmetic difference MA3/6/9/12. Diagnostic only.</p>{sections}{decision_section}</body></html>\n",encoding="utf-8",newline="\n")
 
 def _national_capital_metric_universe(
     metric_scores: pd.DataFrame,
@@ -1316,6 +1402,13 @@ def main() -> None:
     tables["challenger_performance_diagnostics"]=pd.DataFrame(performance_rows)
 
     evidence=output/"evidence"; figures=output/"figures"; evidence.mkdir(); figures.mkdir()
+    analytical_before = {
+        name: frame.copy(deep=True)
+        for name, frame in tables.items()
+        if name in VISUALIZATION_REGRESSION_TABLES
+    }
+    if set(analytical_before) != set(VISUALIZATION_REGRESSION_TABLES):
+        raise ValueError("Visualization regression snapshot is incomplete")
     figure_start=time.perf_counter(); _svg(figures/"capital_markets_challengers.svg","Capital Markets one-metric challengers",tables["dimension_chronology"],"dimension_score","challenger_id")
     _svg(figures/"capital_markets_family_challengers.svg","Capital Markets family and all-metric controls",tables["family_challenger_dimension_chronology"],"dimension_score","policy_id")
     for metric in active:
@@ -1326,6 +1419,8 @@ def main() -> None:
             tables["metric_score_chronology"].query("metric == @metric"),
             tables["metric_only_dimension_chronology"].query("metric == @metric"),
             tables["capital_markets_transform_decision_matrix"].query("Metric == @metric"))
+    for name, before_frame in analytical_before.items():
+        pd.testing.assert_frame_equal(before_frame, tables[name], check_exact=True)
     figure_time=finish_stage("figure generation",figure_start)
     html_start=time.perf_counter(); secondary=[n for n in TABLES if n not in TABLES[:13]]
     metric_links="".join(f"<li><a href='metrics/{m}.html'>{m}</a></li>" for m in active)
