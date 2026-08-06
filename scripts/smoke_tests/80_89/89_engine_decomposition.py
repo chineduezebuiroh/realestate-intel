@@ -64,14 +64,14 @@ def main() -> int:
         {"geo_id":"g", "evaluation_date":date, "canonical_metric_key":"active_inventory", "metric_score":.3, "metric_age_days":0},
         {"geo_id":"g", "evaluation_date":date, "canonical_metric_key":"permit_activity", "metric_score":-.2, "metric_age_days":0},
     ])
-    expected_dimension = (.3*.3334 + -.2*.3333) / (.3334+.3333)
+    expected_dimension = (.3*.60 + -.2*.20) / (.60+.20)
     dimensions = pd.DataFrame([{"geo_id":"g", "date":date, "dimension":"supply", "dimension_score":expected_dimension}])
     metric_rows, metric_rec = build_metric_to_dimension(aligned, dimensions)
     inventory = metric_rows[metric_rows.canonical_metric_key.eq("active_inventory")].iloc[0]
     intensity = metric_rows[metric_rows.canonical_metric_key.eq("permit_intensity")].iloc[0]
-    assert inventory.configured_weight == .3334 and math.isclose(inventory.available_weight_sum, .6667)
-    assert math.isclose(inventory.effective_weight, .3334/.6667)
-    assert math.isclose(inventory.weighted_contribution, .3*(.3334/.6667))
+    assert inventory.configured_weight == .60 and math.isclose(inventory.available_weight_sum, .80)
+    assert math.isclose(inventory.effective_weight, .60/.80)
+    assert math.isclose(inventory.weighted_contribution, .3*(.60/.80))
     assert not intensity.available and metric_rec.iloc[0].absolute_residual < 1e-12
 
     dim = pd.DataFrame([{"geo_id":"g", "date":date, "dimension":"capital_markets", "dimension_score":-.5, "max_metric_age_days":0}])

@@ -53,9 +53,9 @@ CAPITAL_MARKETS = {
     "fred_2y10y_spread": (0.40, 0.30, 0.30),
 }
 METRIC_WEIGHTS = {
-    "redfin_inventory": 0.3334,
-    "bps_total_units": 0.3333,
-    "derived_permit_intensity": 0.3333,
+    "redfin_inventory": 0.60,
+    "bps_total_units": 0.20,
+    "derived_permit_intensity": 0.20,
     "redfin_median_sale_price": 0.5,
     "redfin_median_ppsf": 0.5,
     "derived_price_to_income": 0.50,
