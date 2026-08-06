@@ -103,3 +103,29 @@ separate covariance budget reconciles each parent using
 therefore not presented as covariance-inclusive variance explained. Family
 interaction rows compare observed stability changes with the sum of the
 corresponding one-metric changes and remain descriptive rather than causal.
+
+## Ratio-versus-arithmetic-difference Phase 1
+
+The primary matrix now retains ratio MA3/6/9/12 and adds arithmetic-difference
+MA3/6/9/12 for every active metric.  Both transforms consume one common MA
+level-state cache per metric and window. Ratio short/long features divide by
+the exact three- and twelve-month calendar-lagged MA states; arithmetic features
+subtract those same states. Governed rate and spread sources are recorded as
+percentage-point observations and arithmetic differences are exposed as basis
+points with the deterministic factor 100.
+
+Native chronology must be unique, monotonic, finite, and calendar-contiguous.
+Warmup remains null. Ratio evidence records the governed absolute near-zero
+threshold `1e-8`, denominator signs and sign changes, finiteness, and magnitude;
+values are never clipped. The phase creates 48 one-metric challengers from 24
+common MA caches. It selects no winner, runs no combined challenger, and leaves
+human decisions pending with recommendation and promotion states `none`.
+
+Transform evidence is materialized rather than aliased to the earlier
+metric-policy tables. The 54-row scorecard joins unit, coverage, separate
+short/long ratio-risk, raw-feature, normalized-feature, metric, turning-point,
+and exact-overlap dimension evidence. Its 54-row compact matrix contains no
+composite score. The 24 ratio-versus-difference rows are calculated on actual,
+gap-free date intersections rather than minimum observation counts. Cache
+evidence is split into a 24-row common MA-state audit, with both transform
+consumers recorded, and a 48-row transform-cache audit.
