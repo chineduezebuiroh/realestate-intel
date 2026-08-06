@@ -30,6 +30,12 @@ from regime.diagnostics.capital_markets_ma import (
 from regime.artifacts import RegimeArtifactStore
 
 TABLES = (
+    "capital_markets_metric_policy_scorecard", "capital_markets_metric_policy_decision_matrix",
+    "capital_markets_cross_metric_summary", "combined_metric_policy_selection_template",
+    "metric_raw_and_ma_chronology", "metric_feature_chronology",
+    "metric_normalized_feature_scores", "metric_score_chronology",
+    "metric_only_dimension_chronology", "metric_directional_agreement",
+    "metric_turning_point_matches", "metric_turning_point_summary", "metric_warmup_coverage",
     "capital_markets_registry_audit", "native_source_chronology", "feature_transform_audit",
     "feature_to_metric_decomposition", "metric_to_dimension_decomposition", "incumbent_stability",
     "incumbent_cancellation", "incumbent_volatility_attribution", "challenger_policy_registry",
@@ -82,8 +88,12 @@ def _policy_registry(registry: pd.DataFrame) -> pd.DataFrame:
 
 
 def _svg(path: Path, title: str, frame: pd.DataFrame, value: str, group: str | None = None) -> None:
-    series = [("series", frame)] if group is None else list(frame.groupby(group, sort=True))
-    colors = ["#111827", "#2563eb", "#dc2626", "#059669"]
+    order = {"incumbent": 0, "ma3_structural": 1, "ma6_structural": 2,
+        "ma9_structural": 3, "ma12_structural": 4, "raw": 0, "ma3": 1,
+        "ma6": 2, "ma9": 3, "ma12": 4}
+    series = [("series", frame)] if group is None else sorted(
+        frame.groupby(group, sort=True), key=lambda item: order.get(str(item[0]), 99))
+    colors = ["#111827", "#2563eb", "#dc2626", "#059669", "#9333ea"]
     paths = []
     values = pd.to_numeric(frame[value], errors="coerce"); dates = pd.to_datetime(frame.date)
     good = values.notna() & dates.notna()
@@ -285,6 +295,60 @@ def _splice_metrics(
 def _progress(message: str) -> None:
     """Emit immediately visible hosted-run progress."""
     print(f"[capital-markets] {message}", flush=True)
+
+
+def _coverage(frame: pd.DataFrame, value: str, incumbent_dates: pd.Series) -> dict[str, object]:
+    """Enforce the governed leading-warmup-only coverage contract."""
+    dates = pd.DatetimeIndex(pd.to_datetime(incumbent_dates).drop_duplicates().sort_values())
+    work = frame[["date", value]].copy(); work["date"] = pd.to_datetime(work.date)
+    if work.date.duplicated().any():
+        raise ValueError("Metric-policy chronology contains duplicate dates")
+    challenger_dates = set(work.loc[work[value].notna(), "date"])
+    if challenger_dates - set(dates):
+        raise ValueError("Metric-policy chronology contains challenger-only dates")
+    valid = pd.Series(dates.isin(challenger_dates), index=dates)
+    first = int(np.argmax(valid.to_numpy())) if valid.any() else len(valid)
+    leading = first
+    trailing = int((~valid.iloc[first:]).iloc[::-1].cumprod().sum()) if first < len(valid) else len(valid)
+    interior = int((~valid.iloc[first:len(valid)-trailing if trailing else len(valid)]).sum())
+    if interior or trailing:
+        raise ValueError(f"Metric-policy coverage has interior={interior} or trailing={trailing} loss")
+    observed = work.loc[work[value].notna(), "date"]
+    return {"observation_count": len(observed), "first_valid_date": observed.min(),
+        "last_valid_date": observed.max(), "leading_warmup_rows": leading,
+        "trailing_loss_rows": trailing, "interior_gap_rows": interior}
+
+
+def _pct(delta: float, incumbent: float) -> float:
+    return 0.0 if delta == 0 else (delta / incumbent * 100 if incumbent else np.nan)
+
+
+def _render_metric_page(output: Path, metric: str, raw: pd.DataFrame,
+        features: pd.DataFrame, normalized: pd.DataFrame, scores: pd.DataFrame,
+        dimensions: pd.DataFrame) -> None:
+    """Write one deterministic seven-section metric review with linked SVGs."""
+    page_dir = output / "metrics"; figure_dir = output / "figures" / metric
+    page_dir.mkdir(exist_ok=True); figure_dir.mkdir(parents=True, exist_ok=True)
+    panels: list[tuple[str, str]] = []
+    _svg(figure_dir / "raw.svg", f"{metric}: raw and moving averages", raw, "value", "series")
+    panels.append(("1. Raw source chronology", f"../figures/{metric}/raw.svg"))
+    for number, feature_type, heading in ((2,"level","Level feature"),(3,"short_term_change","Short feature"),(4,"long_term_change","Long feature")):
+        part=features.loc[features.feature_type.eq(feature_type)]
+        _svg(figure_dir/f"{feature_type}.svg",f"{metric}: {heading}",part,"value","policy")
+        panels.append((f"{number}. {heading}",f"../figures/{metric}/{feature_type}.svg"))
+    normalized_images=[]
+    for feature_type in ("level","short_term_change","long_term_change"):
+        part=normalized.loc[normalized.feature_type.eq(feature_type)]
+        _svg(figure_dir/f"normalized_{feature_type}.svg",f"{metric}: normalized {feature_type}",part,"feature_score","policy")
+        normalized_images.append(f"<img src='../figures/{metric}/normalized_{feature_type}.svg' alt='Normalized {feature_type}'>")
+    _svg(figure_dir/"metric_score.svg",f"{metric}: metric score",scores,"metric_score","policy")
+    _svg(figure_dir/"dimension.svg",f"{metric}: metric-only Capital Markets dimension",dimensions,"dimension_score","policy")
+    sections = "".join(f"<section><h2>{html.escape(title)}</h2><img src='{src}'></section>" for title,src in panels)
+    sections += f"<section><h2>5. Normalized feature scores</h2>{''.join(normalized_images)}</section>"
+    sections += f"<section><h2>6. Metric score chronology</h2><img src='../figures/{metric}/metric_score.svg'></section>"
+    sections += f"<section><h2>7. Capital Markets dimension chronology</h2><img src='../figures/{metric}/dimension.svg'></section>"
+    css="body{font-family:system-ui;max-width:1100px;margin:auto;padding:24px;color:#172033}section{margin:32px 0}img{width:100%;border:1px solid #d8dee9}"
+    (page_dir/f"{metric}.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>{metric} smoothing review</title><style>{css}</style></head><body><a href='../index.html'>Back to decision matrix</a><h1>{metric}: metric-level smoothing review</h1><p>Incumbent is held against MA3, MA6, MA9, and MA12 structural policies. Diagnostic only.</p>{sections}</body></html>\n",encoding="utf-8",newline="\n")
 
 
 def _national_capital_metric_universe(
@@ -577,8 +641,8 @@ def main() -> None:
         raise ValueError("Registry-driven active Capital Markets set differs from the governed six")
     policies = _policy_registry(registry); families = governed_families(registry)
     family_policies = family_challenger_registry(registry)
-    if len(policies.challenger_id.unique()) != 18 or len(family_policies) != 12:
-        raise ValueError("The governed 30-policy challenger scope is incomplete")
+    if len(policies.challenger_id.unique()) != 24 or len(family_policies) != 12:
+        raise ValueError("The governed 24 one-metric policy scope is incomplete")
     registry_time = finish_stage("registry validation", stage)
 
     incumbent = build_capital_markets_evidence(
@@ -598,6 +662,10 @@ def main() -> None:
         "payment_burden_dependency_audit": payment_burden_audit(),
         "human_decision_status": pd.DataFrame([human_status()]),
     }
+    audit_dates = (tables["feature_transform_audit"].dropna(subset=["raw_feature_value"])
+        .groupby("feature_key").date.agg(first_valid_date="min", last_valid_date="max", valid_observation_count="count").reset_index())
+    tables["capital_markets_registry_audit"] = registry.merge(
+        audit_dates, on="feature_key", how="left", validate="one_to_one")
     native_dims = frames["dimension_scores"].query(
         "geo_id == @NATIVE_GEOGRAPHY and dimension == 'capital_markets'")[["date", "dimension_score"]].copy()
     tables["incumbent_stability"] = pd.DataFrame([_stability(native_dims, "dimension_score", policy_id="incumbent")])
@@ -627,8 +695,8 @@ def main() -> None:
                 "ma_window": window, "row_count": len(transformed), "build_count": 1,
                 "reuse_count": 0, "build_runtime_seconds": runtime,
                 "cumulative_reuse_runtime_avoided_seconds": 0.0})
-    if len(caches) != 18:
-        raise ValueError("Transformed feature cache build count must equal 18")
+    if len(caches) != 24:
+        raise ValueError("Transformed feature cache build count must equal 24")
     cache_time = finish_stage("cache construction", stage)
 
     def national_policy(policy_id: str, affected: tuple[str, ...]) -> pd.DataFrame:
@@ -647,7 +715,7 @@ def main() -> None:
     single_specs = [(m, int(w)) for m in active for w in MA_WINDOWS]
     for number, (metric, window) in enumerate(single_specs, 1):
         cid=f"{metric}_ma{window}"; policy_start=time.perf_counter()
-        _progress(f"single {number}/18 {cid}: start")
+        _progress(f"single {number}/24 {cid}: start")
         caches[(metric, window)]["uses"].append("single")
         national = national_policy(cid, (metric,)); dim=national[["date","dimension_score"]].copy(); dim["challenger_id"]=cid
         chron.append(dim); single_chronology[(metric, window)] = dim.set_index("date").dimension_score.copy()
@@ -669,8 +737,8 @@ def main() -> None:
             "configured_weights_unchanged":True,"out_of_scope_geography_mutation":False,"production_artifact_mutation":False})
         elapsed=time.perf_counter()-policy_start; single_runtimes.append(elapsed)
         performance_rows.append({"policy_id":cid,"policy_type":"single",**counts,"runtime_seconds":elapsed})
-        _progress(f"single {number}/18 {cid}: {elapsed:.2f}s")
-    single_time=finish_stage("18 one-metric challengers",single_stage)
+        _progress(f"single {number}/24 {cid}: {elapsed:.2f}s")
+    single_time=finish_stage("24 one-metric challengers",single_stage)
 
     family_stability=[]; family_directions=[]; family_turns=[]; family_matches=[]; family_chron=[]
     family_axes=[]; family_regimes=[]; family_parity=[]; interactions=[]; family_runtimes=[]; all_runtimes=[]
@@ -725,6 +793,108 @@ def main() -> None:
     tables["family_challenger_axis_propagation"]=pd.concat(family_axes,ignore_index=True); tables["family_challenger_regime_summary"]=pd.concat(family_regimes,ignore_index=True).groupby("policy_id").size().rename("review_rows").reset_index()
     tables["family_challenger_unaffected_parity"]=pd.DataFrame(family_parity); tables["family_challenger_interactions"]=pd.DataFrame(interactions)
 
+    # Primary metric-level decision evidence.  The older family, variance, and
+    # downstream controls remain below as explicitly secondary engineering evidence.
+    policy_names = {None: "incumbent", 3: "ma3_structural", 6: "ma6_structural",
+        9: "ma9_structural", 12: "ma12_structural"}
+    raw_rows=[]; feature_rows=[]; normalized_rows=[]; metric_score_rows=[]; dimension_rows=[]
+    agreement_rows=[]; turn_match_rows=[]; turn_summary_rows=[]; coverage_rows=[]; score_rows=[]
+    incumbent_metrics = frames["metric_scores"].loc[
+        frames["metric_scores"].geo_id.eq(NATIVE_GEOGRAPHY)
+        & frames["metric_scores"].canonical_metric_key.isin(active)].copy()
+    incumbent_features = frames["features"].loc[
+        frames["features"].geo_id.eq(NATIVE_GEOGRAPHY)
+        & frames["features"].canonical_metric_key.isin(active)].copy()
+    incumbent_normalized = frames["normalized_features"].loc[
+        frames["normalized_features"].geo_id.eq(NATIVE_GEOGRAPHY)
+        & frames["normalized_features"].canonical_metric_key.isin(active)].copy()
+    for metric in active:
+        source = national_raw.loc[national_raw.canonical_metric_key.eq(metric)].sort_values("date")
+        raw_value = pd.to_numeric(source["value"], errors="coerce")
+        for label, values in [("raw", raw_value), *[(f"ma{w}", raw_value.rolling(w,min_periods=w).mean()) for w in MA_WINDOWS]]:
+            raw_rows.append(pd.DataFrame({"metric":metric,"date":source.date.to_numpy(),"series":label,"value":values.to_numpy()}))
+        inc_score = incumbent_metrics.loc[incumbent_metrics.canonical_metric_key.eq(metric), ["date","metric_score"]].sort_values("date")
+        incumbent_dates = inc_score.date
+        metric_policies: dict[str,pd.DataFrame] = {"incumbent":inc_score}
+        metric_score_rows.append(inc_score.assign(metric=metric,policy="incumbent",ma_window=pd.NA))
+        dimension_rows.append(native_dims.assign(metric=metric,policy="incumbent",ma_window=pd.NA))
+        inc_f = incumbent_features.loc[incumbent_features.canonical_metric_key.eq(metric)].copy()
+        inc_f["feature_type"] = inc_f["feature_key"].map(registry.drop_duplicates("feature_key").set_index("feature_key").feature_type)
+        feature_rows.append(inc_f[["date","feature_type","raw_feature_value"]].rename(columns={"raw_feature_value":"value"}).assign(metric=metric,policy="incumbent",ma_window=pd.NA))
+        inc_n = incumbent_normalized.loc[incumbent_normalized.canonical_metric_key.eq(metric)].copy()
+        inc_n["feature_type"] = inc_n["feature_key"].map(registry.drop_duplicates("feature_key").set_index("feature_key").feature_type)
+        normalized_rows.append(inc_n[["date","feature_type","feature_score"]].assign(metric=metric,policy="incumbent",ma_window=pd.NA))
+        for window in MA_WINDOWS:
+            policy=policy_names[window]; cache=caches[(metric,window)]
+            transformed=cache["transformed"].merge(registry[["feature_key","feature_type"]],on="feature_key",how="left",validate="many_to_one")
+            feature_rows.append(transformed[["date","feature_type","raw_feature_value"]].rename(columns={"raw_feature_value":"value"}).assign(metric=metric,policy=policy,ma_window=window))
+            normalized=cache["normalized"].merge(registry[["feature_key","feature_type"]],on="feature_key",how="left",validate="many_to_one")
+            normalized_rows.append(normalized[["date","feature_type","feature_score"]].assign(metric=metric,policy=policy,ma_window=window))
+            candidate=cache["metric_scores"][["date","metric_score"]].sort_values("date")
+            metric_policies[policy]=candidate
+            metric_score_rows.append(candidate.assign(metric=metric,policy=policy,ma_window=window))
+            dimension_rows.append(pd.DataFrame({"date":single_chronology[(metric,window)].index,
+                "dimension_score":single_chronology[(metric,window)].values,"metric":metric,"policy":policy,"ma_window":window}))
+        inc_turns=detect_turning_points(inc_score,"metric_score")
+        incumbent_stats=_stability(inc_score,"metric_score")
+        for policy,candidate in metric_policies.items():
+            window = None if policy == "incumbent" else int(policy[2:].split("_")[0])
+            coverage=_coverage(candidate,"metric_score",incumbent_dates); coverage_rows.append({"metric":metric,"policy":policy,"ma_window":window,**coverage})
+            directional={}
+            for horizon in (1,3,6,12):
+                result=directional_agreement(inc_score,candidate,"metric_score",horizon)
+                agreement_rows.append({"metric":metric,"policy":policy,"ma_window":window,**result})
+                directional[horizon]=result["agreement_share"]
+            challenger_turns=detect_turning_points(candidate,"metric_score")
+            matches=match_turning_points(inc_turns,challenger_turns)
+            matches["metric"]=metric; matches["policy"]=policy; matches["ma_window"]=window
+            turn_match_rows.append(matches)
+            delays=matches.loc[matches.matched,"signed_delay_months"]
+            summary={"metric":metric,"policy":policy,"ma_window":window,
+                "incumbent_turning_point_count":int(inc_turns.qualified.sum()) if not inc_turns.empty else 0,
+                "challenger_turning_point_count":int(challenger_turns.qualified.sum()) if not challenger_turns.empty else 0,
+                "matched_turning_point_count":int(matches.matched.sum()),"unmatched_turning_point_count":int((~matches.matched).sum()),
+                "median_signed_delay":delays.median(),"median_absolute_delay":delays.abs().median(),"maximum_absolute_delay":delays.abs().max()}
+            turn_summary_rows.append(summary)
+            stats=_stability(candidate,"metric_score"); dim = native_dims if policy=="incumbent" else pd.DataFrame({"date":single_chronology[(metric,window)].index,"dimension_score":single_chronology[(metric,window)].values})
+            dimstats=_stability(dim,"dimension_score"); merged=inc_score.merge(candidate,on="date",suffixes=("_inc","_chal")).sort_values("date")
+            inc_delta=merged.metric_score_inc.diff(); chal_delta=merged.metric_score_chal.diff(); material=max(.05,float(inc_delta.abs().quantile(.9)))
+            delta_std=stats["standard_deviation"]-incumbent_stats["standard_deviation"]
+            delta_med=stats["median_absolute_mom_change"]-incumbent_stats["median_absolute_mom_change"]
+            incumbent_dimstats=_stability(native_dims,"dimension_score")
+            recent={n: float(pd.Series([direction(a) == direction(b) for a,b in zip(inc_delta.tail(n),chal_delta.tail(n))]).mean()) for n in (3,6,12)}
+            score_rows.append({"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,
+                "metric":metric,"policy":policy,"ma_window":window,"policy_status":"incumbent" if policy=="incumbent" else "challenger",**coverage,
+                "metric_score_standard_deviation":stats["standard_deviation"],"standard_deviation_delta":delta_std,"standard_deviation_percent_delta":_pct(delta_std,incumbent_stats["standard_deviation"]),
+                "median_absolute_monthly_change":stats["median_absolute_mom_change"],"median_change_delta":delta_med,"median_change_percent_delta":_pct(delta_med,incumbent_stats["median_absolute_mom_change"]),
+                "p90_absolute_monthly_change":stats["p90_absolute_mom_change"],"p90_delta":stats["p90_absolute_mom_change"]-incumbent_stats["p90_absolute_mom_change"],
+                "p99_absolute_monthly_change":stats["p99_absolute_mom_change"],"p99_delta":stats["p99_absolute_mom_change"]-incumbent_stats["p99_absolute_mom_change"],
+                "maximum_jump":stats["maximum_absolute_jump"],"maximum_jump_delta":stats["maximum_absolute_jump"]-incumbent_stats["maximum_absolute_jump"],
+                "sign_flip_count":stats["sign_flip_count"],"sign_flip_delta":stats["sign_flip_count"]-incumbent_stats["sign_flip_count"],
+                "sign_flip_rate":stats["sign_flip_rate"],"sign_flip_rate_delta":stats["sign_flip_rate"]-incumbent_stats["sign_flip_rate"],
+                "large_jump_count":stats["large_jump_count"],"large_jump_delta":stats["large_jump_count"]-incumbent_stats["large_jump_count"],
+                **{f"directional_agreement_{h}m":directional[h] for h in (1,3,6,12)},**{f"recent_{n}m_direction_agreement":recent[n] for n in (3,6,12)},**summary,
+                "suppressed_material_incumbent_moves":int(((inc_delta.abs()>material)&(chal_delta.abs()<=1e-12)).sum()),
+                "challenger_only_reversals":int(((inc_delta*chal_delta)<0).sum()),
+                "capital_markets_dimension_standard_deviation":dimstats["standard_deviation"],"capital_markets_dimension_standard_deviation_delta":dimstats["standard_deviation"]-incumbent_dimstats["standard_deviation"],
+                "capital_markets_dimension_median_absolute_change":dimstats["median_absolute_mom_change"],"capital_markets_dimension_median_absolute_change_delta":dimstats["median_absolute_mom_change"]-incumbent_dimstats["median_absolute_mom_change"],
+                "capital_markets_dimension_sign_flip_delta":dimstats["sign_flip_count"]-incumbent_dimstats["sign_flip_count"],
+                "interpretation_status":"human_review_pending","recommendation_state":RECOMMENDATION_STATE,"promotion_state":PROMOTION_STATE})
+    tables["metric_raw_and_ma_chronology"]=pd.concat(raw_rows,ignore_index=True)
+    tables["metric_feature_chronology"]=pd.concat(feature_rows,ignore_index=True)
+    tables["metric_normalized_feature_scores"]=pd.concat(normalized_rows,ignore_index=True)
+    tables["metric_score_chronology"]=pd.concat(metric_score_rows,ignore_index=True)
+    tables["metric_only_dimension_chronology"]=pd.concat(dimension_rows,ignore_index=True)
+    tables["metric_directional_agreement"]=pd.DataFrame(agreement_rows)
+    tables["metric_turning_point_matches"]=pd.concat(turn_match_rows,ignore_index=True)
+    tables["metric_turning_point_summary"]=pd.DataFrame(turn_summary_rows)
+    tables["metric_warmup_coverage"]=pd.DataFrame(coverage_rows)
+    tables["capital_markets_metric_policy_scorecard"]=pd.DataFrame(score_rows)
+    score=tables["capital_markets_metric_policy_scorecard"]
+    tables["capital_markets_metric_policy_decision_matrix"]=score[["metric","policy","standard_deviation_delta","median_change_delta","p90_delta","sign_flip_delta","directional_agreement_1m","directional_agreement_3m","median_signed_delay","maximum_absolute_delay","leading_warmup_rows"]].rename(columns={"metric":"Metric","policy":"Policy","standard_deviation_delta":"Std. dev. Δ","median_change_delta":"Median abs. MoM Δ","p90_delta":"P90 jump Δ","sign_flip_delta":"Sign flips Δ","directional_agreement_1m":"Direction agreement 1m","directional_agreement_3m":"Direction agreement 3m","median_signed_delay":"Median turn delay","maximum_absolute_delay":"Max turn delay","leading_warmup_rows":"Warmup loss"})
+    tables["capital_markets_cross_metric_summary"]=score[["metric","policy","standard_deviation_delta","directional_agreement_1m","median_absolute_delay","leading_warmup_rows","capital_markets_dimension_standard_deviation_delta"]].rename(columns={"standard_deviation_delta":"stability_change","directional_agreement_1m":"responsiveness_preservation","median_absolute_delay":"turning_point_delay","leading_warmup_rows":"warmup_loss","capital_markets_dimension_standard_deviation_delta":"dimension_impact"}).assign(human_decision="pending")
+    tables["combined_metric_policy_selection_template"]=pd.DataFrame({"metric":active,"selected_policy":"pending"})
+
     variance_start=time.perf_counter()
     tables["capital_markets_variance_budget"]=build_variance_budget(tables["feature_to_metric_decomposition"],tables["metric_to_dimension_decomposition"],native_dims,proof.run_id)
     covariance=[]
@@ -749,9 +919,22 @@ def main() -> None:
     evidence=output/"evidence"; figures=output/"figures"; evidence.mkdir(); figures.mkdir()
     figure_start=time.perf_counter(); _svg(figures/"capital_markets_challengers.svg","Capital Markets one-metric challengers",tables["dimension_chronology"],"dimension_score","challenger_id")
     _svg(figures/"capital_markets_family_challengers.svg","Capital Markets family and all-metric controls",tables["family_challenger_dimension_chronology"],"dimension_score","policy_id")
+    for metric in active:
+        _render_metric_page(output,metric,
+            tables["metric_raw_and_ma_chronology"].query("metric == @metric"),
+            tables["metric_feature_chronology"].query("metric == @metric"),
+            tables["metric_normalized_feature_scores"].query("metric == @metric"),
+            tables["metric_score_chronology"].query("metric == @metric"),
+            tables["metric_only_dimension_chronology"].query("metric == @metric"))
     figure_time=finish_stage("figure generation",figure_start)
-    html_start=time.perf_counter(); links="".join(f"<li><a href='evidence/{n}.csv'>{n}</a></li>" for n in TABLES)
-    (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets MA Decomposition</title></head><body><h1>Capital Markets MA Decomposition</h1><p>One native national chronology and seven county-aligned copies. Diagnostic only; human decision pending.</p><img src='figures/capital_markets_challengers.svg'><ul>{links}</ul><p>recommendation_state: none; promotion_state: none</p></body></html>",encoding="utf-8",newline="\n")
+    html_start=time.perf_counter(); secondary=[n for n in TABLES if n not in TABLES[:13]]
+    metric_links="".join(f"<li><a href='metrics/{m}.html'>{m}</a></li>" for m in active)
+    secondary_links="".join(f"<li><a href='evidence/{n}.csv'>{n}</a></li>" for n in secondary)
+    matrix_html=tables["capital_markets_metric_policy_decision_matrix"].to_html(index=False,border=0,classes="decision-matrix")
+    summary_html=tables["capital_markets_cross_metric_summary"].to_html(index=False,border=0)
+    selection_html=tables["combined_metric_policy_selection_template"].to_html(index=False,border=0)
+    css="body{font-family:system-ui;max-width:1400px;margin:auto;padding:24px;color:#172033}table{border-collapse:collapse;font-size:13px}th,td{padding:6px 9px;border-bottom:1px solid #d8dee9;text-align:right}th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}.hero{background:#eef4ff;padding:18px;border-radius:8px}"
+    (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets metric smoothing decisions</title><style>{css}</style></head><body><div class='hero'><h1>Capital Markets metric smoothing decisions</h1><p><strong>Which policy visibly stabilizes each metric, and what responsiveness does it cost?</strong></p><p>Compare incumbent with MA3, MA6, MA9, and MA12. No winner is selected; human decision is pending.</p></div><h2>1. Compact metric-policy decision matrix</h2>{matrix_html}<h2>2. Metric review pages</h2><ul>{metric_links}</ul><h2>3. Cross-metric summary</h2>{summary_html}<h2>4. Combined-selection template</h2>{selection_html}<h2>5. Secondary engineering evidence</h2><p>Variance, covariance, family controls, interactions, regime propagation, and performance diagnostics are retained here as secondary controls.</p><ul>{secondary_links}</ul><p>recommendation_state: none; promotion_state: none</p></body></html>\n",encoding="utf-8",newline="\n")
     html_time=finish_stage("HTML",html_start)
     total_pre_zip=time.perf_counter()-started
     stage_rows.append({"stage":"total before ZIP","runtime_seconds":total_pre_zip})
@@ -760,11 +943,11 @@ def main() -> None:
     (output/"in_progress.json").unlink()
     entries=[]
     for path in sorted(p for p in output.rglob("*") if p.is_file()): entries.append({"path":path.relative_to(output).as_posix(),"sha256":hashlib.sha256(path.read_bytes()).hexdigest()})
-    manifest={**human_status(),"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"native_geography_count":1,"aligned_review_geography_count":7,"challenger_count":30,"cache_build_count":18,"files":entries}
+    manifest={**human_status(),"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,"native_geography_count":1,"aligned_review_geography_count":7,"one_metric_challenger_count":24,"secondary_control_count":12,"cache_build_count":24,"metric_review_page_count":6,"files":entries}
     (output/"manifest.json").write_text(json.dumps(manifest,sort_keys=True,indent=2)+"\n",encoding="utf-8")
     zip_start=time.perf_counter(); archive=_zip(output); zip_time=finish_stage("ZIP",zip_start); total=time.perf_counter()-started
     _progress(f"total runtime: {total:.2f}s")
-    print(f"source run identity: {proof.run_id}\ncontract identity: {CONTRACT_IDENTITY}\nactive metric count: {len(active)}\nchallenger count: 30\nnative geography count: 1\naligned review geography count: 7")
+    print(f"source run identity: {proof.run_id}\ncontract identity: {CONTRACT_IDENTITY}\nactive metric count: {len(active)}\none-metric challenger count: 24\ncache count: 24\nnative geography count: 1\naligned review geography count: 7")
     print(f"input-loading time: {load_time:.3f}s\nregistry-audit time: {registry_time:.3f}s\ncache-construction time: {cache_time:.3f}s\none-metric runtime: {single_time:.3f}s\nvariance-budget runtime: {variance_time:.3f}s\nfigure-generation time: {figure_time:.3f}s\nHTML time: {html_time:.3f}s\nZIP time: {zip_time:.3f}s\ntotal runtime: {total:.3f}s")
     print(f"output directory: {output}\nZIP path: {archive}\nfile count: {len(entries)+1}\nZIP size: {archive.stat().st_size}\nrecommendation state: {RECOMMENDATION_STATE}\npromotion state: {PROMOTION_STATE}")
 
