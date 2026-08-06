@@ -7,7 +7,10 @@ import numpy as np
 import pandas as pd
 
 from regime._03_metric_scorer import score_metrics
-from scripts.build_capital_markets_ma_decomposition import _zip
+from scripts.build_capital_markets_ma_decomposition import (
+    _align_national_dimension_to_counties, _national_capital_metric_universe,
+    _zip,
+)
 from regime.diagnostics.capital_markets_ma import (
     MA_WINDOWS, NATIVE_GEOGRAPHY, REVIEW_GEOGRAPHIES, active_registry,
     build_covariance_budget, build_structural_features, build_variance_budget,
@@ -59,6 +62,30 @@ def main() -> None:
     unmatched=match_turning_points(pd.DataFrame([{"turning_point_date":dates[5],"turning_point_type":"peak","qualified":True}]),pd.DataFrame(columns=["turning_point_date","turning_point_type","qualified"]))
     assert not unmatched.matched.iloc[0] and pd.isna(unmatched.signed_delay_months.iloc[0])
     assert len(REVIEW_GEOGRAPHIES)==7 and NATIVE_GEOGRAPHY not in REVIEW_GEOGRAPHIES
+    # Challenger scoring is native-national first; county copies are created only afterward.
+    aligned_fixture=pd.DataFrame([
+        {"geo_id":geo,"evaluation_date":date,"metric_date":date,
+         "canonical_metric_key":metric,"metric_score":.1}
+        for geo in (NATIVE_GEOGRAPHY,"unrelated_cbsa__cbsa")
+        for date in dates[:2] for metric in expected
+    ])
+    national_universe=_national_capital_metric_universe(aligned_fixture,tuple(sorted(expected)))
+    assert len(national_universe)==12 and national_universe.geo_id.unique().tolist()==[NATIVE_GEOGRAPHY]
+    national_dimension=pd.DataFrame({"geo_id":NATIVE_GEOGRAPHY,"date":dates[:2],
+        "dimension":"capital_markets","dimension_score":[.1,.2]})
+    county_calendar=pd.DataFrame([{"geo_id":geo,"date":date} for geo in REVIEW_GEOGRAPHIES for date in dates[:2]])
+    county_copies=_align_national_dimension_to_counties(national_dimension,county_calendar)
+    assert county_copies.geo_id.nunique()==7 and len(county_copies)==14
+    assert set(county_copies.geo_id)==set(REVIEW_GEOGRAPHIES)
+    assert not county_copies.geo_id.str.contains("cbsa|zip|state|nation").any()
+    runner_source=Path("scripts/build_capital_markets_ma_decomposition.py").read_text()
+    assert 'single_chronology[(metric, window)]' in runner_source
+    assert 'on="metric_date"' in runner_source and 'candidate_metric.rename' in runner_source
+    assert 'score_dimensions(spliced)' in runner_source
+    assert 'score_dimensions(frames["aligned_metric_scores"])' not in runner_source
+    assert 'score_axes(frames["dimension_scores"])' not in runner_source
+    assert 'single {number}/18' in runner_source and 'family {number}' not in runner_source
+    assert '"challenger_count":30' in runner_source and 'len(caches) != 18' in runner_source
     audit=payment_burden_audit().iloc[0]; assert audit.mortgage_rate_source=="mortgage_30y" and not audit.same_operation and not audit.policy_change
     status=human_status(); assert status["recommendation_state"]==status["promotion_state"]=="none"
     with tempfile.TemporaryDirectory() as tmp:
