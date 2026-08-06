@@ -24,3 +24,10 @@ artifacts/regime/**/*.zip
 artifacts/regime/**/*.log
 artifacts/regime/**/diagnostics/
 artifacts/regime/**/tmp/
+
+# Generated review bundles
+artifacts/review/
+
+# macOS metadata
+.DS_Store
+**/.DS_Store

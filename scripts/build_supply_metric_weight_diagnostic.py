@@ -131,8 +131,25 @@ def _validate_source_run(src: Path, frames: dict[str, pd.DataFrame]) -> None:
     if "settled_ma12" not in proof:
         raise ValueError("source run does not prove settled_ma12 production feature policy; stale pre-promotion runs are rejected")
 
-def _month_diff(a, b):
-    return (pd.Timestamp(a).year - pd.Timestamp(b).year) * 12 + (pd.Timestamp(a).month - pd.Timestamp(b).month)
+def _month_diff(
+    later: object,
+    earlier: object,
+) -> int:
+    """Return the signed calendar-month difference as an integer."""
+    later_timestamp = pd.Timestamp(later)
+    earlier_timestamp = pd.Timestamp(earlier)
+
+    if pd.isna(later_timestamp) or pd.isna(earlier_timestamp):
+        raise ValueError(
+            "Turning-point month difference requires non-null dates"
+        )
+
+    return int(
+        (later_timestamp.year - earlier_timestamp.year) * 12
+        + later_timestamp.month
+        - earlier_timestamp.month
+    )
+
 
 def _is_next_month(a, b):
     return _month_diff(a, b) == 1
@@ -200,19 +217,155 @@ def _directional_detail(chron):
     return pd.DataFrame(rows)
 
 def _match_turns(turns):
-    rows=[]
-    inc=turns[turns.policy_id.eq("incumbent")]
-    for (geo,pid), ch in turns[~turns.policy_id.eq("incumbent")].groupby(["geo_id","policy_id"]):
-        used=set(); incg=inc[inc.geo_id.eq(geo)]
-        for ir in incg.sort_values("turning_point_date").itertuples():
-            cand=ch[(ch.turning_point_type.eq(ir.turning_point_type)) & (~ch.index.isin(used))].copy()
-            cand["signed_delay_months"]=cand.turning_point_date.map(lambda d:_month_diff(d, ir.turning_point_date)); cand=cand[cand.signed_delay_months.abs()<=MATCH_WINDOW_MONTHS]
-            if cand.empty: rows.append({"geo_id":geo,"policy_id":pid,"turning_point_type":ir.turning_point_type,"incumbent_date":ir.turning_point_date,"challenger_date":pd.NaT,"signed_delay_months":math.nan,"absolute_delay_months":math.nan,"unmatched_incumbent":True,"unmatched_challenger":False}); continue
-            pick=cand.assign(absd=cand.signed_delay_months.abs()).sort_values(["absd","turning_point_date"]).iloc[0]; used.add(pick.name)
-            rows.append({"geo_id":geo,"policy_id":pid,"turning_point_type":ir.turning_point_type,"incumbent_date":ir.turning_point_date,"challenger_date":pick.turning_point_date,"signed_delay_months":int(pick.signed_delay_months),"absolute_delay_months":int(abs(pick.signed_delay_months)),"unmatched_incumbent":False,"unmatched_challenger":False})
-        for cr in ch[~ch.index.isin(used)].itertuples(): rows.append({"geo_id":geo,"policy_id":pid,"turning_point_type":cr.turning_point_type,"incumbent_date":pd.NaT,"challenger_date":cr.turning_point_date,"signed_delay_months":math.nan,"absolute_delay_months":math.nan,"unmatched_incumbent":False,"unmatched_challenger":True})
-    cols=["geo_id","policy_id","turning_point_type","incumbent_date","challenger_date","signed_delay_months","absolute_delay_months","unmatched_incumbent","unmatched_challenger"]
-    return pd.DataFrame(rows, columns=cols)
+    """Match challenger turning points to incumbent points one-to-one."""
+    columns = [
+        "geo_id",
+        "policy_id",
+        "turning_point_type",
+        "incumbent_date",
+        "challenger_date",
+        "signed_delay_months",
+        "absolute_delay_months",
+        "unmatched_incumbent",
+        "unmatched_challenger",
+    ]
+
+    if turns.empty:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    incumbent = turns[
+        turns["policy_id"].eq("incumbent")
+    ].copy()
+    challengers = turns[
+        ~turns["policy_id"].eq("incumbent")
+    ].copy()
+
+    for (geo_id, policy_id), challenger_group in challengers.groupby(
+        ["geo_id", "policy_id"],
+        sort=True,
+    ):
+        challenger_group = challenger_group.sort_values(
+            ["turning_point_date", "turning_point_type"],
+            kind="mergesort",
+        ).copy()
+
+        incumbent_group = incumbent[
+            incumbent["geo_id"].eq(geo_id)
+        ].sort_values(
+            ["turning_point_date", "turning_point_type"],
+            kind="mergesort",
+        )
+
+        used_challenger_indices = set()
+
+        for incumbent_row in incumbent_group.itertuples():
+            candidates = challenger_group[
+                challenger_group["turning_point_type"].eq(
+                    incumbent_row.turning_point_type
+                )
+                & ~challenger_group.index.isin(
+                    used_challenger_indices
+                )
+            ].copy()
+
+            if not candidates.empty:
+                candidates["signed_delay_months"] = (
+                    candidates["turning_point_date"]
+                    .map(
+                        lambda date: _month_diff(
+                            date,
+                            incumbent_row.turning_point_date,
+                        )
+                    )
+                    .astype("int64")
+                )
+
+                candidates = candidates[
+                    candidates["signed_delay_months"]
+                    .abs()
+                    .le(MATCH_WINDOW_MONTHS)
+                ].copy()
+
+            if candidates.empty:
+                rows.append({
+                    "geo_id": geo_id,
+                    "policy_id": policy_id,
+                    "turning_point_type": (
+                        incumbent_row.turning_point_type
+                    ),
+                    "incumbent_date": (
+                        incumbent_row.turning_point_date
+                    ),
+                    "challenger_date": pd.NaT,
+                    "signed_delay_months": math.nan,
+                    "absolute_delay_months": math.nan,
+                    "unmatched_incumbent": True,
+                    "unmatched_challenger": False,
+                })
+                continue
+
+            candidates["absolute_delay_months"] = (
+                candidates["signed_delay_months"].abs()
+            )
+
+            selected = candidates.sort_values(
+                [
+                    "absolute_delay_months",
+                    "turning_point_date",
+                ],
+                kind="mergesort",
+            ).iloc[0]
+
+            used_challenger_indices.add(selected.name)
+
+            rows.append({
+                "geo_id": geo_id,
+                "policy_id": policy_id,
+                "turning_point_type": (
+                    incumbent_row.turning_point_type
+                ),
+                "incumbent_date": (
+                    incumbent_row.turning_point_date
+                ),
+                "challenger_date": selected[
+                    "turning_point_date"
+                ],
+                "signed_delay_months": int(
+                    selected["signed_delay_months"]
+                ),
+                "absolute_delay_months": int(
+                    selected["absolute_delay_months"]
+                ),
+                "unmatched_incumbent": False,
+                "unmatched_challenger": False,
+            })
+
+        unmatched_challengers = challenger_group[
+            ~challenger_group.index.isin(
+                used_challenger_indices
+            )
+        ]
+
+        for challenger_row in unmatched_challengers.itertuples():
+            rows.append({
+                "geo_id": geo_id,
+                "policy_id": policy_id,
+                "turning_point_type": (
+                    challenger_row.turning_point_type
+                ),
+                "incumbent_date": pd.NaT,
+                "challenger_date": (
+                    challenger_row.turning_point_date
+                ),
+                "signed_delay_months": math.nan,
+                "absolute_delay_months": math.nan,
+                "unmatched_incumbent": False,
+                "unmatched_challenger": True,
+            })
+
+    return pd.DataFrame(rows, columns=columns)
+
 
 def _turn_summary(turns, matches):
     rows=[]
