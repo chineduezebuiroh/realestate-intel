@@ -30,7 +30,8 @@ REVIEW_GEOGRAPHIES = (
     "fairfax_county_va__county", "san_francisco_county_ca__county",
     "los_angeles_county_ca__county",
 )
-MA_WINDOWS = (6, 9, 12)
+MA_WINDOWS = (3, 6, 9, 12)
+SECONDARY_CONTROL_WINDOWS = (6, 9, 12)
 DIRECTION_TOLERANCE = 1e-12
 TURN_PERSISTENCE = 3
 TURN_FIXED_PROMINENCE = .05
@@ -99,7 +100,7 @@ def family_challenger_registry(registry: pd.DataFrame | None = None) -> pd.DataF
     rows = []
     for family_id, affected in (*families.items(), ("all_metrics", active)):
         intervention = "all_metrics" if family_id == "all_metrics" else "metric_family"
-        for window in MA_WINDOWS:
+        for window in SECONDARY_CONTROL_WINDOWS:
             rows.append({"policy_id": f"{family_id}_ma{window}", "intervention_type": intervention,
                 "family_id": family_id, "ma_window": window, "affected_metrics": "|".join(affected),
                 "affected_metric_count": len(affected), "feature_weights_unchanged": True,
@@ -139,7 +140,7 @@ def validate_source_run(source: Path) -> SourceProof:
 
 def structural_policy(window: int) -> dict[str, tuple[str, str]]:
     if window not in MA_WINDOWS:
-        raise ValueError("Only governed MA6, MA9, and MA12 policies are permitted")
+        raise ValueError("Only governed MA3, MA6, MA9, and MA12 policies are permitted")
     return {
         "level": ("ma_level", f"{window}m"),
         "short_term_change": ("ma_pct_change", f"{window}m/lag3m"),
@@ -206,10 +207,20 @@ def direction(value: float, tolerance: float = DIRECTION_TOLERANCE) -> str | Non
 def directional_agreement(incumbent: pd.DataFrame, challenger: pd.DataFrame, value: str, months: int) -> dict:
     a = calendar_delta(incumbent, value, months)[["date", "delta"]].rename(columns={"delta": "incumbent_delta"})
     b = calendar_delta(challenger, value, months)[["date", "delta"]].rename(columns={"delta": "challenger_delta"})
-    joined = a.merge(b, on="date", how="inner").dropna()
+    overlap = a.merge(b, on="date", how="inner")
+    joined = overlap.dropna(subset=["incumbent_delta", "challenger_delta"])
     agreements = joined.incumbent_delta.map(direction).eq(joined.challenger_delta.map(direction))
-    return {"horizon_months": months, "valid_comparisons": len(joined),
-        "agreement_share": float(agreements.mean()) if len(joined) else np.nan}
+    valid = len(joined)
+    if len(overlap) and not valid:
+        raise ValueError(
+            f"Non-empty overlapping chronology produced zero valid {months}-month directional comparisons"
+        )
+    agreement_count = int(agreements.sum())
+    return {"horizon_months": months, "numerical_tolerance": DIRECTION_TOLERANCE,
+        "overlap_count": len(overlap), "valid_comparisons": valid,
+        "excluded_comparisons": len(overlap) - valid, "agreement_count": agreement_count,
+        "disagreement_count": valid - agreement_count,
+        "agreement_share": float(agreements.mean()) if valid else np.nan}
 
 
 def detect_turning_points(frame: pd.DataFrame, value: str) -> pd.DataFrame:

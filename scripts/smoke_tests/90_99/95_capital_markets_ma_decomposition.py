@@ -34,6 +34,7 @@ def main() -> None:
     families=governed_families(registry)
     assert families=={"mortgage_family":("mortgage_30y","mortgage_15y"),"policy_yield_family":("fedfunds","treasury_10y"),"spread_family":("spread_2y10y","spread_10y_fedfunds")}
     assert len({m for members in families.values() for m in members})==6
+    assert MA_WINDOWS == (3,6,9,12)
     family_policies=family_challenger_registry(registry); assert len(family_policies)==12 and set(family_policies.ma_window)=={6,9,12}
     assert registry.groupby("canonical_metric_key").feature_weight.apply(tuple).map(sum).eq(1).all()
     for window in MA_WINDOWS:
@@ -133,8 +134,16 @@ def main() -> None:
     assert 'score_dimensions(spliced)' in runner_source
     assert 'score_dimensions(frames["aligned_metric_scores"])' not in runner_source
     assert 'score_axes(frames["dimension_scores"])' not in runner_source
-    assert 'single {number}/18' in runner_source and 'family {number}' not in runner_source
-    assert '"challenger_count":30' in runner_source and 'len(caches) != 18' in runner_source
+    assert 'single {number}/24' in runner_source and 'family {number}' not in runner_source
+    assert '"one_metric_challenger_count":24' in runner_source and 'len(caches) != 24' in runner_source
+    required=("capital_markets_metric_policy_scorecard","capital_markets_metric_policy_decision_matrix",
+        "capital_markets_cross_metric_summary","combined_metric_policy_selection_template",
+        "metric_raw_and_ma_chronology","metric_feature_chronology","metric_normalized_feature_scores",
+        "metric_score_chronology","metric_only_dimension_chronology","metric_directional_agreement",
+        "metric_turning_point_matches","metric_turning_point_summary","metric_warmup_coverage")
+    assert all(name in runner_source for name in required)
+    assert runner_source.index("Compact metric-policy decision matrix") < runner_source.index("Secondary engineering evidence")
+    assert 'human_decision="pending"' in runner_source and 'selected_policy":"pending"' in runner_source
     audit=payment_burden_audit().iloc[0]; assert audit.mortgage_rate_source=="mortgage_30y" and not audit.same_operation and not audit.policy_change
     status=human_status(); assert status["recommendation_state"]==status["promotion_state"]=="none"
     with tempfile.TemporaryDirectory() as tmp:
