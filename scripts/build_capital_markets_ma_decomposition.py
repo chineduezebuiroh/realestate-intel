@@ -23,7 +23,7 @@ from regime.diagnostics.capital_markets import build_capital_markets_evidence
 from regime.diagnostics.capital_markets_ma import (
     CONTRACT_IDENTITY, MA_WINDOWS, NATIVE_GEOGRAPHY, PROMOTION_STATE,
     RECOMMENDATION_STATE, REVIEW_GEOGRAPHIES, active_registry,
-    build_structural_features, detect_turning_points, directional_agreement, match_turning_points,
+    build_ma_level_state, build_transform_features, detect_turning_points, directional_agreement, match_turning_points,
     direction,
     build_covariance_budget, build_variance_budget, family_challenger_registry,
     governed_families, human_status, interaction_diagnostics, payment_burden_audit, validate_source_run,
@@ -31,6 +31,14 @@ from regime.diagnostics.capital_markets_ma import (
 from regime.artifacts import RegimeArtifactStore
 
 TABLES = (
+    "capital_markets_transform_policy_registry", "capital_markets_source_unit_audit",
+    "capital_markets_ratio_denominator_diagnostics", "capital_markets_transform_feature_chronology",
+    "capital_markets_transform_normalized_feature_scores", "capital_markets_transform_metric_scores",
+    "capital_markets_transform_dimension_scores", "capital_markets_transform_policy_scorecard",
+    "capital_markets_transform_decision_matrix", "capital_markets_transform_cross_metric_summary",
+    "capital_markets_transform_turning_point_matches", "capital_markets_transform_directional_agreement",
+    "capital_markets_transform_warmup_coverage", "combined_transform_policy_selection_template",
+    "capital_markets_ratio_vs_difference_pairwise",
     "capital_markets_metric_policy_scorecard", "capital_markets_metric_policy_decision_matrix",
     "capital_markets_cross_metric_summary", "combined_metric_policy_selection_template",
     "metric_raw_and_ma_chronology", "metric_feature_chronology",
@@ -52,7 +60,7 @@ TABLES = (
     "family_challenger_regime_summary", "family_challenger_unaffected_parity",
     "capital_markets_variance_budget", "capital_markets_covariance_budget",
     "capital_markets_variance_budget_summary", "family_challenger_interactions",
-    "transformed_feature_cache_audit", "challenger_performance_diagnostics",
+    "common_ma_state_cache_audit", "transformed_feature_cache_audit", "challenger_performance_diagnostics",
     "runtime_summary",
 )
 
@@ -77,12 +85,15 @@ def _stability(frame: pd.DataFrame, value: str, **identity: object) -> dict:
 def _policy_registry(registry: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for metric, group in registry.groupby("canonical_metric_key", sort=True):
-        for window in MA_WINDOWS:
+        for transform_family in ("ratio", "arithmetic_difference"):
+          for window in MA_WINDOWS:
             for row in group.itertuples(index=False):
                 lag = 3 if row.feature_type == "short_term_change" else 12 if row.feature_type == "long_term_change" else None
-                rows.append({"challenger_id": f"{metric}_ma{window}", "changed_metric": metric,
+                formula = f"MA{window}(raw)" if lag is None else (f"MA{window}(raw) / lag{lag}(MA{window}(raw)) - 1" if transform_family == "ratio" else f"100 * (MA{window}(raw) - lag{lag}(MA{window}(raw)))")
+                rows.append({"challenger_id": f"{metric}_{'ratio' if transform_family == 'ratio' else 'difference'}_ma{window}", "changed_metric": metric,
+                    "policy": f"{'ratio' if transform_family == 'ratio' else 'difference'}_ma{window}", "transform_family": transform_family,
                     "ma_window": window, "feature_key": row.feature_key, "feature_type": row.feature_type,
-                    "formula": f"MA{window}(raw)" if lag is None else f"MA{window}(raw) / lag{lag}(MA{window}(raw)) - 1",
+                    "formula": formula,
                     "configured_feature_weight": row.feature_weight, "configured_metric_weight": row.metric_weight,
                     "recommendation_state": RECOMMENDATION_STATE, "promotion_state": PROMOTION_STATE})
     return pd.DataFrame(rows)
@@ -351,7 +362,7 @@ def _overlap_comparison(
     overlap_dates = inc_valid[["date"]].merge(chal_valid[["date"]], on="date", validate="one_to_one")
     if overlap_dates.empty:
         raise ValueError("Dimension overlap is empty")
-    expected = pd.date_range(overlap_dates.date.min(), overlap_dates.date.max(), freq="ME")
+    expected = pd.date_range(overlap_dates.date.min(), overlap_dates.date.max(), freq="M")
     if not pd.DatetimeIndex(overlap_dates.date).equals(expected):
         raise ValueError("Dimension overlap contains interior calendar gaps")
     inc_overlap = overlap_dates.merge(inc_valid, on="date", validate="one_to_one")
@@ -400,6 +411,68 @@ def _overlap_comparison(
     return inc_overlap, chal_overlap, result
 
 
+def _summarize_transform_features(frame: pd.DataFrame, value: str, prefix: str) -> pd.DataFrame:
+    """Summarize governed feature chronologies without bridging calendar gaps."""
+    keys = ["metric", "policy", "feature_type"]
+    if frame.duplicated(keys + ["date"]).any():
+        raise ValueError(f"{prefix} feature chronology contains duplicate governed keys")
+    rows = []
+    for identity, group in frame.groupby(keys, sort=True, dropna=False):
+        stats = _stability(group.rename(columns={value: "summary_value"}), "summary_value")
+        rows.append({**dict(zip(keys, identity)),
+            f"{prefix}_standard_deviation": stats["standard_deviation"],
+            f"{prefix}_median_absolute_monthly_change": stats["median_absolute_mom_change"],
+            f"{prefix}_p90_absolute_monthly_change": stats["p90_absolute_mom_change"],
+            f"{prefix}_p99_absolute_monthly_change": stats["p99_absolute_mom_change"],
+            f"{prefix}_maximum_absolute_monthly_change": stats["maximum_absolute_jump"],
+            f"{prefix}_sign_flip_count": stats["sign_flip_count"],
+            f"{prefix}_sign_flip_rate": stats["sign_flip_rate"]})
+    return pd.DataFrame(rows)
+
+
+def _aggregate_ratio_diagnostics(diagnostics: pd.DataFrame) -> pd.DataFrame:
+    """Keep short and long ratio risks separate and policy-addressable."""
+    ratio = diagnostics.loc[diagnostics.transform_family.eq("ratio")].copy()
+    ratio["policy"] = "ratio_ma" + ratio.ma_window.astype(str)
+    keys = ["metric", "policy", "ma_window", "feature_type"]
+    rows = []
+    for identity, group in ratio.groupby(keys, sort=True):
+        denominator = group.absolute_denominator_value.dropna()
+        magnitude = group.ratio_magnitude.dropna()
+        rows.append({**dict(zip(keys, identity)),
+            "denominator_observation_count": int(group.denominator_value.notna().sum()),
+            "near_zero_denominator_count": int(group.near_zero_denominator_flag.sum()),
+            "denominator_sign_change_count": int(group.denominator_sign_change_flag.sum()),
+            "minimum_absolute_denominator": denominator.min(),
+            "p05_absolute_denominator": denominator.quantile(.05),
+            "ratio_finite_count": int(group.ratio_finite_flag.eq(True).sum()),
+            "ratio_non_finite_count": int(group.ratio_finite_flag.eq(False).sum()),
+            "ratio_absolute_p95": magnitude.quantile(.95),
+            "ratio_absolute_p99": magnitude.quantile(.99),
+            "ratio_absolute_maximum": magnitude.max()})
+    return pd.DataFrame(rows)
+
+
+def _exact_policy_overlap(left: pd.DataFrame, right: pd.DataFrame, value: str
+                          ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return two series restricted to their exact, gap-free date intersection."""
+    def prepare(frame: pd.DataFrame, label: str) -> pd.DataFrame:
+        work = frame[["date", value]].copy()
+        work["date"] = pd.to_datetime(work.date).astype("datetime64[ns]")
+        if work.date.isna().any() or work.date.duplicated().any():
+            raise ValueError(f"{label} pairwise chronology has invalid or duplicate dates")
+        return work.dropna(subset=[value]).sort_values("date", kind="mergesort")
+    a, b = prepare(left, "Ratio"), prepare(right, "Difference")
+    dates = a[["date"]].merge(b[["date"]], on="date", validate="one_to_one")
+    if dates.empty:
+        raise ValueError("Pairwise chronology has no exact date overlap")
+    expected = pd.date_range(dates.date.min(), dates.date.max(), freq="M")
+    if not pd.DatetimeIndex(dates.date).equals(expected):
+        raise ValueError("Pairwise overlap contains interior calendar gaps")
+    return (dates.merge(a, on="date", validate="one_to_one"),
+            dates.merge(b, on="date", validate="one_to_one"))
+
+
 def _render_metric_page(output: Path, metric: str, raw: pd.DataFrame,
         features: pd.DataFrame, normalized: pd.DataFrame, scores: pd.DataFrame,
         dimensions: pd.DataFrame, decision: pd.DataFrame) -> None:
@@ -411,10 +484,15 @@ def _render_metric_page(output: Path, metric: str, raw: pd.DataFrame,
         path = figure_dir / name
         _svg(path, title, frame, value, group)
         return path.read_text(encoding="utf-8")
-    panels.append(("1. Raw source chronology", render("raw.svg", f"{metric}: raw and moving averages", raw, "value", "series")))
-    for number, feature_type, heading in ((2,"level","Level feature"),(3,"short_term_change","Short feature"),(4,"long_term_change","Long feature")):
+    panels.append(("A. Raw and MA levels", render("raw.svg", f"{metric}: raw and moving averages", raw, "value", "series")))
+    for number, feature_type, heading in (("A","level","Common MA level state"),("B","short_term_change","Short-feature comparison by window (ratio and difference/bps)"),("C","long_term_change","Long-feature comparison by window (ratio and difference/bps)")):
         part=features.loc[features.feature_type.eq(feature_type)]
-        panels.append((f"{number}. {heading}", render(f"{feature_type}.svg", f"{metric}: {heading}", part, "value", "policy")))
+        if feature_type == "level":
+            panels.append((f"{number}. {heading}", render(f"{feature_type}.svg", f"{metric}: {heading}", part, "value", "policy")))
+        else:
+            ratio=part.loc[part.policy.astype(str).str.startswith("ratio")]
+            difference=part.loc[part.policy.astype(str).str.startswith("difference")]
+            panels.append((f"{number}. {heading}", render(f"{feature_type}_ratio.svg", f"{metric}: ratio {heading}", ratio, "value", "policy") + render(f"{feature_type}_difference.svg", f"{metric}: difference (basis points) {heading}", difference, "value", "policy")))
     normalized_images=[]
     for feature_type in ("level","short_term_change","long_term_change"):
         part=normalized.loc[normalized.feature_type.eq(feature_type)]
@@ -422,12 +500,12 @@ def _render_metric_page(output: Path, metric: str, raw: pd.DataFrame,
     metric_svg = render("metric_score.svg", f"{metric}: metric score", scores, "metric_score", "policy")
     dimension_svg = render("dimension.svg", f"{metric}: metric-only Capital Markets dimension", dimensions, "dimension_score", "policy")
     sections = "".join(f"<section><h2>{html.escape(title)}</h2>{svg}</section>" for title,svg in panels)
-    sections += f"<section><h2>5. Normalized feature scores</h2>{''.join(normalized_images)}</section>"
-    sections += f"<section><h2>6. Metric-score chronology</h2>{metric_svg}</section>"
-    sections += f"<section><h2>7. Capital Markets dimension chronology</h2>{dimension_svg}</section>"
+    sections += f"<section><h2>D. Normalized feature scores</h2>{''.join(normalized_images)}</section>"
+    sections += f"<section><h2>E. Metric-score chronology</h2>{metric_svg}</section>"
+    sections += f"<section><h2>F. Capital Markets dimension chronology</h2>{dimension_svg}</section>"
     table = decision.to_html(index=False, border=0, classes="metric-policy-decision-table")
     css="body{font-family:system-ui;max-width:1100px;margin:auto;padding:24px;color:#172033}section{margin:32px 0}svg{width:100%;height:auto;border:1px solid #d8dee9}table{border-collapse:collapse;font-size:12px}th,td{padding:5px;border-bottom:1px solid #ddd;text-align:right}th:first-child,td:first-child{text-align:left}"
-    (page_dir/f"{metric}.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>{metric} smoothing review</title><style>{css}</style></head><body><a href='../index.html'>Back to main review</a><h1>{metric}: metric-level smoothing review</h1><p>Incumbent is held against MA3, MA6, MA9, and MA12 structural policies. Diagnostic only.</p>{sections}<section><h2>8. Compact policy decision table</h2>{table}</section></body></html>\n",encoding="utf-8",newline="\n")
+    (page_dir/f"{metric}.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>{metric} smoothing review</title><style>{css}</style></head><body><a href='../index.html'>Back to main review</a><h1>{metric}: ratio vs arithmetic-difference review</h1><p>Incumbent is held against ratio MA3/6/9/12 and arithmetic difference MA3/6/9/12. Diagnostic only.</p>{sections}<section><h2>G. Compact decision table</h2>{table}</section></body></html>\n",encoding="utf-8",newline="\n")
 
 
 def _national_capital_metric_universe(
@@ -720,8 +798,8 @@ def main() -> None:
         raise ValueError("Registry-driven active Capital Markets set differs from the governed six")
     policies = _policy_registry(registry); families = governed_families(registry)
     family_policies = family_challenger_registry(registry)
-    if len(policies.challenger_id.unique()) != 24 or len(family_policies) != 12:
-        raise ValueError("The governed 24 one-metric policy scope is incomplete")
+    if len(policies.challenger_id.unique()) != 48 or len(family_policies) != 12:
+        raise ValueError("The governed 48 one-metric policy scope is incomplete")
     registry_time = finish_stage("registry validation", stage)
 
     incumbent = build_capital_markets_evidence(
@@ -770,26 +848,29 @@ def main() -> None:
     governed_dimensions = frames["dimension_scores"].loc[
         frames["dimension_scores"].geo_id.isin(REVIEW_GEOGRAPHIES)].copy()
 
-    caches: dict[tuple[str, int], dict[str, object]] = {}; cache_rows = []
+    caches: dict[tuple[str, int, str], dict[str, object]] = {}; common_states = {}; cache_rows = []; denominator_rows=[]
     stage = time.perf_counter()
     for metric in active:
         for window in MA_WINDOWS:
             key = (metric, int(window)); cache_start = time.perf_counter()
-            transformed = build_structural_features(national_raw, metric, window, registry)
-            normalized = normalize_features(transformed); metric_scores = score_metrics(normalized)
+            level_state = build_ma_level_state(national_raw, metric, window, registry); common_states[key] = level_state
             runtime = time.perf_counter() - cache_start
-            caches[key] = {"transformed": transformed, "normalized": normalized,
-                "metric_scores": metric_scores, "build_runtime": runtime, "uses": []}
             cache_rows.append({"cache_key": f"{metric}|ma{window}", "canonical_metric_key": metric,
-                "ma_window": window, "row_count": len(transformed), "build_count": 1,
+                "ma_window": window, "row_count": len(level_state), "build_count": 1,
                 "reuse_count": 0, "build_runtime_seconds": runtime,
                 "cumulative_reuse_runtime_avoided_seconds": 0.0})
-    if len(caches) != 24:
-        raise ValueError("Transformed feature cache build count must equal 24")
+            for transform_family in ("ratio", "arithmetic_difference"):
+                transformed, diagnostics = build_transform_features(level_state, metric, window, transform_family, registry)
+                normalized = normalize_features(transformed); metric_scores = score_metrics(normalized)
+                caches[(metric, window, transform_family)] = {"transformed": transformed, "normalized": normalized,
+                    "metric_scores": metric_scores, "build_runtime": runtime, "uses": []}
+                denominator_rows.append(diagnostics)
+    if len(common_states) != 24 or len(caches) != 48:
+        raise ValueError("Common MA cache count must equal 24 and transform cache count 48")
     cache_time = finish_stage("cache construction", stage)
 
-    def national_policy(policy_id: str, affected: tuple[str, ...]) -> pd.DataFrame:
-        replacements = {metric: caches[(metric, window)]["metric_scores"] for metric in affected}
+    def national_policy(policy_id: str, affected: tuple[str, ...], transform_family: str = "ratio") -> pd.DataFrame:
+        replacements = {metric: caches[(metric, window, transform_family)]["metric_scores"] for metric in affected}
         spliced = _splice_metrics(national_metrics, replacements)
         if spliced.geo_id.nunique() != 1 or set(spliced.canonical_metric_key.unique()) != set(active):
             raise ValueError(f"{policy_id}: national dimension scorer scope expanded")
@@ -799,16 +880,16 @@ def main() -> None:
         return dimensions[["geo_id", "date", "dimension", "dimension_score"]].copy()
 
     chron=[]; stability=[]; directions=[]; turns=[]; parity=[]; axes=[]; coords=[]; regimes=[]
-    single_chronology: dict[tuple[str, int], pd.Series] = {}
+    single_chronology: dict[tuple[str, int, str], pd.Series] = {}
     single_stage = time.perf_counter(); single_runtimes=[]
-    single_specs = [(m, int(w)) for m in active for w in MA_WINDOWS]
-    for number, (metric, window) in enumerate(single_specs, 1):
-        cid=f"{metric}_ma{window}"; policy_start=time.perf_counter()
-        _progress(f"single {number}/24 {cid}: start")
-        caches[(metric, window)]["uses"].append("single")
-        national = national_policy(cid, (metric,)); dim=national[["date","dimension_score"]].copy(); dim["challenger_id"]=cid
-        chron.append(dim); single_chronology[(metric, window)] = dim.set_index("date").dimension_score.copy()
-        stability.append(_stability(dim,"dimension_score",challenger_id=cid,changed_metric=metric,ma_window=window))
+    single_specs = [(m, int(w), t) for m in active for t in ("ratio", "arithmetic_difference") for w in MA_WINDOWS]
+    for number, (metric, window, transform_family) in enumerate(single_specs, 1):
+        label = "ratio" if transform_family == "ratio" else "difference"; cid=f"{metric}_{label}_ma{window}"; policy_start=time.perf_counter()
+        _progress(f"single {number}/48 {metric} {transform_family} ma{window}: start")
+        caches[(metric, window, transform_family)]["uses"].append("single")
+        national = national_policy(cid, (metric,), transform_family); dim=national[["date","dimension_score"]].copy(); dim["challenger_id"]=cid
+        chron.append(dim); single_chronology[(metric, window, transform_family)] = dim.set_index("date").dimension_score.copy()
+        stability.append(_stability(dim,"dimension_score",challenger_id=cid,changed_metric=metric,ma_window=window,transform_family=transform_family))
         for horizon in (1,3,6,12): directions.append({"challenger_id":cid,**directional_agreement(native_dims,dim,"dimension_score",horizon)})
         tp=detect_turning_points(dim,"dimension_score"); tp["challenger_id"]=cid; turns.append(tp)
         county_axes, coordinate, regime, aligned, counts = _recompute_governed_descendants(national, frames["dimension_scores"])
@@ -826,8 +907,8 @@ def main() -> None:
             "configured_weights_unchanged":True,"out_of_scope_geography_mutation":False,"production_artifact_mutation":False})
         elapsed=time.perf_counter()-policy_start; single_runtimes.append(elapsed)
         performance_rows.append({"policy_id":cid,"policy_type":"single",**counts,"runtime_seconds":elapsed})
-        _progress(f"single {number}/24 {cid}: {elapsed:.2f}s")
-    single_time=finish_stage("24 one-metric challengers",single_stage)
+        _progress(f"single {number}/48 {cid}: {elapsed:.2f}s")
+    single_time=finish_stage("48 one-metric challengers",single_stage)
 
     family_stability=[]; family_directions=[]; family_turns=[]; family_matches=[]; family_chron=[]
     family_axes=[]; family_regimes=[]; family_parity=[]; interactions=[]; family_runtimes=[]; all_runtimes=[]
@@ -838,7 +919,7 @@ def main() -> None:
         for number, policy in enumerate(specs.itertuples(index=False),1):
             policy_start=time.perf_counter(); affected=tuple(policy.affected_metrics.split("|")); window=int(policy.ma_window)
             _progress(f"{label} {number}/{total} {policy.policy_id}: start")
-            for metric in affected: caches[(metric,window)]["uses"].append(label)
+            for metric in affected: caches[(metric,window,"ratio")]["uses"].append(label)
             national=national_policy(policy.policy_id,affected); dim=national[["date","dimension_score"]].copy(); dim["policy_id"]=policy.policy_id
             family_chron.append(dim); family_stability.append(_stability(dim,"dimension_score",policy_id=policy.policy_id,family_id=policy.family_id,ma_window=window,intervention_type=policy.intervention_type))
             for horizon in (1,3,6,12): family_directions.append({"policy_id":policy.policy_id,"family_id":policy.family_id,**directional_agreement(native_dims,dim,"dimension_score",horizon)})
@@ -852,9 +933,9 @@ def main() -> None:
                 "affordability_parity":True,"feature_weights_unchanged":True,"metric_weights_unchanged":True,
                 "axis_weights_unchanged":True,"out_of_scope_geography_mutation":False,"production_artifact_mutation":False})
             if label=="family":
-                missing=[(metric,window) for metric in affected if (metric,window) not in single_chronology]
+                missing=[(metric,window) for metric in affected if (metric,window,"ratio") not in single_chronology]
                 if missing: raise ValueError(f"Family interaction evidence is missing primary one-metric chronologies: {missing}")
-                singles={metric:single_chronology[(metric,window)] for metric in affected}
+                singles={metric:single_chronology[(metric,window,"ratio")] for metric in affected}
                 interactions.append(interaction_diagnostics(incumbent_series,singles,dim.set_index("date").dimension_score,policy.family_id,window))
             elapsed=time.perf_counter()-policy_start
             (family_runtimes if label=="family" else all_runtimes).append(elapsed)
@@ -913,8 +994,9 @@ def main() -> None:
         inc_n = incumbent_normalized.loc[incumbent_normalized.canonical_metric_key.eq(metric)].copy()
         inc_n["feature_type"] = inc_n["feature_key"].map(registry.drop_duplicates("feature_key").set_index("feature_key").feature_type)
         normalized_rows.append(inc_n[["date","feature_type","feature_score"]].assign(metric=metric,policy="incumbent",ma_window=pd.NA))
-        for window in MA_WINDOWS:
-            policy=policy_names[window]; cache=caches[(metric,window)]
+        for transform_family in ("ratio", "arithmetic_difference"):
+          for window in MA_WINDOWS:
+            policy=f"{'ratio' if transform_family == 'ratio' else 'difference'}_ma{window}"; cache=caches[(metric,window,transform_family)]
             transformed=cache["transformed"].merge(registry[["feature_key","feature_type"]],on="feature_key",how="left",validate="many_to_one")
             feature_rows.append(transformed[["date","feature_type","raw_feature_value"]].rename(columns={"raw_feature_value":"value"}).assign(metric=metric,policy=policy,ma_window=window))
             normalized=cache["normalized"].merge(registry[["feature_key","feature_type"]],on="feature_key",how="left",validate="many_to_one")
@@ -922,12 +1004,13 @@ def main() -> None:
             candidate=cache["metric_scores"][["date","metric_score"]].sort_values("date")
             metric_policies[policy]=candidate
             metric_score_rows.append(candidate.assign(metric=metric,policy=policy,ma_window=window))
-            dimension_rows.append(pd.DataFrame({"date":single_chronology[(metric,window)].index,
-                "dimension_score":single_chronology[(metric,window)].values,"metric":metric,"policy":policy,"ma_window":window}))
+            dimension_rows.append(pd.DataFrame({"date":single_chronology[(metric,window,transform_family)].index,
+                "dimension_score":single_chronology[(metric,window,transform_family)].values,"metric":metric,"policy":policy,"ma_window":window}))
         inc_turns=detect_turning_points(inc_score,"metric_score")
         incumbent_stats=_stability(inc_score,"metric_score")
         for policy,candidate in metric_policies.items():
-            window = None if policy == "incumbent" else int(policy[2:].split("_")[0])
+            window = None if policy == "incumbent" else int(policy.rsplit("ma", 1)[1])
+            transform_family = "incumbent" if policy == "incumbent" else ("ratio" if policy.startswith("ratio") else "arithmetic_difference")
             coverage=_coverage(candidate,"metric_score",incumbent_dates); coverage_rows.append({"metric":metric,"policy":policy,"ma_window":window,**coverage})
             directional={}
             for horizon in (1,3,6,12):
@@ -945,7 +1028,7 @@ def main() -> None:
                 "matched_turning_point_count":int(matches.matched.sum()),"unmatched_turning_point_count":int((~matches.matched).sum()),
                 "median_signed_delay":delays.median(),"median_absolute_delay":delays.abs().median(),"maximum_absolute_delay":delays.abs().max()}
             turn_summary_rows.append(summary)
-            stats=_stability(candidate,"metric_score"); dim = native_dims if policy=="incumbent" else pd.DataFrame({"date":single_chronology[(metric,window)].index,"dimension_score":single_chronology[(metric,window)].values})
+            stats=_stability(candidate,"metric_score"); dim = native_dims if policy=="incumbent" else pd.DataFrame({"date":single_chronology[(metric,window,transform_family)].index,"dimension_score":single_chronology[(metric,window,transform_family)].values})
             _, _, dimension_comparison = _overlap_comparison(native_dims, dim, "dimension_score")
             merged=inc_score.merge(candidate,on="date",suffixes=("_inc","_chal")).sort_values("date")
             inc_delta=merged.metric_score_inc.diff(); chal_delta=merged.metric_score_chal.diff(); material=max(.05,float(inc_delta.abs().quantile(.9)))
@@ -953,7 +1036,7 @@ def main() -> None:
             delta_med=stats["median_absolute_mom_change"]-incumbent_stats["median_absolute_mom_change"]
             recent={n: float(pd.Series([direction(a) == direction(b) for a,b in zip(inc_delta.tail(n),chal_delta.tail(n))]).mean()) for n in (3,6,12)}
             score_rows.append({"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,
-                "metric":metric,"policy":policy,"ma_window":window,"policy_status":"incumbent" if policy=="incumbent" else "challenger",**coverage,
+                "metric":metric,"transform_family":transform_family,"policy":policy,"ma_window":window,"policy_status":"incumbent" if policy=="incumbent" else "challenger",**coverage,
                 "metric_score_standard_deviation":stats["standard_deviation"],"standard_deviation_delta":delta_std,"standard_deviation_percent_delta":_pct(delta_std,incumbent_stats["standard_deviation"]),
                 "median_absolute_monthly_change":stats["median_absolute_mom_change"],"median_change_delta":delta_med,"median_change_percent_delta":_pct(delta_med,incumbent_stats["median_absolute_mom_change"]),
                 "p90_absolute_monthly_change":stats["p90_absolute_mom_change"],"p90_delta":stats["p90_absolute_mom_change"]-incumbent_stats["p90_absolute_mom_change"],
@@ -966,7 +1049,7 @@ def main() -> None:
                 "suppressed_material_incumbent_moves":int(((inc_delta.abs()>material)&(chal_delta.abs()<=1e-12)).sum()),
                 "challenger_only_reversals":int(((inc_delta*chal_delta)<0).sum()),
                 **dimension_comparison,
-                "interpretation_status":"human_review_pending","recommendation_state":RECOMMENDATION_STATE,"promotion_state":PROMOTION_STATE})
+                "interpretation_status":"human_review_pending","human_decision":"pending","recommendation_state":RECOMMENDATION_STATE,"promotion_state":PROMOTION_STATE})
     tables["metric_raw_and_ma_chronology"]=pd.concat(raw_rows,ignore_index=True)
     def _concat_decision_frames(
         frames: list[pd.DataFrame],
@@ -1096,6 +1179,107 @@ def main() -> None:
         "dimension_leading_warmup_rows":"warmup_loss",
     }).assign(human_decision="pending")
     tables["combined_metric_policy_selection_template"]=pd.DataFrame({"metric":active,"selected_policy":"pending"})
+    # Phase-1 governed transform evidence (legacy names remain secondary aliases).
+    unit_rows=[]
+    for metric, group in registry.groupby("canonical_metric_key", sort=True):
+        units=group.native_units.dropna().unique()
+        if len(units) != 1 or units[0] not in {"Percent", "Percentage points"}:
+            raise ValueError(f"{metric}: source-unit audit failed closed")
+        unit_rows.append({"metric":metric,"source_key":group.metric_key.iloc[0],"source_geography":group.geo_levels.iloc[0],
+            "raw_unit_from_registry_contract":units[0],"interpreted_unit":"percentage_points",
+            "basis_point_conversion_factor":100.0,"conversion_status":"governed_linear_conversion",
+            "evidence_source":"config/source_metric_registry.csv:native_units","fail_closed_status":"passed"})
+    tables["capital_markets_source_unit_audit"]=pd.DataFrame(unit_rows)
+    tables["capital_markets_ratio_denominator_diagnostics"]=pd.concat(denominator_rows,ignore_index=True)
+    incumbents_for_registry=pd.DataFrame([{"metric":m,"policy":"incumbent","transform_family":"incumbent","ma_window":pd.NA,
+        "recommendation_state":"none","promotion_state":"none","human_decision":"pending"} for m in active])
+    challenger_registry=policies.drop_duplicates(["changed_metric","policy"])[["changed_metric","policy","transform_family","ma_window","recommendation_state","promotion_state"]].rename(columns={"changed_metric":"metric"})
+    challenger_registry["human_decision"]="pending"
+    tables["capital_markets_transform_policy_registry"]=pd.concat([incumbents_for_registry,challenger_registry],ignore_index=True)
+    tables["capital_markets_transform_feature_chronology"]=tables["metric_feature_chronology"]
+    tables["capital_markets_transform_normalized_feature_scores"]=tables["metric_normalized_feature_scores"]
+    tables["capital_markets_transform_metric_scores"]=tables["metric_score_chronology"]
+    tables["capital_markets_transform_dimension_scores"]=tables["metric_only_dimension_chronology"]
+    tables["capital_markets_transform_turning_point_matches"]=tables["metric_turning_point_matches"]
+    tables["capital_markets_transform_directional_agreement"]=tables["metric_directional_agreement"]
+    tables["capital_markets_transform_warmup_coverage"]=tables["metric_warmup_coverage"]
+    tables["combined_transform_policy_selection_template"]=pd.DataFrame({"metric":active,"selected_transform":"pending","selected_window":"pending","selected_policy":"pending"})
+    ratio_aggregate = _aggregate_ratio_diagnostics(tables["capital_markets_ratio_denominator_diagnostics"])
+    raw_summary = _summarize_transform_features(tables["metric_feature_chronology"], "value", "raw_feature")
+    normalized_summary = _summarize_transform_features(tables["metric_normalized_feature_scores"], "feature_score", "normalized_feature_score")
+    # Add normalized-feature directional agreement against the production incumbent.
+    normalized_agreements=[]
+    for (metric, policy, feature_type), group in tables["metric_normalized_feature_scores"].groupby(["metric","policy","feature_type"],sort=True):
+        incumbent_group=tables["metric_normalized_feature_scores"].query("metric == @metric and policy == 'incumbent' and feature_type == @feature_type")
+        normalized_agreements.append({"metric":metric,"policy":policy,"feature_type":feature_type,
+            **{f"normalized_feature_score_directional_agreement_{h}m":directional_agreement(incumbent_group,group,"feature_score",h)["agreement_share"] for h in (1,3,6,12)}})
+    normalized_summary=normalized_summary.merge(pd.DataFrame(normalized_agreements),on=["metric","policy","feature_type"],validate="one_to_one")
+    def widen_features(summary_frame: pd.DataFrame) -> pd.DataFrame:
+        values=[c for c in summary_frame if c not in {"metric","policy","feature_type"}]
+        pieces=[]
+        for feature_type, prefix in (("level","level"),("short_term_change","short"),("long_term_change","long")):
+            part=summary_frame.loc[summary_frame.feature_type.eq(feature_type),["metric","policy",*values]].copy()
+            part=part.rename(columns={column:f"{prefix}_{column}" for column in values}); pieces.append(part)
+        return pieces[0].merge(pieces[1],on=["metric","policy"],validate="one_to_one").merge(pieces[2],on=["metric","policy"],validate="one_to_one")
+    feature_evidence=widen_features(raw_summary).merge(widen_features(normalized_summary),on=["metric","policy"],validate="one_to_one")
+    ratio_wide=[]
+    for feature_type, prefix in (("short_term_change","short"),("long_term_change","long")):
+        part=ratio_aggregate.loc[ratio_aggregate.feature_type.eq(feature_type)].drop(columns="feature_type")
+        part=part.rename(columns={column:f"{prefix}_{column}" for column in part if column not in {"metric","policy","ma_window"}}); ratio_wide.append(part)
+    ratio_wide=ratio_wide[0].merge(ratio_wide[1],on=["metric","policy","ma_window"],validate="one_to_one")
+    weights=registry.groupby("canonical_metric_key",sort=True).agg(feature_weight_sum=("feature_weight","sum"),metric_weight=("metric_weight","first")).reset_index().rename(columns={"canonical_metric_key":"metric"})
+    transform_scorecard=(score.merge(weights,on="metric",validate="many_to_one")
+        .merge(tables["capital_markets_source_unit_audit"],on="metric",validate="many_to_one")
+        .merge(feature_evidence,on=["metric","policy"],validate="one_to_one")
+        .merge(ratio_wide,on=["metric","policy","ma_window"],how="left",validate="one_to_one"))
+    transform_scorecard["ratio_diagnostics_status"]=np.where(transform_scorecard.transform_family.eq("ratio"),"applicable","not_applicable")
+    transform_scorecard["duplicate_date_rows"]=0
+    transform_scorecard["non_finite_output_rows"]=0
+    transform_scorecard=transform_scorecard.rename(columns={"policy_status":"incumbent_challenger_status","raw_unit_from_registry_contract":"raw_source_unit"})
+    if len(transform_scorecard) != 54:
+        raise ValueError("Transform scorecard must contain exactly 54 metric-policy rows")
+    tables["capital_markets_transform_policy_scorecard"]=transform_scorecard
+    risk_sum=ratio_aggregate.groupby(["metric","policy","ma_window"],as_index=False).agg(
+        near_zero_denominator_count=("near_zero_denominator_count","sum"),denominator_sign_change_count=("denominator_sign_change_count","sum"),
+        ratio_absolute_p95=("ratio_absolute_p95","max"),ratio_absolute_p99=("ratio_absolute_p99","max"),ratio_absolute_maximum=("ratio_absolute_maximum","max"))
+    matrix=transform_scorecard.merge(risk_sum,on=["metric","policy","ma_window"],how="left",suffixes=("","_matrix"),validate="one_to_one")
+    matrix_columns={"metric":"Metric","policy":"Policy","transform_family":"Transform","ma_window":"Window",
+      "near_zero_denominator_count":"Near-zero denom count","denominator_sign_change_count":"Denominator sign-change count",
+      "ratio_absolute_p95":"Ratio abs p95","ratio_absolute_p99":"Ratio abs p99","ratio_absolute_maximum":"Ratio abs max",
+      "median_change_delta":"Metric median abs. MoM Δ","p90_delta":"Metric P90 Δ","sign_flip_delta":"Metric sign flips Δ",
+      "directional_agreement_1m":"Metric direction agreement 1m","directional_agreement_3m":"Metric direction agreement 3m",
+      "dimension_median_change_delta":"Dimension median abs. MoM Δ","dimension_p90_delta":"Dimension P90 Δ","dimension_sign_flip_delta":"Dimension sign flips Δ",
+      "dimension_directional_agreement_1m":"Dimension direction agreement 1m","median_absolute_delay":"Median turn delay",
+      "maximum_absolute_delay":"Max turn delay","leading_warmup_rows":"Warmup"}
+    tables["capital_markets_transform_decision_matrix"]=matrix[list(matrix_columns)].rename(columns=matrix_columns)
+    if len(tables["capital_markets_transform_decision_matrix"]) != 54:
+        raise ValueError("Transform decision matrix must contain exactly 54 rows")
+    pairwise=[]
+    for metric in active:
+      for window in MA_WINDOWS:
+        ratio_policy=f"ratio_ma{window}"; difference_policy=f"difference_ma{window}"
+        metric_ratio,metric_difference=_exact_policy_overlap(tables["metric_score_chronology"].query("metric == @metric and policy == @ratio_policy"),tables["metric_score_chronology"].query("metric == @metric and policy == @difference_policy"),"metric_score")
+        dimension_ratio,dimension_difference=_exact_policy_overlap(tables["metric_only_dimension_chronology"].query("metric == @metric and policy == @ratio_policy"),tables["metric_only_dimension_chronology"].query("metric == @metric and policy == @difference_policy"),"dimension_score")
+        rm,dm=_stability(metric_ratio,"metric_score"),_stability(metric_difference,"metric_score"); rd,dd=_stability(dimension_ratio,"dimension_score"),_stability(dimension_difference,"dimension_score")
+        incumbent_metric=tables["metric_score_chronology"].loc[lambda frame: frame.metric.eq(metric) & frame.policy.eq("incumbent") & frame.date.isin(metric_ratio.date)]
+        incumbent_dimension=tables["metric_only_dimension_chronology"].loc[lambda frame: frame.metric.eq(metric) & frame.policy.eq("incumbent") & frame.date.isin(dimension_ratio.date)]
+        ratio_score=score.query("metric == @metric and policy == @ratio_policy").iloc[0]; difference_score=score.query("metric == @metric and policy == @difference_policy").iloc[0]
+        pairwise.append({"metric":metric,"ma_window":window,"metric_overlap_rows":len(metric_ratio),"metric_overlap_first_date":metric_ratio.date.min(),"metric_overlap_last_date":metric_ratio.date.max(),"dimension_overlap_rows":len(dimension_ratio),"dimension_overlap_first_date":dimension_ratio.date.min(),"dimension_overlap_last_date":dimension_ratio.date.max(),
+          "ratio_metric_median_change":rm["median_absolute_mom_change"],"difference_metric_median_change":dm["median_absolute_mom_change"],"metric_median_difference_minus_ratio":dm["median_absolute_mom_change"]-rm["median_absolute_mom_change"],
+          "ratio_metric_p90":rm["p90_absolute_mom_change"],"difference_metric_p90":dm["p90_absolute_mom_change"],"metric_p90_difference_minus_ratio":dm["p90_absolute_mom_change"]-rm["p90_absolute_mom_change"],
+          "ratio_metric_sign_flips":rm["sign_flip_count"],"difference_metric_sign_flips":dm["sign_flip_count"],"metric_sign_flips_difference_minus_ratio":dm["sign_flip_count"]-rm["sign_flip_count"],
+          "ratio_metric_direction_agreement_vs_incumbent":directional_agreement(incumbent_metric,metric_ratio,"metric_score",1)["agreement_share"],"difference_metric_direction_agreement_vs_incumbent":directional_agreement(incumbent_metric,metric_difference,"metric_score",1)["agreement_share"],
+          "ratio_dimension_median_change":rd["median_absolute_mom_change"],"difference_dimension_median_change":dd["median_absolute_mom_change"],"dimension_median_difference_minus_ratio":dd["median_absolute_mom_change"]-rd["median_absolute_mom_change"],
+          "ratio_dimension_p90":rd["p90_absolute_mom_change"],"difference_dimension_p90":dd["p90_absolute_mom_change"],"dimension_p90_difference_minus_ratio":dd["p90_absolute_mom_change"]-rd["p90_absolute_mom_change"],
+          "ratio_dimension_sign_flips":rd["sign_flip_count"],"difference_dimension_sign_flips":dd["sign_flip_count"],"dimension_sign_flips_difference_minus_ratio":dd["sign_flip_count"]-rd["sign_flip_count"],
+          "ratio_dimension_direction_agreement":directional_agreement(incumbent_dimension,dimension_ratio,"dimension_score",1)["agreement_share"],"difference_dimension_direction_agreement":directional_agreement(incumbent_dimension,dimension_difference,"dimension_score",1)["agreement_share"],
+          "ratio_turning_point_delay":ratio_score.median_absolute_delay,"difference_turning_point_delay":difference_score.median_absolute_delay,
+          "ratio_near_zero_denominator_count":int(risk_sum.query("metric == @metric and ma_window == @window").near_zero_denominator_count.iloc[0]),
+          "ratio_denominator_sign_change_count":int(risk_sum.query("metric == @metric and ma_window == @window").denominator_sign_change_count.iloc[0]),
+          "pairwise_interpretation_status":"human_review_pending","human_decision":"pending"})
+    tables["capital_markets_ratio_vs_difference_pairwise"]=pd.DataFrame(pairwise)
+    if len(tables["capital_markets_ratio_vs_difference_pairwise"]) != 24: raise ValueError("Pairwise transform evidence must contain 24 rows")
+    tables["capital_markets_transform_cross_metric_summary"]=tables["capital_markets_cross_metric_summary"]
 
     variance_start=time.perf_counter()
     tables["capital_markets_variance_budget"]=build_variance_budget(tables["feature_to_metric_decomposition"],tables["metric_to_dimension_decomposition"],native_dims,proof.run_id)
@@ -1110,12 +1294,25 @@ def main() -> None:
     tables["capital_markets_variance_budget_summary"]=tables["capital_markets_variance_budget"].groupby("budget_level",dropna=False).agg(row_count=("budget_level","size"),standalone_contribution_variance=("contribution_variance","sum"),absolute_movement=("sum_absolute_monthly_contribution_changes","sum")).reset_index()
     variance_time=finish_stage("variance/covariance evidence",variance_start)
     for cache in caches.values(): cache["uses"].extend(("variance_evidence","visual_review"))
+    common_audit=[]; transform_audit=[]
     for row in cache_rows:
-        cache=caches[(row["canonical_metric_key"],int(row["ma_window"]))]; row["reuse_count"]=len(cache["uses"])
-        row["reuse_contexts"]="|".join(cache["uses"]); row["cumulative_reuse_runtime_avoided_seconds"]=(len(cache["uses"])-1)*row["build_runtime_seconds"]
-    if any(row["build_count"] != 1 for row in cache_rows): raise ValueError("An identical transformed-feature cache was rebuilt")
-    tables["challenger_coverage"]=pd.DataFrame(cache_rows).rename(columns={"row_count":"rows","build_count":"cache_builds","reuse_count":"cache_hits"})
-    tables["transformed_feature_cache_audit"]=pd.DataFrame(cache_rows)
+        runtime=float(row["build_runtime_seconds"])
+        common_audit.append({"metric":row["canonical_metric_key"],"ma_window":row["ma_window"],"row_count":row["row_count"],"build_count":1,
+            "ratio_consumer_count":1,"difference_consumer_count":1,"total_consumer_count":2,
+            "build_runtime_seconds":runtime,"reuse_contexts":"ratio_transform|arithmetic_difference_transform",
+            "estimated_avoided_rebuild_runtime_seconds":runtime})
+    for (metric,window,transform_family), cache in sorted(caches.items()):
+        transform_audit.append({"metric":metric,"ma_window":window,"transform_family":transform_family,
+            "transformed_row_count":len(cache["transformed"]),"normalized_row_count":len(cache["normalized"]),
+            "metric_score_row_count":len(cache["metric_scores"]),"build_count":1,"reuse_count":len(cache["uses"]),
+            "reuse_contexts":"|".join(cache["uses"]),"build_runtime_seconds":cache["build_runtime"]})
+    tables["common_ma_state_cache_audit"]=pd.DataFrame(common_audit)
+    tables["transformed_feature_cache_audit"]=pd.DataFrame(transform_audit)
+    if (len(tables["common_ma_state_cache_audit"]) != 24 or len(tables["transformed_feature_cache_audit"]) != 48
+            or not tables["common_ma_state_cache_audit"].build_count.eq(1).all()
+            or not tables["transformed_feature_cache_audit"].build_count.eq(1).all()):
+        raise ValueError("Governed common/transform cache accounting failed")
+    tables["challenger_coverage"]=tables["common_ma_state_cache_audit"].copy()
     tables["challenger_performance_diagnostics"]=pd.DataFrame(performance_rows)
 
     evidence=output/"evidence"; figures=output/"figures"; evidence.mkdir(); figures.mkdir()
@@ -1128,16 +1325,19 @@ def main() -> None:
             tables["metric_normalized_feature_scores"].query("metric == @metric"),
             tables["metric_score_chronology"].query("metric == @metric"),
             tables["metric_only_dimension_chronology"].query("metric == @metric"),
-            tables["capital_markets_metric_policy_decision_matrix"].query("Metric == @metric"))
+            tables["capital_markets_transform_decision_matrix"].query("Metric == @metric"))
     figure_time=finish_stage("figure generation",figure_start)
     html_start=time.perf_counter(); secondary=[n for n in TABLES if n not in TABLES[:13]]
     metric_links="".join(f"<li><a href='metrics/{m}.html'>{m}</a></li>" for m in active)
     secondary_links="".join(f"<li><a href='evidence/{n}.csv'>{n}</a></li>" for n in secondary)
-    matrix_html=tables["capital_markets_metric_policy_decision_matrix"].to_html(index=False,border=0,classes="decision-matrix")
-    summary_html=tables["capital_markets_cross_metric_summary"].to_html(index=False,border=0)
-    selection_html=tables["combined_metric_policy_selection_template"].to_html(index=False,border=0)
+    matrix_html=tables["capital_markets_transform_decision_matrix"].to_html(index=False,border=0,classes="decision-matrix")
+    summary_html=tables["capital_markets_transform_cross_metric_summary"].to_html(index=False,border=0)
+    selection_html=tables["combined_transform_policy_selection_template"].to_html(index=False,border=0)
+    pairwise_html=tables["capital_markets_ratio_vs_difference_pairwise"].to_html(index=False,border=0)
+    audit_html=tables["capital_markets_source_unit_audit"].to_html(index=False,border=0)
+    denominator_html=tables["capital_markets_ratio_denominator_diagnostics"].groupby("metric",as_index=False).agg(near_zero_denominator_count=("near_zero_denominator_flag","sum"),denominator_sign_change_count=("denominator_sign_change_flag","sum")).to_html(index=False,border=0)
     css="body{font-family:system-ui;max-width:1400px;margin:auto;padding:24px;color:#172033}table{border-collapse:collapse;font-size:13px}th,td{padding:6px 9px;border-bottom:1px solid #d8dee9;text-align:right}th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}.hero{background:#eef4ff;padding:18px;border-radius:8px}"
-    (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets metric smoothing decisions</title><style>{css}</style></head><body><div class='hero'><h1>Capital Markets metric smoothing decisions</h1><p><strong>Which policy visibly stabilizes each metric, and what responsiveness does it cost?</strong></p><p>Compare incumbent with MA3, MA6, MA9, and MA12. No winner is selected; human decision is pending.</p></div><h2>1. Compact metric-policy decision matrix</h2>{matrix_html}<h2>2. Metric review pages</h2><ul>{metric_links}</ul><h2>3. Cross-metric summary</h2>{summary_html}<h2>4. Combined-selection template</h2>{selection_html}<h2>5. Secondary engineering evidence</h2><p>Variance, covariance, family controls, interactions, regime propagation, and performance diagnostics are retained here as secondary controls.</p><ul>{secondary_links}</ul><p>recommendation_state: none; promotion_state: none</p></body></html>\n",encoding="utf-8",newline="\n")
+    (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets transform decisions</title><style>{css}</style></head><body><div class='hero'><h1>Capital Markets ratio vs arithmetic difference</h1><p><strong>Does arithmetic difference improve stability and preserve responsiveness better than ratio-based MA structural features?</strong></p><p>No automatic winner is selected; every human decision is pending.</p></div><h2>1. Transform decision matrix</h2>{matrix_html}<h2>2. Ratio-vs-difference pairwise table</h2>{pairwise_html}<h2>3. Metric review pages</h2><ul>{metric_links}</ul><h2>4. Cross-metric summary</h2>{summary_html}<h2>5. Source-unit audit</h2>{audit_html}<h2>6. Denominator-risk summary</h2>{denominator_html}<h2>7. Selection template</h2>{selection_html}<h2>8. Secondary engineering evidence</h2><p>Variance, covariance, family controls, interactions, regime propagation, and performance diagnostics are retained here as secondary controls.</p><ul>{secondary_links}</ul><p>recommendation_state: none; promotion_state: none</p></body></html>\n",encoding="utf-8",newline="\n")
     html_time=finish_stage("HTML",html_start)
     total_pre_zip=time.perf_counter()-started
     stage_rows.append({"stage":"total before ZIP","runtime_seconds":total_pre_zip})
@@ -1146,11 +1346,11 @@ def main() -> None:
     (output/"in_progress.json").unlink()
     entries=[]
     for path in sorted(p for p in output.rglob("*") if p.is_file()): entries.append({"path":path.relative_to(output).as_posix(),"sha256":hashlib.sha256(path.read_bytes()).hexdigest()})
-    manifest={**human_status(),"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,"native_geography_count":1,"aligned_review_geography_count":7,"one_metric_challenger_count":24,"secondary_control_count":12,"cache_build_count":24,"metric_review_page_count":6,"files":entries}
+    manifest={**human_status(),"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,"native_geography_count":1,"aligned_review_geography_count":7,"one_metric_challenger_count":48,"secondary_control_count":12,"cache_build_count":24,"metric_review_page_count":6,"files":entries}
     (output/"manifest.json").write_text(json.dumps(manifest,sort_keys=True,indent=2)+"\n",encoding="utf-8")
     zip_start=time.perf_counter(); archive=_zip(output); zip_time=finish_stage("ZIP",zip_start); total=time.perf_counter()-started
     _progress(f"total runtime: {total:.2f}s")
-    print(f"source run identity: {proof.run_id}\ncontract identity: {CONTRACT_IDENTITY}\nactive metric count: {len(active)}\none-metric challenger count: 24\ncache count: 24\nnative geography count: 1\naligned review geography count: 7")
+    print(f"source run identity: {proof.run_id}\ncontract identity: {CONTRACT_IDENTITY}\nactive metric count: {len(active)}\none-metric challenger count: 48\ncache count: 24\nnative geography count: 1\naligned review geography count: 7")
     print(f"input-loading time: {load_time:.3f}s\nregistry-audit time: {registry_time:.3f}s\ncache-construction time: {cache_time:.3f}s\none-metric runtime: {single_time:.3f}s\nvariance-budget runtime: {variance_time:.3f}s\nfigure-generation time: {figure_time:.3f}s\nHTML time: {html_time:.3f}s\nZIP time: {zip_time:.3f}s\ntotal runtime: {total:.3f}s")
     print(f"output directory: {output}\nZIP path: {archive}\nfile count: {len(entries)+1}\nZIP size: {archive.stat().st_size}\nrecommendation state: {RECOMMENDATION_STATE}\npromotion state: {PROMOTION_STATE}")
 

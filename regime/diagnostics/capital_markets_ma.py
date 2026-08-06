@@ -42,6 +42,8 @@ FAMILY_MEMBERS = {
     "spread_family": ("spread_2y10y", "spread_10y_fedfunds"),
 }
 RECONCILIATION_TOLERANCE = 1e-10
+RATIO_NEAR_ZERO_THRESHOLD = 1e-8
+TRANSFORM_FAMILIES = ("ratio", "arithmetic_difference")
 
 
 @dataclass(frozen=True)
@@ -66,7 +68,7 @@ def active_registry() -> pd.DataFrame:
         active, on="metric_key", how="inner", validate="many_to_one",
         suffixes=("_feature", "_metric"),
     )
-    sources = config.source_metrics[["metric_key", "source_id", "metric_id", "geo_levels", "frequency", "seasonality"]]
+    sources = config.source_metrics[["metric_key", "source_id", "metric_id", "geo_levels", "frequency", "native_units", "seasonality"]]
     out = features.merge(sources, on="metric_key", how="left", validate="many_to_one")
     if out[["source_id", "metric_id", "geo_levels"]].isna().any().any():
         raise ValueError("Capital Markets source lineage is incomplete")
@@ -185,6 +187,94 @@ def build_structural_features(raw: pd.DataFrame, metric_key: str, window: int, r
                     "raw_feature_value": value, "transform": transform,
                     "feature_window": feature_window, "ma_window": window})
     return pd.DataFrame(rows).sort_values(["geo_id", "feature_key", "date"], kind="mergesort").reset_index(drop=True)
+
+
+def build_ma_level_state(raw: pd.DataFrame, metric_key: str, window: int,
+                         registry: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Build the common governed MA state exactly once for a metric/window."""
+    registry = active_registry() if registry is None else registry
+    family = registry.loc[registry.canonical_metric_key.eq(metric_key)]
+    if family.empty or window not in MA_WINDOWS:
+        raise ValueError("Metric/window is outside the governed transform policy")
+    source_key = family.metric_key.iloc[0]
+    work = raw.copy()
+    key = "canonical_metric_key" if "canonical_metric_key" in work else "metric_key"
+    work = work.loc[work[key].eq(metric_key if key == "canonical_metric_key" else source_key)].copy()
+    work["date"] = pd.to_datetime(work.date)
+    if work.date.isna().any() or work.duplicated(["geo_id", "date"]).any():
+        raise ValueError("Duplicate or invalid native metric chronology")
+    original = work[["geo_id", "date"]].copy()
+    ordered = work.sort_values(["geo_id", "date"], kind="mergesort")
+    if not original.reset_index(drop=True).equals(ordered[["geo_id", "date"]].reset_index(drop=True)):
+        raise ValueError("Native metric chronology is non-monotonic")
+    rows = []
+    for geo_id, group in ordered.groupby("geo_id", sort=True):
+        expected = pd.date_range(group.date.min(), group.date.max(), freq="M")
+        if not pd.DatetimeIndex(group.date).equals(expected):
+            raise ValueError("Native metric chronology contains calendar gaps")
+        values = pd.to_numeric(group.value, errors="raise")
+        if not np.isfinite(values).all():
+            raise ValueError("Native metric chronology contains non-finite values")
+        ma = values.rolling(window, min_periods=window).mean()
+        rows.append(pd.DataFrame({"geo_id": geo_id, "date": group.date.to_numpy(),
+            "raw_value": values.to_numpy(), "ma_state": ma.to_numpy(),
+            "canonical_metric_key": metric_key, "ma_window": window}))
+    return pd.concat(rows, ignore_index=True)
+
+
+def build_transform_features(level_state: pd.DataFrame, metric_key: str, window: int,
+                             transform_family: str, registry: pd.DataFrame | None = None
+                             ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build ratio or arithmetic features from one shared MA state and diagnostics."""
+    if transform_family not in TRANSFORM_FAMILIES:
+        raise ValueError(f"Unsupported transform family: {transform_family}")
+    registry = active_registry() if registry is None else registry
+    family = registry.loc[registry.canonical_metric_key.eq(metric_key)]
+    units = family.native_units.dropna().unique()
+    if len(units) != 1 or units[0] not in {"Percent", "Percentage points"}:
+        raise ValueError(f"{metric_key}: governed source unit is absent or unsupported: {units}")
+    factor = 100.0
+    rows, diagnostics = [], []
+    feature_keys = family.set_index("feature_type").feature_key.to_dict()
+    for geo_id, group in level_state.groupby("geo_id", sort=True):
+        group = group.sort_values("date", kind="mergesort").copy()
+        states = {"level": group.ma_state, "short_term_change": group.ma_state.shift(3),
+                  "long_term_change": group.ma_state.shift(12)}
+        for feature_type, lagged in states.items():
+            if feature_type == "level":
+                value = group.ma_state
+            elif transform_family == "ratio":
+                value = group.ma_state / lagged - 1
+            else:
+                value = (group.ma_state - lagged) * factor
+            invalid = value.notna() & ~np.isfinite(value)
+            if invalid.any():
+                raise ValueError(f"{metric_key}: non-finite {transform_family} output")
+            for pos, (_, source_row) in enumerate(group.iterrows()):
+                val, lag = value.iloc[pos], lagged.iloc[pos]
+                rows.append({"geo_id": geo_id, "date": source_row.date,
+                    "canonical_metric_key": metric_key, "feature_key": feature_keys[feature_type],
+                    "raw_feature_value": val, "transform": transform_family,
+                    "feature_window": f"{window}m", "ma_window": window})
+                if feature_type != "level":
+                    previous = lagged.iloc[pos - 1] if pos else np.nan
+                    near = bool(pd.notna(lag) and abs(lag) < RATIO_NEAR_ZERO_THRESHOLD)
+                    diagnostics.append({"metric": metric_key, "date": source_row.date,
+                        "transform_family": transform_family, "ma_window": window,
+                        "feature_type": feature_type, "current_ma_state": source_row.ma_state,
+                        "lagged_ma_state": lag, "denominator_value": lag if transform_family == "ratio" else np.nan,
+                        "absolute_denominator_value": abs(lag) if transform_family == "ratio" and pd.notna(lag) else np.nan,
+                        "near_zero_denominator_flag": near if transform_family == "ratio" else False,
+                        "denominator_sign": np.sign(lag) if transform_family == "ratio" and pd.notna(lag) else np.nan,
+                        "denominator_sign_change_flag": bool(pd.notna(lag) and pd.notna(previous) and lag * previous < 0) if transform_family == "ratio" else False,
+                        "ratio_finite_flag": (bool(np.isfinite(val)) if pd.notna(val) else np.nan) if transform_family == "ratio" else np.nan,
+                        "ratio_magnitude": abs(val) if transform_family == "ratio" and pd.notna(val) else np.nan,
+                        "arithmetic_difference_source_units": (source_row.ma_state-lag) if transform_family == "arithmetic_difference" and pd.notna(lag) else np.nan,
+                        "arithmetic_difference_bps": val if transform_family == "arithmetic_difference" else np.nan,
+                        "difference_sign": np.sign(val) if transform_family == "arithmetic_difference" and pd.notna(val) else np.nan,
+                        "difference_finite_flag": bool(pd.isna(val) or np.isfinite(val)) if transform_family == "arithmetic_difference" else np.nan})
+    return (pd.DataFrame(rows).sort_values(["geo_id", "feature_key", "date"], kind="mergesort").reset_index(drop=True),
+            pd.DataFrame(diagnostics))
 
 
 def calendar_delta(frame: pd.DataFrame, value: str, months: int) -> pd.DataFrame:

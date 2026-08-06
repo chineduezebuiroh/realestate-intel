@@ -9,11 +9,13 @@ import pandas as pd
 from regime._03_metric_scorer import score_metrics
 from scripts.build_capital_markets_ma_decomposition import (
     _align_national_dimension_to_counties, _national_capital_metric_universe,
-    _overlap_comparison, _render_metric_page, _zip,
+    _aggregate_ratio_diagnostics, _exact_policy_overlap, _overlap_comparison,
+    _render_metric_page, _summarize_transform_features, _zip,
 )
 from regime.diagnostics.capital_markets_ma import (
     MA_WINDOWS, NATIVE_GEOGRAPHY, REVIEW_GEOGRAPHIES, active_registry,
     build_covariance_budget, build_structural_features, build_variance_budget,
+    build_ma_level_state, build_transform_features,
     detect_turning_points, directional_agreement, family_challenger_registry,
     governed_families, interaction_diagnostics, match_turning_points,
     human_status, payment_burden_audit, reject_forbidden_formula,
@@ -22,6 +24,9 @@ from regime.diagnostics.capital_markets_ma import (
 
 
 def main() -> None:
+    phase_paths=(Path("regime/diagnostics/capital_markets_ma.py"),Path("scripts/build_capital_markets_ma_decomposition.py"),Path(__file__))
+    forbidden_frequency = 'freq="' + 'ME' + '"'
+    assert all(forbidden_frequency not in path.read_text() for path in phase_paths)
     policy_paths = tuple(Path("config") / name for name in (
         "feature_registry.csv", "metric_dimension_registry.csv", "axis_registry.csv",
         "normalization_registry.csv", "source_metric_registry.csv", "supply_dimension_frozen_v1.json"))
@@ -51,6 +56,20 @@ def main() -> None:
         assert np.allclose(pivot["fred_mortgage_30y_level"],ma,equal_nan=True)
         assert np.allclose(pivot["fred_mortgage_30y_short"],ma/ma.shift(3)-1,equal_nan=True)
         assert np.allclose(pivot["fred_mortgage_30y_long"],ma/ma.shift(12)-1,equal_nan=True)
+        state=build_ma_level_state(raw,"mortgage_30y",window,registry)
+        ratio, diagnostics=build_transform_features(state,"mortgage_30y",window,"ratio",registry)
+        difference, difference_diagnostics=build_transform_features(state,"mortgage_30y",window,"arithmetic_difference",registry)
+        rp=ratio.pivot(index="date",columns="feature_key",values="raw_feature_value")
+        dp=difference.pivot(index="date",columns="feature_key",values="raw_feature_value")
+        assert np.allclose(rp["fred_mortgage_30y_level"],dp["fred_mortgage_30y_level"],equal_nan=True)
+        assert np.allclose(dp["fred_mortgage_30y_short"],100*(ma-ma.shift(3)),equal_nan=True)
+        assert np.allclose(dp["fred_mortgage_30y_long"],100*(ma-ma.shift(12)),equal_nan=True)
+        assert {"denominator_value","near_zero_denominator_flag","ratio_magnitude"}.issubset(diagnostics)
+        assert np.allclose(difference_diagnostics.arithmetic_difference_bps.dropna(),
+                           100*difference_diagnostics.arithmetic_difference_source_units.dropna())
+        aggregated=_aggregate_ratio_diagnostics(diagnostics)
+        assert len(aggregated)==2 and aggregated.policy.eq(f"ratio_ma{window}").all()
+        assert {"minimum_absolute_denominator","ratio_absolute_p95","ratio_non_finite_count"}.issubset(aggregated)
     # Production scorer renormalizes available feature weights, including one-child weight 1.0.
     scores=pd.DataFrame([{"geo_id":"g","date":dates[0],"canonical_metric_key":"mortgage_30y","feature_key":"fred_mortgage_30y_level","feature_score":.4}])
     assert np.isclose(score_metrics(scores).metric_score.iloc[0], .4)
@@ -69,6 +88,19 @@ def main() -> None:
         except ValueError: pass
         else: raise AssertionError("invalid overlap chronology did not fail closed")
     gap=chronology.drop(index=10); assert directional_agreement(gap,gap,"score",1)["valid_comparisons"] < len(gap)-1
+    exact_left,exact_right=_exact_policy_overlap(chronology.iloc[2:],chronology.iloc[4:],"score")
+    assert len(exact_left)==32 and exact_left.date.equals(exact_right.date)
+    for left,right in ((chronology.iloc[:2],chronology.iloc[3:]),(chronology, pd.concat([chronology,chronology.iloc[[0]]])),(chronology.drop(index=10),chronology.drop(index=10))):
+        try: _exact_policy_overlap(left,right,"score")
+        except ValueError: pass
+        else: raise AssertionError("invalid exact pairwise overlap did not fail closed")
+    feature_fixture=pd.DataFrame([{"metric":"m","policy":"p","feature_type":feature,"date":date,"value":value}
+        for feature in ("level","short_term_change","long_term_change") for date,value in zip(dates[:6],range(6))])
+    feature_summary=_summarize_transform_features(feature_fixture,"value","raw_feature")
+    assert len(feature_summary)==3 and "raw_feature_p99_absolute_monthly_change" in feature_summary
+    try: _summarize_transform_features(pd.concat([feature_fixture,feature_fixture.iloc[[0]]]),"value","raw_feature")
+    except ValueError: pass
+    else: raise AssertionError("duplicate feature chronology did not fail closed")
     turns=detect_turning_points(chronology,"score")
     assert turns.empty or ((turns.incoming_persistence.eq(3)&turns.outgoing_persistence.eq(3)&turns.prominence_threshold.ge(.05)).all())
     unmatched=match_turning_points(pd.DataFrame([{"turning_point_date":dates[5],"turning_point_type":"peak","qualified":True}]),pd.DataFrame(columns=["turning_point_date","turning_point_type","qualified"]))
@@ -144,20 +176,23 @@ def main() -> None:
     assert 'Dimension median abs. MoM Δ' in runner_source
     assert 'dimension_incumbent_overlap_sign_flip_count' in runner_source
     assert 'dimension_challenger_overlap_sign_flip_count' in runner_source
-    assert 'single_chronology[(metric, window)]' in runner_source
     assert 'on="metric_date"' in runner_source and 'candidate_metric.rename' in runner_source
     assert 'score_dimensions(spliced)' in runner_source
     assert 'score_dimensions(frames["aligned_metric_scores"])' not in runner_source
     assert 'score_axes(frames["dimension_scores"])' not in runner_source
-    assert 'single {number}/24' in runner_source and 'family {number}' not in runner_source
-    assert '"one_metric_challenger_count":24' in runner_source and 'len(caches) != 24' in runner_source
-    required=("capital_markets_metric_policy_scorecard","capital_markets_metric_policy_decision_matrix",
+    assert 'len(common_states) != 24' in runner_source and 'len(caches) != 48' in runner_source
+    required=("capital_markets_transform_policy_scorecard","capital_markets_transform_decision_matrix",
+        "capital_markets_ratio_vs_difference_pairwise","capital_markets_source_unit_audit",
         "capital_markets_cross_metric_summary","combined_metric_policy_selection_template",
         "metric_raw_and_ma_chronology","metric_feature_chronology","metric_normalized_feature_scores",
         "metric_score_chronology","metric_only_dimension_chronology","metric_directional_agreement",
         "metric_turning_point_matches","metric_turning_point_summary","metric_warmup_coverage")
     assert all(name in runner_source for name in required)
-    assert runner_source.index("Compact metric-policy decision matrix") < runner_source.index("Secondary engineering evidence")
+    matrix_columns={"Metric","Policy","Transform","Window","Near-zero denom count","Denominator sign-change count","Ratio abs p95","Ratio abs p99","Ratio abs max","Metric median abs. MoM Δ","Metric P90 Δ","Metric sign flips Δ","Metric direction agreement 1m","Metric direction agreement 3m","Dimension median abs. MoM Δ","Dimension P90 Δ","Dimension sign flips Δ","Dimension direction agreement 1m","Median turn delay","Max turn delay","Warmup"}
+    assert all(repr(column) in runner_source or f'"{column}"' in runner_source for column in matrix_columns)
+    assert 'len(transform_scorecard) != 54' in runner_source and 'Pairwise transform evidence must contain 24 rows' in runner_source
+    assert 'len(tables["common_ma_state_cache_audit"]) != 24' in runner_source and 'len(tables["transformed_feature_cache_audit"]) != 48' in runner_source
+    assert runner_source.index("Transform decision matrix") < runner_source.index("Secondary engineering evidence")
     assert 'human_decision="pending"' in runner_source and 'selected_policy":"pending"' in runner_source
     audit=payment_burden_audit().iloc[0]; assert audit.mortgage_rate_source=="mortgage_30y" and not audit.same_operation and not audit.policy_change
     status=human_status(); assert status["recommendation_state"]==status["promotion_state"]=="none"
