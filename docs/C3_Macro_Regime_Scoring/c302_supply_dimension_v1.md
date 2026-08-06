@@ -129,35 +129,46 @@ No cross-market normalization is performed.
 
 ---
 
-# Subcomponent Weighting
+# Frozen Production Weighting
 
-Initial Version:
+As of 2026-08-06, the frozen production policy is:
 
-| Subcomponent     | Weight |
-| ---------------- | ------ |
-| Active Inventory | 33.3%  |
-| Permit Activity  | 33.3%  |
-| Permit Intensity | 33.3%  |
+| Subcomponent | Configured weight |
+| --- | ---: |
+| Active Inventory | 60% |
+| Permit Activity | 20% |
+| Permit Intensity | 20% |
 
-Weights may be revised after backtesting.
+Permit activity and permit intensity are highly correlated, so equal weighting
+allowed the combined permit family to dominate Supply. Challenger A materially
+improved stability and reduced that dominance while preserving responsiveness in
+the governed diagnostic. It was selected as the minimum effective correction
+over the stronger Challenger B. This was a human policy decision informed by
+`supply_metric_weight_diagnostic_v1`; the diagnostic did not automatically select
+or promote a policy.
 
----
+# Frozen Feature Contract Within Subcomponents
 
-# Feature Weighting Within Subcomponents
+For Active Inventory, Permit Activity, and Permit Intensity alike:
 
-| Feature Type      | Weight |
-| ----------------- | ------ |
-| Level             | 25%    |
-| Short-Term Change | 35%    |
-| Long-Term Change  | 40%    |
+| Feature Type | Definition | Weight |
+| --- | --- | ---: |
+| Level | `MA12(raw)` | 50% |
+| Short-Term Change | `MA12(raw) / lag3(MA12(raw)) - 1` | 25% |
+| Long-Term Change | `MA12(raw) / lag12(MA12(raw)) - 1` | 25% |
 
-Rationale:
+Permit intensity is derived as a raw permit-activity/population ratio using the
+carried-forward population first, and that derived raw series is then smoothed
+once. It is never derived from smoothed permit activity and is never double
+smoothed.
 
-* Level measures current conditions.
-* Short-Term Change captures emerging pressure.
-* Long-Term Change captures structural trends.
-
----
+The membership, metric weights, feature definitions, feature weights, and
+permit-intensity lineage are frozen together as `supply_dimension_frozen_v1`.
+Supply-axis configured weights remain unchanged. A future change requires a new
+diagnostic identity, explicit human approval, a new promotion contract, and a
+new frozen Supply version. Capital Markets is the next diagnostic workstream;
+Capital Markets, affordability, Demand, and later geography work must not change
+this policy incidentally.
 
 # Geography Coverage
 

@@ -122,7 +122,7 @@ def _decomposition_evidence(evidence):
                     "feature_score": .1, **{**availability, "configured_weight": .25, "available_weight_sum": .25}, **recon})
         m2d.append({**identity, "date": date, "dimension": "supply",
                     "canonical_metric_key": "active_inventory", "metric_score": .1,
-                    **{**availability, "configured_weight": .3334, "available_weight_sum": .3334}, **recon})
+                    **{**availability, "configured_weight": .60, "available_weight_sum": .60}, **recon})
         m2d.append({**identity, "date": date, "dimension": "demand",
                     "canonical_metric_key": "employment", "metric_score": .1,
                     **{**availability, "configured_weight": .1667, "available_weight_sum": .1667}, **recon})

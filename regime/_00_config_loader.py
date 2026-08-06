@@ -227,6 +227,17 @@ def validate_regime_config(config: RegimeConfig) -> None:
         .copy()
     )
 
+    duplicate_dimension_rows = active_dims.duplicated(
+        subset=["metric_key", "canonical_metric_key", "dimension"], keep=False
+    )
+    if duplicate_dimension_rows.any():
+        raise ValueError(
+            "Duplicate active metric-to-dimension registry rows:\n"
+            + active_dims.loc[duplicate_dimension_rows, [
+                "metric_key", "canonical_metric_key", "dimension", "metric_weight"
+            ]].to_string(index=False)
+        )
+
     active_dims["metric_weight"] = pd.to_numeric(
         active_dims["metric_weight"],
         errors="coerce",
