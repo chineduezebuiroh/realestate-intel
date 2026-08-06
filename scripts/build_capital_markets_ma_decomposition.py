@@ -324,32 +324,110 @@ def _pct(delta: float, incumbent: float) -> float:
     return 0.0 if delta == 0 else (delta / incumbent * 100 if incumbent else np.nan)
 
 
+def _overlap_comparison(
+    incumbent: pd.DataFrame,
+    challenger: pd.DataFrame,
+    value: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
+    """Return exact, contiguous overlap and its governed comparison statistics.
+
+    A challenger may lose only a leading warmup prefix.  Every statistic on both
+    sides is then evaluated on the identical calendar window; in particular,
+    sign changes can never bridge a missing month.
+    """
+    def prepare(frame: pd.DataFrame, label: str) -> pd.DataFrame:
+        work = frame[["date", value]].copy()
+        work["date"] = pd.to_datetime(work["date"]).astype("datetime64[ns]")
+        if work["date"].isna().any() or work["date"].duplicated().any():
+            raise ValueError(f"{label} dimension chronology has invalid or duplicate dates")
+        return work.sort_values("date", kind="mergesort").reset_index(drop=True)
+
+    inc, chal = prepare(incumbent, "Incumbent"), prepare(challenger, "Challenger")
+    inc_valid = inc.loc[inc[value].notna()].copy()
+    chal_valid = chal.loc[chal[value].notna()].copy()
+    if inc_valid.empty or chal_valid.empty:
+        raise ValueError("Dimension overlap is empty")
+    coverage = _coverage(chal_valid, value, inc_valid["date"])
+    overlap_dates = inc_valid[["date"]].merge(chal_valid[["date"]], on="date", validate="one_to_one")
+    if overlap_dates.empty:
+        raise ValueError("Dimension overlap is empty")
+    expected = pd.date_range(overlap_dates.date.min(), overlap_dates.date.max(), freq="ME")
+    if not pd.DatetimeIndex(overlap_dates.date).equals(expected):
+        raise ValueError("Dimension overlap contains interior calendar gaps")
+    inc_overlap = overlap_dates.merge(inc_valid, on="date", validate="one_to_one")
+    chal_overlap = overlap_dates.merge(chal_valid, on="date", validate="one_to_one")
+    if not inc_overlap.date.equals(chal_overlap.date):
+        raise ValueError("Dimension overlap dates are not one-to-one identical")
+    inc_stats, chal_stats = _stability(inc_overlap, value), _stability(chal_overlap, value)
+    agreements = {
+        horizon: directional_agreement(inc_overlap, chal_overlap, value, horizon)["agreement_share"]
+        for horizon in (1, 3, 6, 12)
+    }
+    inc_turns = detect_turning_points(inc_overlap, value)
+    chal_turns = detect_turning_points(chal_overlap, value)
+    matches = match_turning_points(inc_turns, chal_turns)
+    delays = matches.loc[matches.matched, "signed_delay_months"]
+    result = {
+        "dimension_overlap_observation_count": len(overlap_dates),
+        "dimension_overlap_first_date": overlap_dates.date.min(),
+        "dimension_overlap_last_date": overlap_dates.date.max(),
+        "dimension_incumbent_overlap_standard_deviation": inc_stats["standard_deviation"],
+        "dimension_challenger_overlap_standard_deviation": chal_stats["standard_deviation"],
+        "dimension_standard_deviation_delta": chal_stats["standard_deviation"] - inc_stats["standard_deviation"],
+        "dimension_standard_deviation_percent_delta": _pct(chal_stats["standard_deviation"] - inc_stats["standard_deviation"], inc_stats["standard_deviation"]),
+        "dimension_incumbent_overlap_median_absolute_monthly_change": inc_stats["median_absolute_mom_change"],
+        "dimension_challenger_overlap_median_absolute_monthly_change": chal_stats["median_absolute_mom_change"],
+        "dimension_median_change_delta": chal_stats["median_absolute_mom_change"] - inc_stats["median_absolute_mom_change"],
+        "dimension_incumbent_overlap_p90_monthly_change": inc_stats["p90_absolute_mom_change"],
+        "dimension_challenger_overlap_p90_monthly_change": chal_stats["p90_absolute_mom_change"],
+        "dimension_p90_delta": chal_stats["p90_absolute_mom_change"] - inc_stats["p90_absolute_mom_change"],
+        "dimension_incumbent_overlap_sign_flip_count": inc_stats["sign_flip_count"],
+        "dimension_challenger_overlap_sign_flip_count": chal_stats["sign_flip_count"],
+        "dimension_sign_flip_delta": chal_stats["sign_flip_count"] - inc_stats["sign_flip_count"],
+        "dimension_incumbent_overlap_sign_flip_rate": inc_stats["sign_flip_rate"],
+        "dimension_challenger_overlap_sign_flip_rate": chal_stats["sign_flip_rate"],
+        "dimension_sign_flip_rate_delta": chal_stats["sign_flip_rate"] - inc_stats["sign_flip_rate"],
+        **{f"dimension_directional_agreement_{horizon}m": agreement for horizon, agreement in agreements.items()},
+        "dimension_incumbent_turning_point_count": int(inc_turns.qualified.sum()) if not inc_turns.empty else 0,
+        "dimension_challenger_turning_point_count": int(chal_turns.qualified.sum()) if not chal_turns.empty else 0,
+        "dimension_matched_turning_point_count": int(matches.matched.sum()),
+        "dimension_median_turning_point_delay": delays.abs().median(),
+        "dimension_maximum_turning_point_delay": delays.abs().max(),
+        "dimension_leading_warmup_rows": coverage["leading_warmup_rows"],
+        "dimension_interior_gap_rows": coverage["interior_gap_rows"],
+        "dimension_trailing_loss_rows": coverage["trailing_loss_rows"],
+    }
+    return inc_overlap, chal_overlap, result
+
+
 def _render_metric_page(output: Path, metric: str, raw: pd.DataFrame,
         features: pd.DataFrame, normalized: pd.DataFrame, scores: pd.DataFrame,
-        dimensions: pd.DataFrame) -> None:
-    """Write one deterministic seven-section metric review with linked SVGs."""
+        dimensions: pd.DataFrame, decision: pd.DataFrame) -> None:
+    """Write one deterministic, self-contained metric review."""
     page_dir = output / "metrics"; figure_dir = output / "figures" / metric
     page_dir.mkdir(exist_ok=True); figure_dir.mkdir(parents=True, exist_ok=True)
     panels: list[tuple[str, str]] = []
-    _svg(figure_dir / "raw.svg", f"{metric}: raw and moving averages", raw, "value", "series")
-    panels.append(("1. Raw source chronology", f"../figures/{metric}/raw.svg"))
+    def render(name: str, title: str, frame: pd.DataFrame, value: str, group: str | None = None) -> str:
+        path = figure_dir / name
+        _svg(path, title, frame, value, group)
+        return path.read_text(encoding="utf-8")
+    panels.append(("1. Raw source chronology", render("raw.svg", f"{metric}: raw and moving averages", raw, "value", "series")))
     for number, feature_type, heading in ((2,"level","Level feature"),(3,"short_term_change","Short feature"),(4,"long_term_change","Long feature")):
         part=features.loc[features.feature_type.eq(feature_type)]
-        _svg(figure_dir/f"{feature_type}.svg",f"{metric}: {heading}",part,"value","policy")
-        panels.append((f"{number}. {heading}",f"../figures/{metric}/{feature_type}.svg"))
+        panels.append((f"{number}. {heading}", render(f"{feature_type}.svg", f"{metric}: {heading}", part, "value", "policy")))
     normalized_images=[]
     for feature_type in ("level","short_term_change","long_term_change"):
         part=normalized.loc[normalized.feature_type.eq(feature_type)]
-        _svg(figure_dir/f"normalized_{feature_type}.svg",f"{metric}: normalized {feature_type}",part,"feature_score","policy")
-        normalized_images.append(f"<img src='../figures/{metric}/normalized_{feature_type}.svg' alt='Normalized {feature_type}'>")
-    _svg(figure_dir/"metric_score.svg",f"{metric}: metric score",scores,"metric_score","policy")
-    _svg(figure_dir/"dimension.svg",f"{metric}: metric-only Capital Markets dimension",dimensions,"dimension_score","policy")
-    sections = "".join(f"<section><h2>{html.escape(title)}</h2><img src='{src}'></section>" for title,src in panels)
+        normalized_images.append(render(f"normalized_{feature_type}.svg", f"{metric}: normalized {feature_type}", part, "feature_score", "policy"))
+    metric_svg = render("metric_score.svg", f"{metric}: metric score", scores, "metric_score", "policy")
+    dimension_svg = render("dimension.svg", f"{metric}: metric-only Capital Markets dimension", dimensions, "dimension_score", "policy")
+    sections = "".join(f"<section><h2>{html.escape(title)}</h2>{svg}</section>" for title,svg in panels)
     sections += f"<section><h2>5. Normalized feature scores</h2>{''.join(normalized_images)}</section>"
-    sections += f"<section><h2>6. Metric score chronology</h2><img src='../figures/{metric}/metric_score.svg'></section>"
-    sections += f"<section><h2>7. Capital Markets dimension chronology</h2><img src='../figures/{metric}/dimension.svg'></section>"
-    css="body{font-family:system-ui;max-width:1100px;margin:auto;padding:24px;color:#172033}section{margin:32px 0}img{width:100%;border:1px solid #d8dee9}"
-    (page_dir/f"{metric}.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>{metric} smoothing review</title><style>{css}</style></head><body><a href='../index.html'>Back to decision matrix</a><h1>{metric}: metric-level smoothing review</h1><p>Incumbent is held against MA3, MA6, MA9, and MA12 structural policies. Diagnostic only.</p>{sections}</body></html>\n",encoding="utf-8",newline="\n")
+    sections += f"<section><h2>6. Metric-score chronology</h2>{metric_svg}</section>"
+    sections += f"<section><h2>7. Capital Markets dimension chronology</h2>{dimension_svg}</section>"
+    table = decision.to_html(index=False, border=0, classes="metric-policy-decision-table")
+    css="body{font-family:system-ui;max-width:1100px;margin:auto;padding:24px;color:#172033}section{margin:32px 0}svg{width:100%;height:auto;border:1px solid #d8dee9}table{border-collapse:collapse;font-size:12px}th,td{padding:5px;border-bottom:1px solid #ddd;text-align:right}th:first-child,td:first-child{text-align:left}"
+    (page_dir/f"{metric}.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>{metric} smoothing review</title><style>{css}</style></head><body><a href='../index.html'>Back to main review</a><h1>{metric}: metric-level smoothing review</h1><p>Incumbent is held against MA3, MA6, MA9, and MA12 structural policies. Diagnostic only.</p>{sections}<section><h2>8. Compact policy decision table</h2>{table}</section></body></html>\n",encoding="utf-8",newline="\n")
 
 
 def _national_capital_metric_universe(
@@ -667,15 +745,25 @@ def main() -> None:
         .groupby("feature_key").date.agg(first_valid_date="min", last_valid_date="max", valid_observation_count="count").reset_index())
     tables["capital_markets_registry_audit"] = registry.merge(
         audit_dates, on="feature_key", how="left", validate="one_to_one")
-    native_dims = frames["dimension_scores"].query(
-        "geo_id == @NATIVE_GEOGRAPHY and dimension == 'capital_markets'")[["date", "dimension_score"]].copy()
-    tables["incumbent_stability"] = pd.DataFrame([_stability(native_dims, "dimension_score", policy_id="incumbent")])
-    incumbent_turns = detect_turning_points(native_dims, "dimension_score")
-    incumbent_series = native_dims.set_index("date").dimension_score
     national_metrics = _national_capital_metric_universe(
         frames["metric_scores"],
         active,
     )
+    # Persisted dimension_scores are county-aligned and contain no native
+    # national row.  Reconstruct the incumbent with the same production scorer
+    # and native metric universe used by every one-metric challenger.
+    native_dims = score_dimensions(national_metrics).loc[
+        lambda frame: frame.geo_id.eq(NATIVE_GEOGRAPHY)
+        & frame.dimension.eq("capital_markets"),
+        ["date", "dimension_score"],
+    ].copy()
+    if native_dims.empty:
+        raise ValueError("Incumbent national Capital Markets dimension chronology is empty")
+    if native_dims.date.duplicated().any():
+        raise ValueError("Incumbent national Capital Markets dimension chronology has duplicate dates")
+    tables["incumbent_stability"] = pd.DataFrame([_stability(native_dims, "dimension_score", policy_id="incumbent")])
+    incumbent_turns = detect_turning_points(native_dims, "dimension_score")
+    incumbent_series = native_dims.set_index("date").dimension_score
     national_raw = frames["source_metrics"].loc[
         frames["source_metrics"].geo_id.eq(NATIVE_GEOGRAPHY)
         & frames["source_metrics"].canonical_metric_key.isin(active)].copy()
@@ -858,11 +946,11 @@ def main() -> None:
                 "median_signed_delay":delays.median(),"median_absolute_delay":delays.abs().median(),"maximum_absolute_delay":delays.abs().max()}
             turn_summary_rows.append(summary)
             stats=_stability(candidate,"metric_score"); dim = native_dims if policy=="incumbent" else pd.DataFrame({"date":single_chronology[(metric,window)].index,"dimension_score":single_chronology[(metric,window)].values})
-            dimstats=_stability(dim,"dimension_score"); merged=inc_score.merge(candidate,on="date",suffixes=("_inc","_chal")).sort_values("date")
+            _, _, dimension_comparison = _overlap_comparison(native_dims, dim, "dimension_score")
+            merged=inc_score.merge(candidate,on="date",suffixes=("_inc","_chal")).sort_values("date")
             inc_delta=merged.metric_score_inc.diff(); chal_delta=merged.metric_score_chal.diff(); material=max(.05,float(inc_delta.abs().quantile(.9)))
             delta_std=stats["standard_deviation"]-incumbent_stats["standard_deviation"]
             delta_med=stats["median_absolute_mom_change"]-incumbent_stats["median_absolute_mom_change"]
-            incumbent_dimstats=_stability(native_dims,"dimension_score")
             recent={n: float(pd.Series([direction(a) == direction(b) for a,b in zip(inc_delta.tail(n),chal_delta.tail(n))]).mean()) for n in (3,6,12)}
             score_rows.append({"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,
                 "metric":metric,"policy":policy,"ma_window":window,"policy_status":"incumbent" if policy=="incumbent" else "challenger",**coverage,
@@ -877,9 +965,7 @@ def main() -> None:
                 **{f"directional_agreement_{h}m":directional[h] for h in (1,3,6,12)},**{f"recent_{n}m_direction_agreement":recent[n] for n in (3,6,12)},**summary,
                 "suppressed_material_incumbent_moves":int(((inc_delta.abs()>material)&(chal_delta.abs()<=1e-12)).sum()),
                 "challenger_only_reversals":int(((inc_delta*chal_delta)<0).sum()),
-                "capital_markets_dimension_standard_deviation":dimstats["standard_deviation"],"capital_markets_dimension_standard_deviation_delta":dimstats["standard_deviation"]-incumbent_dimstats["standard_deviation"],
-                "capital_markets_dimension_median_absolute_change":dimstats["median_absolute_mom_change"],"capital_markets_dimension_median_absolute_change_delta":dimstats["median_absolute_mom_change"]-incumbent_dimstats["median_absolute_mom_change"],
-                "capital_markets_dimension_sign_flip_delta":dimstats["sign_flip_count"]-incumbent_dimstats["sign_flip_count"],
+                **dimension_comparison,
                 "interpretation_status":"human_review_pending","recommendation_state":RECOMMENDATION_STATE,"promotion_state":PROMOTION_STATE})
     tables["metric_raw_and_ma_chronology"]=pd.concat(raw_rows,ignore_index=True)
     def _concat_decision_frames(
@@ -980,8 +1066,35 @@ def main() -> None:
     tables["metric_warmup_coverage"]=pd.DataFrame(coverage_rows)
     tables["capital_markets_metric_policy_scorecard"]=pd.DataFrame(score_rows)
     score=tables["capital_markets_metric_policy_scorecard"]
-    tables["capital_markets_metric_policy_decision_matrix"]=score[["metric","policy","standard_deviation_delta","median_change_delta","p90_delta","sign_flip_delta","directional_agreement_1m","directional_agreement_3m","median_signed_delay","maximum_absolute_delay","leading_warmup_rows"]].rename(columns={"metric":"Metric","policy":"Policy","standard_deviation_delta":"Std. dev. Δ","median_change_delta":"Median abs. MoM Δ","p90_delta":"P90 jump Δ","sign_flip_delta":"Sign flips Δ","directional_agreement_1m":"Direction agreement 1m","directional_agreement_3m":"Direction agreement 3m","median_signed_delay":"Median turn delay","maximum_absolute_delay":"Max turn delay","leading_warmup_rows":"Warmup loss"})
-    tables["capital_markets_cross_metric_summary"]=score[["metric","policy","standard_deviation_delta","directional_agreement_1m","median_absolute_delay","leading_warmup_rows","capital_markets_dimension_standard_deviation_delta"]].rename(columns={"standard_deviation_delta":"stability_change","directional_agreement_1m":"responsiveness_preservation","median_absolute_delay":"turning_point_delay","leading_warmup_rows":"warmup_loss","capital_markets_dimension_standard_deviation_delta":"dimension_impact"}).assign(human_decision="pending")
+    incumbents = score.loc[score.policy.eq("incumbent")]
+    exact_zero = ("dimension_standard_deviation_delta", "dimension_median_change_delta", "dimension_p90_delta", "dimension_sign_flip_delta")
+    exact_one = tuple(f"dimension_directional_agreement_{h}m" for h in (1, 3, 6, 12))
+    if (incumbents.dimension_overlap_observation_count.le(0).any()
+            or not incumbents[list(exact_zero)].eq(0).all().all()
+            or not incumbents[list(exact_one)].eq(1.0).all().all()
+            or not incumbents[["dimension_leading_warmup_rows", "dimension_interior_gap_rows", "dimension_trailing_loss_rows"]].eq(0).all().all()):
+        raise ValueError("Incumbent dimension self-comparison contract failed")
+    matrix_columns = {
+        "metric":"Metric", "policy":"Policy", "median_change_delta":"Metric median abs. MoM Δ",
+        "p90_delta":"Metric P90 jump Δ", "sign_flip_delta":"Metric sign flips Δ",
+        "directional_agreement_1m":"Metric direction agreement 1m", "directional_agreement_3m":"Metric direction agreement 3m",
+        "dimension_median_change_delta":"Dimension median abs. MoM Δ", "dimension_p90_delta":"Dimension P90 jump Δ",
+        "dimension_sign_flip_delta":"Dimension sign flips Δ", "dimension_directional_agreement_1m":"Dimension direction agreement 1m",
+        "dimension_median_turning_point_delay":"Median turn delay", "dimension_maximum_turning_point_delay":"Max turn delay",
+        "dimension_leading_warmup_rows":"Warmup loss",
+    }
+    tables["capital_markets_metric_policy_decision_matrix"] = score[list(matrix_columns)].rename(columns=matrix_columns)
+    summary_columns = ["metric", "policy", "median_change_delta", "p90_delta", "sign_flip_delta",
+        "directional_agreement_1m", "directional_agreement_3m", "dimension_median_change_delta",
+        "dimension_p90_delta", "dimension_sign_flip_delta", "dimension_directional_agreement_1m",
+        "dimension_median_turning_point_delay", "dimension_leading_warmup_rows"]
+    tables["capital_markets_cross_metric_summary"] = score[summary_columns].rename(columns={
+        "median_change_delta":"metric_median_change_delta", "p90_delta":"metric_p90_delta",
+        "sign_flip_delta":"metric_sign_flip_delta", "directional_agreement_1m":"metric_directional_agreement_1m",
+        "directional_agreement_3m":"metric_directional_agreement_3m",
+        "dimension_median_turning_point_delay":"turning_point_delay",
+        "dimension_leading_warmup_rows":"warmup_loss",
+    }).assign(human_decision="pending")
     tables["combined_metric_policy_selection_template"]=pd.DataFrame({"metric":active,"selected_policy":"pending"})
 
     variance_start=time.perf_counter()
@@ -1014,7 +1127,8 @@ def main() -> None:
             tables["metric_feature_chronology"].query("metric == @metric"),
             tables["metric_normalized_feature_scores"].query("metric == @metric"),
             tables["metric_score_chronology"].query("metric == @metric"),
-            tables["metric_only_dimension_chronology"].query("metric == @metric"))
+            tables["metric_only_dimension_chronology"].query("metric == @metric"),
+            tables["capital_markets_metric_policy_decision_matrix"].query("Metric == @metric"))
     figure_time=finish_stage("figure generation",figure_start)
     html_start=time.perf_counter(); secondary=[n for n in TABLES if n not in TABLES[:13]]
     metric_links="".join(f"<li><a href='metrics/{m}.html'>{m}</a></li>" for m in active)

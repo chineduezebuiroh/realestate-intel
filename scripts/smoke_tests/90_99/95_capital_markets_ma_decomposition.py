@@ -9,7 +9,7 @@ import pandas as pd
 from regime._03_metric_scorer import score_metrics
 from scripts.build_capital_markets_ma_decomposition import (
     _align_national_dimension_to_counties, _national_capital_metric_universe,
-    _zip,
+    _overlap_comparison, _render_metric_page, _zip,
 )
 from regime.diagnostics.capital_markets_ma import (
     MA_WINDOWS, NATIVE_GEOGRAPHY, REVIEW_GEOGRAPHIES, active_registry,
@@ -57,6 +57,17 @@ def main() -> None:
     chronology=pd.DataFrame({"date":dates,"score":np.sin(np.arange(36)/3)})
     self_agreement=directional_agreement(chronology,chronology,"score",1)
     assert self_agreement["agreement_share"] == 1.0
+    inc_overlap, chal_overlap, comparison = _overlap_comparison(chronology, chronology, "score")
+    assert inc_overlap.date.equals(chal_overlap.date) and comparison["dimension_overlap_observation_count"] == 36
+    assert all(comparison[name] == 0 for name in ("dimension_standard_deviation_delta", "dimension_median_change_delta", "dimension_p90_delta", "dimension_sign_flip_delta"))
+    assert all(comparison[f"dimension_directional_agreement_{h}m"] == 1.0 for h in (1, 3, 6, 12))
+    warm = chronology.iloc[3:].copy()
+    _, _, warm_comparison = _overlap_comparison(chronology, warm, "score")
+    assert warm_comparison["dimension_leading_warmup_rows"] == 3
+    for invalid in (warm.drop(index=warm.index[5]), warm.iloc[:-1], pd.concat([warm, warm.iloc[[0]]])):
+        try: _overlap_comparison(chronology, invalid, "score")
+        except ValueError: pass
+        else: raise AssertionError("invalid overlap chronology did not fail closed")
     gap=chronology.drop(index=10); assert directional_agreement(gap,gap,"score",1)["valid_comparisons"] < len(gap)-1
     turns=detect_turning_points(chronology,"score")
     assert turns.empty or ((turns.incoming_persistence.eq(3)&turns.outgoing_persistence.eq(3)&turns.prominence_threshold.ge(.05)).all())
@@ -129,6 +140,10 @@ def main() -> None:
     assert set(county_copies.geo_id)==set(REVIEW_GEOGRAPHIES)
     assert not county_copies.geo_id.str.contains("cbsa|zip|state|nation").any()
     runner_source=Path("scripts/build_capital_markets_ma_decomposition.py").read_text()
+    assert 'path.read_text(encoding="utf-8")' in runner_source
+    assert 'Dimension median abs. MoM Δ' in runner_source
+    assert 'dimension_incumbent_overlap_sign_flip_count' in runner_source
+    assert 'dimension_challenger_overlap_sign_flip_count' in runner_source
     assert 'single_chronology[(metric, window)]' in runner_source
     assert 'on="metric_date"' in runner_source and 'candidate_metric.rename' in runner_source
     assert 'score_dimensions(spliced)' in runner_source
@@ -176,6 +191,23 @@ def main() -> None:
         (first/"index.html").write_text(page); (second/"index.html").write_text(page)
         assert (first/"index.html").read_bytes()==(second/"index.html").read_bytes()
         assert _zip(first).read_bytes()==_zip(second).read_bytes()
+    with tempfile.TemporaryDirectory() as tmp:
+        review = Path(tmp)
+        policies = ("incumbent", "ma3_structural", "ma6_structural", "ma9_structural", "ma12_structural")
+        raw = pd.DataFrame([{"date": date, "series": policy, "value": value} for policy in ("raw", "ma3", "ma6", "ma9", "ma12") for date, value in zip(dates[:3], (.1, .2, .3))])
+        features = pd.DataFrame([{"date": date, "feature_type": feature, "policy": policy, "value": value} for feature in ("level", "short_term_change", "long_term_change") for policy in policies for date, value in zip(dates[:3], (.1, .2, .3))])
+        normalized = features.rename(columns={"value": "feature_score"})
+        scores = pd.DataFrame([{"date": date, "policy": policy, "metric_score": value} for policy in policies for date, value in zip(dates[:3], (.1, .2, .3))])
+        dimensions = scores.rename(columns={"metric_score": "dimension_score"})
+        decision = pd.DataFrame({"Metric": list(expected), "Policy": ["incumbent"] * 6})
+        for metric in expected:
+            _render_metric_page(review, metric, raw, features, normalized, scores, dimensions, decision.query("Metric == @metric"))
+        pages = sorted((review / "metrics").glob("*.html"))
+        assert len(pages) == 6
+        for page in pages:
+            contents = page.read_text()
+            assert "<svg" in contents and "../figures/" not in contents
+            assert "metric-policy-decision-table" in contents
     assert before == {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in policy_paths}
     print("Capital Markets MA decomposition smoke test passed")
 
