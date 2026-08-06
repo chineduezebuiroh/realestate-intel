@@ -209,9 +209,37 @@ def build_ma_level_state(raw: pd.DataFrame, metric_key: str, window: int,
         raise ValueError("Native metric chronology is non-monotonic")
     rows = []
     for geo_id, group in ordered.groupby("geo_id", sort=True):
-        expected = pd.date_range(group.date.min(), group.date.max(), freq="M")
-        if not pd.DatetimeIndex(group.date).equals(expected):
-            raise ValueError("Native metric chronology contains calendar gaps")
+        actual_dates = pd.DatetimeIndex(
+            pd.to_datetime(group["date"])
+        ).astype("datetime64[ns]")
+
+        expected_dates = pd.DatetimeIndex(
+            pd.date_range(
+                actual_dates.min(),
+                actual_dates.max(),
+                freq="M",
+            )
+        ).astype("datetime64[ns]")
+
+        if (
+            len(actual_dates) != len(expected_dates)
+            or not np.array_equal(
+                actual_dates.asi8,
+                expected_dates.asi8,
+            )
+        ):
+            missing_dates = expected_dates.difference(
+                actual_dates
+            )
+            unexpected_dates = actual_dates.difference(
+                expected_dates
+            )
+            raise ValueError(
+                "Native metric chronology contains calendar gaps; "
+                f"metric={metric_key}, geo_id={geo_id}, "
+                f"missing_dates={list(missing_dates)}, "
+                f"unexpected_dates={list(unexpected_dates)}"
+            )
         values = pd.to_numeric(group.value, errors="raise")
         if not np.isfinite(values).all():
             raise ValueError("Native metric chronology contains non-finite values")
