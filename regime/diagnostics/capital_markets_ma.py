@@ -64,9 +64,12 @@ COMBINED_POLICIES = {
 }
 
 SETTLED_FEATURE_WEIGHT_POLICIES = {
-    "settled_40_30_30": {"level": .40, "short_term_change": .30, "long_term_change": .30},
-    "challenger_50_25_25": {"level": .50, "short_term_change": .25, "long_term_change": .25},
-    "challenger_60_20_20": {"level": .60, "short_term_change": .20, "long_term_change": .20},
+    "FW-A": {"level": .50, "short_term_change": .25, "long_term_change": .25},
+    "FW-B": {"level": .60, "short_term_change": .20, "long_term_change": .20},
+    "FW-C": {
+        "default": {"level": .60, "short_term_change": .20, "long_term_change": .20},
+        "fedfunds": {"level": .50, "short_term_change": .25, "long_term_change": .25},
+    },
 }
 SETTLED_WINDOWS = {
     "mortgage_30y": 12, "mortgage_15y": 12, "treasury_10y": 12,

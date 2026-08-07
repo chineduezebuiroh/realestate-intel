@@ -237,3 +237,20 @@ Prior feature-weight evidence remains `superseded_for_final_calibration`, and
 architecture. No final feature, metric, or axis weights are encoded here;
 recommendation and promotion remain `none`, and the human decision remains
 `pending`.
+
+## Final feature-weight rerun
+
+The focused final rerun compares exactly three policies on the settled mixed
+architecture above. FW-A applies 50/25/25 to all six metrics; FW-B applies
+60/20/20 to all six; FW-C applies 60/20/20 except for Fed Funds, which retains
+50/25/25. Metric weights and every non-feature-weight input are held constant.
+The stage consumes the six settled transformed and normalized caches directly;
+it does not rebuild the historical 48 one-metric challenger matrix.
+
+Final evidence uses the `capital_markets_final_feature_weight_*` namespace and
+has an exactly three-row decision matrix. It reports stability, turning-point,
+family, extreme-jump, comparable-only cancellation, recent chronology,
+directional context, and county-regime context without a composite score, rank,
+or automated winner. Recommendation and promotion remain `none`, every
+decision remains `pending`, and empirical interpretation requires the
+authoritative local frozen-run artifacts.
