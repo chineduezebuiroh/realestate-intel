@@ -1651,7 +1651,69 @@ def main() -> None:
     # this path to that exact historical run; current canonical writes already
     # have the governed sign and are not consumed through this compatibility path.
     audit_raw = frames["source_metrics"].loc[
-        frames["source_metrics"].geo_id.eq(NATIVE_GEOGRAPHY)].copy()
+        frames["source_metrics"].geo_id.eq(NATIVE_GEOGRAPHY)
+    ].copy()
+
+    # The accepted immutable run predates treasury_2y as a persisted
+    # diagnostic source operand. Its legacy spread was:
+    #
+    #     spread_2y10y = treasury_2y - treasury_10y
+    #
+    # The legacy-key compatibility layer has already renamed that persisted
+    # identity to spread_10y_2y in-memory, but it intentionally does not alter
+    # the historical value. Recover the missing 2Y operand exactly at this
+    # immutable-artifact boundary:
+    #
+    #     treasury_2y = treasury_10y + legacy_spread
+    #
+    # Do not add treasury_2y to active Capital Markets membership.
+    if "treasury_2y" not in set(audit_raw["canonical_metric_key"]):
+        legacy_spread = audit_raw.loc[
+            audit_raw["canonical_metric_key"].eq("spread_10y_2y"),
+            ["geo_id", "date", "value"],
+        ].rename(columns={"value": "legacy_spread"})
+
+        treasury_10y = audit_raw.loc[
+            audit_raw["canonical_metric_key"].eq("treasury_10y"),
+            ["geo_id", "date", "value"],
+        ].rename(columns={"value": "treasury_10y"})
+
+        reconstructed_2y = treasury_10y.merge(
+            legacy_spread,
+            on=["geo_id", "date"],
+            how="inner",
+            validate="one_to_one",
+        )
+
+        if reconstructed_2y.empty:
+            raise ValueError(
+                "Cannot reconstruct treasury_2y from immutable legacy "
+                "spread_2y10y and treasury_10y"
+            )
+
+        reconstructed_2y["value"] = (
+            reconstructed_2y["treasury_10y"]
+            + reconstructed_2y["legacy_spread"]
+        )
+        reconstructed_2y["canonical_metric_key"] = "treasury_2y"
+
+        reconstructed_2y = reconstructed_2y[
+            ["geo_id", "date", "canonical_metric_key", "value"]
+        ]
+
+        # Match any additional source_metrics schema columns without
+        # fabricating semantic values.
+        for column in audit_raw.columns:
+            if column not in reconstructed_2y.columns:
+                reconstructed_2y[column] = pd.NA
+
+        reconstructed_2y = reconstructed_2y[audit_raw.columns]
+
+        audit_raw = pd.concat(
+            [audit_raw, reconstructed_2y],
+            ignore_index=True,
+        )
+
     tables.update(spread_polarity_audit_tables(audit_raw))
     national_raw.loc[national_raw.canonical_metric_key.eq("spread_10y_2y"), "value"] *= -1.0
     governed_dimensions = frames["dimension_scores"].loc[
