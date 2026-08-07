@@ -27,6 +27,8 @@ from regime.diagnostics.capital_markets_ma import (
     canonicalize_legacy_artifact_metric_keys, metric_key_migration_audit,
     CORRECTED_WINDOW_BY_METRIC, CORRECTED_TRANSFORM_FAMILY_BY_METRIC,
     PRIOR_FEATURE_WEIGHT_EVIDENCE_STATUS, corrected_architecture,
+    CANCELLATION_TOLERANCE, reconcile_spread_pathology,
+    NEXT_VALID_FEATURE_WEIGHT_EXPERIMENT_MUST_USE_SETTLED_CAPITAL_MARKETS_ARCHITECTURE,
 )
 
 
@@ -121,6 +123,18 @@ def main() -> None:
     assert polarity["capital_markets_metric_polarity_audit"].polarity_contract_passes.all()
     assert polarity["capital_markets_dimension_polarity_audit"].polarity_contract_passes.all()
     assert set(polarity["capital_markets_axis_polarity_audit"].axis)=={"supply","demand"}
+    pathology=polarity["capital_markets_spread_ratio_pathology_audit"]
+    reconciliation=reconcile_spread_pathology(pathology)
+    assert reconciliation.reconciliation_status.eq("pass").all()
+    assert reconciliation.duplicate_key_count.eq(0).all()
+    assert reconciliation.direction_conflict_count.sum()==pathology.direction_conflict_flag.sum()
+    assert reconciliation.near_zero_denominator_count.sum()==pathology.near_zero_denominator_flag.sum()
+    assert reconciliation.non_finite_ratio_count.sum()==pathology.finite_flag.eq(False).sum()
+    try: reconcile_spread_pathology(pd.concat([pathology,pathology.iloc[[0]]],ignore_index=True))
+    except ValueError: pass
+    else: raise AssertionError("duplicate pathology key did not fail closed")
+    assert CANCELLATION_TOLERANCE == 1e-12
+    assert NEXT_VALID_FEATURE_WEIGHT_EXPERIMENT_MUST_USE_SETTLED_CAPITAL_MARKETS_ARCHITECTURE
     # Production scorer renormalizes available feature weights, including one-child weight 1.0.
     scores=pd.DataFrame([{"geo_id":"g","date":dates[0],"canonical_metric_key":"mortgage_30y","feature_key":"fred_mortgage_30y_level","feature_score":.4}])
     assert np.isclose(score_metrics(scores).metric_score.iloc[0], .4)
@@ -224,7 +238,8 @@ def main() -> None:
     assert not county_copies.geo_id.str.contains("cbsa|zip|state|nation").any()
     runner_source=Path("scripts/build_capital_markets_ma_decomposition.py").read_text()
     spread_tables={name for name in TABLES if name.startswith("capital_markets_spread_correction_")}
-    assert len(spread_tables)==14 and "capital_markets_spread_correction_decision_matrix" in spread_tables
+    assert len(spread_tables)==15 and "capital_markets_spread_correction_decision_matrix" in spread_tables
+    assert "capital_markets_spread_pathology_reconciliation" in TABLES
     assert "legacy_spread_architecture" in runner_source and "corrected_spread_architecture" in runner_source
     assert "treasury_2y - treasury_10y" in runner_source and "treasury_10y - treasury_2y" in runner_source
     assert "capital_markets_spread_correction_decision_matrix.csv" in runner_source

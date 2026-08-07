@@ -156,9 +156,9 @@ burden from raw median sale price and raw `mortgage_30y`, then apply the governe
 structural transform once to the derived measure. Affordability is not changed
 or frozen by this diagnostic.
 
-## Settled-architecture feature-weight diagnostic
+## Superseded feature-weight diagnostic
 
-The next diagnostic fixes the selected ratio architecture at MA12 for
+The historical diagnostic fixed the then-selected all-ratio architecture at MA12 for
 `mortgage_30y`, `mortgage_15y`, and `treasury_10y`; MA3 for `fedfunds`; and MA9
 for both spreads. It compares the persisted production incumbent (context only)
 with common all-six-metric mixes 40/30/30, 50/25/25, and 60/20/20 for
@@ -166,7 +166,7 @@ level/short/long. The three settled policies reuse the same transformed and
 normalized feature objects and differ only in the weights passed to the
 production-equivalent missingness-renormalizing metric aggregation.
 
-This stage does not select a winner, execute metric weights, change
+That historical stage did not select a winner, execute metric weights, change
 Affordability, or mutate production policy. The future metric-weight hypothesis
 remains equal family totals: long-rate metrics each 1/9, Fed Funds 1/3, and
 spreads each 1/6 (`future_metric_weight_hypothesis_only = true`).
@@ -209,3 +209,31 @@ architecture. The comparison has no similarity reward, rank, recommendation,
 or promotion; its two-row decision matrix remains pending. The earlier A/B/C
 matrix is retained only as historical/secondary evidence, and prior
 feature-weight evidence remains `superseded_for_final_calibration`.
+
+## Settled Capital Markets diagnostic architecture
+
+The architecture used by all future Capital Markets diagnostic calibration is
+settled (this is not production promotion):
+
+| metric | MA window | structural transform |
+|---|---:|---|
+| `mortgage_30y` | 12 | ratio |
+| `mortgage_15y` | 12 | ratio |
+| `treasury_10y` | 12 | ratio |
+| `fedfunds` | 3 | ratio |
+| `spread_10y_2y` | 9 | arithmetic difference |
+| `spread_10y_fedfunds` | 9 | arithmetic difference |
+
+Spread ratio features are not permitted in future final calibration because
+sign-changing spreads create denominator and direction pathologies. Pathology
+counts use unique `metric_key × feature × date` observations and fail closed on
+duplicate keys. Cancellation summaries use only exact-calendar rows whose six
+child contribution movements reconstruct the parent within `1e-12`; excluded
+warmup and availability rows remain explicitly classified in audit evidence.
+
+Prior feature-weight evidence remains `superseded_for_final_calibration`, and
+`next_valid_feature_weight_experiment_must_use_settled_capital_markets_architecture
+= true`. The next step is final feature-weight calibration on this settled
+architecture. No final feature, metric, or axis weights are encoded here;
+recommendation and promotion remain `none`, and the human decision remains
+`pending`.
