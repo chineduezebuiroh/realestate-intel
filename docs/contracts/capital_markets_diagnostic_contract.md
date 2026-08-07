@@ -155,3 +155,18 @@ future Affordability hypothesis is also documentation only: derive raw payment
 burden from raw median sale price and raw `mortgage_30y`, then apply the governed
 structural transform once to the derived measure. Affordability is not changed
 or frozen by this diagnostic.
+
+## Settled-architecture feature-weight diagnostic
+
+The next diagnostic fixes the selected ratio architecture at MA12 for
+`mortgage_30y`, `mortgage_15y`, and `treasury_10y`; MA3 for `fedfunds`; and MA9
+for both spreads. It compares the persisted production incumbent (context only)
+with common all-six-metric mixes 40/30/30, 50/25/25, and 60/20/20 for
+level/short/long. The three settled policies reuse the same transformed and
+normalized feature objects and differ only in the weights passed to the
+production-equivalent missingness-renormalizing metric aggregation.
+
+This stage does not select a winner, execute metric weights, change
+Affordability, or mutate production policy. The future metric-weight hypothesis
+remains equal family totals: long-rate metrics each 1/9, Fed Funds 1/3, and
+spreads each 1/6 (`future_metric_weight_hypothesis_only = true`).

@@ -62,6 +62,39 @@ COMBINED_POLICIES = {
         "transform_family": "arithmetic_difference", "windows": {"long_rate_family": 12, "policy_rate_family": 3, "spread_family": 9}},
 }
 
+SETTLED_FEATURE_WEIGHT_POLICIES = {
+    "settled_40_30_30": {"level": .40, "short_term_change": .30, "long_term_change": .30},
+    "challenger_50_25_25": {"level": .50, "short_term_change": .25, "long_term_change": .25},
+    "challenger_60_20_20": {"level": .60, "short_term_change": .20, "long_term_change": .20},
+}
+SETTLED_WINDOWS = {
+    "mortgage_30y": 12, "mortgage_15y": 12, "treasury_10y": 12,
+    "fedfunds": 3, "spread_2y10y": 9, "spread_10y_fedfunds": 9,
+}
+
+
+def score_metrics_with_feature_weights(normalized: pd.DataFrame, registry: pd.DataFrame,
+                                       weights: dict[str, float]) -> pd.DataFrame:
+    """Production-equivalent metric scoring with an explicit diagnostic mix."""
+    if set(weights) != {"level", "short_term_change", "long_term_change"} or not math.isclose(sum(weights.values()), 1.0, abs_tol=1e-12):
+        raise ValueError("Diagnostic feature weights must contain the exact three-feature unit mix")
+    feature_types = registry[["feature_key", "feature_type"]].drop_duplicates()
+    work = normalized.merge(feature_types, on="feature_key", how="left", validate="many_to_one")
+    if work.feature_type.isna().any():
+        raise ValueError("Normalized feature lacks governed feature type")
+    work["diagnostic_weight"] = work.feature_type.map(weights)
+    work = work.dropna(subset=["feature_score"])
+    rows = []
+    for keys, group in work.groupby(["geo_id", "date", "canonical_metric_key"], dropna=False):
+        total = group.diagnostic_weight.sum()
+        if total <= 0:
+            continue
+        rows.append({"geo_id": keys[0], "date": keys[1], "canonical_metric_key": keys[2],
+            "metric_score": np.clip((group.feature_score * group.diagnostic_weight).sum() / total, -1, 1),
+            "feature_count": len(group), "feature_weight_sum": total,
+            "min_feature_score": group.feature_score.min(), "max_feature_score": group.feature_score.max()})
+    return pd.DataFrame(rows).sort_values(["geo_id", "date", "canonical_metric_key"], kind="mergesort").reset_index(drop=True)
+
 
 def combined_policy_specs(registry: pd.DataFrame | None = None) -> dict[str, dict | None]:
     """Validate and return the immutable four-policy combined diagnostic."""
