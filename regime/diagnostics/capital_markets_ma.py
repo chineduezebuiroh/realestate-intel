@@ -45,6 +45,40 @@ RECONCILIATION_TOLERANCE = 1e-10
 RATIO_NEAR_ZERO_THRESHOLD = 1e-8
 TRANSFORM_FAMILIES = ("ratio", "arithmetic_difference")
 
+# This classification is deliberately local to the combined Capital Markets
+# diagnostic.  It is not a production or project-wide macro-series taxonomy.
+COMBINED_FAMILIES = {
+    "long_rate_family": ("mortgage_30y", "mortgage_15y", "treasury_10y"),
+    "policy_rate_family": ("fedfunds",),
+    "spread_family": ("spread_2y10y", "spread_10y_fedfunds"),
+}
+COMBINED_POLICIES = {
+    "incumbent": None,
+    "challenger_a_balanced_ratio": {
+        "transform_family": "ratio", "windows": {"long_rate_family": 12, "policy_rate_family": 3, "spread_family": 9}},
+    "challenger_b_slow_spreads_ratio": {
+        "transform_family": "ratio", "windows": {"long_rate_family": 12, "policy_rate_family": 3, "spread_family": 12}},
+    "challenger_c_balanced_difference": {
+        "transform_family": "arithmetic_difference", "windows": {"long_rate_family": 12, "policy_rate_family": 3, "spread_family": 9}},
+}
+
+
+def combined_policy_specs(registry: pd.DataFrame | None = None) -> dict[str, dict | None]:
+    """Validate and return the immutable four-policy combined diagnostic."""
+    registry = active_registry() if registry is None else registry
+    active = set(registry.canonical_metric_key.unique())
+    members = [metric for values in COMBINED_FAMILIES.values() for metric in values]
+    if len(members) != len(set(members)) or set(members) != active:
+        raise ValueError("Combined families must exactly partition the six active metrics")
+    a, b, c = (COMBINED_POLICIES[key] for key in tuple(COMBINED_POLICIES)[1:])
+    if a["transform_family"] != b["transform_family"] or any(
+        a["windows"][family] != b["windows"][family] for family in COMBINED_FAMILIES if family != "spread_family"
+    ) or (a["windows"]["spread_family"], b["windows"]["spread_family"]) != (9, 12):
+        raise ValueError("A and B must differ only by the spread MA9/MA12 window")
+    if a["windows"] != c["windows"] or c["transform_family"] != "arithmetic_difference":
+        raise ValueError("A and C must share windows and differ only by transform family")
+    return COMBINED_POLICIES
+
 
 @dataclass(frozen=True)
 class SourceProof:
