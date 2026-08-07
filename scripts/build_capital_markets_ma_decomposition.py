@@ -957,17 +957,164 @@ def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
             "median_signed_delay":delays.median(),"median_absolute_delay":delays.abs().median(),"maximum_absolute_delay":delays.abs().max()})
     chronology=pd.concat(chronology,ignore_index=True); stability=pd.DataFrame(stability); directions=pd.DataFrame(directions)
 
-    contributions=[]
+    contributions = []
+
     for policy, scores in metric_scores.items():
-        work=scores.rename(columns={"evaluation_date":"date"}) if "evaluation_date" in scores else scores
-        work=work.loc[work.date.isin(common_dates) & work.canonical_metric_key.isin(active)].copy()
+        work = (
+            scores.rename(columns={"evaluation_date": "date"})
+            if "evaluation_date" in scores.columns
+            else scores.copy()
+        )
+
+        work = work.loc[
+            work["date"].isin(common_dates)
+            & work["canonical_metric_key"].isin(active)
+        ].copy()
+
+        work["configured_metric_weight"] = (
+            work["canonical_metric_key"].map(weights)
+        )
+        work["availability_flag"] = work["metric_score"].notna()
+
+        # Mirror production score_dimensions() exactly:
+        # missing metric scores do not participate, and remaining configured
+        # weights are renormalized by the available-weight sum for each date.
+        work["available_metric_weight"] = (
+            work["configured_metric_weight"]
+            .where(work["availability_flag"], 0.0)
+        )
+
+        work["available_weight_sum"] = (
+            work.groupby("date")["available_metric_weight"]
+            .transform("sum")
+        )
+
+        if (
+            work.loc[
+                work["availability_flag"],
+                "available_weight_sum",
+            ]
+            <= 0
+        ).any():
+            raise ValueError(
+                "Combined contribution chronology has available metrics "
+                "with non-positive available-weight sum"
+            )
+
+        work["effective_metric_weight"] = np.where(
+            work["availability_flag"],
+            work["configured_metric_weight"]
+            / work["available_weight_sum"],
+            np.nan,
+        )
+
+        work["weighted_contribution"] = np.where(
+            work["availability_flag"],
+            work["metric_score"]
+            * work["effective_metric_weight"],
+            np.nan,
+        )
+
         for row in work.itertuples(index=False):
-            contributions.append({"date":row.date,"policy":policy,"metric":row.canonical_metric_key,"family":metric_family[row.canonical_metric_key],
-                "metric_score":row.metric_score,"configured_metric_weight":weights[row.canonical_metric_key],"effective_metric_weight":weights[row.canonical_metric_key],
-                "weighted_contribution":row.metric_score*weights[row.canonical_metric_key],"availability_flag":True})
-    contribution=pd.DataFrame(contributions).sort_values(["policy","metric","date"])
-    reconstructed=contribution.groupby(["policy","date"]).weighted_contribution.sum().reset_index().merge(chronology,on=["policy","date"])
-    if not np.allclose(reconstructed.weighted_contribution,reconstructed.dimension_score,atol=1e-10): raise ValueError("Combined contribution chronology does not reconstruct parent")
+            contributions.append(
+                {
+                    "date": row.date,
+                    "policy": policy,
+                    "metric": row.canonical_metric_key,
+                    "family": metric_family[
+                        row.canonical_metric_key
+                    ],
+                    "metric_score": row.metric_score,
+                    "configured_metric_weight":
+                        row.configured_metric_weight,
+                    "effective_metric_weight":
+                        row.effective_metric_weight,
+                    "available_weight_sum":
+                        row.available_weight_sum,
+                    "weighted_contribution":
+                        row.weighted_contribution,
+                    "availability_flag":
+                        bool(row.availability_flag),
+                }
+            )
+
+    contribution = (
+        pd.DataFrame(contributions)
+        .sort_values(["policy", "metric", "date"])
+        .reset_index(drop=True)
+    )
+
+    reconstructed = (
+        contribution.loc[
+            contribution["availability_flag"]
+        ]
+        .groupby(
+            ["policy", "date"],
+            as_index=False,
+        )
+        .agg(
+            weighted_contribution=(
+                "weighted_contribution",
+                "sum",
+            ),
+            effective_weight_sum=(
+                "effective_metric_weight",
+                "sum",
+            ),
+            available_metric_count=(
+                "metric",
+                "count",
+            ),
+        )
+        .merge(
+            chronology,
+            on=["policy", "date"],
+            how="inner",
+            validate="one_to_one",
+        )
+    )
+
+    if not np.allclose(
+        reconstructed["effective_weight_sum"],
+        1.0,
+        atol=1e-12,
+    ):
+        bad = reconstructed.loc[
+            ~np.isclose(
+                reconstructed["effective_weight_sum"],
+                1.0,
+                atol=1e-12,
+            )
+        ]
+        raise ValueError(
+            "Combined effective metric weights do not sum to one:\n"
+            + bad.head(25).to_string(index=False)
+        )
+
+    reconstruction_error = (
+        reconstructed["weighted_contribution"]
+        - reconstructed["dimension_score"]
+    )
+
+    if not np.allclose(
+        reconstructed["weighted_contribution"],
+        reconstructed["dimension_score"],
+        atol=1e-10,
+        rtol=0.0,
+    ):
+        bad = reconstructed.loc[
+            reconstruction_error.abs() > 1e-10
+        ].copy()
+        bad["reconstruction_error"] = (
+            bad["weighted_contribution"]
+            - bad["dimension_score"]
+        )
+        raise ValueError(
+            "Combined contribution chronology does not reconstruct "
+            "production parent:\n"
+            + bad.head(25).to_string(index=False)
+        )
+
     movement=contribution.copy(); movement["contribution_movement"]=movement.groupby(["policy","metric"]).weighted_contribution.diff()
     cancellation=[]
     for (policy,date), group in movement.groupby(["policy","date"],sort=True):
@@ -1105,8 +1252,50 @@ def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
     for policy in list(specs)[1:]:
         if turn_counts.loc[policy,"incumbent"] != summary_index.loc[policy,"incumbent_turning_point_count"] or turn_counts.loc[policy,"challenger"] != summary_index.loc[policy,"policy_turning_point_count"]:
             raise ValueError("Turning-point review does not reconstruct summary")
-    calendar_check=event_windows.event_date+event_windows.relative_month.map(pd.offsets.MonthEnd)
-    if not calendar_check.equals(event_windows.calendar_date): raise ValueError("Event windows are not exact calendar months")
+    event_dates = pd.DatetimeIndex(
+        pd.to_datetime(event_windows["event_date"])
+    ).astype("datetime64[ns]")
+
+    relative_months = pd.to_numeric(
+        event_windows["relative_month"],
+        errors="raise",
+    ).astype(int).to_numpy()
+
+    calendar_check = (
+        pd.PeriodIndex(event_dates, freq="M")
+        + relative_months
+    ).to_timestamp(freq="M").astype("datetime64[ns]")
+
+    persisted_calendar_dates = pd.DatetimeIndex(
+        pd.to_datetime(event_windows["calendar_date"])
+    ).astype("datetime64[ns]")
+
+    if (
+        len(calendar_check) != len(persisted_calendar_dates)
+        or not np.array_equal(
+            calendar_check.asi8,
+            persisted_calendar_dates.asi8,
+        )
+    ):
+        mismatch = pd.DataFrame(
+            {
+                "event_date": event_dates,
+                "relative_month": relative_months,
+                "expected_calendar_date": calendar_check,
+                "persisted_calendar_date":
+                    persisted_calendar_dates,
+            }
+        )
+
+        mismatch = mismatch.loc[
+            mismatch["expected_calendar_date"]
+            .ne(mismatch["persisted_calendar_date"])
+        ]
+
+        raise ValueError(
+            "Event windows are not exact calendar months:\n"
+            + mismatch.head(25).to_string(index=False)
+        )
     return {"capital_markets_combined_policy_registry":policy_registry,"capital_markets_combined_dimension_chronology":chronology,
         "capital_markets_combined_dimension_stability":stability,"capital_markets_combined_directional_agreement":directions,
         "capital_markets_combined_turning_points":pd.concat(turns,ignore_index=True),"capital_markets_combined_turning_point_matches":pd.concat(matches,ignore_index=True),"capital_markets_combined_turning_point_summary":pd.DataFrame(summaries),
