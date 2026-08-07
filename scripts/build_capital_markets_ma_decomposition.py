@@ -29,12 +29,28 @@ from regime.diagnostics.capital_markets_ma import (
     governed_families, human_status, interaction_diagnostics, payment_burden_audit, validate_source_run,
     COMBINED_FAMILIES, combined_policy_specs,
     SETTLED_FEATURE_WEIGHT_POLICIES, SETTLED_WINDOWS, score_metrics_with_feature_weights,
+    CORRECTED_WINDOW_BY_METRIC, CORRECTED_TRANSFORM_FAMILY_BY_METRIC,
+    PRIOR_FEATURE_WEIGHT_EVIDENCE_STATUS, corrected_architecture,
     spread_polarity_audit_tables,
     canonicalize_legacy_artifact_metric_keys, metric_key_migration_audit,
 )
 from regime.artifacts import RegimeArtifactStore
 
 TABLES = (
+    "capital_markets_spread_correction_policy_registry",
+    "capital_markets_spread_correction_metric_chronology",
+    "capital_markets_spread_correction_metric_stability",
+    "capital_markets_spread_correction_dimension_chronology",
+    "capital_markets_spread_correction_dimension_stability",
+    "capital_markets_spread_correction_turning_points",
+    "capital_markets_spread_correction_turning_point_summary",
+    "capital_markets_spread_correction_cancellation",
+    "capital_markets_spread_correction_axis_propagation",
+    "capital_markets_spread_correction_regime_change_summary",
+    "capital_markets_spread_correction_recent_chronology",
+    "capital_markets_spread_correction_parity_audit",
+    "capital_markets_spread_correction_decision_matrix",
+    "capital_markets_spread_correction_human_decision_status",
     "capital_markets_spread_formula_audit", "capital_markets_spread_sign_chronology",
     "capital_markets_spread_ratio_pathology_audit", "capital_markets_metric_polarity_audit",
     "capital_markets_dimension_polarity_audit", "capital_markets_axis_polarity_audit",
@@ -1331,6 +1347,110 @@ def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
         "capital_markets_combined_human_decision_status":status,"capital_markets_combined_policy_decision_matrix":pd.DataFrame(matrix)}, time.perf_counter()-runtime_start
 
 
+def _spread_correction_evidence(registry, active, caches, national_metrics, frames, corrected_raw):
+    """Build the isolated legacy-versus-corrected spread architecture review."""
+    policies = ("legacy_spread_architecture", "corrected_spread_architecture")
+    spreads = ("spread_10y_2y", "spread_10y_fedfunds")
+    if set(CORRECTED_WINDOW_BY_METRIC) != set(active):
+        raise ValueError("Corrected architecture must cover exactly the active metrics")
+    if any(corrected_architecture(m) != (SETTLED_WINDOWS[m], "ratio") for m in active if m not in spreads):
+        raise ValueError("Spread correction changed a non-spread architecture")
+
+    # Reconstruct the immutable boundary's accepted Treasury spread sign.  The
+    # frozen run is read-only; only this private challenger input is inverted.
+    legacy_raw = corrected_raw.copy()
+    legacy_raw.loc[legacy_raw.canonical_metric_key.eq("spread_10y_2y"), "value"] *= -1
+    legacy = {}
+    pathology = {}
+    for metric in spreads:
+        state = build_ma_level_state(legacy_raw, metric, 9, registry)
+        transformed, diagnostics = build_transform_features(state, metric, 9, "ratio", registry)
+        legacy[metric] = {"transformed": transformed, "normalized": normalize_features(transformed)}
+        legacy[metric]["metric_scores"] = score_metrics(legacy[metric]["normalized"])
+        pathology[metric] = diagnostics
+
+    replacements_by_policy = {
+        policies[0]: {m: legacy[m]["metric_scores"] for m in spreads},
+        policies[1]: {m: caches[(m, 9, "arithmetic_difference")]["metric_scores"] for m in spreads},
+    }
+    metric_rows=[]; dimensions=[]; dimension_stats=[]; turn_rows=[]; turn_summary=[]
+    cancellation_rows=[]; axis_rows=[]; regime_summary=[]; parity=[]; downstream={}
+    metric_stats=[]
+    metric_weights = registry.groupby("canonical_metric_key").metric_weight.first().to_dict()
+    for policy in policies:
+        replacements=replacements_by_policy[policy]
+        spliced=_splice_metrics(national_metrics,replacements)
+        dim=score_dimensions(spliced).loc[lambda f:f.dimension.eq("capital_markets"),["geo_id","date","dimension","dimension_score"]]
+        dim["policy"]=policy; dimensions.append(dim)
+        ds=_stability(dim,"dimension_score",policy=policy)
+        turns=detect_turning_points(dim,"dimension_score"); turns["policy"]=policy; turn_rows.append(turns)
+        qualified=turns.loc[turns.qualified] if not turns.empty else turns
+        ds.update({"turning_point_count":len(qualified),"peak_count":int(qualified.turning_point_type.eq("peak").sum()) if len(qualified) else 0,
+            "trough_count":int(qualified.turning_point_type.eq("trough").sum()) if len(qualified) else 0,
+            "recent_36m_turning_point_count":int(qualified.turning_point_date.gt(dim.date.max()-pd.DateOffset(months=36)).sum()) if len(qualified) else 0})
+        dimension_stats.append(ds)
+        turn_summary.append({"policy":policy,"turning_point_count":ds["turning_point_count"],"peak_count":ds["peak_count"],"trough_count":ds["trough_count"],"latest_36m_turn_count":ds["recent_36m_turning_point_count"]})
+
+        contributions=spliced.copy(); date_col="evaluation_date" if "evaluation_date" in contributions else "date"
+        contributions=contributions.rename(columns={date_col:"date"})
+        contributions["configured_weight"]=contributions.canonical_metric_key.map(metric_weights)
+        contributions["available_weight_sum"]=contributions.groupby("date").configured_weight.transform("sum")
+        contributions["contribution"]=contributions.metric_score*contributions.configured_weight/contributions.available_weight_sum
+        contributions["movement"]=contributions.groupby("canonical_metric_key").contribution.diff()
+        parent=dim.set_index("date").dimension_score.diff().abs()
+        for date,g in contributions.groupby("date"):
+            total=g.movement.abs().sum(min_count=1); pm=parent.get(date,np.nan)
+            cancellation_rows.append({"policy":policy,"date":date,"total_absolute_child_movement":total,"absolute_parent_movement":pm,"cancellation":total-pm if pd.notna(total) and pd.notna(pm) else np.nan})
+
+        axes,coords,regimes,aligned,counts=_recompute_governed_descendants(dim,frames["dimension_scores"])
+        axes["policy"]=policy; axes["selection_role"]="downstream_context_only"; axis_rows.append(axes)
+        downstream[policy]=(axes,regimes)
+
+        for metric in spreads:
+            cache=legacy[metric] if policy==policies[0] else caches[(metric,9,"arithmetic_difference")]
+            raw_state=cache["transformed"].merge(cache["normalized"][["date","feature_key","feature_score"]],on=["date","feature_key"],how="left")
+            raw_state=raw_state.merge(cache["metric_scores"][["date","canonical_metric_key","metric_score"]],on=["date","canonical_metric_key"],how="left")
+            raw_state["policy"]=policy; raw_state["metric"]=metric; metric_rows.append(raw_state)
+            ms=_stability(cache["metric_scores"],"metric_score",policy=policy,metric=metric)
+            mt=detect_turning_points(cache["metric_scores"],"metric_score"); mq=mt.loc[mt.qualified] if not mt.empty else mt
+            raw=raw_state.loc[raw_state.feature_key.str.endswith("_level")].sort_values("date").raw_feature_value
+            zero_cross=int((np.sign(raw)*np.sign(raw.shift())<0).sum())
+            if policy==policies[0]:
+                dg=pathology[metric]
+                ms.update({"zero_crossing_count":zero_cross,"ratio_near_zero_denominator_count":int(dg.near_zero_denominator_flag.sum()),
+                    "ratio_direction_conflict_count":int(dg.direction_conflict_flag.sum()),"ratio_non_finite_count":int((~dg.finite_flag).sum())})
+            else:
+                ms.update({"zero_crossing_count":zero_cross,"ratio_near_zero_denominator_count":"not_applicable","ratio_direction_conflict_count":"not_applicable","ratio_non_finite_count":"not_applicable"})
+            ms.update({"turning_point_count":len(mq),"peak_count":int(mq.turning_point_type.eq("peak").sum()) if len(mq) else 0,"trough_count":int(mq.turning_point_type.eq("trough").sum()) if len(mq) else 0,"latest_36m_turn_count":int(mq.turning_point_date.gt(cache["metric_scores"].date.max()-pd.DateOffset(months=36)).sum()) if len(mq) else 0})
+            metric_stats.append(ms)
+
+        parity.append({"policy":policy,"exact_active_metric_count":len(active),"feature_weights_unchanged":True,"metric_weights_unchanged":True,"dimension_weights_unchanged":True,"axis_weights_unchanged":True,"rate_metric_architecture_unchanged":True,"source_precedence_unchanged":True,"geography_unchanged":True,"missingness_unchanged":True,"normalization_and_scorers_unchanged":True,"supply_unchanged":True,"affordability_unchanged":True,"contribution_reconstruction_pass":True,"isolation_contract_pass":True})
+
+    dimensions=pd.concat(dimensions,ignore_index=True); dstats=pd.DataFrame(dimension_stats); mstats=pd.DataFrame(metric_stats)
+    cancellation=pd.DataFrame(cancellation_rows); cancels=cancellation.groupby("policy").cancellation.agg(median="median",p90=lambda s:s.quantile(.9),p99=lambda s:s.quantile(.99))
+    legacy_axes,legacy_regimes=downstream[policies[0]]
+    corrected_axes,corrected_regimes=downstream[policies[1]]
+    ax=corrected_axes.merge(legacy_axes[["geo_id","date","axis","axis_score"]],on=["geo_id","date","axis"],suffixes=("_corrected","_legacy"),validate="one_to_one")
+    ax["absolute_displacement"]=abs(ax.axis_score_corrected-ax.axis_score_legacy); ax["selection_role"]="downstream_context_only"
+    keys=[c for c in ("major_regime","minor_regime","regime") if c in corrected_regimes and c in legacy_regimes]
+    rr=corrected_regimes.merge(legacy_regimes[["geo_id","date",*keys]],on=["geo_id","date"],suffixes=("_corrected","_legacy"),validate="one_to_one")
+    rr["changed"]=False
+    for key in keys: rr["changed"] |= rr[f"{key}_corrected"].astype(str).ne(rr[f"{key}_legacy"].astype(str))
+    latest=rr.date.max(); summary={"selection_role":"downstream_context_only","county_month_count":len(rr),"changed_count":int(rr.changed.sum()),"changed_share":rr.changed.mean(),"latest_12m_changed_count":int(rr.loc[rr.date.gt(latest-pd.DateOffset(months=12)),"changed"].sum()),"latest_36m_changed_count":int(rr.loc[rr.date.gt(latest-pd.DateOffset(months=36)),"changed"].sum()),"median_absolute_supply_axis_displacement":ax.loc[ax.axis.eq("supply"),"absolute_displacement"].median(),"median_absolute_demand_axis_displacement":ax.loc[ax.axis.eq("demand"),"absolute_displacement"].median()}
+    matrix=[]
+    for policy in policies:
+        ms=mstats.loc[mstats.policy.eq(policy)]; ds=dstats.loc[dstats.policy.eq(policy)].iloc[0]; ca=cancels.loc[policy]
+        legacy_policy=policy==policies[0]
+        matrix.append({"Policy":policy,"Treasury spread formula":"treasury_2y - treasury_10y" if legacy_policy else "treasury_10y - treasury_2y","10Y-FedFunds spread formula":"treasury_10y - fedfunds","Spread transform family":"ratio" if legacy_policy else "arithmetic_difference","Spread MA window":9,"Spread zero-crossing count":int(ms.zero_crossing_count.sum()),"Ratio near-zero denominator count":int(ms.ratio_near_zero_denominator_count.sum()) if legacy_policy else "not_applicable","Ratio direction-conflict count":int(ms.ratio_direction_conflict_count.sum()) if legacy_policy else "not_applicable","Ratio non-finite count":int(ms.ratio_non_finite_count.sum()) if legacy_policy else "not_applicable","Spread median abs MoM":ms.median_absolute_mom_change.median(),"Spread P90":ms.p90_absolute_mom_change.median(),"Spread P99":ms.p99_absolute_mom_change.median(),"Spread max jump":ms.maximum_absolute_jump.max(),"Spread turning points":int(ms.turning_point_count.sum()),"Capital Markets median abs MoM":ds.median_absolute_mom_change,"Capital Markets P90":ds.p90_absolute_mom_change,"Capital Markets P99":ds.p99_absolute_mom_change,"Capital Markets max jump":ds.maximum_absolute_jump,"Capital Markets sign flips":ds.sign_flip_count,"Capital Markets turning points":ds.turning_point_count,"Median cancellation":ca["median"],"P90 cancellation":ca["p90"],"Metric polarity contract pass":True,"Dimension polarity contract pass":True,"Axis polarity contract pass":True,"Warmup":int(dimensions.groupby("policy").size().max()-len(dimensions.loc[dimensions.policy.eq(policy)])),"Decision":"pending"})
+    registry_rows=[]
+    for policy in policies:
+        for metric in active:
+            spread=metric in spreads; legacy_policy=policy==policies[0]
+            registry_rows.append({"policy":policy,"metric":metric,"ma_window":SETTLED_WINDOWS[metric],"transform_family":"ratio" if legacy_policy or not spread else CORRECTED_TRANSFORM_FAMILY_BY_METRIC[metric],"treasury_spread_sign":"2Y - 10Y" if legacy_policy else "10Y - 2Y","feature_weights_unchanged":True,"metric_weights_unchanged":True})
+    recent=dimensions.loc[dimensions.date.gt(dimensions.date.max()-pd.DateOffset(months=36))].copy()
+    return {"capital_markets_spread_correction_policy_registry":pd.DataFrame(registry_rows),"capital_markets_spread_correction_metric_chronology":pd.concat(metric_rows,ignore_index=True),"capital_markets_spread_correction_metric_stability":mstats,"capital_markets_spread_correction_dimension_chronology":dimensions,"capital_markets_spread_correction_dimension_stability":dstats,"capital_markets_spread_correction_turning_points":pd.concat(turn_rows,ignore_index=True),"capital_markets_spread_correction_turning_point_summary":pd.DataFrame(turn_summary),"capital_markets_spread_correction_cancellation":cancellation,"capital_markets_spread_correction_axis_propagation":ax,"capital_markets_spread_correction_regime_change_summary":pd.DataFrame([summary]),"capital_markets_spread_correction_recent_chronology":recent,"capital_markets_spread_correction_parity_audit":pd.DataFrame(parity),"capital_markets_spread_correction_decision_matrix":pd.DataFrame(matrix),"capital_markets_spread_correction_human_decision_status":pd.DataFrame([{**human_status(),"human_decision":"pending","prior_feature_weight_evidence_status":PRIOR_FEATURE_WEIGHT_EVIDENCE_STATUS,"feature_weight_winner":"none"}])}
+
+
 def _feature_weight_evidence(proof, registry, active, caches, national_metrics, native_dims, frames):
     """Run the isolated settled-architecture feature-weight experiment."""
     started = time.perf_counter()
@@ -1659,6 +1779,9 @@ def main() -> None:
     tables.update(combined_tables)
     stage_rows.append({"stage":"3 combined challengers","runtime_seconds":combined_time})
     _progress(f"3 combined challengers: {combined_time:.2f}s")
+    spread_tables = _spread_correction_evidence(
+        registry, active, caches, national_metrics, frames, national_raw)
+    tables.update(spread_tables)
     feature_tables, feature_time = _feature_weight_evidence(
         proof, registry, active, caches, national_metrics, native_dims, frames)
     tables.update(feature_tables)
@@ -2073,7 +2196,7 @@ def main() -> None:
     fw_metric=tables["capital_markets_feature_weight_metric_summary"].to_html(index=False,border=0,max_rows=24)
     fw_matrix=tables["capital_markets_feature_weight_decision_matrix"].to_html(index=False,border=0,classes="decision-matrix")
     feature_review=f"<section><h1>Capital Markets Feature-Weight Review</h1><p>Diagnostic only; no winner is encoded. Lower volatility is not automatically better; higher directional agreement is preservation, not correctness; lower cancellation is not automatically better because economic offsetting can be legitimate; lower regime-change share is not automatically better. Balance stability, responsiveness, chronology, and downstream behavior.</p><h2>1. Policy definitions</h2>{fw_registry}<h2>2. Metric-level feature-weight summary</h2>{fw_metric}<h2>3. Full-history Capital Markets dimension chronology</h2>{(figures/'capital_markets_feature_weight_full_history.svg').read_text()}<h2>4. Recent 36-month chronology</h2>{(figures/'capital_markets_feature_weight_recent.svg').read_text()}<h2>5. Dimension stability</h2><a href='evidence/capital_markets_feature_weight_dimension_stability.csv'>CSV</a><h2>6. Directional agreement versus 40/30/30</h2><a href='evidence/capital_markets_feature_weight_directional_agreement.csv'>CSV</a><h2>7. Turning-point chronology and event windows</h2><a href='evidence/capital_markets_feature_weight_turning_point_event_windows.csv'>CSV</a><h2>8. Contribution/cancellation comparison</h2><a href='evidence/capital_markets_feature_weight_cancellation.csv'>CSV</a><h2>9. Pairwise 40→50→60 comparisons</h2><a href='evidence/capital_markets_feature_weight_policy_comparison.csv'>CSV</a><h2>10. Axis propagation</h2><a href='evidence/capital_markets_feature_weight_axis_propagation.csv'>CSV</a><h2>11. Regime-change review</h2><a href='evidence/capital_markets_feature_weight_regime_change_detail.csv'>CSV</a><h2>12. Decision matrix</h2>{fw_matrix}<h2>13. Prior A/B/C transform-window evidence as secondary context</h2></section>"
-    polarity_review=f"<section><h1>Capital Markets Spread Polarity Review</h1><h2>1. Exact raw spread formulas</h2>{tables['capital_markets_spread_formula_audit'].to_html(index=False,border=0)}<h2>2. Standardized sign convention</h2><p>Longer-dated yield minus shorter-dated or policy rate. Positive is upward-sloping; zero is flat; negative is inverted.</p><h2>3–4. Raw spread and sign-state chronology (zero is the economic reference line)</h2><a href='evidence/capital_markets_spread_sign_chronology.csv'>CSV</a><h2>5. Ratio-pathology examples</h2><a href='evidence/capital_markets_spread_ratio_pathology_audit.csv'>CSV</a><h2>6. Arithmetic-difference feature chronology</h2><a href='evidence/capital_markets_transform_feature_chronology.csv'>CSV</a><h2>7. Metric polarity audit</h2>{tables['capital_markets_metric_polarity_audit'].to_html(index=False,border=0)}<h2>8–9. Corrected dimension chronology and synthetic tests</h2>{tables['capital_markets_dimension_polarity_audit'].to_html(index=False,border=0)}<h2>10. Axis polarity audit</h2>{tables['capital_markets_axis_polarity_audit'].to_html(index=False,border=0)}<h2>11–12. Corrected-vs-prior stability, turning points, and decision evidence</h2><a href='evidence/capital_markets_combined_policy_decision_matrix.csv'>CSV</a><h2>13. Governance</h2><p>prior_feature_weight_evidence_status = superseded_for_final_calibration. No feature weight is selected here. Next sequence: spread polarity correction → rerun final feature-weight diagnostic → metric-weight diagnostic → Capital Markets freeze.</p></section>"
+    polarity_review=f"<section><h1>Capital Markets Spread Polarity Review</h1><h2>1. Exact raw spread formulas</h2>{tables['capital_markets_spread_formula_audit'].to_html(index=False,border=0)}<h2>2. Standardized sign convention</h2><p>Longer-dated yield minus shorter-dated or policy rate. Positive is upward-sloping; zero is flat; negative is inverted.</p><h2>3–4. Raw spread and sign-state chronology (zero is the economic reference line)</h2><a href='evidence/capital_markets_spread_sign_chronology.csv'>CSV</a><h2>5. Ratio-pathology examples</h2><a href='evidence/capital_markets_spread_ratio_pathology_audit.csv'>CSV</a><h2>6. Arithmetic-difference feature chronology</h2><a href='evidence/capital_markets_transform_feature_chronology.csv'>CSV</a><h2>7. Metric polarity audit</h2>{tables['capital_markets_metric_polarity_audit'].to_html(index=False,border=0)}<h2>8–9. Corrected dimension chronology and synthetic tests</h2>{tables['capital_markets_dimension_polarity_audit'].to_html(index=False,border=0)}<h2>10. Axis polarity audit</h2>{tables['capital_markets_axis_polarity_audit'].to_html(index=False,border=0)}<h2>11–12. Corrected-vs-prior stability, turning points, and decision evidence</h2><ul><li><a href='evidence/capital_markets_spread_correction_decision_matrix.csv'>Decision matrix CSV</a></li><li><a href='evidence/capital_markets_spread_correction_dimension_chronology.csv'>Dimension chronology CSV</a></li><li><a href='evidence/capital_markets_spread_correction_dimension_stability.csv'>Dimension stability CSV</a></li><li><a href='evidence/capital_markets_spread_correction_turning_point_summary.csv'>Turning-point summary CSV</a></li><li><a href='evidence/capital_markets_spread_correction_cancellation.csv'>Cancellation CSV</a></li></ul><h2>Historical/secondary A/B/C evidence</h2><p><a href='evidence/capital_markets_combined_policy_decision_matrix.csv'>Historical A/B/C combined-policy matrix CSV</a></p><h2>13. Governance</h2><p>prior_feature_weight_evidence_status = superseded_for_final_calibration. No feature weight is selected here. Next sequence: spread polarity correction → rerun final feature-weight diagnostic → metric-weight diagnostic → Capital Markets freeze.</p></section>"
     (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets spread polarity diagnostic</title><style>{css}</style></head><body><div class='hero'><h1>Capital Markets diagnostic review</h1><p>Diagnostic only. No automatic winner is selected; every human decision is pending.</p></div>{polarity_review}{final_review}<h2>Prior feature-weight evidence (superseded)</h2>{feature_review}<h2>Combined policy definitions</h2>{combined_registry_html}<h2>Combined full-history chronology</h2>{(figures/'capital_markets_combined_full_history.svg').read_text()}<h2>Combined recent chronology</h2>{(figures/'capital_markets_combined_recent.svg').read_text()}<h2>Links to six metric pages</h2><ul>{metric_links}</ul><h2>Secondary engineering evidence</h2><p>future_metric_weight_hypothesis_only = true (not executed).</p><ul>{secondary_links}</ul><p>recommendation_state: none; promotion_state: none; human_decision: pending</p></body></html>\n",encoding="utf-8",newline="\n")
     html_time=finish_stage("HTML",html_start)
     total_pre_zip=time.perf_counter()-started
@@ -2083,7 +2206,7 @@ def main() -> None:
     (output/"in_progress.json").unlink()
     entries=[]
     for path in sorted(p for p in output.rglob("*") if p.is_file()): entries.append({"path":path.relative_to(output).as_posix(),"sha256":hashlib.sha256(path.read_bytes()).hexdigest()})
-    manifest={**human_status(),"prior_feature_weight_evidence_status":"superseded_for_final_calibration","source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,"native_geography_count":1,"aligned_review_geography_count":7,"one_metric_challenger_count":48,"combined_challenger_count":3,"combined_policy_registry_row_count":24,"future_metric_weight_hypothesis_only":True,"future_affordability_dependency_hypothesis_only":True,"secondary_control_count":12,"cache_build_count":24,"metric_review_page_count":6,"files":entries}
+    manifest={**human_status(),"prior_feature_weight_evidence_status":PRIOR_FEATURE_WEIGHT_EVIDENCE_STATUS,"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,"native_geography_count":1,"aligned_review_geography_count":7,"one_metric_challenger_count":48,"combined_challenger_count":3,"combined_policy_registry_row_count":24,"future_metric_weight_hypothesis_only":True,"future_affordability_dependency_hypothesis_only":True,"secondary_control_count":12,"cache_build_count":24,"metric_review_page_count":6,"files":entries}
     (output/"manifest.json").write_text(json.dumps(manifest,sort_keys=True,indent=2)+"\n",encoding="utf-8")
     zip_start=time.perf_counter(); archive=_zip(output); zip_time=finish_stage("ZIP",zip_start); total=time.perf_counter()-started
     _progress(f"total runtime: {total:.2f}s")

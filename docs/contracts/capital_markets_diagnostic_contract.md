@@ -198,3 +198,14 @@ mapping is the only runtime use of the legacy identity. New production and
 diagnostic writes must not emit `spread_2y10y` as a canonical metric key. The
 governed sequence remains: spread polarity/key correction → rerun final
 feature-weight diagnostic → metric-weight diagnostic → Capital Markets freeze.
+
+The spread-correction decision pass materializes an isolated two-policy review.
+`legacy_spread_architecture` reconstructs the immutable artifact boundary as
+2Y-minus-10Y with MA9 ratio structural spread features.
+`corrected_spread_architecture` uses 10Y-minus-2Y and 10Y-minus-Fed-Funds with
+MA9 arithmetic-difference features (`MA9 - lag3(MA9)` and
+`MA9 - lag12(MA9)`). The four rate metrics retain their governed MA12/MA3 ratio
+architecture. The comparison has no similarity reward, rank, recommendation,
+or promotion; its two-row decision matrix remains pending. The earlier A/B/C
+matrix is retained only as historical/secondary evidence, and prior
+feature-weight evidence remains `superseded_for_final_calibration`.

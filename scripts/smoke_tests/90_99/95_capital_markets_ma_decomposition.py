@@ -25,6 +25,8 @@ from regime.diagnostics.capital_markets_ma import (
     combined_policy_specs,
     spread_polarity_audit_tables,
     canonicalize_legacy_artifact_metric_keys, metric_key_migration_audit,
+    CORRECTED_WINDOW_BY_METRIC, CORRECTED_TRANSFORM_FAMILY_BY_METRIC,
+    PRIOR_FEATURE_WEIGHT_EVIDENCE_STATUS, corrected_architecture,
 )
 
 
@@ -42,6 +44,10 @@ def main() -> None:
     weights = registry.drop_duplicates("canonical_metric_key").set_index("canonical_metric_key").metric_weight.to_dict()
     assert weights == expected and "treasury_2y" not in weights and "spread_2y10y" not in weights
     assert np.isclose(sum(weights.values()), 1.0)
+    assert CORRECTED_WINDOW_BY_METRIC == {"mortgage_30y":12,"mortgage_15y":12,"treasury_10y":12,"fedfunds":3,"spread_10y_2y":9,"spread_10y_fedfunds":9}
+    assert CORRECTED_TRANSFORM_FAMILY_BY_METRIC == {"mortgage_30y":"ratio","mortgage_15y":"ratio","treasury_10y":"ratio","fedfunds":"ratio","spread_10y_2y":"arithmetic_difference","spread_10y_fedfunds":"arithmetic_difference"}
+    assert corrected_architecture("spread_10y_2y") == (9,"arithmetic_difference")
+    assert PRIOR_FEATURE_WEIGHT_EVIDENCE_STATUS == "superseded_for_final_calibration"
     migration=metric_key_migration_audit().iloc[0]
     assert migration.legacy_key=="spread_2y10y" and migration.canonical_key=="spread_10y_2y"
     assert migration.metric_weight_before==migration.metric_weight_after==.20
@@ -217,6 +223,13 @@ def main() -> None:
     assert set(county_copies.geo_id)==set(REVIEW_GEOGRAPHIES)
     assert not county_copies.geo_id.str.contains("cbsa|zip|state|nation").any()
     runner_source=Path("scripts/build_capital_markets_ma_decomposition.py").read_text()
+    spread_tables={name for name in TABLES if name.startswith("capital_markets_spread_correction_")}
+    assert len(spread_tables)==14 and "capital_markets_spread_correction_decision_matrix" in spread_tables
+    assert "legacy_spread_architecture" in runner_source and "corrected_spread_architecture" in runner_source
+    assert "treasury_2y - treasury_10y" in runner_source and "treasury_10y - treasury_2y" in runner_source
+    assert "capital_markets_spread_correction_decision_matrix.csv" in runner_source
+    assert "Historical/secondary A/B/C evidence" in runner_source
+    assert "feature_weight_winner\":\"none" in runner_source
     assert 'path.read_text(encoding="utf-8")' in runner_source
     assert 'Dimension median abs. MoM Δ' in runner_source
     assert 'dimension_incumbent_overlap_sign_flip_count' in runner_source
