@@ -224,6 +224,10 @@ def main() -> None:
     assert 'Final A/B/C chronology review' in runner_source
     assert '<bound method Series.transform' not in runner_source
     assert '"combined_challenger_count":3' in runner_source and '"combined_policy_registry_row_count":24' in runner_source
+    assert "SETTLED_FEATURE_WEIGHT_POLICIES" in runner_source
+    assert all(name in runner_source for name in ("capital_markets_feature_weight_policy_registry", "capital_markets_feature_weight_metric_summary", "capital_markets_feature_weight_decision_matrix", "Capital Markets Feature-Weight Review"))
+    assert "feature-weight {number}/3 {policy}" in runner_source
+    assert "future_metric_weight_hypothesis_only = true" in runner_source
     audit=payment_burden_audit().iloc[0]; assert audit.mortgage_rate_source=="mortgage_30y" and not audit.same_operation and not audit.policy_change
     status=human_status(); assert status["recommendation_state"]==status["promotion_state"]=="none"
     with tempfile.TemporaryDirectory() as tmp:
