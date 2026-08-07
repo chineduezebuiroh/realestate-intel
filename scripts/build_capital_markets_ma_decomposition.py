@@ -38,6 +38,10 @@ TABLES = (
     "capital_markets_combined_turning_point_summary", "capital_markets_combined_cancellation",
     "capital_markets_combined_axis_propagation", "capital_markets_combined_coordinate_propagation",
     "capital_markets_combined_regime_change_summary", "capital_markets_combined_recent_chronology",
+    "capital_markets_combined_regime_change_detail", "capital_markets_combined_regime_change_review",
+    "capital_markets_combined_regime_transition_summary", "capital_markets_combined_turning_point_review",
+    "capital_markets_combined_turning_point_event_windows", "capital_markets_combined_finalist_review_summary",
+    "capital_markets_combined_isolation_invariants",
     "capital_markets_combined_policy_comparison", "capital_markets_combined_metric_contribution_chronology",
     "capital_markets_combined_metric_contribution_summary", "capital_markets_combined_parity_audit",
     "capital_markets_combined_human_decision_status", "capital_markets_combined_policy_decision_matrix",
@@ -87,6 +91,12 @@ CHART_STYLES = {
     "ratio": {"color": "#2563eb", "width": 1.8, "dash": None},
     "arithmetic_difference": {"color": "#c2410c", "width": 1.8, "dash": "7 4"},
 }
+
+# Descriptive review thresholds.  These are evidence labels, not acceptance or
+# promotion criteria, and are repeated in the review CSVs for auditability.
+LOW_REGIME_STRENGTH_THRESHOLD = 0.25
+SMALL_AXIS_DISPLACEMENT_THRESHOLD = 0.10
+LARGE_AXIS_DISPLACEMENT_THRESHOLD = 0.30
 
 VISUALIZATION_REGRESSION_TABLES = (
     "capital_markets_transform_policy_scorecard",
@@ -138,7 +148,8 @@ def _policy_registry(registry: pd.DataFrame) -> pd.DataFrame:
 def _svg(path: Path, title: str, frame: pd.DataFrame, value: str, group: str | None = None,
          *, y_label: str = "Score", chart_kind: str = "supporting",
          series_styles: dict[str, str] | None = None,
-         series_labels: dict[str, str] | None = None, zero_line: bool = True) -> None:
+         series_labels: dict[str, str] | None = None, zero_line: bool = True,
+         markers: pd.DataFrame | None = None) -> None:
     order = {"incumbent": 0, "ma3_structural": 1, "ma6_structural": 2,
         "ma9_structural": 3, "ma12_structural": 4, "raw": 0, "ma3": 1,
         "ma6": 2, "ma9": 3, "ma12": 4}
@@ -175,11 +186,20 @@ def _svg(path: Path, title: str, frame: pd.DataFrame, value: str, group: str | N
     zero = f"<line class='zero-reference' x1='55' y1='{zero_y:.2f}' x2='750' y2='{zero_y:.2f}' stroke='#9ca3af' stroke-dasharray='3 3'/>" if zero_line else ""
     y_ticks = "".join(f"<g><line x1='50' y1='{40+i*55}' x2='55' y2='{40+i*55}' stroke='#6b7280'/><text x='46' y='{44+i*55}' text-anchor='end'>{high-i*span/4:.3g}</text></g>" for i in range(5))
     date_ticks = "".join(f"<g><line x1='{50+i*175}' y1='260' x2='{50+i*175}' y2='265' stroke='#6b7280'/><text x='{50+i*175}' y='277' text-anchor='middle'>{(start+(end-start)*i/4).strftime('%Y-%m')}</text></g>" for i in range(5))
+    marker_lines=[]
+    if markers is not None:
+        marker_colors={"incumbent":"#111827","challenger_a_balanced_ratio":"#2563eb","challenger_b_slow_spreads_ratio":"#059669","challenger_c_balanced_difference":"#c2410c"}
+        for marker in markers.itertuples(index=False):
+            marker_date=pd.Timestamp(marker.turning_point_date)
+            if start <= marker_date <= end:
+                x=50+(marker_date-start).total_seconds()/duration*700
+                color=marker_colors.get(str(marker.policy),"#6b7280")
+                marker_lines.append(f"<line class='turning-point-marker' data-policy='{html.escape(str(marker.policy))}' data-source='{html.escape(str(marker.source))}' x1='{x:.2f}' y1='40' x2='{x:.2f}' y2='260' stroke='{color}' stroke-width='1' stroke-dasharray='2 4'/>")
     content = (f"<svg xmlns='http://www.w3.org/2000/svg' class='review-chart' data-chart-kind='{chart_kind}' data-series-count='{len(series)}' viewBox='0 0 800 310' width='800' height='310'>"
         f"<title>{html.escape(title)}</title><rect width='800' height='310' fill='white'/><text class='chart-title' x='400' y='20' text-anchor='middle'>{html.escape(title)}</text>"
         f"<line x1='50' y1='260' x2='750' y2='260' stroke='#374151'/><line x1='50' y1='40' x2='50' y2='260' stroke='#374151'/>{zero}{y_ticks}{date_ticks}"
         f"<text class='y-axis-label' transform='translate(14 150) rotate(-90)' text-anchor='middle'>{html.escape(y_label)}</text><text class='x-axis-label' x='400' y='306' text-anchor='middle'>Date</text>"
-        f"{''.join(paths)}<g class='legend'>{''.join(legends)}</g></svg>")
+        f"{''.join(marker_lines)}{''.join(paths)}<g class='legend'>{''.join(legends)}</g></svg>")
     path.write_text(content, encoding="utf-8", newline="\n")
 
 
@@ -878,7 +898,8 @@ def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
         for metric in active:
             family=metric_family[metric]; incumbent=policy=="incumbent"
             production=registry.loc[registry.canonical_metric_key.eq(metric)]
-            definitions=production.set_index("feature_type").apply(lambda r:f"{r.transform}:{r.feature_window}",axis=1).to_dict()
+            definitions=production.set_index("feature_type").apply(
+                lambda r:f'{r["transform"]}:{r["feature_window"]}',axis=1).to_dict()
             window=pd.NA if incumbent else spec["windows"][family]
             transform="production_registry" if incumbent else spec["transform_family"]
             if not incumbent:
@@ -988,6 +1009,75 @@ def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
             "unrelated_dimension_parity":True,"frozen_supply_parity":True,"affordability_parity":True,"feature_weights_unchanged":True,"metric_weights_unchanged":True,"dimension_weights_unchanged":True,"axis_weights_unchanged":True,"production_registry_mutated":False})
     axes=pd.concat(axis_rows,ignore_index=True); coords=pd.concat(coord_rows,ignore_index=True); regime_detail=pd.concat(regime_rows,ignore_index=True)
     regime_summary=regime_detail.groupby("policy",as_index=False).agg(county_date_rows=("regime_changed","size"),regime_change_count=("regime_changed","sum")); regime_summary["regime_change_share"]=regime_summary.regime_change_count/regime_summary.county_date_rows
+
+    # Exact-date downstream evidence for every changed county month.
+    axis_wide=axes.pivot(index=["policy","geo_id","date"],columns="axis",values=["axis_score","axis_score_incumbent","change_vs_incumbent"]).reset_index()
+    axis_wide.columns=["_".join(str(x) for x in c if str(x)) if isinstance(c,tuple) else c for c in axis_wide.columns]
+    axis_wide=axis_wide.rename(columns={
+        "axis_score_supply":"supply_axis_challenger","axis_score_incumbent_supply":"supply_axis_incumbent","change_vs_incumbent_supply":"supply_axis_delta",
+        "axis_score_demand":"demand_axis_challenger","axis_score_incumbent_demand":"demand_axis_incumbent","change_vs_incumbent_demand":"demand_axis_delta"})
+    coordinate_columns=["policy","geo_id","date"]
+    coordinate_review=coords[coordinate_columns].copy()
+    for column,label in (("x_supply","x_coordinate_challenger"),("y_demand","y_coordinate_challenger"),("radius","challenger_regime_strength"),
+                         ("x_supply_incumbent","x_coordinate_incumbent"),("y_demand_incumbent","y_coordinate_incumbent"),("radius_incumbent","incumbent_regime_strength")):
+        if column in coords: coordinate_review[label]=coords[column]
+    if {"x_coordinate_challenger","y_coordinate_challenger","x_coordinate_incumbent","y_coordinate_incumbent"}.issubset(coordinate_review):
+        coordinate_review["coordinate_displacement"]=np.hypot(coordinate_review.x_coordinate_challenger-coordinate_review.x_coordinate_incumbent,coordinate_review.y_coordinate_challenger-coordinate_review.y_coordinate_incumbent)
+    changed=regime_detail.loc[regime_detail.regime_changed].copy()
+    changed=changed.merge(axis_wide,on=["policy","geo_id","date"],validate="one_to_one").merge(coordinate_review,on=["policy","geo_id","date"],validate="one_to_one")
+    latest=regime_detail.date.max(); changed["latest_12m"]=changed.date.gt(latest-pd.DateOffset(months=12)); changed["latest_36m"]=changed.date.gt(latest-pd.DateOffset(months=36))
+    if "regime_strength_incumbent" in changed: changed["low_incumbent_strength"]=changed.regime_strength_incumbent.lt(LOW_REGIME_STRENGTH_THRESHOLD)
+    elif "incumbent_regime_strength" in changed: changed["low_incumbent_strength"]=changed.incumbent_regime_strength.lt(LOW_REGIME_STRENGTH_THRESHOLD)
+    if "regime_strength" in changed: changed["low_challenger_strength"]=changed.regime_strength.lt(LOW_REGIME_STRENGTH_THRESHOLD)
+    elif "challenger_regime_strength" in changed: changed["low_challenger_strength"]=changed.challenger_regime_strength.lt(LOW_REGIME_STRENGTH_THRESHOLD)
+    changed["axis_displacement"]=np.hypot(changed.supply_axis_delta,changed.demand_axis_delta)
+    changed["small_axis_displacement"]=changed.axis_displacement.le(SMALL_AXIS_DISPLACEMENT_THRESHOLD)
+    changed["large_axis_displacement"]=changed.axis_displacement.ge(LARGE_AXIS_DISPLACEMENT_THRESHOLD)
+    changed["low_strength_threshold"]=LOW_REGIME_STRENGTH_THRESHOLD
+    changed["small_axis_displacement_threshold"]=SMALL_AXIS_DISPLACEMENT_THRESHOLD
+    changed["large_axis_displacement_threshold"]=LARGE_AXIS_DISPLACEMENT_THRESHOLD
+    regime_key="regime" if "regime" in changed else "minor_regime" if "minor_regime" in changed else "major_regime"
+    changed["incumbent_regime"]=changed[f"{regime_key}_incumbent"]; changed["challenger_regime"]=changed[regime_key]
+    changed["transition_pair"]=changed.incumbent_regime.astype(str)+" -> "+changed.challenger_regime.astype(str)
+    changed["year"]=changed.date.dt.year
+    transition_summary=changed.groupby(["policy","geo_id","transition_pair","year","latest_12m","latest_36m"],as_index=False).size().rename(columns={"size":"changed_month_count"})
+
+    # One normalized chronology table contains both sides of every qualified
+    # match, including extra challenger turns that have no incumbent partner.
+    turn_review=[]; event_rows=[]
+    turns_by_policy=dict(zip(specs,turns))
+    matches_by_policy=dict(zip(specs,matches))
+    score_lookup=chronology.pivot(index="date",columns="policy",values="dimension_score")
+    challenger_policies=list(specs)[1:]
+    for policy in challenger_policies:
+        match=matches_by_policy[policy]
+        for source,tp_frame,date_col,other_col in (("incumbent",inc_turns,"incumbent_date","challenger_date"),("challenger",turns_by_policy[policy],"challenger_date","incumbent_date")):
+            for point in tp_frame.loc[tp_frame.qualified].itertuples(index=False):
+                candidates=match.loc[match[date_col].eq(point.turning_point_date)]
+                row_match=candidates.iloc[0] if len(candidates) else None
+                turn_review.append({"policy":policy,"source":source,"turning_point_date":point.turning_point_date,"turning_point_type":point.turning_point_type,
+                    "score":score_lookup.loc[point.turning_point_date,"incumbent" if source=="incumbent" else policy],"prominence":point.prominence,
+                    "incoming_persistence":point.incoming_persistence,"outgoing_persistence":point.outgoing_persistence,
+                    "matched":bool(row_match.matched) if row_match is not None else False,"matched_counterpart_date":row_match[other_col] if row_match is not None else pd.NaT,
+                    "signed_delay_months":row_match.signed_delay_months if row_match is not None else np.nan,
+                    "absolute_delay_months":abs(row_match.signed_delay_months) if row_match is not None and pd.notna(row_match.signed_delay_months) else np.nan})
+        events=[("incumbent",r.turning_point_date,r.turning_point_type) for r in inc_turns.loc[inc_turns.qualified].itertuples(index=False)]
+        unmatched_dates=match.loc[match.incumbent_date.isna(),"challenger_date"]
+        events += [("challenger",r.turning_point_date,r.turning_point_type) for r in turns_by_policy[policy].loc[lambda f:f.qualified & f.turning_point_date.isin(unmatched_dates)].itertuples(index=False)]
+        for event_no,(source,event_date,event_type) in enumerate(events,1):
+            for relative_month in range(-6,7):
+                calendar_date=event_date+pd.offsets.MonthEnd(relative_month)
+                values=score_lookup.loc[calendar_date] if calendar_date in score_lookup.index else pd.Series(dtype=float)
+                event_rows.append({"event_identity":f"{policy}:{source}:{event_type}:{event_date:%Y-%m-%d}:{event_no}","policy":policy,"event_date":event_date,
+                    "event_source":source,"event_type":event_type,"relative_month":relative_month,"calendar_date":calendar_date,
+                    "incumbent_dimension_score":values.get("incumbent",np.nan),"a_score":values.get("challenger_a_balanced_ratio",np.nan),
+                    "b_score":values.get("challenger_b_slow_spreads_ratio",np.nan),"c_score":values.get("challenger_c_balanced_difference",np.nan)})
+    turn_review=pd.DataFrame(turn_review); event_windows=pd.DataFrame(event_rows)
+
+    invariants=pd.DataFrame([
+        {"comparison":"A vs B","same_transform":specs["challenger_a_balanced_ratio"]["transform_family"]==specs["challenger_b_slow_spreads_ratio"]["transform_family"],"same_long_rate_ma12":specs["challenger_a_balanced_ratio"]["windows"]["long_rate_family"]==specs["challenger_b_slow_spreads_ratio"]["windows"]["long_rate_family"]==12,"same_fed_funds_ma3":specs["challenger_a_balanced_ratio"]["windows"]["policy_rate_family"]==specs["challenger_b_slow_spreads_ratio"]["windows"]["policy_rate_family"]==3,"only_difference":"spread MA9 vs MA12","verified":all(specs["challenger_a_balanced_ratio"]["windows"][f]==specs["challenger_b_slow_spreads_ratio"]["windows"][f] for f in ("long_rate_family","policy_rate_family")) and specs["challenger_a_balanced_ratio"]["windows"]["spread_family"]==9 and specs["challenger_b_slow_spreads_ratio"]["windows"]["spread_family"]==12},
+        {"comparison":"A vs C","same_transform":False,"same_long_rate_ma12":True,"same_fed_funds_ma3":True,"only_difference":"ratio vs arithmetic-difference transform","verified":specs["challenger_a_balanced_ratio"]["windows"]==specs["challenger_c_balanced_difference"]["windows"] and specs["challenger_a_balanced_ratio"]["transform_family"]=="ratio" and specs["challenger_c_balanced_difference"]["transform_family"]=="arithmetic_difference"}])
+    if not invariants.verified.all(): raise ValueError("Combined finalist isolation invariant violated")
     recent=chronology.sort_values("date").groupby("policy",group_keys=False).tail(36).copy(); recent["monthly_change"]=recent.groupby("policy").dimension_score.diff(); recent["direction"]=recent.monthly_change.map(direction); recent["absolute_monthly_change"]=recent.monthly_change.abs()
     comparison=[]
     for left,right,label in (("challenger_a_balanced_ratio","challenger_b_slow_spreads_ratio","spread_window_ma9_vs_ma12"),("challenger_a_balanced_ratio","challenger_c_balanced_difference","ratio_vs_arithmetic_difference")):
@@ -999,11 +1089,33 @@ def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
     for policy,spec in specs.items():
         st=stability.query("policy == @policy").iloc[0]; dr=directions.query("policy == @policy").set_index("horizon_months").agreement_share; ts=pd.DataFrame(summaries).query("policy == @policy").iloc[0]; cs=contribution_summary.query("policy == @policy").iloc[0]
         matrix.append({"Policy":policy,"Transform mix":"production" if spec is None else spec["transform_family"],"Long-rate window":pd.NA if spec is None else 12,"Fed Funds window":pd.NA if spec is None else 3,"Spread window":pd.NA if spec is None else spec["windows"]["spread_family"],"Median abs. MoM Δ":st.median_absolute_mom_change,"P90 Δ":st.p90_absolute_mom_change,"P99 Δ":st.p99_absolute_mom_change,"Sign flips":st.sign_flip_count,**{f"Direction agree {h}m":dr[h] for h in (1,3,6,12)},"Median turn delay":ts.median_absolute_delay,"Max turn delay":ts.maximum_absolute_delay,"Median cancellation ratio":cs.median_cancellation_ratio,"Demand-axis median abs Δ":0 if policy=="incumbent" else axis_summary.loc[policy,"demand"],"Supply-axis median abs Δ":0 if policy=="incumbent" else axis_summary.loc[policy,"supply"],"Regime-change share":0 if policy=="incumbent" else regime_summary.set_index("policy").loc[policy,"regime_change_share"],"Warmup":len(native_dims)-len(common_dates)})
+    finalist=pd.DataFrame(matrix).query("Policy != 'incumbent'").rename(columns={"Policy":"policy","Median abs. MoM Δ":"median_abs_mom_change","P90 Δ":"p90_movement","P99 Δ":"p99_movement","Sign flips":"sign_flips","Median turn delay":"median_turning_delay","Max turn delay":"maximum_turning_delay","Median cancellation ratio":"median_cancellation"})
+    finalist=finalist.merge(pd.DataFrame(summaries)[["policy","policy_turning_point_count","matched_count","unmatched_count"]],on="policy",validate="one_to_one").merge(contribution_summary[["policy","p90_cancellation_ratio"]],on="policy",validate="one_to_one").merge(regime_summary[["policy","regime_change_count","regime_change_share"]],on="policy",validate="one_to_one")
+    change_stats=changed.groupby("policy").agg(latest_12m_regime_change_count=("latest_12m","sum"),latest_36m_regime_change_count=("latest_36m","sum"),median_axis_displacement=("axis_displacement","median"),p90_axis_displacement=("axis_displacement",lambda s:s.quantile(.9)))
+    if "coordinate_displacement" in changed: change_stats["median_coordinate_displacement"]=changed.groupby("policy").coordinate_displacement.median()
+    finalist=finalist.merge(change_stats.reset_index(),on="policy",validate="one_to_one")
+    if set(specs) != {"incumbent","challenger_a_balanced_ratio","challenger_b_slow_spreads_ratio","challenger_c_balanced_difference"}:
+        raise ValueError("Unexpected combined policy set")
+    if not changed.regime_changed.eq(True).all(): raise ValueError("Changed-regime review contains unchanged rows")
+    reconstructed_changes=changed.groupby("policy").size().reindex(regime_summary.policy,fill_value=0).to_numpy()
+    if not np.array_equal(reconstructed_changes,regime_summary.regime_change_count.to_numpy()):
+        raise ValueError("Changed-regime detail does not reconstruct summary")
+    turn_counts=turn_review.groupby(["policy","source"]).size().unstack(fill_value=0)
+    summary_index=pd.DataFrame(summaries).set_index("policy")
+    for policy in list(specs)[1:]:
+        if turn_counts.loc[policy,"incumbent"] != summary_index.loc[policy,"incumbent_turning_point_count"] or turn_counts.loc[policy,"challenger"] != summary_index.loc[policy,"policy_turning_point_count"]:
+            raise ValueError("Turning-point review does not reconstruct summary")
+    calendar_check=event_windows.event_date+event_windows.relative_month.map(pd.offsets.MonthEnd)
+    if not calendar_check.equals(event_windows.calendar_date): raise ValueError("Event windows are not exact calendar months")
     return {"capital_markets_combined_policy_registry":policy_registry,"capital_markets_combined_dimension_chronology":chronology,
         "capital_markets_combined_dimension_stability":stability,"capital_markets_combined_directional_agreement":directions,
         "capital_markets_combined_turning_points":pd.concat(turns,ignore_index=True),"capital_markets_combined_turning_point_matches":pd.concat(matches,ignore_index=True),"capital_markets_combined_turning_point_summary":pd.DataFrame(summaries),
         "capital_markets_combined_cancellation":cancellation,"capital_markets_combined_axis_propagation":axes,"capital_markets_combined_coordinate_propagation":coords,
         "capital_markets_combined_regime_change_summary":regime_summary,"capital_markets_combined_recent_chronology":recent,"capital_markets_combined_policy_comparison":pd.DataFrame(comparison),
+        "capital_markets_combined_regime_change_detail":regime_detail,"capital_markets_combined_regime_change_review":changed,
+        "capital_markets_combined_regime_transition_summary":transition_summary,"capital_markets_combined_turning_point_review":turn_review,
+        "capital_markets_combined_turning_point_event_windows":event_windows,"capital_markets_combined_finalist_review_summary":finalist,
+        "capital_markets_combined_isolation_invariants":invariants,
         "capital_markets_combined_metric_contribution_chronology":contribution,"capital_markets_combined_metric_contribution_summary":contribution_summary,"capital_markets_combined_parity_audit":pd.DataFrame(parity),
         "capital_markets_combined_human_decision_status":status,"capital_markets_combined_policy_decision_matrix":pd.DataFrame(matrix)}, time.perf_counter()-runtime_start
 
@@ -1579,7 +1691,9 @@ def main() -> None:
     _svg(figures/"capital_markets_family_challengers.svg","Capital Markets family and all-metric controls",tables["family_challenger_dimension_chronology"],"dimension_score","policy_id")
     combined_styles={"incumbent":"incumbent","challenger_a_balanced_ratio":"ratio","challenger_b_slow_spreads_ratio":"ma9","challenger_c_balanced_difference":"arithmetic_difference"}
     combined_labels={"incumbent":"Production incumbent","challenger_a_balanced_ratio":"Challenger A — Balanced ratio","challenger_b_slow_spreads_ratio":"Challenger B — Slow spreads ratio","challenger_c_balanced_difference":"Challenger C — Balanced arithmetic difference"}
-    _svg(figures/"capital_markets_combined_full_history.svg","Combined Capital Markets policies — full history",tables["capital_markets_combined_dimension_chronology"],"dimension_score","policy",chart_kind="combined-full",series_styles=combined_styles,series_labels=combined_labels)
+    marker_source=tables["capital_markets_combined_turning_point_review"]
+    review_markers=pd.concat([marker_source.loc[marker_source.source.eq("incumbent")].drop_duplicates(["source","turning_point_date","turning_point_type"]).assign(policy="incumbent"),marker_source.loc[marker_source.source.eq("challenger") & ~marker_source.matched]],ignore_index=True)
+    _svg(figures/"capital_markets_combined_full_history.svg","Combined Capital Markets policies — full history",tables["capital_markets_combined_dimension_chronology"],"dimension_score","policy",chart_kind="combined-full",series_styles=combined_styles,series_labels=combined_labels,markers=review_markers)
     _svg(figures/"capital_markets_combined_recent.svg","Combined Capital Markets policies — recent 36 months",tables["capital_markets_combined_recent_chronology"],"dimension_score","policy",chart_kind="combined-recent",series_styles=combined_styles,series_labels=combined_labels)
     for metric in active:
         _render_metric_page(output,metric,
@@ -1604,7 +1718,16 @@ def main() -> None:
     css="body{font-family:system-ui;max-width:1400px;margin:auto;padding:24px;color:#172033}table{border-collapse:collapse;font-size:13px}th,td{padding:6px 9px;border-bottom:1px solid #d8dee9;text-align:right}th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}.hero{background:#eef4ff;padding:18px;border-radius:8px}"
     combined_registry_html=tables["capital_markets_combined_policy_registry"].to_html(index=False,border=0)
     combined_matrix_html=tables["capital_markets_combined_policy_decision_matrix"].to_html(index=False,border=0)
-    (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets combined policy diagnostic</title><style>{css}</style></head><body><div class='hero'><h1>Capital Markets combined A/B/C policy diagnostic</h1><p>Diagnostic only. No automatic winner is selected; every human decision is pending.</p></div><h2>1. Combined policy definitions</h2>{combined_registry_html}<h2>2. Full-history Capital Markets chronology</h2>{(figures/'capital_markets_combined_full_history.svg').read_text()}<h2>3. Recent 36-month chronology</h2>{(figures/'capital_markets_combined_recent.svg').read_text()}<h2>4. Stability comparison</h2>{combined_matrix_html}<h2>5. Directional agreement</h2><a href='evidence/capital_markets_combined_directional_agreement.csv'>CSV</a><h2>6. Turning points</h2><a href='evidence/capital_markets_combined_turning_point_summary.csv'>CSV</a><h2>7. Cancellation</h2><a href='evidence/capital_markets_combined_cancellation.csv'>CSV</a><h2>8. A vs B isolated spread-window comparison</h2><p>spread_window_ma9_vs_ma12</p><h2>9. A vs C isolated transform comparison</h2><p>ratio_vs_arithmetic_difference</p><h2>10. Axis propagation</h2><a href='evidence/capital_markets_combined_axis_propagation.csv'>CSV</a><h2>11. Regime changes</h2><a href='evidence/capital_markets_combined_regime_change_summary.csv'>CSV</a><h2>12. Metric contribution decomposition</h2><a href='evidence/capital_markets_combined_metric_contribution_summary.csv'>CSV</a><h2>13. Links to six metric pages</h2><ul>{metric_links}</ul><h2>14. Secondary engineering evidence</h2><p>Future metric-weight hypothesis only (not executed): equal one-third family totals. Future Affordability hypothesis only (not executed): derive raw payment burden from raw median sale price and raw mortgage_30y, then smooth the derived measure once. Intended sequence: combined transform/window selection → feature-weight diagnostic → metric-weight diagnostic → Capital Markets freeze.</p><ul>{secondary_links}</ul><p>recommendation_state: none; promotion_state: none</p></body></html>\n",encoding="utf-8",newline="\n")
+    turn_markers=tables["capital_markets_combined_turning_point_review"].loc[lambda f:f.source.eq("incumbent") | ~f.matched,
+        ["policy","source","turning_point_date","turning_point_type","matched","signed_delay_months"]].to_html(index=False,border=0)
+    event_table=tables["capital_markets_combined_turning_point_event_windows"].to_html(index=False,border=0,max_rows=100)
+    changed_sections="".join(f"<h4>{html.escape(geo)}</h4>"+group[[c for c in ("date","policy","transition_pair","supply_axis_delta","demand_axis_delta","coordinate_displacement","latest_12m","latest_36m") if c in group]].to_html(index=False,border=0)
+        for geo,group in tables["capital_markets_combined_regime_change_review"].groupby("geo_id",sort=True))
+    transition_html=tables["capital_markets_combined_regime_transition_summary"].groupby(["policy","transition_pair"],as_index=False).changed_month_count.sum().to_html(index=False,border=0)
+    finalist_html=tables["capital_markets_combined_finalist_review_summary"].to_html(index=False,border=0,classes="decision-matrix")
+    invariant_html=tables["capital_markets_combined_isolation_invariants"].to_html(index=False,border=0)
+    final_review=f"<section><h2>Final A/B/C chronology review</h2><p>Descriptive human-review evidence only; no automatic winner.</p><h3>Turning-point review</h3>{(figures/'capital_markets_combined_full_history.svg').read_text()}<p>Vertical-marker identities: incumbent turns and unmatched A/B/C turns (legend below).</p>{turn_markers}<details><summary>Event-window table (±6 exact calendar months)</summary>{event_table}</details><h3>Regime-change chronology</h3>{changed_sections}<h3>Transition-pair summary</h3>{transition_html}<h3>Isolated comparison invariants</h3>{invariant_html}<h3>Final decision table</h3>{finalist_html}</section>"
+    (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets combined policy diagnostic</title><style>{css}</style></head><body><div class='hero'><h1>Capital Markets combined A/B/C policy diagnostic</h1><p>Diagnostic only. No automatic winner is selected; every human decision is pending.</p></div>{final_review}<h2>1. Combined policy definitions</h2>{combined_registry_html}<h2>2. Full-history Capital Markets chronology</h2>{(figures/'capital_markets_combined_full_history.svg').read_text()}<h2>3. Recent 36-month chronology</h2>{(figures/'capital_markets_combined_recent.svg').read_text()}<h2>4. Stability comparison</h2>{combined_matrix_html}<h2>5. Directional agreement</h2><a href='evidence/capital_markets_combined_directional_agreement.csv'>CSV</a><h2>6. Turning points</h2><a href='evidence/capital_markets_combined_turning_point_review.csv'>CSV</a><h2>7. Cancellation</h2><a href='evidence/capital_markets_combined_cancellation.csv'>CSV</a><h2>8. A vs B isolated spread-window comparison</h2><p>same transform; same long-rate MA12; same Fed Funds MA3; only spread MA9 vs MA12 differs</p><h2>9. A vs C isolated transform comparison</h2><p>identical MA windows; only ratio vs arithmetic-difference transform differs</p><h2>10. Axis propagation</h2><a href='evidence/capital_markets_combined_axis_propagation.csv'>CSV</a><h2>11. Regime changes</h2><a href='evidence/capital_markets_combined_regime_change_review.csv'>CSV</a><h2>12. Metric contribution decomposition</h2><a href='evidence/capital_markets_combined_metric_contribution_summary.csv'>CSV</a><h2>13. Links to six metric pages</h2><ul>{metric_links}</ul><h2>14. Secondary engineering evidence</h2><p>Future metric-weight hypothesis only (not executed): equal one-third family totals. Future Affordability hypothesis only (not executed): derive raw payment burden from raw median sale price and raw mortgage_30y, then smooth the derived measure once. Intended sequence: combined transform/window selection → feature-weight diagnostic → metric-weight diagnostic → Capital Markets freeze.</p><ul>{secondary_links}</ul><p>recommendation_state: none; promotion_state: none; human_decision: pending</p></body></html>\n",encoding="utf-8",newline="\n")
     html_time=finish_stage("HTML",html_start)
     total_pre_zip=time.perf_counter()-started
     stage_rows.append({"stage":"total before ZIP","runtime_seconds":total_pre_zip})

@@ -12,7 +12,7 @@ from scripts.build_capital_markets_ma_decomposition import (
     _align_national_dimension_to_counties, _national_capital_metric_universe,
     _aggregate_ratio_diagnostics, _exact_policy_overlap, _overlap_comparison,
     _render_metric_page, _summarize_transform_features, _zip,
-    VISUALIZATION_REGRESSION_TABLES,
+    TABLES, VISUALIZATION_REGRESSION_TABLES,
 )
 from regime.diagnostics.capital_markets_ma import (
     MA_WINDOWS, NATIVE_GEOGRAPHY, REVIEW_GEOGRAPHIES, active_registry,
@@ -205,6 +205,24 @@ def main() -> None:
     assert runner_source.index("Transform decision matrix") < runner_source.index("Secondary engineering evidence")
     assert 'human_decision="pending"' in runner_source and 'selected_policy":"pending"' in runner_source
     assert all(name in runner_source for name in ("capital_markets_combined_policy_registry","capital_markets_combined_dimension_chronology","capital_markets_combined_cancellation","capital_markets_combined_policy_decision_matrix"))
+    assert 'r["transform"]' in runner_source and 'r["feature_window"]' in runner_source
+    assert "r.transform" not in runner_source and "r.feature_window" not in runner_source
+    required_finalist_tables = {
+        "capital_markets_combined_regime_change_detail",
+        "capital_markets_combined_regime_change_review",
+        "capital_markets_combined_regime_transition_summary",
+        "capital_markets_combined_turning_point_review",
+        "capital_markets_combined_turning_point_event_windows",
+        "capital_markets_combined_finalist_review_summary",
+        "capital_markets_combined_isolation_invariants",
+    }
+    assert required_finalist_tables.issubset(TABLES)
+    assert all(name in runner_source for name in required_finalist_tables)
+    assert 'regime_detail.loc[regime_detail.regime_changed]' in runner_source
+    assert 'range(-6,7)' in runner_source and 'pd.offsets.MonthEnd(relative_month)' in runner_source
+    assert 'if not invariants.verified.all()' in runner_source
+    assert 'Final A/B/C chronology review' in runner_source
+    assert '<bound method Series.transform' not in runner_source
     assert '"combined_challenger_count":3' in runner_source and '"combined_policy_registry_row_count":24' in runner_source
     audit=payment_burden_audit().iloc[0]; assert audit.mortgage_rate_source=="mortgage_30y" and not audit.same_operation and not audit.policy_change
     status=human_status(); assert status["recommendation_state"]==status["promotion_state"]=="none"
