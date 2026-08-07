@@ -72,6 +72,27 @@ SETTLED_WINDOWS = {
     "fedfunds": 3, "spread_10y_2y": 9, "spread_10y_fedfunds": 9,
 }
 
+# Governed architecture for the polarity-corrected challenger.  Keep this
+# separate from the historical feature-weight experiment: that experiment used
+# ratio transforms for every metric and is superseded for final calibration.
+CORRECTED_WINDOW_BY_METRIC = dict(SETTLED_WINDOWS)
+CORRECTED_TRANSFORM_FAMILY_BY_METRIC = {
+    "mortgage_30y": "ratio", "mortgage_15y": "ratio",
+    "treasury_10y": "ratio", "fedfunds": "ratio",
+    "spread_10y_2y": "arithmetic_difference",
+    "spread_10y_fedfunds": "arithmetic_difference",
+}
+PRIOR_FEATURE_WEIGHT_EVIDENCE_STATUS = "superseded_for_final_calibration"
+
+
+def corrected_architecture(metric: str) -> tuple[int, str]:
+    """Return the governed MA window and transform family, failing closed."""
+    try:
+        return (CORRECTED_WINDOW_BY_METRIC[metric],
+                CORRECTED_TRANSFORM_FAMILY_BY_METRIC[metric])
+    except KeyError as exc:
+        raise ValueError(f"Metric is outside corrected architecture: {metric}") from exc
+
 SPREAD_FORMULA_CONTRACT = {
     "spread_10y_2y": ("treasury_10y", "treasury_2y", "treasury_10y - treasury_2y"),
     "spread_10y_fedfunds": ("treasury_10y", "fedfunds", "treasury_10y - fedfunds"),
