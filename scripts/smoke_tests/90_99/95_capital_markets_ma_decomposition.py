@@ -30,6 +30,7 @@ from regime.diagnostics.capital_markets_ma import (
     CANCELLATION_TOLERANCE, reconcile_spread_pathology,
     NEXT_VALID_FEATURE_WEIGHT_EXPERIMENT_MUST_USE_SETTLED_CAPITAL_MARKETS_ARCHITECTURE,
     SETTLED_FEATURE_WEIGHT_POLICIES,
+    METRIC_WEIGHT_FAMILIES, METRIC_WEIGHT_POLICIES, validate_metric_weight_policies,
 )
 
 
@@ -142,6 +143,17 @@ def main() -> None:
         "FW-C":{"default":{"level":.60,"short_term_change":.20,"long_term_change":.20},
                 "fedfunds":{"level":.50,"short_term_change":.25,"long_term_change":.25}},
     }
+    validate_metric_weight_policies()
+    assert tuple(METRIC_WEIGHT_POLICIES) == ("MW-INCUMBENT", "MW-EQUAL-FAMILY")
+    assert METRIC_WEIGHT_POLICIES["MW-INCUMBENT"] == expected
+    equal=METRIC_WEIGHT_POLICIES["MW-EQUAL-FAMILY"]
+    assert equal["fedfunds"] == 1.0/3.0
+    assert all(equal[m] == 1.0/9.0 for m in METRIC_WEIGHT_FAMILIES["long_rate_family"])
+    assert all(equal[m] == 1.0/6.0 for m in METRIC_WEIGHT_FAMILIES["spread_family"])
+    assert all(np.isclose(sum(equal[m] for m in members),1.0/3.0)
+               for members in METRIC_WEIGHT_FAMILIES.values())
+    metric_weight_tables={name for name in TABLES if name.startswith("capital_markets_metric_weight_")}
+    assert {"capital_markets_metric_weight_fedfunds_stress","capital_markets_metric_weight_concentration_summary","capital_markets_metric_weight_parity_audit","capital_markets_metric_weight_decision_matrix"}.issubset(metric_weight_tables)
     assert {name for name in TABLES if name.startswith("capital_markets_final_feature_weight_")} == {
         "capital_markets_final_feature_weight_policy_registry", "capital_markets_final_feature_weight_metric_stability",
         "capital_markets_final_feature_weight_metric_turning_point_summary", "capital_markets_final_feature_weight_family_summary",
@@ -307,7 +319,11 @@ def main() -> None:
     assert "SETTLED_FEATURE_WEIGHT_POLICIES" in runner_source
     assert all(name in runner_source for name in ("capital_markets_feature_weight_policy_registry", "capital_markets_feature_weight_metric_summary", "capital_markets_feature_weight_decision_matrix", "Capital Markets Feature-Weight Review"))
     assert "feature-weight {number}/3 {policy}" in runner_source
-    assert "future_metric_weight_hypothesis_only = true" in runner_source
+    assert "Capital Markets Metric-Weight Review" in runner_source
+    assert "Metric contributions do not reconstruct Capital Markets" in runner_source
+    assert "Metric-score chronology differs across metric-weight policies" in runner_source
+    assert '"Decision":"pending"' in runner_source
+    assert "automatic winner" in runner_source and '"recommendation_state":"none"' in runner_source
     audit=payment_burden_audit().iloc[0]; assert audit.mortgage_rate_source=="mortgage_30y" and not audit.same_operation and not audit.policy_change
     status=human_status(); assert status["recommendation_state"]==status["promotion_state"]=="none"
     with tempfile.TemporaryDirectory() as tmp:
