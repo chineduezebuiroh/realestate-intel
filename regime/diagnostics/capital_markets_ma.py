@@ -42,6 +42,7 @@ FAMILY_MEMBERS = {
     "spread_family": ("spread_10y_2y", "spread_10y_fedfunds"),
 }
 RECONCILIATION_TOLERANCE = 1e-10
+CANCELLATION_TOLERANCE = 1e-12
 RATIO_NEAR_ZERO_THRESHOLD = 1e-8
 TRANSFORM_FAMILIES = ("ratio", "arithmetic_difference")
 
@@ -75,14 +76,17 @@ SETTLED_WINDOWS = {
 # Governed architecture for the polarity-corrected challenger.  Keep this
 # separate from the historical feature-weight experiment: that experiment used
 # ratio transforms for every metric and is superseded for final calibration.
-CORRECTED_WINDOW_BY_METRIC = dict(SETTLED_WINDOWS)
-CORRECTED_TRANSFORM_FAMILY_BY_METRIC = {
+SETTLED_CAPITAL_MARKETS_MA_WINDOWS = dict(SETTLED_WINDOWS)
+SETTLED_CAPITAL_MARKETS_TRANSFORM_FAMILY = {
     "mortgage_30y": "ratio", "mortgage_15y": "ratio",
     "treasury_10y": "ratio", "fedfunds": "ratio",
     "spread_10y_2y": "arithmetic_difference",
     "spread_10y_fedfunds": "arithmetic_difference",
 }
+CORRECTED_WINDOW_BY_METRIC = SETTLED_CAPITAL_MARKETS_MA_WINDOWS
+CORRECTED_TRANSFORM_FAMILY_BY_METRIC = SETTLED_CAPITAL_MARKETS_TRANSFORM_FAMILY
 PRIOR_FEATURE_WEIGHT_EVIDENCE_STATUS = "superseded_for_final_calibration"
+NEXT_VALID_FEATURE_WEIGHT_EXPERIMENT_MUST_USE_SETTLED_CAPITAL_MARKETS_ARCHITECTURE = True
 
 
 def corrected_architecture(metric: str) -> tuple[int, str]:
@@ -92,6 +96,37 @@ def corrected_architecture(metric: str) -> tuple[int, str]:
                 CORRECTED_TRANSFORM_FAMILY_BY_METRIC[metric])
     except KeyError as exc:
         raise ValueError(f"Metric is outside corrected architecture: {metric}") from exc
+
+
+def reconcile_spread_pathology(pathology: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate the governed unique spread ratio-observation population."""
+    key = ["metric_key", "feature", "date"]
+    required = set(key) | {"current_ma_state", "lagged_ma_state",
+        "direction_conflict_flag", "near_zero_denominator_flag", "finite_flag",
+        "zero_crossing_flag"}
+    missing = required.difference(pathology.columns)
+    if missing:
+        raise ValueError(f"Pathology audit columns missing: {sorted(missing)}")
+    duplicate = pathology.duplicated(key, keep=False)
+    if duplicate.any():
+        raise ValueError("Duplicate governed pathology key: metric_key × feature × date")
+    work = pathology.copy()
+    work["date"] = pd.to_datetime(work.date)
+    valid = work.current_ma_state.notna() & work.lagged_ma_state.notna()
+    work = work.loc[valid].copy()
+    rows = []
+    for (metric, feature), group in work.groupby(["metric_key", "feature"], sort=True):
+        rows.append({"policy":"legacy_spread_architecture", "metric_key":metric,
+            "feature":feature, "unique_observation_count":len(group),
+            "valid_ratio_observation_count":int(group.finite_flag.sum()),
+            "direction_conflict_count":int(group.direction_conflict_flag.sum()),
+            "near_zero_denominator_count":int(group.near_zero_denominator_flag.sum()),
+            "non_finite_ratio_count":int(group.finite_flag.eq(False).sum()),
+            "zero_crossing_count":int(group.zero_crossing_flag.sum()),
+            "duplicate_key_count":0,
+            "source_table":"capital_markets_spread_ratio_pathology_audit.csv",
+            "reconciliation_status":"pass"})
+    return pd.DataFrame(rows)
 
 SPREAD_FORMULA_CONTRACT = {
     "spread_10y_2y": ("treasury_10y", "treasury_2y", "treasury_10y - treasury_2y"),
