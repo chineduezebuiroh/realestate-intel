@@ -6,10 +6,12 @@ import re
 
 import numpy as np
 import pandas as pd
+import scripts.build_capital_markets_ma_decomposition as builder
 
 from regime._03_metric_scorer import score_metrics
 from scripts.build_capital_markets_ma_decomposition import (
     _align_national_dimension_to_counties, _national_capital_metric_universe,
+    _metric_weight_evidence,
     _aggregate_ratio_diagnostics, _exact_policy_overlap, _overlap_comparison,
     _render_metric_page, _summarize_transform_features, _zip,
     TABLES, VISUALIZATION_REGRESSION_TABLES,
@@ -152,6 +154,61 @@ def main() -> None:
     assert all(equal[m] == 1.0/6.0 for m in METRIC_WEIGHT_FAMILIES["spread_family"])
     assert all(np.isclose(sum(equal[m] for m in members),1.0/3.0)
                for members in METRIC_WEIGHT_FAMILIES.values())
+
+    # Regression: metric weighting consumes the settled level chronology.  A
+    # partially available leading month remains a valid level observation;
+    # movement/cancellation warmup begins one observation later and must not
+    # become the downstream alignment calendar.
+    mw_dates = pd.date_range("2009-06-30", periods=36, freq="M")
+    mw_scores = pd.DataFrame([
+        {"date": date, "canonical_metric_key": metric,
+         "metric_score": (np.nan if date == mw_dates[0] and metric != "fedfunds"
+                          else np.sin(month / 3) / 2 + metric_no / 100)}
+        for month, date in enumerate(mw_dates)
+        for metric_no, metric in enumerate(expected)
+    ])
+    original_recompute = builder._recompute_governed_descendants
+    def fake_recompute(national, incumbent):
+        axis = pd.DataFrame([
+            {"geo_id": "fixture__county", "date": date, "axis": axis_name,
+             "axis_score": score}
+            for date, score in zip(national.date, national.dimension_score)
+            for axis_name in ("supply", "demand")])
+        regime = pd.DataFrame([
+            {"geo_id": "fixture__county", "date": date,
+             "major_regime": "expansion", "minor_regime": "stable"}
+            for date in national.date])
+        return axis, pd.DataFrame(), regime, national.copy(), {}
+    builder._recompute_governed_descendants = fake_recompute
+    try:
+        mw = _metric_weight_evidence(
+            mw_scores, {"dimension_scores": pd.DataFrame()}, registry)
+    finally:
+        builder._recompute_governed_descendants = original_recompute
+    mw_metric = mw["capital_markets_metric_weight_metric_chronology"]
+    mw_contribution = mw["capital_markets_metric_weight_contribution_chronology"]
+    mw_dimension = mw["capital_markets_metric_weight_dimension_chronology"]
+    pd.testing.assert_frame_equal(
+        mw_metric.query("policy == 'MW-INCUMBENT'")
+        [["date", "metric", "metric_score"]].reset_index(drop=True),
+        mw_scores.rename(columns={"canonical_metric_key": "metric"})
+        [["date", "metric", "metric_score"]].reset_index(drop=True),
+        check_exact=True,
+    )
+    assert all(set(g.date) == set(mw_dates) for _, g in mw_dimension.groupby("policy"))
+    assert mw_contribution.loc[mw_contribution.contribution_movement.notna(), "date"].min() == mw_dates[1]
+    assert mw["capital_markets_metric_weight_cancellation"].query("comparable").date.min() == mw_dates[1]
+    for policy, weights_policy in METRIC_WEIGHT_POLICIES.items():
+        part = mw_contribution.query("policy == @policy")
+        expected_dimension = part.groupby("date").weighted_contribution.sum(min_count=1)
+        actual_dimension = mw_dimension.query("policy == @policy").set_index("date").dimension_score
+        np.testing.assert_allclose(actual_dimension, expected_dimension, atol=CANCELLATION_TOLERANCE, rtol=0)
+        assert part.set_index("metric").groupby(level=0).configured_metric_weight.first().to_dict() == weights_policy
+    assert mw["capital_markets_metric_weight_parity_audit"].metric_score_exact_parity.all()
+    assert mw["capital_markets_metric_weight_parity_audit"].contribution_reconstruction.all()
+    assert mw["capital_markets_metric_weight_human_decision_status"].iloc[0].to_dict() == {
+        "recommendation_state":"none", "promotion_state":"none",
+        "human_decision":"pending", "diagnostic_only":True}
     metric_weight_tables={name for name in TABLES if name.startswith("capital_markets_metric_weight_")}
     assert {"capital_markets_metric_weight_fedfunds_stress","capital_markets_metric_weight_concentration_summary","capital_markets_metric_weight_parity_audit","capital_markets_metric_weight_decision_matrix"}.issubset(metric_weight_tables)
     assert {name for name in TABLES if name.startswith("capital_markets_final_feature_weight_")} == {
@@ -265,6 +322,18 @@ def main() -> None:
     assert county_copies.geo_id.nunique()==7 and len(county_copies)==14
     assert set(county_copies.geo_id)==set(REVIEW_GEOGRAPHIES)
     assert not county_copies.geo_id.str.contains("cbsa|zip|state|nation").any()
+    alignment_source=pd.DataFrame({"geo_id":NATIVE_GEOGRAPHY,"date":dates[:4],
+        "dimension":"capital_markets","dimension_score":[.1,.2,.3,.4]})
+    alignment_calendar=pd.DataFrame([{"geo_id":geo,"date":date}
+        for geo in REVIEW_GEOGRAPHIES for date in dates[:4]])
+    for invalid_national in (
+        alignment_source.drop(index=1),
+        alignment_source.iloc[:-1],
+        pd.concat([alignment_source, alignment_source.iloc[[0]]], ignore_index=True),
+    ):
+        try: _align_national_dimension_to_counties(invalid_national,alignment_calendar)
+        except ValueError: pass
+        else: raise AssertionError("invalid county-alignment source did not fail closed")
     runner_source=Path("scripts/build_capital_markets_ma_decomposition.py").read_text()
     spread_tables={name for name in TABLES if name.startswith("capital_markets_spread_correction_")}
     assert len(spread_tables)==15 and "capital_markets_spread_correction_decision_matrix" in spread_tables
