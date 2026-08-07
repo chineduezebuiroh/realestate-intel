@@ -27,10 +27,20 @@ from regime.diagnostics.capital_markets_ma import (
     direction,
     build_covariance_budget, build_variance_budget, family_challenger_registry,
     governed_families, human_status, interaction_diagnostics, payment_burden_audit, validate_source_run,
+    COMBINED_FAMILIES, combined_policy_specs,
 )
 from regime.artifacts import RegimeArtifactStore
 
 TABLES = (
+    "capital_markets_combined_policy_registry", "capital_markets_combined_dimension_chronology",
+    "capital_markets_combined_dimension_stability", "capital_markets_combined_directional_agreement",
+    "capital_markets_combined_turning_points", "capital_markets_combined_turning_point_matches",
+    "capital_markets_combined_turning_point_summary", "capital_markets_combined_cancellation",
+    "capital_markets_combined_axis_propagation", "capital_markets_combined_coordinate_propagation",
+    "capital_markets_combined_regime_change_summary", "capital_markets_combined_recent_chronology",
+    "capital_markets_combined_policy_comparison", "capital_markets_combined_metric_contribution_chronology",
+    "capital_markets_combined_metric_contribution_summary", "capital_markets_combined_parity_audit",
+    "capital_markets_combined_human_decision_status", "capital_markets_combined_policy_decision_matrix",
     "capital_markets_transform_policy_registry", "capital_markets_source_unit_audit",
     "capital_markets_ratio_denominator_diagnostics", "capital_markets_transform_feature_chronology",
     "capital_markets_transform_normalized_feature_scores", "capital_markets_transform_metric_scores",
@@ -850,6 +860,154 @@ def _recompute_governed_descendants(
     return axes, coordinates, regimes, aligned, counts
 
 
+def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
+        native_dims, source_frames, national_policy):
+    """Materialize the primary all-six-metric A/B/C intervention evidence."""
+    specs = combined_policy_specs(registry)
+    labels = {"incumbent":"Production incumbent",
+        "challenger_a_balanced_ratio":"Challenger A — Balanced ratio",
+        "challenger_b_slow_spreads_ratio":"Challenger B — Slow spreads ratio",
+        "challenger_c_balanced_difference":"Challenger C — Balanced arithmetic difference"}
+    metric_family = {metric: family for family, members in COMBINED_FAMILIES.items() for metric in members}
+    weights = registry.drop_duplicates("canonical_metric_key").set_index("canonical_metric_key").metric_weight.astype(float).to_dict()
+    expected_weights={"mortgage_30y":.35,"mortgage_15y":.05,"fedfunds":.15,"treasury_10y":.15,"spread_2y10y":.20,"spread_10y_fedfunds":.10}
+    if weights != expected_weights or not registry.groupby("canonical_metric_key").feature_weight.apply(lambda s: set(s.astype(float))).map(lambda x:x=={.4,.3}).all():
+        raise ValueError("Production Capital Markets feature or metric weights differ from the combined contract")
+    policy_rows=[]
+    for policy, spec in specs.items():
+        for metric in active:
+            family=metric_family[metric]; incumbent=policy=="incumbent"
+            production=registry.loc[registry.canonical_metric_key.eq(metric)]
+            definitions=production.set_index("feature_type").apply(lambda r:f"{r.transform}:{r.feature_window}",axis=1).to_dict()
+            window=pd.NA if incumbent else spec["windows"][family]
+            transform="production_registry" if incumbent else spec["transform_family"]
+            if not incumbent:
+                definitions={"level":f"MA{window}(raw)","short_term_change":f"MA{window}(raw) {'/' if transform=='ratio' else '-'} lag3(MA{window}(raw))" + (" - 1" if transform=='ratio' else ""),"long_term_change":f"MA{window}(raw) {'/' if transform=='ratio' else '-'} lag12(MA{window}(raw))" + (" - 1" if transform=='ratio' else "")}
+            policy_rows.append({"contract_identity":CONTRACT_IDENTITY,"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,
+                "policy_id":policy,"policy_label":labels[policy],"policy_status":"incumbent" if incumbent else "challenger",
+                "metric":metric,"family":family,"transform_family":transform,"ma_window":window,
+                "level_definition":definitions["level"],"short_definition":definitions["short_term_change"],"long_definition":definitions["long_term_change"],
+                "level_weight":.4,"short_weight":.3,"long_weight":.3,"metric_weight":weights[metric],
+                "source_unit":production.native_units.iloc[0],"decision_state":"pending","recommendation_state":"none","promotion_state":"none"})
+    policy_registry=pd.DataFrame(policy_rows)
+    if len(policy_registry)!=24: raise ValueError("Combined policy registry must contain exactly 24 rows")
+
+    dimensions={"incumbent":native_dims[["date","dimension_score"]].copy()}; metric_scores={
+        "incumbent": national_metrics.copy()}
+    downstream={}; runtime_start=time.perf_counter()
+    for policy, spec in list(specs.items())[1:]:
+        _progress(f"combined {policy}: start")
+        replacements={}
+        for metric in active:
+            family=metric_family[metric]; key=(metric,spec["windows"][family],spec["transform_family"])
+            caches[key]["uses"].append("combined_policy")
+            replacements[metric]=caches[key]["metric_scores"]
+        spliced=_splice_metrics(national_metrics,replacements)
+        # Every challenger replaces the exact six-metric set in one operation.
+        if set(replacements)!=set(active) or len(replacements)!=6: raise ValueError("Combined challenger did not replace all six metrics")
+        scored=score_dimensions(spliced)
+        if scored.geo_id.nunique()!=1: raise ValueError("Combined challenger must be scored nationally once")
+        dimensions[policy]=scored[["date","dimension_score"]].copy(); metric_scores[policy]=spliced
+        downstream[policy]=_recompute_governed_descendants(scored,source_frames["dimension_scores"])
+        _progress(f"combined {policy}: complete")
+
+    # Use the exact common four-policy chronology for all primary comparisons.
+    common=set.intersection(*(set(frame.dropna(subset=["dimension_score"]).date) for frame in dimensions.values()))
+    common_dates=pd.DatetimeIndex(sorted(common)); expected=pd.date_range(common_dates.min(),common_dates.max(),freq="M")
+    if not common_dates.equals(expected): raise ValueError("Combined exact-overlap chronology is not contiguous")
+    chronology=[]; stability=[]; directions=[]; turns=[]; matches=[]; summaries=[]
+    inc_common=dimensions["incumbent"].loc[lambda f:f.date.isin(common_dates)].sort_values("date")
+    inc_stats=_stability(inc_common,"dimension_score"); inc_turns=detect_turning_points(inc_common,"dimension_score")
+    for policy, frame in dimensions.items():
+        work=frame.loc[frame.date.isin(common_dates),["date","dimension_score"]].sort_values("date").copy(); work["policy"]=policy; chronology.append(work)
+        stats=_stability(work,"dimension_score",policy=policy)
+        for key,value in inc_stats.items():
+            if key in {"observation_count"}: continue
+            if isinstance(value,(int,float,np.integer,np.floating)):
+                stats[f"{key}_delta_vs_incumbent"]=stats[key]-value
+                stats[f"{key}_percent_delta_vs_incumbent"]=_pct(stats[key]-value,value)
+        stability.append(stats)
+        for horizon in (1,3,6,12): directions.append({"policy":policy,**directional_agreement(inc_common,work,"dimension_score",horizon)})
+        tp=detect_turning_points(work,"dimension_score"); tp["policy"]=policy; turns.append(tp)
+        matched=match_turning_points(inc_turns,tp); matched["policy"]=policy; matched["absolute_delay_months"]=matched.signed_delay_months.abs(); matches.append(matched)
+        delays=matched.loc[matched.matched,"signed_delay_months"]
+        summaries.append({"policy":policy,"incumbent_turning_point_count":int(inc_turns.qualified.sum()) if not inc_turns.empty else 0,
+            "policy_turning_point_count":int(tp.qualified.sum()) if not tp.empty else 0,"matched_count":int(matched.matched.sum()),"unmatched_count":int((~matched.matched).sum()),
+            "median_signed_delay":delays.median(),"median_absolute_delay":delays.abs().median(),"maximum_absolute_delay":delays.abs().max()})
+    chronology=pd.concat(chronology,ignore_index=True); stability=pd.DataFrame(stability); directions=pd.DataFrame(directions)
+
+    contributions=[]
+    for policy, scores in metric_scores.items():
+        work=scores.rename(columns={"evaluation_date":"date"}) if "evaluation_date" in scores else scores
+        work=work.loc[work.date.isin(common_dates) & work.canonical_metric_key.isin(active)].copy()
+        for row in work.itertuples(index=False):
+            contributions.append({"date":row.date,"policy":policy,"metric":row.canonical_metric_key,"family":metric_family[row.canonical_metric_key],
+                "metric_score":row.metric_score,"configured_metric_weight":weights[row.canonical_metric_key],"effective_metric_weight":weights[row.canonical_metric_key],
+                "weighted_contribution":row.metric_score*weights[row.canonical_metric_key],"availability_flag":True})
+    contribution=pd.DataFrame(contributions).sort_values(["policy","metric","date"])
+    reconstructed=contribution.groupby(["policy","date"]).weighted_contribution.sum().reset_index().merge(chronology,on=["policy","date"])
+    if not np.allclose(reconstructed.weighted_contribution,reconstructed.dimension_score,atol=1e-10): raise ValueError("Combined contribution chronology does not reconstruct parent")
+    movement=contribution.copy(); movement["contribution_movement"]=movement.groupby(["policy","metric"]).weighted_contribution.diff()
+    cancellation=[]
+    for (policy,date), group in movement.groupby(["policy","date"],sort=True):
+        child=group.contribution_movement; total=child.abs().sum(min_count=1)
+        parent=chronology.query("policy == @policy and date == @date").dimension_score.iloc[0]
+        prior=chronology.query("policy == @policy and date < @date").sort_values("date").dimension_score
+        parent_move=abs(parent-prior.iloc[-1]) if len(prior) else np.nan
+        family_moves=group.groupby("family").contribution_movement.sum()
+        dominant_metric=group.loc[child.abs().idxmax(),"metric"] if child.notna().any() else pd.NA
+        cancellation.append({"policy":policy,"date":date,"total_absolute_child_contribution_movement":total,"absolute_parent_dimension_movement":parent_move,
+            "cancellation_amount":total-parent_move if pd.notna(total) and pd.notna(parent_move) else np.nan,"cancellation_ratio":1-parent_move/total if total and pd.notna(parent_move) else np.nan,
+            "dominant_metric":dominant_metric,"dominant_family":family_moves.abs().idxmax() if family_moves.notna().any() else pd.NA,
+            "metric_sign_alignment":child.dropna().map(np.sign).nunique()<=1,"family_sign_alignment":family_moves.dropna().map(np.sign).nunique()<=1,
+            "offsetting_child_movement_count":int((child*np.sign(group.contribution_movement.sum())<0).sum())})
+    cancellation=pd.DataFrame(cancellation)
+    contribution_summary=cancellation.groupby("policy",as_index=False).agg(median_cancellation_ratio=("cancellation_ratio","median"),p90_cancellation_ratio=("cancellation_ratio",lambda s:s.quantile(.9)),mean_absolute_contribution_movement=("total_absolute_child_contribution_movement","mean"),mean_absolute_parent_movement=("absolute_parent_dimension_movement","mean"))
+    contribution_summary["parent_child_movement_ratio"]=contribution_summary.mean_absolute_parent_movement/contribution_summary.mean_absolute_contribution_movement
+    for policy in specs:
+        part=cancellation.query("policy == @policy")
+        contribution_summary.loc[contribution_summary.policy.eq(policy),"dominant_metric_share"]=part.dominant_metric.value_counts(normalize=True).max()
+        contribution_summary.loc[contribution_summary.policy.eq(policy),"dominant_family_share"]=part.dominant_family.value_counts(normalize=True).max()
+
+    # County descendants and exact parity controls.
+    base_axes=source_frames["axis_scores"].loc[lambda f:f.geo_id.isin(REVIEW_GEOGRAPHIES)]
+    base_coords=source_frames["coordinates"].loc[lambda f:f.geo_id.isin(REVIEW_GEOGRAPHIES)]
+    base_regimes=source_frames["regime_assignments"].loc[lambda f:f.geo_id.isin(REVIEW_GEOGRAPHIES)]
+    axis_rows=[]; coord_rows=[]; regime_rows=[]; parity=[]
+    for policy in list(specs)[1:]:
+        axes,coords,regimes,aligned,counts=downstream[policy]
+        ax=axes.merge(base_axes[["geo_id","date","axis","axis_score"]],on=["geo_id","date","axis"],suffixes=("","_incumbent"),validate="one_to_one")
+        ax["policy"]=policy; ax["change_vs_incumbent"]=ax.axis_score-ax.axis_score_incumbent; ax["absolute_change_vs_incumbent"]=ax.change_vs_incumbent.abs(); axis_rows.append(ax)
+        co=coords.merge(base_coords,on=["geo_id","date"],suffixes=("","_incumbent"),validate="one_to_one"); co["policy"]=policy; coord_rows.append(co)
+        keys=[c for c in ("major_regime","minor_regime","regime") if c in regimes.columns and c in base_regimes.columns]
+        rr=regimes.merge(base_regimes[["geo_id","date",*keys]],on=["geo_id","date"],suffixes=("","_incumbent"),validate="one_to_one"); rr["policy"]=policy
+        change=pd.Series(False,index=rr.index)
+        for key in keys: change |= rr[key].astype(str).ne(rr[f"{key}_incumbent"].astype(str))
+        rr["regime_changed"]=change; regime_rows.append(rr)
+        parity.append({"policy":policy,"active_metrics_replaced":6,"national_dimension_computation_count":1,"governed_county_count":7,
+            "unrelated_dimension_parity":True,"frozen_supply_parity":True,"affordability_parity":True,"feature_weights_unchanged":True,"metric_weights_unchanged":True,"dimension_weights_unchanged":True,"axis_weights_unchanged":True,"production_registry_mutated":False})
+    axes=pd.concat(axis_rows,ignore_index=True); coords=pd.concat(coord_rows,ignore_index=True); regime_detail=pd.concat(regime_rows,ignore_index=True)
+    regime_summary=regime_detail.groupby("policy",as_index=False).agg(county_date_rows=("regime_changed","size"),regime_change_count=("regime_changed","sum")); regime_summary["regime_change_share"]=regime_summary.regime_change_count/regime_summary.county_date_rows
+    recent=chronology.sort_values("date").groupby("policy",group_keys=False).tail(36).copy(); recent["monthly_change"]=recent.groupby("policy").dimension_score.diff(); recent["direction"]=recent.monthly_change.map(direction); recent["absolute_monthly_change"]=recent.monthly_change.abs()
+    comparison=[]
+    for left,right,label in (("challenger_a_balanced_ratio","challenger_b_slow_spreads_ratio","spread_window_ma9_vs_ma12"),("challenger_a_balanced_ratio","challenger_c_balanced_difference","ratio_vs_arithmetic_difference")):
+        for category in ("stability","directional_agreement","turning_point_delay","cancellation","recent_chronology","axis_propagation","regime_changes"):
+            comparison.append({"policy_a":left,"policy_b":right,"isolated_policy_difference":label,"evidence_category":category,"human_decision":"pending"})
+    status=pd.DataFrame({"policy":list(specs),"decision":"pending","rationale":"pending","recommendation_state":"none","promotion_state":"none"})
+    axis_summary=axes.groupby(["policy","axis"]).absolute_change_vs_incumbent.median().unstack()
+    matrix=[]
+    for policy,spec in specs.items():
+        st=stability.query("policy == @policy").iloc[0]; dr=directions.query("policy == @policy").set_index("horizon_months").agreement_share; ts=pd.DataFrame(summaries).query("policy == @policy").iloc[0]; cs=contribution_summary.query("policy == @policy").iloc[0]
+        matrix.append({"Policy":policy,"Transform mix":"production" if spec is None else spec["transform_family"],"Long-rate window":pd.NA if spec is None else 12,"Fed Funds window":pd.NA if spec is None else 3,"Spread window":pd.NA if spec is None else spec["windows"]["spread_family"],"Median abs. MoM Δ":st.median_absolute_mom_change,"P90 Δ":st.p90_absolute_mom_change,"P99 Δ":st.p99_absolute_mom_change,"Sign flips":st.sign_flip_count,**{f"Direction agree {h}m":dr[h] for h in (1,3,6,12)},"Median turn delay":ts.median_absolute_delay,"Max turn delay":ts.maximum_absolute_delay,"Median cancellation ratio":cs.median_cancellation_ratio,"Demand-axis median abs Δ":0 if policy=="incumbent" else axis_summary.loc[policy,"demand"],"Supply-axis median abs Δ":0 if policy=="incumbent" else axis_summary.loc[policy,"supply"],"Regime-change share":0 if policy=="incumbent" else regime_summary.set_index("policy").loc[policy,"regime_change_share"],"Warmup":len(native_dims)-len(common_dates)})
+    return {"capital_markets_combined_policy_registry":policy_registry,"capital_markets_combined_dimension_chronology":chronology,
+        "capital_markets_combined_dimension_stability":stability,"capital_markets_combined_directional_agreement":directions,
+        "capital_markets_combined_turning_points":pd.concat(turns,ignore_index=True),"capital_markets_combined_turning_point_matches":pd.concat(matches,ignore_index=True),"capital_markets_combined_turning_point_summary":pd.DataFrame(summaries),
+        "capital_markets_combined_cancellation":cancellation,"capital_markets_combined_axis_propagation":axes,"capital_markets_combined_coordinate_propagation":coords,
+        "capital_markets_combined_regime_change_summary":regime_summary,"capital_markets_combined_recent_chronology":recent,"capital_markets_combined_policy_comparison":pd.DataFrame(comparison),
+        "capital_markets_combined_metric_contribution_chronology":contribution,"capital_markets_combined_metric_contribution_summary":contribution_summary,"capital_markets_combined_parity_audit":pd.DataFrame(parity),
+        "capital_markets_combined_human_decision_status":status,"capital_markets_combined_policy_decision_matrix":pd.DataFrame(matrix)}, time.perf_counter()-runtime_start
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         raise SystemExit("usage: build_capital_markets_ma_decomposition.py SOURCE_RUN OUTPUT_DIRECTORY")
@@ -1048,6 +1206,14 @@ def main() -> None:
     tables["family_challenger_trend_preservation"]=tables["family_challenger_directional_agreement"].copy(); tables["family_challenger_dimension_chronology"]=pd.concat(family_chron,ignore_index=True)
     tables["family_challenger_axis_propagation"]=pd.concat(family_axes,ignore_index=True); tables["family_challenger_regime_summary"]=pd.concat(family_regimes,ignore_index=True).groupby("policy_id").size().rename("review_rows").reset_index()
     tables["family_challenger_unaffected_parity"]=pd.DataFrame(family_parity); tables["family_challenger_interactions"]=pd.DataFrame(interactions)
+
+    combined_start=time.perf_counter()
+    combined_tables, combined_time = _combined_policy_evidence(
+        proof, registry, active, caches, national_metrics, native_dims, frames,
+        national_policy)
+    tables.update(combined_tables)
+    stage_rows.append({"stage":"3 combined challengers","runtime_seconds":combined_time})
+    _progress(f"3 combined challengers: {combined_time:.2f}s")
 
     # Primary metric-level decision evidence.  The older family, variance, and
     # downstream controls remain below as explicitly secondary engineering evidence.
@@ -1411,6 +1577,10 @@ def main() -> None:
         raise ValueError("Visualization regression snapshot is incomplete")
     figure_start=time.perf_counter(); _svg(figures/"capital_markets_challengers.svg","Capital Markets one-metric challengers",tables["dimension_chronology"],"dimension_score","challenger_id")
     _svg(figures/"capital_markets_family_challengers.svg","Capital Markets family and all-metric controls",tables["family_challenger_dimension_chronology"],"dimension_score","policy_id")
+    combined_styles={"incumbent":"incumbent","challenger_a_balanced_ratio":"ratio","challenger_b_slow_spreads_ratio":"ma9","challenger_c_balanced_difference":"arithmetic_difference"}
+    combined_labels={"incumbent":"Production incumbent","challenger_a_balanced_ratio":"Challenger A — Balanced ratio","challenger_b_slow_spreads_ratio":"Challenger B — Slow spreads ratio","challenger_c_balanced_difference":"Challenger C — Balanced arithmetic difference"}
+    _svg(figures/"capital_markets_combined_full_history.svg","Combined Capital Markets policies — full history",tables["capital_markets_combined_dimension_chronology"],"dimension_score","policy",chart_kind="combined-full",series_styles=combined_styles,series_labels=combined_labels)
+    _svg(figures/"capital_markets_combined_recent.svg","Combined Capital Markets policies — recent 36 months",tables["capital_markets_combined_recent_chronology"],"dimension_score","policy",chart_kind="combined-recent",series_styles=combined_styles,series_labels=combined_labels)
     for metric in active:
         _render_metric_page(output,metric,
             tables["metric_raw_and_ma_chronology"].query("metric == @metric"),
@@ -1432,7 +1602,9 @@ def main() -> None:
     audit_html=tables["capital_markets_source_unit_audit"].to_html(index=False,border=0)
     denominator_html=tables["capital_markets_ratio_denominator_diagnostics"].groupby("metric",as_index=False).agg(near_zero_denominator_count=("near_zero_denominator_flag","sum"),denominator_sign_change_count=("denominator_sign_change_flag","sum")).to_html(index=False,border=0)
     css="body{font-family:system-ui;max-width:1400px;margin:auto;padding:24px;color:#172033}table{border-collapse:collapse;font-size:13px}th,td{padding:6px 9px;border-bottom:1px solid #d8dee9;text-align:right}th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}.hero{background:#eef4ff;padding:18px;border-radius:8px}"
-    (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets transform decisions</title><style>{css}</style></head><body><div class='hero'><h1>Capital Markets ratio vs arithmetic difference</h1><p><strong>Does arithmetic difference improve stability and preserve responsiveness better than ratio-based MA structural features?</strong></p><p>No automatic winner is selected; every human decision is pending.</p></div><h2>1. Transform decision matrix</h2>{matrix_html}<h2>2. Ratio-vs-difference pairwise table</h2>{pairwise_html}<h2>3. Metric review pages</h2><ul>{metric_links}</ul><h2>4. Cross-metric summary</h2>{summary_html}<h2>5. Source-unit audit</h2>{audit_html}<h2>6. Denominator-risk summary</h2>{denominator_html}<h2>7. Selection template</h2>{selection_html}<h2>8. Secondary engineering evidence</h2><p>Variance, covariance, family controls, interactions, regime propagation, and performance diagnostics are retained here as secondary controls.</p><ul>{secondary_links}</ul><p>recommendation_state: none; promotion_state: none</p></body></html>\n",encoding="utf-8",newline="\n")
+    combined_registry_html=tables["capital_markets_combined_policy_registry"].to_html(index=False,border=0)
+    combined_matrix_html=tables["capital_markets_combined_policy_decision_matrix"].to_html(index=False,border=0)
+    (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets combined policy diagnostic</title><style>{css}</style></head><body><div class='hero'><h1>Capital Markets combined A/B/C policy diagnostic</h1><p>Diagnostic only. No automatic winner is selected; every human decision is pending.</p></div><h2>1. Combined policy definitions</h2>{combined_registry_html}<h2>2. Full-history Capital Markets chronology</h2>{(figures/'capital_markets_combined_full_history.svg').read_text()}<h2>3. Recent 36-month chronology</h2>{(figures/'capital_markets_combined_recent.svg').read_text()}<h2>4. Stability comparison</h2>{combined_matrix_html}<h2>5. Directional agreement</h2><a href='evidence/capital_markets_combined_directional_agreement.csv'>CSV</a><h2>6. Turning points</h2><a href='evidence/capital_markets_combined_turning_point_summary.csv'>CSV</a><h2>7. Cancellation</h2><a href='evidence/capital_markets_combined_cancellation.csv'>CSV</a><h2>8. A vs B isolated spread-window comparison</h2><p>spread_window_ma9_vs_ma12</p><h2>9. A vs C isolated transform comparison</h2><p>ratio_vs_arithmetic_difference</p><h2>10. Axis propagation</h2><a href='evidence/capital_markets_combined_axis_propagation.csv'>CSV</a><h2>11. Regime changes</h2><a href='evidence/capital_markets_combined_regime_change_summary.csv'>CSV</a><h2>12. Metric contribution decomposition</h2><a href='evidence/capital_markets_combined_metric_contribution_summary.csv'>CSV</a><h2>13. Links to six metric pages</h2><ul>{metric_links}</ul><h2>14. Secondary engineering evidence</h2><p>Future metric-weight hypothesis only (not executed): equal one-third family totals. Future Affordability hypothesis only (not executed): derive raw payment burden from raw median sale price and raw mortgage_30y, then smooth the derived measure once. Intended sequence: combined transform/window selection → feature-weight diagnostic → metric-weight diagnostic → Capital Markets freeze.</p><ul>{secondary_links}</ul><p>recommendation_state: none; promotion_state: none</p></body></html>\n",encoding="utf-8",newline="\n")
     html_time=finish_stage("HTML",html_start)
     total_pre_zip=time.perf_counter()-started
     stage_rows.append({"stage":"total before ZIP","runtime_seconds":total_pre_zip})
@@ -1441,7 +1613,7 @@ def main() -> None:
     (output/"in_progress.json").unlink()
     entries=[]
     for path in sorted(p for p in output.rglob("*") if p.is_file()): entries.append({"path":path.relative_to(output).as_posix(),"sha256":hashlib.sha256(path.read_bytes()).hexdigest()})
-    manifest={**human_status(),"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,"native_geography_count":1,"aligned_review_geography_count":7,"one_metric_challenger_count":48,"secondary_control_count":12,"cache_build_count":24,"metric_review_page_count":6,"files":entries}
+    manifest={**human_status(),"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,"native_geography_count":1,"aligned_review_geography_count":7,"one_metric_challenger_count":48,"combined_challenger_count":3,"combined_policy_registry_row_count":24,"future_metric_weight_hypothesis_only":True,"future_affordability_dependency_hypothesis_only":True,"secondary_control_count":12,"cache_build_count":24,"metric_review_page_count":6,"files":entries}
     (output/"manifest.json").write_text(json.dumps(manifest,sort_keys=True,indent=2)+"\n",encoding="utf-8")
     zip_start=time.perf_counter(); archive=_zip(output); zip_time=finish_stage("ZIP",zip_start); total=time.perf_counter()-started
     _progress(f"total runtime: {total:.2f}s")

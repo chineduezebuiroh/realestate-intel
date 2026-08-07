@@ -129,3 +129,29 @@ composite score. The 24 ratio-versus-difference rows are calculated on actual,
 gap-free date intersections rather than minimum observation counts. Cache
 evidence is split into a 24-row common MA-state audit, with both transform
 consumers recorded, and a 48-row transform-cache audit.
+
+## Combined family-policy diagnostic
+
+The next diagnostic stage compares the persisted incumbent with three national,
+all-six-metric interventions. Challenger A uses ratio structural features with
+MA12 long rates, MA3 Fed Funds, and MA9 spreads. Challenger B is identical except
+for MA12 spreads. Challenger C has A's windows and replaces ratio changes with
+arithmetic differences (with basis-point evidence). The six active metrics are
+partitioned locally into long-rate (`mortgage_30y`, `mortgage_15y`,
+`treasury_10y`), policy-rate (`fedfunds`), and spread (`spread_2y10y`,
+`spread_10y_fedfunds`) families; this is not a project-wide classification.
+
+All six metric chronologies are replaced together, Capital Markets is scored
+once nationally, and only then is it aligned to the seven governed counties.
+Feature, metric, dimension, and axis weights are preserved; all other dimensions,
+including frozen Supply and Affordability, are exact controls. Human decisions
+remain `pending`; recommendation and promotion remain `none`.
+
+The future equal-family metric-weight hypothesis (one third each for long-rate,
+policy-rate, and spread families) is documentation only and is not executed.
+The intended sequence is combined transform/window selection, feature-weight
+diagnostic, metric-weight diagnostic, then Capital Markets freeze. A separate
+future Affordability hypothesis is also documentation only: derive raw payment
+burden from raw median sale price and raw `mortgage_30y`, then apply the governed
+structural transform once to the derived measure. Affordability is not changed
+or frozen by this diagnostic.

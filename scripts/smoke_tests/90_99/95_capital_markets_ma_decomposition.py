@@ -21,7 +21,8 @@ from regime.diagnostics.capital_markets_ma import (
     detect_turning_points, directional_agreement, family_challenger_registry,
     governed_families, interaction_diagnostics, match_turning_points,
     human_status, payment_burden_audit, reject_forbidden_formula,
-    structural_policy, validate_source_run,
+    structural_policy, validate_source_run, COMBINED_FAMILIES,
+    combined_policy_specs,
 )
 
 
@@ -41,6 +42,12 @@ def main() -> None:
     families=governed_families(registry)
     assert families=={"mortgage_family":("mortgage_30y","mortgage_15y"),"policy_yield_family":("fedfunds","treasury_10y"),"spread_family":("spread_2y10y","spread_10y_fedfunds")}
     assert len({m for members in families.values() for m in members})==6
+    assert COMBINED_FAMILIES=={"long_rate_family":("mortgage_30y","mortgage_15y","treasury_10y"),"policy_rate_family":("fedfunds",),"spread_family":("spread_2y10y","spread_10y_fedfunds")}
+    combined=combined_policy_specs(registry)
+    assert tuple(combined)==("incumbent","challenger_a_balanced_ratio","challenger_b_slow_spreads_ratio","challenger_c_balanced_difference")
+    assert combined["challenger_a_balanced_ratio"]["windows"]==combined["challenger_c_balanced_difference"]["windows"]
+    assert combined["challenger_b_slow_spreads_ratio"]["windows"] | {"spread_family":9} == combined["challenger_a_balanced_ratio"]["windows"]
+    assert combined["challenger_c_balanced_difference"]["transform_family"]=="arithmetic_difference"
     assert MA_WINDOWS == (3,6,9,12)
     assert set(VISUALIZATION_REGRESSION_TABLES) == {"capital_markets_transform_policy_scorecard", "capital_markets_transform_decision_matrix", "capital_markets_ratio_vs_difference_pairwise", "capital_markets_ratio_denominator_diagnostics", "capital_markets_transform_directional_agreement", "capital_markets_transform_turning_point_matches", "capital_markets_transform_warmup_coverage", "common_ma_state_cache_audit", "transformed_feature_cache_audit"}
     family_policies=family_challenger_registry(registry); assert len(family_policies)==12 and set(family_policies.ma_window)=={6,9,12}
@@ -197,6 +204,8 @@ def main() -> None:
     assert 'len(tables["common_ma_state_cache_audit"]) != 24' in runner_source and 'len(tables["transformed_feature_cache_audit"]) != 48' in runner_source
     assert runner_source.index("Transform decision matrix") < runner_source.index("Secondary engineering evidence")
     assert 'human_decision="pending"' in runner_source and 'selected_policy":"pending"' in runner_source
+    assert all(name in runner_source for name in ("capital_markets_combined_policy_registry","capital_markets_combined_dimension_chronology","capital_markets_combined_cancellation","capital_markets_combined_policy_decision_matrix"))
+    assert '"combined_challenger_count":3' in runner_source and '"combined_policy_registry_row_count":24' in runner_source
     audit=payment_burden_audit().iloc[0]; assert audit.mortgage_rate_source=="mortgage_30y" and not audit.same_operation and not audit.policy_change
     status=human_status(); assert status["recommendation_state"]==status["promotion_state"]=="none"
     with tempfile.TemporaryDirectory() as tmp:
