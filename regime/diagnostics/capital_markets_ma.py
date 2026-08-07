@@ -85,27 +85,42 @@ METRIC_WEIGHT_POLICIES = {
         "treasury_10y": .15, "spread_10y_2y": .20,
         "spread_10y_fedfunds": .10,
     },
-    "MW-EQUAL-FAMILY": {
-        "mortgage_30y": 1.0 / 9.0, "mortgage_15y": 1.0 / 9.0,
-        "treasury_10y": 1.0 / 9.0, "fedfunds": 1.0 / 3.0,
-        "spread_10y_2y": 1.0 / 6.0,
-        "spread_10y_fedfunds": 1.0 / 6.0,
+    "MW-TEMPERED-C": {
+        "mortgage_30y": 3 / 20, "mortgage_15y": 3 / 20,
+        "treasury_10y": 3 / 20, "fedfunds": 1 / 10,
+        "spread_10y_2y": 9 / 40, "spread_10y_fedfunds": 9 / 40,
+    },
+    "MW-TEMPERED-A": {
+        "mortgage_30y": 2 / 15, "mortgage_15y": 2 / 15,
+        "treasury_10y": 2 / 15, "fedfunds": 1 / 5,
+        "spread_10y_2y": 1 / 5, "spread_10y_fedfunds": 1 / 5,
+    },
+    "MW-TEMPERED-B": {
+        "mortgage_30y": 2 / 15, "mortgage_15y": 2 / 15,
+        "treasury_10y": 2 / 15, "fedfunds": 1 / 4,
+        "spread_10y_2y": 7 / 40, "spread_10y_fedfunds": 7 / 40,
     },
 }
 
 
 def validate_metric_weight_policies(tolerance: float = CANCELLATION_TOLERANCE) -> None:
-    """Fail closed when the isolated two-policy weight contract drifts."""
-    if tuple(METRIC_WEIGHT_POLICIES) != ("MW-INCUMBENT", "MW-EQUAL-FAMILY"):
-        raise ValueError("Metric-weight diagnostic must contain exactly two policies")
+    """Fail closed when the isolated four-finalist weight contract drifts."""
+    expected_order = ("MW-INCUMBENT", "MW-TEMPERED-C", "MW-TEMPERED-A", "MW-TEMPERED-B")
+    if tuple(METRIC_WEIGHT_POLICIES) != expected_order:
+        raise ValueError("Metric-weight diagnostic must contain exactly four finalists")
     expected_metrics = set().union(*map(set, METRIC_WEIGHT_FAMILIES.values()))
     for policy, weights in METRIC_WEIGHT_POLICIES.items():
         if set(weights) != expected_metrics or not np.isclose(sum(weights.values()), 1.0, atol=tolerance, rtol=0):
             raise ValueError(f"Invalid metric-weight policy: {policy}")
-    equal = METRIC_WEIGHT_POLICIES["MW-EQUAL-FAMILY"]
-    for members in METRIC_WEIGHT_FAMILIES.values():
-        if not np.isclose(sum(equal[m] for m in members), 1.0 / 3.0, atol=tolerance, rtol=0):
-            raise ValueError("Equal-family policy family total is not one-third")
+    expected_family_totals = {
+        "MW-INCUMBENT": (.55, .15, .30), "MW-TEMPERED-C": (.45, .10, .45),
+        "MW-TEMPERED-A": (.40, .20, .40), "MW-TEMPERED-B": (.40, .25, .35),
+    }
+    for policy, totals in expected_family_totals.items():
+        actual = tuple(sum(METRIC_WEIGHT_POLICIES[policy][m] for m in members)
+                       for members in METRIC_WEIGHT_FAMILIES.values())
+        if not np.allclose(actual, totals, atol=tolerance, rtol=0):
+            raise ValueError(f"Metric-weight family totals drifted: {policy}")
 SETTLED_WINDOWS = {
     "mortgage_30y": 12, "mortgage_15y": 12, "treasury_10y": 12,
     "fedfunds": 3, "spread_10y_2y": 9, "spread_10y_fedfunds": 9,

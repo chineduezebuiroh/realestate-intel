@@ -146,14 +146,15 @@ def main() -> None:
                 "fedfunds":{"level":.50,"short_term_change":.25,"long_term_change":.25}},
     }
     validate_metric_weight_policies()
-    assert tuple(METRIC_WEIGHT_POLICIES) == ("MW-INCUMBENT", "MW-EQUAL-FAMILY")
+    assert tuple(METRIC_WEIGHT_POLICIES) == ("MW-INCUMBENT", "MW-TEMPERED-C", "MW-TEMPERED-A", "MW-TEMPERED-B")
     assert METRIC_WEIGHT_POLICIES["MW-INCUMBENT"] == expected
-    equal=METRIC_WEIGHT_POLICIES["MW-EQUAL-FAMILY"]
-    assert equal["fedfunds"] == 1.0/3.0
-    assert all(equal[m] == 1.0/9.0 for m in METRIC_WEIGHT_FAMILIES["long_rate_family"])
-    assert all(equal[m] == 1.0/6.0 for m in METRIC_WEIGHT_FAMILIES["spread_family"])
-    assert all(np.isclose(sum(equal[m] for m in members),1.0/3.0)
-               for members in METRIC_WEIGHT_FAMILIES.values())
+    assert METRIC_WEIGHT_POLICIES["MW-TEMPERED-A"] == {"mortgage_30y":2/15,"mortgage_15y":2/15,"treasury_10y":2/15,"fedfunds":1/5,"spread_10y_2y":1/5,"spread_10y_fedfunds":1/5}
+    assert METRIC_WEIGHT_POLICIES["MW-TEMPERED-B"] == {"mortgage_30y":2/15,"mortgage_15y":2/15,"treasury_10y":2/15,"fedfunds":1/4,"spread_10y_2y":7/40,"spread_10y_fedfunds":7/40}
+    assert METRIC_WEIGHT_POLICIES["MW-TEMPERED-C"] == {"mortgage_30y":3/20,"mortgage_15y":3/20,"treasury_10y":3/20,"fedfunds":1/10,"spread_10y_2y":9/40,"spread_10y_fedfunds":9/40}
+    expected_totals={"MW-INCUMBENT":(.55,.15,.30),"MW-TEMPERED-C":(.45,.10,.45),"MW-TEMPERED-A":(.40,.20,.40),"MW-TEMPERED-B":(.40,.25,.35)}
+    for policy,weights_policy in METRIC_WEIGHT_POLICIES.items():
+        assert np.isclose(sum(weights_policy.values()),1.0)
+        assert np.allclose(tuple(sum(weights_policy[m] for m in members) for members in METRIC_WEIGHT_FAMILIES.values()),expected_totals[policy])
 
     # Regression: metric weighting consumes the settled level chronology.  A
     # partially available leading month remains a valid level observation;
@@ -206,6 +207,16 @@ def main() -> None:
         assert part.set_index("metric").groupby(level=0).configured_metric_weight.first().to_dict() == weights_policy
     assert mw["capital_markets_metric_weight_parity_audit"].metric_score_exact_parity.all()
     assert mw["capital_markets_metric_weight_parity_audit"].contribution_reconstruction.all()
+    assert len(mw["capital_markets_metric_weight_decision_matrix"]) == 4
+    assert mw["capital_markets_metric_weight_decision_matrix"].Policy.tolist() == list(METRIC_WEIGHT_POLICIES)
+    assert mw["capital_markets_metric_weight_decision_matrix"].Decision.eq("pending").all()
+    assert len(mw["capital_markets_metric_weight_fedfunds_stress"]) == 4
+    stress=mw["capital_markets_metric_weight_fedfunds_stress"]
+    assert {"fedfunds_weight_vs_dimension_p90","fedfunds_weight_vs_dimension_p99","fedfunds_weight_vs_sign_flips","fedfunds_weight_vs_turning_points"}.issubset(stress.columns)
+    assert len(mw["capital_markets_metric_weight_policy_registry"]) == 24
+    assert not {"Rank","Winner","Composite score"}.intersection(mw["capital_markets_metric_weight_decision_matrix"].columns)
+    assert len(mw["capital_markets_metric_weight_concentration_summary"]) == 4
+    assert set(mw["capital_markets_metric_weight_recent_chronology"].columns) == {"policy","date","dimension_score","monthly_movement","fedfunds_contribution","long_rate_family_contribution","spread_family_contribution"}
     assert mw["capital_markets_metric_weight_human_decision_status"].iloc[0].to_dict() == {
         "recommendation_state":"none", "promotion_state":"none",
         "human_decision":"pending", "diagnostic_only":True}

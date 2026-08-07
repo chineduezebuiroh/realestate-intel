@@ -254,3 +254,23 @@ directional context, and county-regime context without a composite score, rank,
 or automated winner. Recommendation and promotion remain `none`, every
 decision remains `pending`, and empirical interpretation requires the
 authoritative local frozen-run artifacts.
+
+## Tempered metric-weight finalist diagnostic
+
+The metric-weight stage reuses the settled metric-score chronology and the
+60/20/20 feature-weight policy. It compares exactly four finalists, displayed
+in conservative-to-aggressive policy-rate order: the production incumbent
+(long-rate/policy-rate/spread family totals 55/15/30), `MW-TEMPERED-C`
+(45/10/45), `MW-TEMPERED-A` (40/20/40), and `MW-TEMPERED-B` (40/25/35).
+Only configured metric weights may differ; normalized features, metric scores,
+scorers, availability behavior, axes, geography, and downstream engines are
+exact controls. Every policy must sum to one within the governed tolerance.
+
+The previous equal-family policy with one-third Fed Funds exposure is retained
+only as historical evidence: it established an upper-bound warning and is not a
+finalist. The finalist evidence includes concentration, family contributions,
+dimension stability and tails, cancellation, turning-point and extreme-jump
+attribution, recent chronology, Fed Funds stress, and downstream context. It
+does not compute a composite score, rank, recommendation, or winner.
+Recommendation and promotion remain `none`; the human decision remains
+`pending`, and no production registry is mutated.
