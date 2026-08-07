@@ -23,6 +23,8 @@ from regime.diagnostics.capital_markets_ma import (
     human_status, payment_burden_audit, reject_forbidden_formula,
     structural_policy, validate_source_run, COMBINED_FAMILIES,
     combined_policy_specs,
+    spread_polarity_audit_tables,
+    canonicalize_legacy_artifact_metric_keys, metric_key_migration_audit,
 )
 
 
@@ -36,13 +38,27 @@ def main() -> None:
     before = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in policy_paths}
     registry = active_registry()
     expected = {"mortgage_30y": .35, "mortgage_15y": .05, "fedfunds": .15,
-        "treasury_10y": .15, "spread_2y10y": .20, "spread_10y_fedfunds": .10}
+        "treasury_10y": .15, "spread_10y_2y": .20, "spread_10y_fedfunds": .10}
     weights = registry.drop_duplicates("canonical_metric_key").set_index("canonical_metric_key").metric_weight.to_dict()
-    assert weights == expected and "treasury_2y" not in weights
+    assert weights == expected and "treasury_2y" not in weights and "spread_2y10y" not in weights
+    assert np.isclose(sum(weights.values()), 1.0)
+    migration=metric_key_migration_audit().iloc[0]
+    assert migration.legacy_key=="spread_2y10y" and migration.canonical_key=="spread_10y_2y"
+    assert migration.metric_weight_before==migration.metric_weight_after==.20
+    assert migration.new_write_key=="spread_10y_2y" and migration.downstream_value_parity and migration.migration_status=="pass"
+    legacy=pd.DataFrame({"canonical_metric_key":["spread_2y10y"],"value":[1.25]})
+    canonical=pd.DataFrame({"canonical_metric_key":["spread_10y_2y"],"value":[1.25]})
+    pd.testing.assert_frame_equal(canonicalize_legacy_artifact_metric_keys(legacy),canonical,check_exact=True)
+    legacy_scores=pd.DataFrame([{"geo_id":"g","date":pd.Timestamp("2020-01-31"),
+        "canonical_metric_key":"spread_2y10y","feature_key":"fred_2y10y_spread_level","feature_score":.4}])
+    canonical_scores=legacy_scores.assign(canonical_metric_key="spread_10y_2y")
+    pd.testing.assert_frame_equal(score_metrics(canonicalize_legacy_artifact_metric_keys(legacy_scores)),
+        score_metrics(canonical_scores),check_exact=True)
+    assert "add_spread(wide, geo_id, \"fred_spread_2y_10y\", \"fred_gs10\", \"fred_gs2\")" in Path("sources/fred_macro/ingest.py").read_text()
     families=governed_families(registry)
-    assert families=={"mortgage_family":("mortgage_30y","mortgage_15y"),"policy_yield_family":("fedfunds","treasury_10y"),"spread_family":("spread_2y10y","spread_10y_fedfunds")}
+    assert families=={"mortgage_family":("mortgage_30y","mortgage_15y"),"policy_yield_family":("fedfunds","treasury_10y"),"spread_family":("spread_10y_2y","spread_10y_fedfunds")}
     assert len({m for members in families.values() for m in members})==6
-    assert COMBINED_FAMILIES=={"long_rate_family":("mortgage_30y","mortgage_15y","treasury_10y"),"policy_rate_family":("fedfunds",),"spread_family":("spread_2y10y","spread_10y_fedfunds")}
+    assert COMBINED_FAMILIES=={"long_rate_family":("mortgage_30y","mortgage_15y","treasury_10y"),"policy_rate_family":("fedfunds",),"spread_family":("spread_10y_2y","spread_10y_fedfunds")}
     combined=combined_policy_specs(registry)
     assert tuple(combined)==("incumbent","challenger_a_balanced_ratio","challenger_b_slow_spreads_ratio","challenger_c_balanced_difference")
     assert combined["challenger_a_balanced_ratio"]["windows"]==combined["challenger_c_balanced_difference"]["windows"]
@@ -72,14 +88,33 @@ def main() -> None:
         rp=ratio.pivot(index="date",columns="feature_key",values="raw_feature_value")
         dp=difference.pivot(index="date",columns="feature_key",values="raw_feature_value")
         assert np.allclose(rp["fred_mortgage_30y_level"],dp["fred_mortgage_30y_level"],equal_nan=True)
-        assert np.allclose(dp["fred_mortgage_30y_short"],100*(ma-ma.shift(3)),equal_nan=True)
-        assert np.allclose(dp["fred_mortgage_30y_long"],100*(ma-ma.shift(12)),equal_nan=True)
+        assert np.allclose(dp["fred_mortgage_30y_short"],ma-ma.shift(3),equal_nan=True)
+        assert np.allclose(dp["fred_mortgage_30y_long"],ma-ma.shift(12),equal_nan=True)
         assert {"denominator_value","near_zero_denominator_flag","ratio_magnitude"}.issubset(diagnostics)
         assert np.allclose(difference_diagnostics.arithmetic_difference_bps.dropna(),
                            100*difference_diagnostics.arithmetic_difference_source_units.dropna())
         aggregated=_aggregate_ratio_diagnostics(diagnostics)
         assert len(aggregated)==2 and aggregated.policy.eq(f"ratio_ma{window}").all()
         assert {"minimum_absolute_denominator","ratio_absolute_p95","ratio_non_finite_count"}.issubset(aggregated)
+    # Formula reconstruction does not trust the ambiguous persisted spread key.
+    operands=[]
+    values={"mortgage_30y":6-np.arange(36)/100,"mortgage_15y":5-np.arange(36)/100,
+        "fedfunds":np.tile([1.,3.,5.],12),"treasury_10y":np.tile([4.,2.,6.],12),
+        "treasury_2y":np.tile([2.,4.,5.],12)}
+    for metric, series in values.items():
+        operands.extend({"geo_id":NATIVE_GEOGRAPHY,"date":date,"canonical_metric_key":metric,"value":value}
+            for date,value in zip(dates,series))
+    polarity=spread_polarity_audit_tables(pd.DataFrame(operands))
+    assert set(polarity)=={"capital_markets_spread_formula_audit","capital_markets_spread_sign_chronology",
+        "capital_markets_spread_ratio_pathology_audit","capital_markets_metric_polarity_audit",
+        "capital_markets_dimension_polarity_audit","capital_markets_axis_polarity_audit"}
+    formulas=polarity["capital_markets_spread_formula_audit"].set_index("metric_key").exact_formula.to_dict()
+    assert formulas=={"spread_10y_2y":"treasury_10y - treasury_2y","spread_10y_fedfunds":"treasury_10y - fedfunds"}
+    signs=polarity["capital_markets_spread_sign_chronology"]
+    assert (signs.raw_spread>0).any() and (signs.raw_spread<0).any() and signs.zero_crossing_flag.any()
+    assert polarity["capital_markets_metric_polarity_audit"].polarity_contract_passes.all()
+    assert polarity["capital_markets_dimension_polarity_audit"].polarity_contract_passes.all()
+    assert set(polarity["capital_markets_axis_polarity_audit"].axis)=={"supply","demand"}
     # Production scorer renormalizes available feature weights, including one-child weight 1.0.
     scores=pd.DataFrame([{"geo_id":"g","date":dates[0],"canonical_metric_key":"mortgage_30y","feature_key":"fred_mortgage_30y_level","feature_score":.4}])
     assert np.isclose(score_metrics(scores).metric_score.iloc[0], .4)
@@ -241,7 +276,7 @@ def main() -> None:
     unrelated=pd.DataFrame({"dimension":["supply","affordability"],"score":[.2,.3]}); assert unrelated.copy().equals(unrelated)
     # Exact standalone variance, covariance, additive movement, and deterministic ranks.
     dts=pd.date_range("2020-01-31",periods=8,freq="M"); feature_rows=[]; metric_rows=[]
-    metric_values={"mortgage_30y":np.arange(8)/10,"mortgage_15y":np.arange(8)[::-1]/20,"fedfunds":np.sin(np.arange(8))/10,"treasury_10y":np.cos(np.arange(8))/10,"spread_2y10y":np.arange(8)/30,"spread_10y_fedfunds":-np.arange(8)/40}
+    metric_values={"mortgage_30y":np.arange(8)/10,"mortgage_15y":np.arange(8)[::-1]/20,"fedfunds":np.sin(np.arange(8))/10,"treasury_10y":np.cos(np.arange(8))/10,"spread_10y_2y":np.arange(8)/30,"spread_10y_fedfunds":-np.arange(8)/40}
     metric_weights=expected
     for metric,values in metric_values.items():
         for feature_no,feature_type in enumerate(("level","short_term_change","long_term_change")):

@@ -25,7 +25,7 @@ At this contract revision the registry resolves six active canonical metrics:
 | `mortgage_15y` | 0.05 | level 0.40; short-term 0.30; long-term 0.30 |
 | `fedfunds` | 0.15 | level 0.40; short-term 0.30; long-term 0.30 |
 | `treasury_10y` | 0.15 | level 0.40; short-term 0.30; long-term 0.30 |
-| `spread_2y10y` | 0.20 | level 0.40; short-term 0.30; long-term 0.30 |
+| `spread_10y_2y` | 0.20 | level 0.40; short-term 0.30; long-term 0.30 |
 | `spread_10y_fedfunds` | 0.10 | level 0.40; short-term 0.30; long-term 0.30 |
 
 The physical `fred_2y` metric is diagnostic-only and is not an independent
@@ -138,7 +138,7 @@ MA12 long rates, MA3 Fed Funds, and MA9 spreads. Challenger B is identical excep
 for MA12 spreads. Challenger C has A's windows and replaces ratio changes with
 arithmetic differences (with basis-point evidence). The six active metrics are
 partitioned locally into long-rate (`mortgage_30y`, `mortgage_15y`,
-`treasury_10y`), policy-rate (`fedfunds`), and spread (`spread_2y10y`,
+`treasury_10y`), policy-rate (`fedfunds`), and spread (`spread_10y_2y`,
 `spread_10y_fedfunds`) families; this is not a project-wide classification.
 
 All six metric chronologies are replaced together, Capital Markets is scored
@@ -170,3 +170,31 @@ This stage does not select a winner, execute metric weights, change
 Affordability, or mutate production policy. The future metric-weight hypothesis
 remains equal family totals: long-rate metrics each 1/9, Fed Funds 1/3, and
 spreads each 1/6 (`future_metric_weight_hypothesis_only = true`).
+
+## Spread polarity correction gate
+
+The canonical metric is `spread_10y_2y`, and its governed formula is explicitly
+`treasury_10y - treasury_2y`. `spread_10y_fedfunds` is
+`treasury_10y - fedfunds`. The naming convention is
+`spread_<long leg>_<short/policy leg>`. Thus positive values mean
+an upward-sloping curve and negative values mean inversion. Spread level is MA9
+and spread short/long structural features are arithmetic differences from lag 3
+and lag 12 of that same MA9 state; basis-point values are persisted as a separate
+exact 100-times representation. Rate-level families continue to use ratio
+features (MA12 for long rates and MA3 for Fed Funds).
+
+Feature-key normalization overrides give both spreads direct polarity while the
+four rate series retain inverse FRED-rate polarity. The diagnostic fixes the
+feature control at 40/30/30, retains all metric and axis weights, and records
+`recommendation_state = none`, `promotion_state = none`, and human decision
+`pending`. Earlier feature-weight evidence is
+`superseded_for_final_calibration`; it remains historical evidence but cannot
+freeze weights until this corrected architecture is rerun.
+
+Immutable historical artifacts may contain the legacy canonical key
+`spread_2y10y`. They are never rewritten: the Capital Markets diagnostic maps
+that key to `spread_10y_2y` at its artifact-read boundary. This compatibility
+mapping is the only runtime use of the legacy identity. New production and
+diagnostic writes must not emit `spread_2y10y` as a canonical metric key. The
+governed sequence remains: spread polarity/key correction → rerun final
+feature-weight diagnostic → metric-weight diagnostic → Capital Markets freeze.
