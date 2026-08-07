@@ -2538,14 +2538,80 @@ def main() -> None:
 
     variance_start=time.perf_counter()
     tables["capital_markets_variance_budget"]=build_variance_budget(tables["feature_to_metric_decomposition"],tables["metric_to_dimension_decomposition"],native_dims,proof.run_id)
-    covariance=[]
+    covariance = []
+
     for metric in active:
-        f=tables["feature_to_metric_decomposition"].loc[tables["feature_to_metric_decomposition"].canonical_metric_key.eq(metric)]
-        parent=frames["metric_scores"].query("geo_id == @NATIVE_GEOGRAPHY and canonical_metric_key == @metric")[["date","metric_score"]]
-        covariance.append(build_covariance_budget(f,parent,"feature_key",f"feature_to_metric:{metric}"))
-    covariance.append(build_covariance_budget(tables["metric_to_dimension_decomposition"],native_dims,"canonical_metric_key","metric_to_dimension"))
+        f = tables["feature_to_metric_decomposition"].loc[
+            tables["feature_to_metric_decomposition"][
+                "canonical_metric_key"
+            ].eq(metric)
+        ].copy()
+
+        # The feature decomposition reflects the current production feature
+        # policy. Therefore its covariance parent must be reconstructed from
+        # that same policy generation rather than compared with the immutable
+        # pre-promotion metric_scores artifact.
+        #
+        # Sum weighted feature contributions using the exact native-source
+        # chronology consumed by build_covariance_budget().
+        native_f = f.loc[
+            f["grain"].eq("native_source")
+            & f["geo_id"].eq(NATIVE_GEOGRAPHY)
+        ].copy()
+
+        if native_f.empty:
+            raise ValueError(
+                "Current-production feature decomposition is empty; "
+                f"metric={metric}"
+            )
+
+        duplicate_keys = native_f.duplicated(
+            ["date", "feature_key"],
+            keep=False,
+        )
+        if duplicate_keys.any():
+            raise ValueError(
+                "Duplicate current-production feature decomposition rows; "
+                f"metric={metric}"
+            )
+
+        parent = (
+            native_f
+            .pivot(
+                index="date",
+                columns="feature_key",
+                values="weighted_contribution",
+            )
+            .dropna()
+            .sum(axis=1)
+            .rename("metric_score")
+            .reset_index()
+        )
+
+        covariance.append(
+            build_covariance_budget(
+                f,
+                parent,
+                "feature_key",
+                f"feature_to_metric:{metric}",
+            )
+        )
+
+    covariance.append(
+        build_covariance_budget(
+            tables["metric_to_dimension_decomposition"],
+            native_dims,
+            "canonical_metric_key",
+            "metric_to_dimension",
+        )
+    )
     tables["capital_markets_covariance_budget"]=pd.concat(covariance,ignore_index=True)
-    if not tables["capital_markets_covariance_budget"].reconciliation_status.eq("reconciled").all(): raise ValueError("Covariance budget does not reconcile")
+    if not tables[
+        "capital_markets_covariance_budget"
+    ].reconciliation_status.eq("reconciled").all():
+        raise ValueError(
+            "Covariance budget does not reconcile"
+        )
     tables["capital_markets_variance_budget_summary"]=tables["capital_markets_variance_budget"].groupby("budget_level",dropna=False).agg(row_count=("budget_level","size"),standalone_contribution_variance=("contribution_variance","sum"),absolute_movement=("sum_absolute_monthly_contribution_changes","sum")).reset_index()
     variance_time=finish_stage("variance/covariance evidence",variance_start)
     for cache in caches.values(): cache["uses"].extend(("variance_evidence","visual_review"))
