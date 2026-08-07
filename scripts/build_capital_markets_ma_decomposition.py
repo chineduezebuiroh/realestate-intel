@@ -968,7 +968,10 @@ def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
                 "level_weight":.4,"short_weight":.3,"long_weight":.3,"metric_weight":weights[metric],
                 "source_unit":production.native_units.iloc[0],"decision_state":"pending","recommendation_state":"none","promotion_state":"none"})
     policy_registry=pd.DataFrame(policy_rows)
-    if len(policy_registry)!=18: raise ValueError("Combined policy registry must contain exactly 24 rows")
+    if len(policy_registry) != 24:
+        raise ValueError(
+            "Combined policy registry must contain exactly 24 rows"
+        )
 
     dimensions={"incumbent":native_dims[["date","dimension_score"]].copy()}; metric_scores={
         "incumbent": national_metrics.copy()}
