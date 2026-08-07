@@ -820,11 +820,23 @@ def _align_national_dimension_to_counties(
         raise ValueError("National Capital Markets chronology schema is incomplete")
     if national["date"].duplicated().any():
         raise ValueError("National Capital Markets chronology contains duplicate dates")
+    source_dates = pd.DatetimeIndex(pd.to_datetime(national["date"]).sort_values())
+    expected_source_dates = pd.date_range(
+        source_dates.min(), source_dates.max(), freq="M"
+    )
+    if not source_dates.equals(expected_source_dates):
+        raise ValueError(
+            "National Capital Markets chronology contains interior date gaps"
+        )
     keys = county_chronology[["geo_id", "date"]].drop_duplicates().copy()
     if set(keys.geo_id.unique()) != set(REVIEW_GEOGRAPHIES):
         raise ValueError("County alignment scope differs from the seven governed counties")
     if keys.duplicated(["geo_id", "date"]).any():
         raise ValueError("Governed county chronology contains duplicate keys")
+    if source_dates.max() < pd.to_datetime(keys["date"]).max():
+        raise ValueError(
+            "National Capital Markets challenger has trailing coverage loss"
+        )
     source = national.copy().rename(columns={"date": "native_dimension_date"})
     source["native_dimension_date"] = pd.to_datetime(source.native_dimension_date)
     parts = []
@@ -1751,7 +1763,22 @@ def _feature_weight_evidence(proof, registry, active, caches, national_metrics, 
     runtime=pd.DataFrame([{"stage":"final_feature_weight","runtime_seconds":elapsed,"transformed_cache_count":6,"normalized_cache_count":6,"metric_score_rebuild_count":18,"one_metric_challenger_rebuild_count":0}])
     final={"capital_markets_final_feature_weight_policy_registry":policy_registry.assign(Architecture=architecture),"capital_markets_final_feature_weight_metric_stability":metric_summary,"capital_markets_final_feature_weight_metric_turning_point_summary":metric_summary[["policy","metric","family","turning_point_count","median_turn_spacing_months","median_turn_prominence"]],"capital_markets_final_feature_weight_family_summary":family_summary,"capital_markets_final_feature_weight_dimension_chronology":chronology,"capital_markets_final_feature_weight_dimension_stability":stab,"capital_markets_final_feature_weight_dimension_turning_point_summary":dimension_turn_summary,"capital_markets_final_feature_weight_extreme_jumps":metric_summary[["policy","metric","maximum_absolute_jump","large_jump_count"]].sort_values(["policy","maximum_absolute_jump"],ascending=[True,False]),"capital_markets_final_feature_weight_cancellation":cancellation,"capital_markets_final_feature_weight_recent_chronology":recent,"capital_markets_final_feature_weight_directional_context":dirs,"capital_markets_final_feature_weight_regime_change_summary":regime_summary,"capital_markets_final_feature_weight_decision_matrix":final_matrix,"capital_markets_final_feature_weight_human_decision_status":status,"capital_markets_final_feature_weight_runtime_summary":runtime}
     legacy={"capital_markets_feature_weight_policy_registry":policy_registry,"capital_markets_feature_weight_metric_score_chronology":metric_chron,"capital_markets_feature_weight_metric_summary":metric_summary,"capital_markets_feature_weight_dimension_chronology":chronology,"capital_markets_feature_weight_dimension_stability":stab,"capital_markets_feature_weight_directional_agreement":dirs,"capital_markets_feature_weight_turning_points":turns,"capital_markets_feature_weight_turning_point_matches":matches,"capital_markets_feature_weight_turning_point_summary":ts,"capital_markets_feature_weight_turning_point_event_windows":pd.DataFrame(event),"capital_markets_feature_weight_cancellation":cancellation,"capital_markets_feature_weight_metric_contribution_chronology":contribution,"capital_markets_feature_weight_metric_contribution_summary":contribution_summary,"capital_markets_feature_weight_axis_propagation":axes,"capital_markets_feature_weight_coordinate_propagation":coords,"capital_markets_feature_weight_regime_change_detail":regimes,"capital_markets_feature_weight_regime_change_summary":regime_summary,"capital_markets_feature_weight_recent_chronology":recent,"capital_markets_feature_weight_policy_comparison":comparisons,"capital_markets_feature_weight_decision_matrix":final_matrix,"capital_markets_feature_weight_parity_audit":parity,"capital_markets_feature_weight_human_decision_status":status,"capital_markets_feature_weight_runtime_summary":runtime}
-    metric_weight=_metric_weight_evidence(scores["FW-B"],frames,registry)
+    # Feed the metric-weight stage the settled FW-B evidence chronology, not
+    # the wider aligned splice used while constructing that chronology.  The
+    # splice can contain pre-score rows whose challenger metric_score is null;
+    # grouping those rows materializes null dimension rows and makes their
+    # dates look like interior gaps to governed county alignment.  In
+    # particular, movement evidence is deliberately not used as this input.
+    settled_fw_b_scores = (
+        metric_chron.loc[
+            metric_chron["policy"].eq("FW-B"),
+            ["date", "metric", "metric_score"],
+        ]
+        .rename(columns={"metric": "canonical_metric_key"})
+        .sort_values(["date", "canonical_metric_key"], kind="mergesort")
+        .reset_index(drop=True)
+    )
+    metric_weight=_metric_weight_evidence(settled_fw_b_scores,frames,registry)
     return {**legacy,**final,**metric_weight}, elapsed
 
 
