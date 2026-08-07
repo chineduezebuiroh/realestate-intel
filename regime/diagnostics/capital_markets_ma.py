@@ -71,6 +71,41 @@ SETTLED_FEATURE_WEIGHT_POLICIES = {
         "fedfunds": {"level": .50, "short_term_change": .25, "long_term_change": .25},
     },
 }
+
+# Diagnostic-local metric families and policies.  These deliberately do not
+# alter the production registry or establish a project-wide macro taxonomy.
+METRIC_WEIGHT_FAMILIES = {
+    "long_rate_family": ("mortgage_30y", "mortgage_15y", "treasury_10y"),
+    "policy_rate_family": ("fedfunds",),
+    "spread_family": ("spread_10y_2y", "spread_10y_fedfunds"),
+}
+METRIC_WEIGHT_POLICIES = {
+    "MW-INCUMBENT": {
+        "mortgage_30y": .35, "mortgage_15y": .05, "fedfunds": .15,
+        "treasury_10y": .15, "spread_10y_2y": .20,
+        "spread_10y_fedfunds": .10,
+    },
+    "MW-EQUAL-FAMILY": {
+        "mortgage_30y": 1.0 / 9.0, "mortgage_15y": 1.0 / 9.0,
+        "treasury_10y": 1.0 / 9.0, "fedfunds": 1.0 / 3.0,
+        "spread_10y_2y": 1.0 / 6.0,
+        "spread_10y_fedfunds": 1.0 / 6.0,
+    },
+}
+
+
+def validate_metric_weight_policies(tolerance: float = CANCELLATION_TOLERANCE) -> None:
+    """Fail closed when the isolated two-policy weight contract drifts."""
+    if tuple(METRIC_WEIGHT_POLICIES) != ("MW-INCUMBENT", "MW-EQUAL-FAMILY"):
+        raise ValueError("Metric-weight diagnostic must contain exactly two policies")
+    expected_metrics = set().union(*map(set, METRIC_WEIGHT_FAMILIES.values()))
+    for policy, weights in METRIC_WEIGHT_POLICIES.items():
+        if set(weights) != expected_metrics or not np.isclose(sum(weights.values()), 1.0, atol=tolerance, rtol=0):
+            raise ValueError(f"Invalid metric-weight policy: {policy}")
+    equal = METRIC_WEIGHT_POLICIES["MW-EQUAL-FAMILY"]
+    for members in METRIC_WEIGHT_FAMILIES.values():
+        if not np.isclose(sum(equal[m] for m in members), 1.0 / 3.0, atol=tolerance, rtol=0):
+            raise ValueError("Equal-family policy family total is not one-third")
 SETTLED_WINDOWS = {
     "mortgage_30y": 12, "mortgage_15y": 12, "treasury_10y": 12,
     "fedfunds": 3, "spread_10y_2y": 9, "spread_10y_fedfunds": 9,
