@@ -1415,10 +1415,72 @@ def _spread_correction_evidence(registry, active, caches, national_metrics, fram
             mt=detect_turning_points(cache["metric_scores"],"metric_score"); mq=mt.loc[mt.qualified] if not mt.empty else mt
             raw=raw_state.loc[raw_state.feature_key.str.endswith("_level")].sort_values("date").raw_feature_value
             zero_cross=int((np.sign(raw)*np.sign(raw.shift())<0).sum())
-            if policy==policies[0]:
-                dg=pathology[metric]
-                ms.update({"zero_crossing_count":zero_cross,"ratio_near_zero_denominator_count":int(dg.near_zero_denominator_flag.sum()),
-                    "ratio_direction_conflict_count":int(dg.direction_conflict_flag.sum()),"ratio_non_finite_count":int((~dg.finite_flag).sum())})
+            if policy == policies[0]:
+                dg = pathology[metric].copy()
+
+                required_diagnostic_columns = {
+                    "current_ma_state",
+                    "lagged_ma_state",
+                    "near_zero_denominator_flag",
+                    "ratio_finite_flag",
+                }
+                missing_diagnostic_columns = (
+                    required_diagnostic_columns.difference(dg.columns)
+                )
+                if missing_diagnostic_columns:
+                    raise ValueError(
+                        "Legacy spread ratio diagnostics are incomplete; "
+                        f"metric={metric}, "
+                        f"missing={sorted(missing_diagnostic_columns)}"
+                    )
+
+                current = pd.to_numeric(
+                    dg["current_ma_state"],
+                    errors="coerce",
+                )
+                lagged = pd.to_numeric(
+                    dg["lagged_ma_state"],
+                    errors="coerce",
+                )
+
+                economic_delta = current - lagged
+                ratio_value = current / lagged - 1.0
+
+                valid_direction = (
+                    current.notna()
+                    & lagged.notna()
+                    & ratio_value.notna()
+                    & np.isfinite(ratio_value)
+                )
+
+                direction_conflict = pd.Series(
+                    False,
+                    index=dg.index,
+                    dtype=bool,
+                )
+
+                direction_conflict.loc[valid_direction] = [
+                    direction(economic) != direction(ratio)
+                    for economic, ratio in zip(
+                        economic_delta.loc[valid_direction],
+                        ratio_value.loc[valid_direction],
+                    )
+                ]
+
+                ms.update(
+                    {
+                        "zero_crossing_count": zero_cross,
+                        "ratio_near_zero_denominator_count": int(
+                            dg["near_zero_denominator_flag"].sum()
+                        ),
+                        "ratio_direction_conflict_count": int(
+                            direction_conflict.sum()
+                        ),
+                        "ratio_non_finite_count": int(
+                            dg["ratio_finite_flag"].eq(False).sum()
+                        ),
+                    }
+                )
             else:
                 ms.update({"zero_crossing_count":zero_cross,"ratio_near_zero_denominator_count":"not_applicable","ratio_direction_conflict_count":"not_applicable","ratio_non_finite_count":"not_applicable"})
             ms.update({"turning_point_count":len(mq),"peak_count":int(mq.turning_point_type.eq("peak").sum()) if len(mq) else 0,"trough_count":int(mq.turning_point_type.eq("trough").sum()) if len(mq) else 0,"latest_36m_turn_count":int(mq.turning_point_date.gt(cache["metric_scores"].date.max()-pd.DateOffset(months=36)).sum()) if len(mq) else 0})
