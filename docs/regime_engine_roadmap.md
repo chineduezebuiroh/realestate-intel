@@ -281,3 +281,14 @@ Detailed implementation decisions should be documented within the corresponding 
 > with CBSA metro deferred as a future macro extension. ZIP is reserved for a
 > future local regime; city has no current macro or local-regime role. All
 > non-county levels are removed before challenger materialization.
+
+## Deferred calibration roadmap
+
+Capital Markets production calibration is closed with the promoted
+MW-TEMPERED-C policy. Next is Affordability feature decisions and derivation-order
+confirmation; no Affordability decision is made by the Capital Markets pass.
+
+A later BPS visual review remains deferred for DC, Essex, Montgomery, Prince
+George's, Fairfax, San Francisco, and Los Angeles. Its future plots are raw
+monthly permit units, the incumbent transform, MA12 structural level, and the
+normalized permit-activity score. No BPS implementation is part of this pass.

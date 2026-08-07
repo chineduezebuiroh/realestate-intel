@@ -74,6 +74,9 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 
 ### Current Focus
 
+Capital Markets calibration is closed after promotion of the human-selected `MW-TEMPERED-C` production policy; no transform, feature-weight, or metric-weight calibration remains pending. Next is Affordability feature decisions and derivation-order confirmation.
+
+
 Current development has shifted from infrastructure implementation toward county-level production calibration.
 
 The Phase 8c Inventory calibration campaign now has a bounded foundation: typed
@@ -207,12 +210,10 @@ The following topics remain active areas of investigation and should not be cons
 
 - Optimal smoothing and feature weighting for the Inventory dimension.
 - Appropriate feature weighting within the Price dimension.
-- Long-term integration of capital-market indicators into regime scoring.
 - CBSA labor-source treatment and geography contracts.
 - Geographic expansion beyond the county-level Macro Regime framework.
 - Future Market Balance and Market Profile architecture.
 - Opportunities to improve review automation and explainability.
-- Long-term integration of capital-market indicators into regime scoring.
 - Appropriate treatment of price and affordability interactions.
 - Geographic expansion strategy beyond the current macro framework.
 - Evolution of the Axis Engine and Coordinate Engine.

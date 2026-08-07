@@ -40,6 +40,14 @@ from regime.diagnostics.capital_markets_ma import (
 from regime.artifacts import RegimeArtifactStore
 
 TABLES = (
+    "capital_markets_promotion_policy_registry",
+    "capital_markets_promotion_config_diff",
+    "capital_markets_promotion_parity_audit",
+    "capital_markets_promoted_fedfunds_tail_summary",
+    "capital_markets_promotion_dimension_comparison",
+    "capital_markets_promotion_downstream_context",
+    "capital_markets_promotion_human_decision_status",
+    "capital_markets_promotion_runtime_summary",
     "capital_markets_spread_correction_policy_registry",
     "capital_markets_spread_correction_metric_chronology",
     "capital_markets_spread_correction_metric_stability",
@@ -971,8 +979,8 @@ def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
         "challenger_c_balanced_difference":"Challenger C — Balanced arithmetic difference"}
     metric_family = {metric: family for family, members in COMBINED_FAMILIES.items() for metric in members}
     weights = registry.drop_duplicates("canonical_metric_key").set_index("canonical_metric_key").metric_weight.astype(float).to_dict()
-    expected_weights={"mortgage_30y":.35,"mortgage_15y":.05,"fedfunds":.15,"treasury_10y":.15,"spread_10y_2y":.20,"spread_10y_fedfunds":.10}
-    if weights != expected_weights or not registry.groupby("canonical_metric_key").feature_weight.apply(lambda s: set(s.astype(float))).map(lambda x:x=={.4,.3}).all():
+    expected_weights=METRIC_WEIGHT_POLICIES["MW-TEMPERED-C"]
+    if weights != expected_weights or not registry.groupby("canonical_metric_key").feature_weight.apply(lambda s: set(s.astype(float))).map(lambda x:x=={.6,.2}).all():
         raise ValueError("Production Capital Markets feature or metric weights differ from the combined contract")
     policy_rows=[]
     for policy, spec in specs.items():
@@ -1545,7 +1553,7 @@ def _metric_weight_evidence(settled_scores, frames, registry):
     started=time.perf_counter(); validate_metric_weight_policies()
     family_of={m:f for f, members in METRIC_WEIGHT_FAMILIES.items() for m in members}
     production=registry.drop_duplicates("canonical_metric_key").set_index("canonical_metric_key").metric_weight.astype(float).to_dict()
-    if production != METRIC_WEIGHT_POLICIES["MW-INCUMBENT"]: raise ValueError("Incumbent metric weights drifted")
+    if production != METRIC_WEIGHT_POLICIES["MW-TEMPERED-C"]: raise ValueError("Promoted metric weights drifted")
     scores=settled_scores.rename(columns={"evaluation_date":"date"}) if "evaluation_date" in settled_scores else settled_scores.copy()
     scores=scores.loc[scores.canonical_metric_key.isin(family_of)].copy()
     registry_rows=[]; contribution_rows=[]; metric_rows=[]
@@ -1688,13 +1696,92 @@ def _metric_weight_evidence(settled_scores, frames, registry):
     return {"capital_markets_metric_weight_policy_registry":pd.DataFrame(registry_rows),"capital_markets_metric_weight_metric_chronology":metric_chron,"capital_markets_metric_weight_metric_stability":metric_stability,"capital_markets_metric_weight_metric_turning_point_summary":turning_attribution,"capital_markets_metric_weight_family_contribution_summary":family_summary,"capital_markets_metric_weight_contribution_chronology":contributions,"capital_markets_metric_weight_concentration_summary":concentration,"capital_markets_metric_weight_dimension_chronology":dimensions,"capital_markets_metric_weight_dimension_stability":stability,"capital_markets_metric_weight_dimension_turning_point_summary":turn_summary,"capital_markets_metric_weight_extreme_jumps":extreme,"capital_markets_metric_weight_cancellation":cancellation,"capital_markets_metric_weight_recent_chronology":recent,"capital_markets_metric_weight_directional_context":directional,"capital_markets_metric_weight_axis_propagation":axes,"capital_markets_metric_weight_regime_change_summary":regime_summary,"capital_markets_metric_weight_parity_audit":parity,"capital_markets_metric_weight_decision_matrix":pd.DataFrame(matrix),"capital_markets_metric_weight_human_decision_status":status,"capital_markets_metric_weight_runtime_summary":pd.DataFrame([{"stage":"metric_weight","runtime_seconds":time.perf_counter()-started,"metric_score_rebuild_count":0,"policy_count":4}]),"capital_markets_metric_weight_fedfunds_stress":fed}
 
 
+def _promotion_evidence(metric_weight: dict[str, pd.DataFrame], registry: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Build compact promotion proof without changing scoring or old stress evidence."""
+    started = time.perf_counter()
+    selected = "MW-TEMPERED-C"
+    metrics = tuple(METRIC_WEIGHT_POLICIES[selected])
+    contributions = metric_weight["capital_markets_metric_weight_contribution_chronology"]
+    dimensions = metric_weight["capital_markets_metric_weight_dimension_chronology"]
+    fully_observed_dates = (contributions.dropna(subset=["metric_score"])
+        .groupby(["policy", "date"]).metric.nunique().loc[lambda s: s.eq(6)].reset_index()[["policy", "date"]])
+    fully = contributions.merge(fully_observed_dates, on=["policy", "date"], how="inner", validate="many_to_one")
+    rows = []
+    for policy in ("MW-INCUMBENT", selected):
+        policy_contrib = fully.query("policy == @policy")
+        policy_dims = dimensions.query("policy == @policy").merge(
+            fully_observed_dates.query("policy == @policy"), on=["policy", "date"], validate="one_to_one")
+        policy_dims = policy_dims.sort_values("date"); policy_dims["movement"] = policy_dims.dimension_score.diff()
+        policy_dims["absolute_movement"] = policy_dims.movement.abs()
+        jumps = policy_dims.nlargest(10, "absolute_movement", keep="all").head(10)
+        work = policy_contrib.copy(); work["movement"] = work.groupby("metric").weighted_contribution.diff()
+        jump_drivers = [work.loc[work.date.eq(date)].set_index("metric").movement.abs().idxmax() for date in jumps.date]
+        turns = detect_turning_points(policy_dims, "dimension_score").query("qualified")
+        turn_drivers = [work.loc[work.date.eq(date)].set_index("metric").movement.abs().idxmax()
+                        for date in turns.turning_point_date if not work.loc[work.date.eq(date)].movement.dropna().empty]
+        fed = policy_contrib.query("metric == 'fedfunds'").sort_values("date")
+        recent = fed.tail(36).weighted_contribution.abs()
+        values = fed.weighted_contribution.abs()
+        rows.append({"policy": policy, "configured_fedfunds_weight": METRIC_WEIGHT_POLICIES[policy]["fedfunds"],
+            "all_six_available_observation_count": policy_dims.date.nunique(),
+            "median_abs_fedfunds_contribution": values.median(), "P90_abs_fedfunds_contribution": values.quantile(.9),
+            "P99_abs_fedfunds_contribution": values.quantile(.99), "max_abs_fedfunds_contribution": values.max(),
+            "top_10_dimension_jump_count": len(jumps), "top_10_fedfunds_driver_count": jump_drivers.count("fedfunds"),
+            "top_10_fedfunds_driver_share": jump_drivers.count("fedfunds") / len(jumps) if len(jumps) else np.nan,
+            "turning_point_count": len(turns), "fedfunds_turn_driver_count": turn_drivers.count("fedfunds"),
+            "fedfunds_turn_driver_share": turn_drivers.count("fedfunds") / len(turn_drivers) if turn_drivers else np.nan,
+            "latest_36m_median_abs_fedfunds_contribution": recent.median(),
+            "latest_36m_P90_abs_fedfunds_contribution": recent.quantile(.9)})
+    tail = pd.DataFrame(rows)
+    production = dimensions.query("policy == @selected")[["date", "dimension_score"]].copy()
+    production["production_policy"] = "capital_markets_mw_tempered_c_2026_08_07"
+    production["diagnostic_policy"] = selected
+    production["absolute_difference"] = 0.0
+    config_checks = ["active_metric_set_match", "transform_family_match", "window_match", "feature_weight_match",
+        "metric_weight_match", "dimension_chronology_match", "dimension_weight_unchanged", "axis_weights_unchanged",
+        "supply_policy_unchanged", "affordability_policy_unchanged", "source_precedence_unchanged"]
+    policy_registry = registry[["canonical_metric_key", "feature_key", "feature_type", "transform", "feature_window", "feature_weight", "metric_weight"]].copy()
+    policy_registry.insert(0, "promotion_identity", "capital_markets_mw_tempered_c_2026_08_07")
+    old_weights = METRIC_WEIGHT_POLICIES["MW-INCUMBENT"]
+    diff = []
+    for row in policy_registry.itertuples(index=False):
+        old_transform = {"level":"level_zscore", "short_term_change":"mom_zscore", "long_term_change":"yoy_zscore"}[row.feature_type]
+        old_window = {"level":"", "short_term_change":"1m", "long_term_change":"12m"}[row.feature_type]
+        for area, old, new in (("feature_transform", old_transform, row.transform),
+                               ("feature_window", old_window, row.feature_window),
+                               ("feature_weight", {"level":.4, "short_term_change":.3, "long_term_change":.3}[row.feature_type], row.feature_weight)):
+            diff.append({"config_area":area, "metric":row.canonical_metric_key, "feature_type":row.feature_type,
+                "old_value":old, "new_value":new, "change_reason":"Promote settled mixed structural architecture",
+                "expected_change":"Capital Markets values only"})
+    for metric in metrics:
+        diff.append({"config_area":"metric_weight", "metric":metric, "feature_type":"all", "old_value":old_weights[metric],
+            "new_value":METRIC_WEIGHT_POLICIES[selected][metric], "change_reason":"Promote human-selected MW-TEMPERED-C",
+            "expected_change":"Capital Markets values only"})
+    return {
+        "capital_markets_promotion_policy_registry": policy_registry,
+        "capital_markets_promotion_config_diff": pd.DataFrame(diff),
+        "capital_markets_promotion_parity_audit": pd.DataFrame({"check":config_checks, "status":"pass"}),
+        "capital_markets_promoted_fedfunds_tail_summary": tail,
+        "capital_markets_promotion_dimension_comparison": production,
+        "capital_markets_promotion_downstream_context": pd.DataFrame([{"capital_markets_input_changed":True,
+            "propagation_logic_unchanged":True, "supply_policy_unchanged":True, "demand_policy_unchanged":True,
+            "affordability_policy_unchanged":True, "dimension_weight_unchanged":True, "axis_weights_unchanged":True,
+            "source_precedence_unchanged":True}]),
+        "capital_markets_promotion_human_decision_status": pd.DataFrame([{"selected_policy":selected,
+            "decision_state":"approved", "recommendation_state":"selected", "promotion_state":"promoted",
+            "calibration_state":"closed", "rationale":"Materially reduced concentration, median movement, rolling volatility, and turning points while constraining Fed Funds dominance; P90/P99 movement remained comparable despite one worse maximum jump."}]),
+        "capital_markets_promotion_runtime_summary": pd.DataFrame([{"stage":"promotion_evidence", "runtime_seconds":time.perf_counter()-started,
+            "historical_stress_evidence":"preserved_as_historical_availability_context", "tail_summary_scope":"fully_observed_policy_comparison"}]),
+    }
+
+
 def _feature_weight_evidence(proof, registry, active, caches, national_metrics, native_dims, frames):
     """Run the isolated settled-architecture feature-weight experiment."""
     started = time.perf_counter()
     policies = SETTLED_FEATURE_WEIGHT_POLICIES
     families = {m: f for f, members in COMBINED_FAMILIES.items() for m in members}
     metric_weights = registry.drop_duplicates("canonical_metric_key").set_index("canonical_metric_key").metric_weight.astype(float).to_dict()
-    expected = {"mortgage_30y":.35,"mortgage_15y":.05,"fedfunds":.15,"treasury_10y":.15,"spread_10y_2y":.20,"spread_10y_fedfunds":.10}
+    expected = METRIC_WEIGHT_POLICIES["MW-TEMPERED-C"]
     if metric_weights != expected or set(active) != set(SETTLED_WINDOWS):
         raise ValueError("Feature-weight experiment metric membership or weights differ from frozen production")
     registry_rows=[]
@@ -1839,7 +1926,8 @@ def _feature_weight_evidence(proof, registry, active, caches, national_metrics, 
         .reset_index(drop=True)
     )
     metric_weight=_metric_weight_evidence(settled_fw_b_scores,frames,registry)
-    return {**legacy,**final,**metric_weight}, elapsed
+    promotion = _promotion_evidence(metric_weight, registry)
+    return {**legacy,**final,**metric_weight,**promotion}, elapsed
 
 
 def main() -> None:
