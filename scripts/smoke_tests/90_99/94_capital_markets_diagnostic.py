@@ -23,7 +23,7 @@ def main() -> None:
     active = audit[audit.enabled & ~audit.diagnostic_only & audit.macro_enabled]
     assert set(active.canonical_metric_key) == {
         "mortgage_30y", "mortgage_15y", "fedfunds", "treasury_10y",
-        "spread_2y10y", "spread_10y_fedfunds",
+        "spread_10y_2y", "spread_10y_fedfunds",
     }
     assert set(audit.dimension) == {DIMENSION}
     geos = ("united_states__nation", "district_of_columbia_dc__county")

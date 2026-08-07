@@ -29,10 +29,16 @@ from regime.diagnostics.capital_markets_ma import (
     governed_families, human_status, interaction_diagnostics, payment_burden_audit, validate_source_run,
     COMBINED_FAMILIES, combined_policy_specs,
     SETTLED_FEATURE_WEIGHT_POLICIES, SETTLED_WINDOWS, score_metrics_with_feature_weights,
+    spread_polarity_audit_tables,
+    canonicalize_legacy_artifact_metric_keys, metric_key_migration_audit,
 )
 from regime.artifacts import RegimeArtifactStore
 
 TABLES = (
+    "capital_markets_spread_formula_audit", "capital_markets_spread_sign_chronology",
+    "capital_markets_spread_ratio_pathology_audit", "capital_markets_metric_polarity_audit",
+    "capital_markets_dimension_polarity_audit", "capital_markets_axis_polarity_audit",
+    "capital_markets_metric_key_migration_audit",
     "capital_markets_feature_weight_policy_registry", "capital_markets_feature_weight_metric_score_chronology",
     "capital_markets_feature_weight_metric_summary", "capital_markets_feature_weight_dimension_chronology",
     "capital_markets_feature_weight_dimension_stability", "capital_markets_feature_weight_directional_agreement",
@@ -906,7 +912,7 @@ def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
         "challenger_c_balanced_difference":"Challenger C — Balanced arithmetic difference"}
     metric_family = {metric: family for family, members in COMBINED_FAMILIES.items() for metric in members}
     weights = registry.drop_duplicates("canonical_metric_key").set_index("canonical_metric_key").metric_weight.astype(float).to_dict()
-    expected_weights={"mortgage_30y":.35,"mortgage_15y":.05,"fedfunds":.15,"treasury_10y":.15,"spread_2y10y":.20,"spread_10y_fedfunds":.10}
+    expected_weights={"mortgage_30y":.35,"mortgage_15y":.05,"fedfunds":.15,"treasury_10y":.15,"spread_10y_2y":.20,"spread_10y_fedfunds":.10}
     if weights != expected_weights or not registry.groupby("canonical_metric_key").feature_weight.apply(lambda s: set(s.astype(float))).map(lambda x:x=={.4,.3}).all():
         raise ValueError("Production Capital Markets feature or metric weights differ from the combined contract")
     policy_rows=[]
@@ -1331,7 +1337,7 @@ def _feature_weight_evidence(proof, registry, active, caches, national_metrics, 
     policies = {"production_incumbent": None, **SETTLED_FEATURE_WEIGHT_POLICIES}
     families = {m: f for f, members in COMBINED_FAMILIES.items() for m in members}
     metric_weights = registry.drop_duplicates("canonical_metric_key").set_index("canonical_metric_key").metric_weight.astype(float).to_dict()
-    expected = {"mortgage_30y":.35,"mortgage_15y":.05,"fedfunds":.15,"treasury_10y":.15,"spread_2y10y":.20,"spread_10y_fedfunds":.10}
+    expected = {"mortgage_30y":.35,"mortgage_15y":.05,"fedfunds":.15,"treasury_10y":.15,"spread_10y_2y":.20,"spread_10y_fedfunds":.10}
     if metric_weights != expected or set(active) != set(SETTLED_WINDOWS):
         raise ValueError("Feature-weight experiment metric membership or weights differ from frozen production")
     registry_rows=[]
@@ -1461,12 +1467,13 @@ def main() -> None:
     names = ("source_metrics", "features", "normalized_features", "metric_scores",
         "aligned_metric_scores", "dimension_scores", "axis_scores", "coordinates",
         "geometry", "regime_assignments")
-    frames = {name: store.read_dataframe(source.name, name) for name in names}
+    frames = {name: canonicalize_legacy_artifact_metric_keys(
+        store.read_dataframe(source.name, name)) for name in names}
     load_time = finish_stage("authoritative input loading", stage)
 
     stage = time.perf_counter(); registry = active_registry()
     active = tuple(sorted(registry.canonical_metric_key.unique()))
-    expected_active = {"mortgage_30y", "mortgage_15y", "fedfunds", "treasury_10y", "spread_2y10y", "spread_10y_fedfunds"}
+    expected_active = {"mortgage_30y", "mortgage_15y", "fedfunds", "treasury_10y", "spread_10y_2y", "spread_10y_fedfunds"}
     if set(active) != expected_active or "treasury_2y" in active:
         raise ValueError("Registry-driven active Capital Markets set differs from the governed six")
     policies = _policy_registry(registry); families = governed_families(registry)
@@ -1491,6 +1498,7 @@ def main() -> None:
         "challenger_policy_registry": policies, "family_challenger_policy_registry": family_policies,
         "payment_burden_dependency_audit": payment_burden_audit(),
         "human_decision_status": pd.DataFrame([human_status()]),
+        "capital_markets_metric_key_migration_audit": metric_key_migration_audit(),
     }
     audit_dates = (tables["feature_transform_audit"].dropna(subset=["raw_feature_value"])
         .groupby("feature_key").date.agg(first_valid_date="min", last_valid_date="max", valid_observation_count="count").reset_index())
@@ -1518,6 +1526,14 @@ def main() -> None:
     national_raw = frames["source_metrics"].loc[
         frames["source_metrics"].geo_id.eq(NATIVE_GEOGRAPHY)
         & frames["source_metrics"].canonical_metric_key.isin(active)].copy()
+    # Audit formulas from their actual operands, then correct the accepted
+    # immutable run's legacy 2Y-minus-10Y values. validate_source_run confines
+    # this path to that exact historical run; current canonical writes already
+    # have the governed sign and are not consumed through this compatibility path.
+    audit_raw = frames["source_metrics"].loc[
+        frames["source_metrics"].geo_id.eq(NATIVE_GEOGRAPHY)].copy()
+    tables.update(spread_polarity_audit_tables(audit_raw))
+    national_raw.loc[national_raw.canonical_metric_key.eq("spread_10y_2y"), "value"] *= -1.0
     governed_dimensions = frames["dimension_scores"].loc[
         frames["dimension_scores"].geo_id.isin(REVIEW_GEOGRAPHIES)].copy()
 
@@ -1627,7 +1643,7 @@ def main() -> None:
     tables["axis_propagation"]=pd.concat(axes,ignore_index=True); tables["coordinate_propagation"]=pd.concat(coords,ignore_index=True)
     tables["regime_change_summary"]=pd.concat(regimes,ignore_index=True).groupby("challenger_id").size().rename("review_rows").reset_index()
     tables["regime_change_summary"]["recommendation_state"]=RECOMMENDATION_STATE; tables["unaffected_parity"]=pd.DataFrame(parity)
-    family_map={"mortgage_30y":"mortgage_rate","mortgage_15y":"mortgage_rate","fedfunds":"policy_yield","treasury_10y":"policy_yield","spread_2y10y":"spread","spread_10y_fedfunds":"spread"}
+    family_map={"mortgage_30y":"mortgage_rate","mortgage_15y":"mortgage_rate","fedfunds":"policy_yield","treasury_10y":"policy_yield","spread_10y_2y":"spread","spread_10y_fedfunds":"spread"}
     fam=tables["challenger_stability"].copy(); fam["metric_family"]=fam.changed_metric.map(family_map)
     tables["metric_family_summary"]=fam.groupby(["metric_family","ma_window"]).median(numeric_only=True).reset_index()
     tables["family_challenger_stability"]=pd.DataFrame(family_stability); tables["family_challenger_directional_agreement"]=pd.DataFrame(family_directions)
@@ -2057,7 +2073,8 @@ def main() -> None:
     fw_metric=tables["capital_markets_feature_weight_metric_summary"].to_html(index=False,border=0,max_rows=24)
     fw_matrix=tables["capital_markets_feature_weight_decision_matrix"].to_html(index=False,border=0,classes="decision-matrix")
     feature_review=f"<section><h1>Capital Markets Feature-Weight Review</h1><p>Diagnostic only; no winner is encoded. Lower volatility is not automatically better; higher directional agreement is preservation, not correctness; lower cancellation is not automatically better because economic offsetting can be legitimate; lower regime-change share is not automatically better. Balance stability, responsiveness, chronology, and downstream behavior.</p><h2>1. Policy definitions</h2>{fw_registry}<h2>2. Metric-level feature-weight summary</h2>{fw_metric}<h2>3. Full-history Capital Markets dimension chronology</h2>{(figures/'capital_markets_feature_weight_full_history.svg').read_text()}<h2>4. Recent 36-month chronology</h2>{(figures/'capital_markets_feature_weight_recent.svg').read_text()}<h2>5. Dimension stability</h2><a href='evidence/capital_markets_feature_weight_dimension_stability.csv'>CSV</a><h2>6. Directional agreement versus 40/30/30</h2><a href='evidence/capital_markets_feature_weight_directional_agreement.csv'>CSV</a><h2>7. Turning-point chronology and event windows</h2><a href='evidence/capital_markets_feature_weight_turning_point_event_windows.csv'>CSV</a><h2>8. Contribution/cancellation comparison</h2><a href='evidence/capital_markets_feature_weight_cancellation.csv'>CSV</a><h2>9. Pairwise 40→50→60 comparisons</h2><a href='evidence/capital_markets_feature_weight_policy_comparison.csv'>CSV</a><h2>10. Axis propagation</h2><a href='evidence/capital_markets_feature_weight_axis_propagation.csv'>CSV</a><h2>11. Regime-change review</h2><a href='evidence/capital_markets_feature_weight_regime_change_detail.csv'>CSV</a><h2>12. Decision matrix</h2>{fw_matrix}<h2>13. Prior A/B/C transform-window evidence as secondary context</h2></section>"
-    (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets feature-weight diagnostic</title><style>{css}</style></head><body><div class='hero'><h1>Capital Markets diagnostic review</h1><p>Diagnostic only. No automatic winner is selected; every human decision is pending.</p></div>{feature_review}{final_review}<h2>Combined policy definitions</h2>{combined_registry_html}<h2>Combined full-history chronology</h2>{(figures/'capital_markets_combined_full_history.svg').read_text()}<h2>Combined recent chronology</h2>{(figures/'capital_markets_combined_recent.svg').read_text()}<h2>Combined stability comparison</h2>{combined_matrix_html}<h2>Links to six metric pages</h2><ul>{metric_links}</ul><h2>Secondary engineering evidence</h2><p>future_metric_weight_hypothesis_only = true: long rates each 1/9, Fed Funds 1/3, spreads each 1/6 (not executed). Affordability hypothesis only: derive raw payment burden from raw median sale price plus raw mortgage_30y, then apply the governed MA structural transform after derivation (not executed). Intended sequence: settled transform/window architecture → feature-weight selection → metric-weight diagnostic → Capital Markets freeze.</p><ul>{secondary_links}</ul><p>recommendation_state: none; promotion_state: none; human_decision: pending</p></body></html>\n",encoding="utf-8",newline="\n")
+    polarity_review=f"<section><h1>Capital Markets Spread Polarity Review</h1><h2>1. Exact raw spread formulas</h2>{tables['capital_markets_spread_formula_audit'].to_html(index=False,border=0)}<h2>2. Standardized sign convention</h2><p>Longer-dated yield minus shorter-dated or policy rate. Positive is upward-sloping; zero is flat; negative is inverted.</p><h2>3–4. Raw spread and sign-state chronology (zero is the economic reference line)</h2><a href='evidence/capital_markets_spread_sign_chronology.csv'>CSV</a><h2>5. Ratio-pathology examples</h2><a href='evidence/capital_markets_spread_ratio_pathology_audit.csv'>CSV</a><h2>6. Arithmetic-difference feature chronology</h2><a href='evidence/capital_markets_transform_feature_chronology.csv'>CSV</a><h2>7. Metric polarity audit</h2>{tables['capital_markets_metric_polarity_audit'].to_html(index=False,border=0)}<h2>8–9. Corrected dimension chronology and synthetic tests</h2>{tables['capital_markets_dimension_polarity_audit'].to_html(index=False,border=0)}<h2>10. Axis polarity audit</h2>{tables['capital_markets_axis_polarity_audit'].to_html(index=False,border=0)}<h2>11–12. Corrected-vs-prior stability, turning points, and decision evidence</h2><a href='evidence/capital_markets_combined_policy_decision_matrix.csv'>CSV</a><h2>13. Governance</h2><p>prior_feature_weight_evidence_status = superseded_for_final_calibration. No feature weight is selected here. Next sequence: spread polarity correction → rerun final feature-weight diagnostic → metric-weight diagnostic → Capital Markets freeze.</p></section>"
+    (output/"index.html").write_text(f"<!doctype html><html><head><meta charset='utf-8'><title>Capital Markets spread polarity diagnostic</title><style>{css}</style></head><body><div class='hero'><h1>Capital Markets diagnostic review</h1><p>Diagnostic only. No automatic winner is selected; every human decision is pending.</p></div>{polarity_review}{final_review}<h2>Prior feature-weight evidence (superseded)</h2>{feature_review}<h2>Combined policy definitions</h2>{combined_registry_html}<h2>Combined full-history chronology</h2>{(figures/'capital_markets_combined_full_history.svg').read_text()}<h2>Combined recent chronology</h2>{(figures/'capital_markets_combined_recent.svg').read_text()}<h2>Links to six metric pages</h2><ul>{metric_links}</ul><h2>Secondary engineering evidence</h2><p>future_metric_weight_hypothesis_only = true (not executed).</p><ul>{secondary_links}</ul><p>recommendation_state: none; promotion_state: none; human_decision: pending</p></body></html>\n",encoding="utf-8",newline="\n")
     html_time=finish_stage("HTML",html_start)
     total_pre_zip=time.perf_counter()-started
     stage_rows.append({"stage":"total before ZIP","runtime_seconds":total_pre_zip})
@@ -2066,7 +2083,7 @@ def main() -> None:
     (output/"in_progress.json").unlink()
     entries=[]
     for path in sorted(p for p in output.rglob("*") if p.is_file()): entries.append({"path":path.relative_to(output).as_posix(),"sha256":hashlib.sha256(path.read_bytes()).hexdigest()})
-    manifest={**human_status(),"source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,"native_geography_count":1,"aligned_review_geography_count":7,"one_metric_challenger_count":48,"combined_challenger_count":3,"combined_policy_registry_row_count":24,"future_metric_weight_hypothesis_only":True,"future_affordability_dependency_hypothesis_only":True,"secondary_control_count":12,"cache_build_count":24,"metric_review_page_count":6,"files":entries}
+    manifest={**human_status(),"prior_feature_weight_evidence_status":"superseded_for_final_calibration","source_run_id":proof.run_id,"experiment_id":proof.experiment_id,"contract_identity":CONTRACT_IDENTITY,"native_geography_count":1,"aligned_review_geography_count":7,"one_metric_challenger_count":48,"combined_challenger_count":3,"combined_policy_registry_row_count":24,"future_metric_weight_hypothesis_only":True,"future_affordability_dependency_hypothesis_only":True,"secondary_control_count":12,"cache_build_count":24,"metric_review_page_count":6,"files":entries}
     (output/"manifest.json").write_text(json.dumps(manifest,sort_keys=True,indent=2)+"\n",encoding="utf-8")
     zip_start=time.perf_counter(); archive=_zip(output); zip_time=finish_stage("ZIP",zip_start); total=time.perf_counter()-started
     _progress(f"total runtime: {total:.2f}s")

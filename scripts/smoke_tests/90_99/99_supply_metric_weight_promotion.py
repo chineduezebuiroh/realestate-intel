@@ -79,7 +79,7 @@ def main() -> None:
     # Explicit non-change sentinels: affordability, Capital Markets, every non-Supply
     # metric weight, axes (including Supply), source precedence and geography remain governed.
     assert active.query("dimension == 'affordability'").set_index("canonical_metric_key").metric_weight.astype(float).to_dict() == {"price_to_income": .5, "payment_burden": .5}
-    assert active.query("dimension == 'capital_markets'").set_index("canonical_metric_key").metric_weight.astype(float).to_dict() == {"mortgage_30y": .35, "mortgage_15y": .05, "fedfunds": .15, "treasury_10y": .15, "spread_2y10y": .2, "spread_10y_fedfunds": .1}
+    assert active.query("dimension == 'capital_markets'").set_index("canonical_metric_key").metric_weight.astype(float).to_dict() == {"mortgage_30y": .35, "mortgage_15y": .05, "fedfunds": .15, "treasury_10y": .15, "spread_10y_2y": .2, "spread_10y_fedfunds": .1}
     axes = config.axes.set_index(["axis", "dimension"]).dimension_weight.astype(float).to_dict()
     assert {k: axes[k] for k in SUPPLY_AXIS} == SUPPLY_AXIS
     assert axes == {("demand", "demand"): .65, ("demand", "price"): .175, ("demand", "affordability"): .075, ("demand", "capital_markets"): .10, **SUPPLY_AXIS}

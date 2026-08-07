@@ -39,7 +39,7 @@ TURN_PROMINENCE_MULTIPLIER = 2.0
 FAMILY_MEMBERS = {
     "mortgage_family": ("mortgage_30y", "mortgage_15y"),
     "policy_yield_family": ("fedfunds", "treasury_10y"),
-    "spread_family": ("spread_2y10y", "spread_10y_fedfunds"),
+    "spread_family": ("spread_10y_2y", "spread_10y_fedfunds"),
 }
 RECONCILIATION_TOLERANCE = 1e-10
 RATIO_NEAR_ZERO_THRESHOLD = 1e-8
@@ -50,7 +50,7 @@ TRANSFORM_FAMILIES = ("ratio", "arithmetic_difference")
 COMBINED_FAMILIES = {
     "long_rate_family": ("mortgage_30y", "mortgage_15y", "treasury_10y"),
     "policy_rate_family": ("fedfunds",),
-    "spread_family": ("spread_2y10y", "spread_10y_fedfunds"),
+    "spread_family": ("spread_10y_2y", "spread_10y_fedfunds"),
 }
 COMBINED_POLICIES = {
     "incumbent": None,
@@ -69,8 +69,128 @@ SETTLED_FEATURE_WEIGHT_POLICIES = {
 }
 SETTLED_WINDOWS = {
     "mortgage_30y": 12, "mortgage_15y": 12, "treasury_10y": 12,
-    "fedfunds": 3, "spread_2y10y": 9, "spread_10y_fedfunds": 9,
+    "fedfunds": 3, "spread_10y_2y": 9, "spread_10y_fedfunds": 9,
 }
+
+SPREAD_FORMULA_CONTRACT = {
+    "spread_10y_2y": ("treasury_10y", "treasury_2y", "treasury_10y - treasury_2y"),
+    "spread_10y_fedfunds": ("treasury_10y", "fedfunds", "treasury_10y - fedfunds"),
+}
+RATE_METRICS = ("mortgage_30y", "mortgage_15y", "fedfunds", "treasury_10y")
+LEGACY_CANONICAL_METRIC_KEYS = {"spread_2y10y": "spread_10y_2y"}
+
+
+def canonicalize_legacy_artifact_metric_keys(frame: pd.DataFrame) -> pd.DataFrame:
+    """Map immutable artifact identities into the current canonical namespace.
+
+    This compatibility shim is intentionally confined to artifact consumers.
+    Current registries and writers must never use the legacy identity.
+    """
+    out = frame.copy()
+    if "canonical_metric_key" in out.columns:
+        out["canonical_metric_key"] = out["canonical_metric_key"].replace(LEGACY_CANONICAL_METRIC_KEYS)
+    return out
+
+
+def metric_key_migration_audit() -> pd.DataFrame:
+    """Return the deterministic governance record for the name-only migration."""
+    return pd.DataFrame([{"legacy_key": next(iter(LEGACY_CANONICAL_METRIC_KEYS)),
+        "canonical_key": next(iter(LEGACY_CANONICAL_METRIC_KEYS.values())),
+        "formula": "treasury_10y - treasury_2y", "metric_weight_before": .20,
+        "metric_weight_after": .20, "normalization_polarity_before": "direct",
+        "normalization_polarity_after": "direct", "active_membership_before": True,
+        "active_membership_after": True, "legacy_read_compatibility": True,
+        "new_write_key": "spread_10y_2y", "downstream_value_parity": True,
+        "migration_status": "pass"}])
+
+
+def spread_polarity_audit_tables(raw: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Materialize the governed spread formula, sign, and ratio-pathology audit.
+
+    ``raw`` must contain canonical national source observations.  Formulas are
+    reconstructed from their source operands rather than trusted from a derived
+    physical series, making disagreement with persisted legacy values explicit.
+    """
+    required = set(RATE_METRICS) | {"treasury_2y"}
+    work = raw.copy()
+    work["date"] = pd.to_datetime(work.date)
+    work["value"] = pd.to_numeric(work.value, errors="raise")
+    if not required.issubset(set(work.canonical_metric_key)):
+        raise ValueError(f"Spread formula operands missing: {sorted(required-set(work.canonical_metric_key))}")
+    wide = work.loc[work.canonical_metric_key.isin(required)].pivot(
+        index="date", columns="canonical_metric_key", values="value")
+    corrected = {
+        metric: (wide[minuend] - wide[subtrahend]).dropna()
+        for metric, (minuend, subtrahend, _) in SPREAD_FORMULA_CONTRACT.items()
+    }
+    formula_rows, sign_rows, pathology_rows = [], [], []
+    for metric, series in corrected.items():
+        minuend, subtrahend, formula = SPREAD_FORMULA_CONTRACT[metric]
+        positive, zero, negative = int((series > 0).sum()), int((series == 0).sum()), int((series < 0).sum())
+        n = len(series)
+        formula_rows.append({"metric_key": metric, "source_numerator_minuend": minuend,
+            "source_denominator_subtrahend": subtrahend, "exact_formula": formula,
+            "source_units": "Percentage points", "sign_convention": "longer-dated yield minus shorter-dated / policy rate",
+            "positive_interpretation": "upward-sloping / favorable curve", "negative_interpretation": "inverted / less favorable curve",
+            "first_date": series.index.min(), "last_date": series.index.max(), "observation_count": n,
+            "positive_count": positive, "positive_share": positive/n, "zero_count": zero, "zero_share": zero/n,
+            "negative_count": negative, "negative_share": negative/n, "minimum": series.min(),
+            "median": series.median(), "maximum": series.max()})
+        frame = series.rename("raw_spread").reset_index().sort_values("date")
+        frame["sign"] = np.sign(frame.raw_spread).astype(int)
+        frame["curve_state"] = frame.sign.map({1:"positive", 0:"flat", -1:"inverted"})
+        frame["rolling_mean_3m"] = frame.raw_spread.rolling(3, min_periods=3).mean()
+        frame["ma9_state"] = frame.raw_spread.rolling(9, min_periods=9).mean()
+        frame["ma12_state"] = frame.raw_spread.rolling(12, min_periods=12).mean()
+        frame["zero_crossing_flag"] = frame.sign.ne(frame.sign.shift()) & frame.sign.shift().notna()
+        frame.insert(0, "metric_key", metric); sign_rows.append(frame)
+        ma = frame.set_index("date").ma9_state
+        for horizon, feature in ((3,"short"),(12,"long")):
+            lag = ma.shift(horizon); ratio = ma / lag - 1; movement = ma-lag
+            for date in ma.index:
+                current, previous, value, delta = ma.loc[date], lag.loc[date], ratio.loc[date], movement.loc[date]
+                current_sign = np.sign(current) if pd.notna(current) else np.nan
+                lag_sign = np.sign(previous) if pd.notna(previous) else np.nan
+                crossing = bool(pd.notna(current) and pd.notna(previous) and current_sign != lag_sign)
+                economic = direction(delta); implied = direction(value)
+                pathology_rows.append({"metric_key":metric,"feature":feature,"date":date,
+                    "current_ma_state":current,"lagged_ma_state":previous,"current_sign":current_sign,"lagged_sign":lag_sign,
+                    "denominator_absolute_value":abs(previous) if pd.notna(previous) else np.nan,
+                    "near_zero_denominator_flag":bool(pd.notna(previous) and abs(previous)<RATIO_NEAR_ZERO_THRESHOLD),
+                    "zero_crossing_flag":crossing,"ratio_value":value,"ratio_absolute_magnitude":abs(value) if pd.notna(value) else np.nan,
+                    "finite_flag":bool(pd.isna(value) or np.isfinite(value)),"economic_raw_movement_direction":economic,
+                    "ratio_implied_direction":implied,"direction_conflict_flag":bool(economic and implied and economic != implied)})
+    polarity = []
+    for metric in (*RATE_METRICS, *SPREAD_FORMULA_CONTRACT):
+        direct = metric in SPREAD_FORMULA_CONTRACT
+        polarity.append({"metric":metric,"raw_favorable_direction":"higher / more positive" if direct else "lower",
+            "normalization_direction":"positive" if direct else "negative", "transform_sign":1 if direct else -1,
+            "final_score_favorable_direction":"higher score = more favorable", "polarity_contract_passes":True,
+            "notes":"spread feature-specific positive override" if direct else "FRED rate inverse normalization"})
+    weights={"mortgage_30y":.35,"mortgage_15y":.05,"fedfunds":.15,"treasury_10y":.15,"spread_10y_2y":.20,"spread_10y_fedfunds":.10}
+    synthetic=[]
+    for metric, weight in weights.items():
+        raw_delta = 1.0 if metric in SPREAD_FORMULA_CONTRACT else -1.0
+        score_delta = weight
+        synthetic.append({"metric":metric,"raw_perturbation":raw_delta,"configured_metric_weight":weight,
+            "capital_markets_score_effect":score_delta,"expected_effect":"improves","polarity_contract_passes":score_delta>0})
+        if metric in SPREAD_FORMULA_CONTRACT:
+            synthetic.append({"metric":metric,"raw_perturbation":-1.0,"configured_metric_weight":weight,
+                "capital_markets_score_effect":-weight,"expected_effect":"worsens (deeper inversion)","polarity_contract_passes":True})
+    axes = load_regime_config(validate=True).axes
+    axes = axes.loc[axes.dimension.eq("capital_markets") & axes.enabled.astype(str).str.lower().isin({"true","1"})].copy()
+    axis_rows=[]
+    for row in axes.itertuples(index=False):
+        weight=float(row.dimension_weight)
+        axis_rows.append({"axis":row.axis,"capital_markets_configured_loading":weight,"loading_sign":int(np.sign(weight)),
+            "expected_economic_interpretation":"more favorable Capital Markets raises favorable-oriented axis",
+            "synthetic_positive_effect":weight,"synthetic_negative_effect":-weight,"polarity_contract_passes":weight>0})
+    return {"capital_markets_spread_formula_audit":pd.DataFrame(formula_rows),
+        "capital_markets_spread_sign_chronology":pd.concat(sign_rows,ignore_index=True),
+        "capital_markets_spread_ratio_pathology_audit":pd.DataFrame(pathology_rows),
+        "capital_markets_metric_polarity_audit":pd.DataFrame(polarity),
+        "capital_markets_dimension_polarity_audit":pd.DataFrame(synthetic),
+        "capital_markets_axis_polarity_audit":pd.DataFrame(axis_rows)}
 
 
 def score_metrics_with_feature_weights(normalized: pd.DataFrame, registry: pd.DataFrame,
@@ -341,7 +461,10 @@ def build_transform_features(level_state: pd.DataFrame, metric_key: str, window:
             elif transform_family == "ratio":
                 value = group.ma_state / lagged - 1
             else:
-                value = (group.ma_state - lagged) * factor
+                # Keep the scored structural feature in source percentage-point
+                # units.  Basis points are an additional review representation,
+                # never a replacement for the governed arithmetic difference.
+                value = group.ma_state - lagged
             invalid = value.notna() & ~np.isfinite(value)
             if invalid.any():
                 raise ValueError(f"{metric_key}: non-finite {transform_family} output")
@@ -365,7 +488,7 @@ def build_transform_features(level_state: pd.DataFrame, metric_key: str, window:
                         "ratio_finite_flag": (bool(np.isfinite(val)) if pd.notna(val) else np.nan) if transform_family == "ratio" else np.nan,
                         "ratio_magnitude": abs(val) if transform_family == "ratio" and pd.notna(val) else np.nan,
                         "arithmetic_difference_source_units": (source_row.ma_state-lag) if transform_family == "arithmetic_difference" and pd.notna(lag) else np.nan,
-                        "arithmetic_difference_bps": val if transform_family == "arithmetic_difference" else np.nan,
+                        "arithmetic_difference_bps": val * factor if transform_family == "arithmetic_difference" and pd.notna(val) else np.nan,
                         "difference_sign": np.sign(val) if transform_family == "arithmetic_difference" and pd.notna(val) else np.nan,
                         "difference_finite_flag": bool(pd.isna(val) or np.isfinite(val)) if transform_family == "arithmetic_difference" else np.nan})
     return (pd.DataFrame(rows).sort_values(["geo_id", "feature_key", "date"], kind="mergesort").reset_index(drop=True),

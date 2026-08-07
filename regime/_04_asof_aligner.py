@@ -15,7 +15,7 @@ CAPITAL_MARKET_METRICS = {
     "mortgage_15y",
     "mortgage_30y",
     "spread_10y_fedfunds",
-    "spread_2y10y",
+    "spread_10y_2y",
     "treasury_10y",
 }
 
