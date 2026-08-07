@@ -1587,7 +1587,45 @@ def _metric_weight_evidence(settled_scores, frames, registry):
     for policy,g in movement.groupby("policy",sort=False):
         for row in g.nlargest(10,"absolute_dimension_movement").itertuples(index=False):
             d=contributions.query("policy==@policy and date==@row.date"); driver=d.loc[d.contribution_movement.abs().idxmax()]; fam=d.groupby("family").contribution_movement.sum()
-            extreme.append({"date":row.date,"policy":policy,"dimension_movement":row.dimension_movement,"absolute_dimension_movement":row.absolute_dimension_movement,"largest_driver_metric":driver.metric,"largest_driver_family":driver.family,"largest_driver_contribution_movement":driver.contribution_movement,"fedfunds_contribution_movement":d.loc[d.metric.eq("fedfunds"),"contribution_movement"].iloc[0],"spread_family_contribution_movement":fam.get("spread_family"),"long_rate_family_contribution_movement":fam.get("long_rate_family")})
+            fedfunds_rows = d.loc[
+                d["metric"].eq("fedfunds"),
+                "contribution_movement",
+            ]
+
+            if len(fedfunds_rows) > 1:
+                raise ValueError(
+                    "Duplicate Fed Funds contribution movement rows; "
+                    f"policy={policy}, date={row.date}"
+                )
+
+            fedfunds_contribution_movement = (
+                fedfunds_rows.iloc[0]
+                if len(fedfunds_rows) == 1
+                else np.nan
+            )
+
+            extreme.append(
+                {
+                    "date": row.date,
+                    "policy": policy,
+                    "dimension_movement":
+                        row.dimension_movement,
+                    "absolute_dimension_movement":
+                        row.absolute_dimension_movement,
+                    "largest_driver_metric":
+                        driver.metric,
+                    "largest_driver_family":
+                        driver.family,
+                    "largest_driver_contribution_movement":
+                        driver.contribution_movement,
+                    "fedfunds_contribution_movement":
+                        fedfunds_contribution_movement,
+                    "spread_family_contribution_movement":
+                        fam.get("spread_family"),
+                    "long_rate_family_contribution_movement":
+                        fam.get("long_rate_family"),
+                }
+            )
     extreme=pd.DataFrame(extreme)
     driver_counts=extreme.groupby(["policy","largest_driver_family"]).size().unstack(fill_value=0)
     extreme["top_10_count_fedfunds_driver"]=extreme.policy.map(extreme.groupby("policy").largest_driver_metric.apply(lambda values:values.eq("fedfunds").sum()))
