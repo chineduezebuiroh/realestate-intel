@@ -85,7 +85,7 @@ def _parse_ma_window_config(
             fail(expected)
         return parse_positive_months(value, expected), None
 
-    if transform == "ma_pct_change":
+    if transform in {"ma_pct_change", "ma_difference"}:
         expected = "<positive integer>m/lag<positive integer>m"
         parts = value.split("/")
         if len(parts) != 2:
@@ -157,7 +157,7 @@ def _compute_feature_for_contiguous_segment(
             min_periods=ma_periods,
         ).mean()
 
-    if transform == "ma_pct_change":
+    if transform in {"ma_pct_change", "ma_difference"}:
         ma_periods, lag_periods = _parse_ma_window_config(
             feature_window,
             transform=transform,
@@ -167,7 +167,10 @@ def _compute_feature_for_contiguous_segment(
             window=ma_periods,
             min_periods=ma_periods,
         ).mean()
-        denominator = ma_value.shift(lag_periods).replace(0.0, np.nan)
+        lagged = ma_value.shift(lag_periods)
+        if transform == "ma_difference":
+            return ma_value - lagged
+        denominator = lagged.replace(0.0, np.nan)
         return (ma_value / denominator) - 1.0
 
     if transform == "ma12_level":
@@ -216,7 +219,7 @@ def _compute_feature(
 ) -> pd.Series:
     group = group.sort_values("date")
 
-    if transform not in {"ma_level", "ma_pct_change"}:
+    if transform not in {"ma_level", "ma_pct_change", "ma_difference"}:
         return _compute_feature_for_contiguous_segment(
             group,
             transform,

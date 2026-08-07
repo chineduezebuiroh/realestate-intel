@@ -9,9 +9,11 @@ import pandas as pd
 import scripts.build_capital_markets_ma_decomposition as builder
 
 from regime._03_metric_scorer import score_metrics
+from regime._01_feature_engine import _compute_feature
 from scripts.build_capital_markets_ma_decomposition import (
     _align_national_dimension_to_counties, _national_capital_metric_universe,
     _metric_weight_evidence,
+    _promotion_evidence,
     _aggregate_ratio_diagnostics, _exact_policy_overlap, _overlap_comparison,
     _render_metric_page, _summarize_transform_features, _zip,
     TABLES, VISUALIZATION_REGRESSION_TABLES,
@@ -48,7 +50,8 @@ def main() -> None:
     expected = {"mortgage_30y": .35, "mortgage_15y": .05, "fedfunds": .15,
         "treasury_10y": .15, "spread_10y_2y": .20, "spread_10y_fedfunds": .10}
     weights = registry.drop_duplicates("canonical_metric_key").set_index("canonical_metric_key").metric_weight.to_dict()
-    assert weights == expected and "treasury_2y" not in weights and "spread_2y10y" not in weights
+    promoted = METRIC_WEIGHT_POLICIES["MW-TEMPERED-C"]
+    assert weights == promoted and "treasury_2y" not in weights and "spread_2y10y" not in weights
     assert np.isclose(sum(weights.values()), 1.0)
     assert CORRECTED_WINDOW_BY_METRIC == {"mortgage_30y":12,"mortgage_15y":12,"treasury_10y":12,"fedfunds":3,"spread_10y_2y":9,"spread_10y_fedfunds":9}
     assert CORRECTED_TRANSFORM_FAMILY_BY_METRIC == {"mortgage_30y":"ratio","mortgage_15y":"ratio","treasury_10y":"ratio","fedfunds":"ratio","spread_10y_2y":"arithmetic_difference","spread_10y_fedfunds":"arithmetic_difference"}
@@ -86,6 +89,10 @@ def main() -> None:
     except ValueError: pass
     else: raise AssertionError("forbidden formula accepted")
     dates = pd.date_range("2018-01-31", periods=36, freq="M")
+    production_difference = _compute_feature(pd.DataFrame({"date": dates, "value": np.arange(36, dtype=float)}),
+        "ma_difference", "9m/lag3m", "spread_short")
+    expected_ma = pd.Series(np.arange(36, dtype=float)).rolling(9, min_periods=9).mean()
+    assert np.allclose(production_difference, expected_ma - expected_ma.shift(3), equal_nan=True)
     raw = pd.DataFrame({"geo_id":NATIVE_GEOGRAPHY,"date":dates,"canonical_metric_key":"mortgage_30y","value":np.arange(1,37,dtype=float),"metric_origin":"fred_mortgage_30y"})
     for window in MA_WINDOWS:
         built=build_structural_features(raw,"mortgage_30y",window,registry)
@@ -220,6 +227,17 @@ def main() -> None:
     assert mw["capital_markets_metric_weight_human_decision_status"].iloc[0].to_dict() == {
         "recommendation_state":"none", "promotion_state":"none",
         "human_decision":"pending", "diagnostic_only":True}
+    promotion = _promotion_evidence(mw, registry)
+    required_promotion = {"capital_markets_promotion_policy_registry", "capital_markets_promotion_config_diff",
+        "capital_markets_promotion_parity_audit", "capital_markets_promoted_fedfunds_tail_summary",
+        "capital_markets_promotion_dimension_comparison", "capital_markets_promotion_downstream_context",
+        "capital_markets_promotion_human_decision_status", "capital_markets_promotion_runtime_summary"}
+    assert set(promotion) == required_promotion and required_promotion.issubset(TABLES)
+    assert promotion["capital_markets_promotion_parity_audit"].status.eq("pass").all()
+    assert set(promotion["capital_markets_promoted_fedfunds_tail_summary"].policy) == {"MW-INCUMBENT", "MW-TEMPERED-C"}
+    assert promotion["capital_markets_promoted_fedfunds_tail_summary"].all_six_available_observation_count.eq(35).all()
+    assert promotion["capital_markets_promotion_dimension_comparison"].absolute_difference.eq(0).all()
+    assert promotion["capital_markets_promotion_human_decision_status"].iloc[0].promotion_state == "promoted"
     metric_weight_tables={name for name in TABLES if name.startswith("capital_markets_metric_weight_")}
     assert {"capital_markets_metric_weight_fedfunds_stress","capital_markets_metric_weight_concentration_summary","capital_markets_metric_weight_parity_audit","capital_markets_metric_weight_decision_matrix"}.issubset(metric_weight_tables)
     assert {name for name in TABLES if name.startswith("capital_markets_final_feature_weight_")} == {

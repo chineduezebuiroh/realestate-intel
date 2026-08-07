@@ -274,3 +274,45 @@ attribution, recent chronology, Fed Funds stress, and downstream context. It
 does not compute a composite score, rank, recommendation, or winner.
 Recommendation and promotion remain `none`; the human decision remains
 `pending`, and no production registry is mutated.
+
+## Production promotion — MW-TEMPERED-C
+
+The human-approved production identity is
+`capital_markets_mw_tempered_c_2026_08_07`. Production uses the following
+settled policy:
+
+| Metric | Transform / window | Feature weight (level/short/long) | Metric weight |
+|---|---|---:|---:|
+| `mortgage_30y` | MA12 ratio structural | 60/20/20 | 15.0% |
+| `mortgage_15y` | MA12 ratio structural | 60/20/20 | 15.0% |
+| `treasury_10y` | MA12 ratio structural | 60/20/20 | 15.0% |
+| `fedfunds` | MA3 ratio structural | 60/20/20 | 10.0% |
+| `spread_10y_2y` | MA9 arithmetic difference | 60/20/20 | 22.5% |
+| `spread_10y_fedfunds` | MA9 arithmetic difference | 60/20/20 | 22.5% |
+
+Long-rate, policy-rate, and spread family totals are respectively 45%, 10%,
+and 45%. Canonical spreads remain `treasury_10y - treasury_2y` and
+`treasury_10y - fedfunds`; lower rates and more-positive spreads remain more
+favorable.
+
+The human settlement selected MW-TEMPERED-C because it materially reduced
+metric/contribution concentration, lowered median monthly movement and rolling
+volatility, reduced qualified Capital Markets turning points from 18 to 10 and
+recent-36-month turning points from 5 to 3, and constrained Fed Funds dominance
+relative to higher-policy-rate finalists. Its single maximum monthly jump was
+worse than incumbent, but P90 and P99 dimension movement remained effectively
+comparable while the broader stability and concentration profile improved
+materially. Similarity to incumbent was not a success criterion, and no
+automated ranking selected the policy.
+
+The prior availability-renormalized Fed Funds stress table is retained as
+historical availability context. The promoted tail table is a fully observed
+policy comparison restricted to dates with all six metrics available.
+
+**Capital Markets calibration is closed after this promotion. No further
+transform, feature-weight, or metric-weight calibration is pending.**
+
+Next: Affordability feature decisions and derivation-order confirmation. That
+future review will compare 50/20/30 with 50/25/25 for MA12 structural
+Price-to-Income and Payment Burden, deriving each metric from raw inputs before
+applying MA12. This promotion does not pre-decide or implement that work.
