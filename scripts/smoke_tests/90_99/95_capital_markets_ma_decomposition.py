@@ -29,6 +29,7 @@ from regime.diagnostics.capital_markets_ma import (
     PRIOR_FEATURE_WEIGHT_EVIDENCE_STATUS, corrected_architecture,
     CANCELLATION_TOLERANCE, reconcile_spread_pathology,
     NEXT_VALID_FEATURE_WEIGHT_EXPERIMENT_MUST_USE_SETTLED_CAPITAL_MARKETS_ARCHITECTURE,
+    SETTLED_FEATURE_WEIGHT_POLICIES,
 )
 
 
@@ -135,6 +136,22 @@ def main() -> None:
     else: raise AssertionError("duplicate pathology key did not fail closed")
     assert CANCELLATION_TOLERANCE == 1e-12
     assert NEXT_VALID_FEATURE_WEIGHT_EXPERIMENT_MUST_USE_SETTLED_CAPITAL_MARKETS_ARCHITECTURE
+    assert SETTLED_FEATURE_WEIGHT_POLICIES == {
+        "FW-A":{"level":.50,"short_term_change":.25,"long_term_change":.25},
+        "FW-B":{"level":.60,"short_term_change":.20,"long_term_change":.20},
+        "FW-C":{"default":{"level":.60,"short_term_change":.20,"long_term_change":.20},
+                "fedfunds":{"level":.50,"short_term_change":.25,"long_term_change":.25}},
+    }
+    assert {name for name in TABLES if name.startswith("capital_markets_final_feature_weight_")} == {
+        "capital_markets_final_feature_weight_policy_registry", "capital_markets_final_feature_weight_metric_stability",
+        "capital_markets_final_feature_weight_metric_turning_point_summary", "capital_markets_final_feature_weight_family_summary",
+        "capital_markets_final_feature_weight_dimension_chronology", "capital_markets_final_feature_weight_dimension_stability",
+        "capital_markets_final_feature_weight_dimension_turning_point_summary", "capital_markets_final_feature_weight_extreme_jumps",
+        "capital_markets_final_feature_weight_cancellation", "capital_markets_final_feature_weight_recent_chronology",
+        "capital_markets_final_feature_weight_directional_context", "capital_markets_final_feature_weight_regime_change_summary",
+        "capital_markets_final_feature_weight_decision_matrix", "capital_markets_final_feature_weight_human_decision_status",
+        "capital_markets_final_feature_weight_runtime_summary",
+    }
     # Production scorer renormalizes available feature weights, including one-child weight 1.0.
     scores=pd.DataFrame([{"geo_id":"g","date":dates[0],"canonical_metric_key":"mortgage_30y","feature_key":"fred_mortgage_30y_level","feature_score":.4}])
     assert np.isclose(score_metrics(scores).metric_score.iloc[0], .4)
