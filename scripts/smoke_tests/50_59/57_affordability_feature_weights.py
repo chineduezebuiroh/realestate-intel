@@ -7,7 +7,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from regime.experiments.affordability_feature_weights import *
 
-dates = pd.date_range("2018-01-31", periods=72, freq="ME")
+dates = pd.date_range("2018-01-31", periods=72, freq="M")
 rows=[]
 for j, geo in enumerate(("district_of_columbia_dc__county","alameda_county_ca__county")):
     rows += [(geo,d,"median_sale_price",250000+j*50000+i*1200+5000*np.sin(i/4)) for i,d in enumerate(dates)]
