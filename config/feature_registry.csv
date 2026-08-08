@@ -121,13 +121,13 @@ fred_unemployment_rate_level,fred_unemployment_rate,level,level_zscore,0.25,,dem
 fred_unemployment_rate_short,fred_unemployment_rate,short_term_change,mom_zscore,0.35,1m,demand,
 fred_unemployment_rate_long,fred_unemployment_rate,long_term_change,yoy_zscore,0.40,12m,demand,
 
-price_to_income_level,derived_price_to_income,level,level_zscore,0.50,,affordability,
-price_to_income_short,derived_price_to_income,short_term_change,mom_zscore,0.20,1m,affordability,
-price_to_income_long,derived_price_to_income,long_term_change,yoy_zscore,0.30,12m,affordability,
+price_to_income_level,derived_price_to_income,level,ma_level,0.50,12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
+price_to_income_short,derived_price_to_income,short_term_change,ma_pct_change,0.20,12m/lag3m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
+price_to_income_long,derived_price_to_income,long_term_change,ma_pct_change,0.30,12m/lag12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
 
-payment_burden_level,derived_payment_burden,level,level_zscore,0.50,,affordability,
-payment_burden_short,derived_payment_burden,short_term_change,mom_zscore,0.20,1m,affordability,
-payment_burden_long,derived_payment_burden,long_term_change,yoy_zscore,0.30,12m,affordability,
+payment_burden_level,derived_payment_burden,level,ma_level,0.50,12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
+payment_burden_short,derived_payment_burden,short_term_change,ma_pct_change,0.20,12m/lag3m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
+payment_burden_long,derived_payment_burden,long_term_change,ma_pct_change,0.30,12m/lag12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
 
 permit_intensity_level,derived_permit_intensity,level,ma_level,0.50,12m,supply,
 permit_intensity_short,derived_permit_intensity,short_term_change,ma_pct_change,0.25,12m/lag3m,supply,

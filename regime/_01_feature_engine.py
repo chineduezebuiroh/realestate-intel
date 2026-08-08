@@ -10,7 +10,6 @@ import numpy as np
 from regime._00_config_loader import RegimeConfig, load_regime_config
 from regime.derived_metrics import build_derived_metrics_with_lineage
 from regime.canonical_metrics import resolve_canonical_metrics
-from regime.linked_price_family import apply_linked_price_family_augmentation
 
 
 SERVING_DB = Path("data/market_serving.duckdb")
@@ -22,11 +21,6 @@ CANONICAL_SOURCE_METRIC_COLUMNS = [
     "value",
     "metric_origin",
 ]
-
-PRICE_FAMILY_PRODUCTION_EXPERIMENT = (
-    "price_family_ma12_structural_linked"
-)
-
 
 def _zscore(s: pd.Series, min_obs: int = 12) -> pd.Series:
     expanding_mean = s.expanding(min_periods=min_obs).mean()
@@ -521,14 +515,12 @@ def _apply_linked_price_family_augmentation(
     derived_lineage: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Apply the selected production linked Price/Affordability
-    observation policy.
+    Preserve canonical derive-first observations for Affordability.
+
+    MA12 and lag3/lag12 are now feature transforms. In particular, neither
+    price nor the Capital Markets mortgage feature state crosses this boundary.
     """
-    return apply_linked_price_family_augmentation(
-        observations=observations,
-        derived_lineage=derived_lineage,
-        experiment_id=PRICE_FAMILY_PRODUCTION_EXPERIMENT,
-    )
+    return observations.copy(), derived_lineage.copy()
 
 
 def _apply_observation_augmentations(
