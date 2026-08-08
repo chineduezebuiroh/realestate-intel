@@ -69,13 +69,45 @@ def _validate_source(source: pd.DataFrame) -> pd.DataFrame:
     if dup.any():
         raise ValueError("Source observations contain duplicate geo/date/metric keys")
     # Monthly price histories define the local diagnostic chronology.
-    for geo_id, group in relevant[relevant.canonical_metric_key.eq("median_sale_price")].groupby("geo_id"):
-        dates = group.date.sort_values()
+    # Normalize datetime units before equality checks so identical calendar
+    # dates stored at different pandas resolutions (for example us vs ns)
+    # do not create false gap failures.
+    for geo_id, group in relevant[
+        relevant.canonical_metric_key.eq("median_sale_price")
+    ].groupby("geo_id"):
+        dates = pd.DatetimeIndex(
+            group["date"].sort_values()
+        ).astype("datetime64[ns]")
+
         if not dates.is_monotonic_increasing:
-            raise ValueError(f"Non-monotonic price chronology for {geo_id}")
-        expected = pd.date_range(dates.iloc[0], dates.iloc[-1], freq="ME")
-        if not dates.reset_index(drop=True).equals(pd.Series(expected)):
-            raise ValueError(f"Unexpected interior monthly price gap for {geo_id}")
+            raise ValueError(
+                f"Non-monotonic price chronology for {geo_id}"
+            )
+
+        expected = pd.DatetimeIndex(
+            pd.date_range(
+                dates.min(),
+                dates.max(),
+                freq="M",
+            )
+        ).astype("datetime64[ns]")
+
+        if (
+            len(dates) != len(expected)
+            or not np.array_equal(
+                dates.asi8,
+                expected.asi8,
+            )
+        ):
+            missing_dates = expected.difference(dates)
+            unexpected_dates = dates.difference(expected)
+
+            raise ValueError(
+                "Unexpected interior monthly price gap; "
+                f"geo_id={geo_id}, "
+                f"missing_dates={list(missing_dates)}, "
+                f"unexpected_dates={list(unexpected_dates)}"
+            )
     return work.sort_values(["geo_id", "canonical_metric_key", "date"]).reset_index(drop=True)
 
 
@@ -151,18 +183,585 @@ def _formula_audit(raw: pd.DataFrame, audits: pd.DataFrame) -> pd.DataFrame:
 
 
 def _stability(features: pd.DataFrame) -> pd.DataFrame:
-    work = features.copy()
-    group = work.groupby(["policy", "metric", "geo_id"], sort=False)
-    work["mom"] = group.structural_level.pct_change(fill_method=None)
+    work = features.sort_values(
+        ["policy", "metric", "geo_id", "date"]
+    ).copy()
+
+    group = work.groupby(
+        ["policy", "metric", "geo_id"],
+        sort=False,
+    )
+    work["mom"] = group.structural_level.pct_change(
+        fill_method=None
+    )
+
     rows = []
-    for (policy, metric), frame in work.groupby(["policy", "metric"]):
-        movement = frame.mom.dropna().abs()
-        signed = frame.mom.dropna()
-        rows.append({"policy": policy, "metric": metric,
-                     "median_abs_mom": movement.median(), "p90_abs_mom": movement.quantile(.90),
-                     "p99_abs_mom": movement.quantile(.99), "max_abs_jump": movement.max(),
-                     "sign_flips": int((np.sign(signed) != np.sign(signed.shift())).sum() - (len(signed) > 0))})
+
+    for (policy, metric), frame in work.groupby(
+        ["policy", "metric"],
+        sort=True,
+    ):
+        movement = frame["mom"].dropna().abs()
+
+        # Count sign flips independently within each geography.
+        # Never allow the last observation of one geography to be compared
+        # with the first observation of the next geography.
+        sign_flip_count = 0
+
+        for _, geo_frame in frame.groupby(
+            "geo_id",
+            sort=False,
+        ):
+            signed = (
+                geo_frame["mom"]
+                .dropna()
+                .loc[lambda s: ~np.isclose(s, 0.0)]
+            )
+
+            if len(signed) < 2:
+                continue
+
+            directions = np.sign(signed.to_numpy())
+
+            sign_flip_count += int(
+                np.sum(
+                    directions[1:]
+                    != directions[:-1]
+                )
+            )
+
+        rows.append(
+            {
+                "policy": policy,
+                "metric": metric,
+                "median_abs_mom":
+                    movement.median(),
+                "p90_abs_mom":
+                    movement.quantile(.90),
+                "p99_abs_mom":
+                    movement.quantile(.99),
+                "max_abs_jump":
+                    movement.max(),
+                "sign_flips":
+                    sign_flip_count,
+            }
+        )
+
     return pd.DataFrame(rows)
+
+
+TURN_PERSISTENCE = 3
+
+
+def _turning_point_tables(
+    features: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build persistent structural-level turning-point evidence.
+
+    A turn occurs when monthly structural-level movement reverses direction
+    and the new direction persists for TURN_PERSISTENCE consecutive monthly
+    movements.
+
+    The turning-point date is the prior month's structural-level observation:
+    the local peak before a negative run or the local trough before a positive
+    run.
+
+    No prominence threshold is introduced in Phase 4A; persistence is the
+    only qualification rule.
+    """
+
+    rows = []
+
+    work = features.sort_values(
+        ["policy", "metric", "geo_id", "date"]
+    ).copy()
+
+    for (policy, metric, geo_id), frame in work.groupby(
+        ["policy", "metric", "geo_id"],
+        sort=True,
+    ):
+        frame = (
+            frame[
+                [
+                    "date",
+                    "structural_level",
+                ]
+            ]
+            .dropna()
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+
+        if len(frame) < TURN_PERSISTENCE + 2:
+            continue
+
+        frame["movement"] = (
+            frame["structural_level"]
+            .pct_change(fill_method=None)
+        )
+
+        directions = np.sign(
+            frame["movement"].to_numpy(
+                dtype=float
+            )
+        )
+
+        # Treat exact zero movements as directionless rather than as a
+        # separate turning-point direction.
+        directions[
+            np.isclose(
+                directions,
+                0.0,
+                equal_nan=False,
+            )
+        ] = 0.0
+
+        last_nonzero_direction = None
+
+        for i in range(1, len(frame)):
+            current_direction = directions[i]
+
+            if (
+                not np.isfinite(current_direction)
+                or current_direction == 0
+            ):
+                continue
+
+            if last_nonzero_direction is None:
+                last_nonzero_direction = current_direction
+                continue
+
+            if current_direction == last_nonzero_direction:
+                continue
+
+            persistence_end = (
+                i + TURN_PERSISTENCE
+            )
+
+            if persistence_end > len(frame):
+                break
+
+            persistence_directions = directions[
+                i:persistence_end
+            ]
+
+            persistent = bool(
+                len(persistence_directions)
+                == TURN_PERSISTENCE
+                and np.all(
+                    persistence_directions
+                    == current_direction
+                )
+            )
+
+            if not persistent:
+                continue
+
+            turn_index = i - 1
+            turn_date = frame.loc[
+                turn_index,
+                "date",
+            ]
+            turn_level = frame.loc[
+                turn_index,
+                "structural_level",
+            ]
+
+            confirmation_index = (
+                persistence_end - 1
+            )
+            confirmation_date = frame.loc[
+                confirmation_index,
+                "date",
+            ]
+            confirmation_level = frame.loc[
+                confirmation_index,
+                "structural_level",
+            ]
+
+            turn_type = (
+                "peak"
+                if (
+                    last_nonzero_direction > 0
+                    and current_direction < 0
+                )
+                else "trough"
+            )
+
+            post_turn_change = (
+                confirmation_level
+                / turn_level
+                - 1.0
+            )
+
+            rows.append(
+                {
+                    "policy": policy,
+                    "metric": metric,
+                    "geo_id": geo_id,
+                    "turning_point_date":
+                        turn_date,
+                    "turning_point_type":
+                        turn_type,
+                    "structural_level_at_turn":
+                        turn_level,
+                    "prior_direction":
+                        int(last_nonzero_direction),
+                    "new_direction":
+                        int(current_direction),
+                    "persistence_months":
+                        TURN_PERSISTENCE,
+                    "confirmation_date":
+                        confirmation_date,
+                    "confirmation_level":
+                        confirmation_level,
+                    "post_turn_change_through_confirmation":
+                        post_turn_change,
+                }
+            )
+
+            # Once a persistent reversal is accepted, the new direction
+            # becomes the governing direction.
+            last_nonzero_direction = (
+                current_direction
+            )
+
+    detail = pd.DataFrame(rows)
+
+    if detail.empty:
+        detail = pd.DataFrame(
+            columns=[
+                "policy",
+                "metric",
+                "geo_id",
+                "turning_point_date",
+                "turning_point_type",
+                "structural_level_at_turn",
+                "prior_direction",
+                "new_direction",
+                "persistence_months",
+                "confirmation_date",
+                "confirmation_level",
+                "post_turn_change_through_confirmation",
+            ]
+        )
+
+        summary = pd.DataFrame(
+            columns=[
+                "policy",
+                "metric",
+                "turning_points",
+                "peak_count",
+                "trough_count",
+                "geographies_with_turns",
+                "median_turn_spacing_months",
+                "latest_36m_turning_points",
+            ]
+        )
+
+        return detail, summary
+
+    detail["turning_point_date"] = pd.to_datetime(
+        detail["turning_point_date"]
+    )
+    detail["confirmation_date"] = pd.to_datetime(
+        detail["confirmation_date"]
+    )
+
+    spacing_rows = []
+
+    for (policy, metric, geo_id), frame in detail.groupby(
+        ["policy", "metric", "geo_id"],
+        sort=True,
+    ):
+        dates = (
+            frame["turning_point_date"]
+            .sort_values()
+            .reset_index(drop=True)
+        )
+
+        if len(dates) < 2:
+            continue
+
+        spacing = (
+            dates.diff()
+            .dropna()
+            .dt.days
+            / 30.4375
+        )
+
+        for value in spacing:
+            spacing_rows.append(
+                {
+                    "policy": policy,
+                    "metric": metric,
+                    "geo_id": geo_id,
+                    "spacing_months": value,
+                }
+            )
+
+    spacing = pd.DataFrame(spacing_rows)
+
+    max_dates = (
+        features.groupby(
+            ["policy", "metric"],
+            as_index=False,
+        )["date"]
+        .max()
+        .rename(
+            columns={
+                "date": "max_feature_date",
+            }
+        )
+    )
+
+    detail_with_max = detail.merge(
+        max_dates,
+        on=["policy", "metric"],
+        how="left",
+        validate="many_to_one",
+    )
+
+    detail_with_max[
+        "latest_36m_flag"
+    ] = (
+        detail_with_max[
+            "turning_point_date"
+        ]
+        >= (
+            detail_with_max[
+                "max_feature_date"
+            ]
+            - pd.DateOffset(months=35)
+        )
+    )
+
+    summary_rows = []
+
+    for (policy, metric), frame in detail_with_max.groupby(
+        ["policy", "metric"],
+        sort=True,
+    ):
+        spacing_sub = (
+            spacing.loc[
+                spacing["policy"].eq(policy)
+                & spacing["metric"].eq(metric),
+                "spacing_months",
+            ]
+            if not spacing.empty
+            else pd.Series(dtype=float)
+        )
+
+        summary_rows.append(
+            {
+                "policy": policy,
+                "metric": metric,
+                "turning_points":
+                    len(frame),
+                "peak_count":
+                    int(
+                        frame[
+                            "turning_point_type"
+                        ].eq("peak").sum()
+                    ),
+                "trough_count":
+                    int(
+                        frame[
+                            "turning_point_type"
+                        ].eq("trough").sum()
+                    ),
+                "geographies_with_turns":
+                    frame["geo_id"].nunique(),
+                "median_turn_spacing_months":
+                    (
+                        spacing_sub.median()
+                        if not spacing_sub.empty
+                        else np.nan
+                    ),
+                "latest_36m_turning_points":
+                    int(
+                        frame[
+                            "latest_36m_flag"
+                        ].sum()
+                    ),
+            }
+        )
+
+    summary = pd.DataFrame(summary_rows)
+
+    # Ensure the full policy × metric grid exists even if one pair
+    # legitimately produces zero persistent turns.
+    full_grid = pd.MultiIndex.from_product(
+        [
+            (POLICY_A, POLICY_B),
+            TARGET_METRICS,
+        ],
+        names=[
+            "policy",
+            "metric",
+        ],
+    ).to_frame(index=False)
+
+    summary = full_grid.merge(
+        summary,
+        on=["policy", "metric"],
+        how="left",
+        validate="one_to_one",
+    )
+
+    for column in [
+        "turning_points",
+        "peak_count",
+        "trough_count",
+        "geographies_with_turns",
+        "latest_36m_turning_points",
+    ]:
+        summary[column] = (
+            summary[column]
+            .fillna(0)
+            .astype(int)
+        )
+
+    return (
+        detail.sort_values(
+            [
+                "policy",
+                "metric",
+                "geo_id",
+                "turning_point_date",
+            ]
+        ).reset_index(drop=True),
+        summary.sort_values(
+            ["policy", "metric"]
+        ).reset_index(drop=True),
+    )
+
+
+def _divergence_tables(
+    features: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Persist exact A/B level divergence chronology and summary."""
+
+    wide = (
+        features.pivot(
+            index=[
+                "metric",
+                "geo_id",
+                "date",
+            ],
+            columns="policy",
+            values="structural_level",
+        )
+        .reset_index()
+    )
+
+    required = {
+        POLICY_A,
+        POLICY_B,
+    }
+
+    if not required.issubset(
+        set(wide.columns)
+    ):
+        raise AssertionError(
+            "A/B structural-level chronology is incomplete"
+        )
+
+    detail = wide.dropna(
+        subset=[
+            POLICY_A,
+            POLICY_B,
+        ]
+    ).copy()
+
+    detail[
+        "level_difference_b_minus_a"
+    ] = (
+        detail[POLICY_B]
+        - detail[POLICY_A]
+    )
+
+    detail[
+        "absolute_level_difference"
+    ] = (
+        detail[
+            "level_difference_b_minus_a"
+        ].abs()
+    )
+
+    detail[
+        "relative_level_difference_b_vs_a"
+    ] = np.where(
+        ~np.isclose(
+            detail[POLICY_A],
+            0.0,
+        ),
+        detail[
+            "level_difference_b_minus_a"
+        ]
+        / detail[POLICY_A],
+        np.nan,
+    )
+
+    summary_rows = []
+
+    for metric, frame in detail.groupby(
+        "metric",
+        sort=True,
+    ):
+        largest_index = (
+            frame[
+                "absolute_level_difference"
+            ].idxmax()
+        )
+        largest = frame.loc[largest_index]
+
+        summary_rows.append(
+            {
+                "metric": metric,
+                "observation_count":
+                    len(frame),
+                "median_absolute_difference":
+                    frame[
+                        "absolute_level_difference"
+                    ].median(),
+                "p90_absolute_difference":
+                    frame[
+                        "absolute_level_difference"
+                    ].quantile(.90),
+                "p99_absolute_difference":
+                    frame[
+                        "absolute_level_difference"
+                    ].quantile(.99),
+                "maximum_absolute_difference":
+                    frame[
+                        "absolute_level_difference"
+                    ].max(),
+                "largest_divergence_geo_id":
+                    largest["geo_id"],
+                "largest_divergence_date":
+                    largest["date"],
+                "policy_a_level_at_largest_divergence":
+                    largest[POLICY_A],
+                "policy_b_level_at_largest_divergence":
+                    largest[POLICY_B],
+                "signed_difference_at_largest_divergence":
+                    largest[
+                        "level_difference_b_minus_a"
+                    ],
+            }
+        )
+
+    summary = pd.DataFrame(summary_rows)
+
+    return (
+        detail.sort_values(
+            ["metric", "geo_id", "date"]
+        ).reset_index(drop=True),
+        summary.sort_values(
+            "metric"
+        ).reset_index(drop=True),
+    )
 
 
 def build_affordability_derivation_evidence(source: pd.DataFrame) -> AffordabilityDerivationEvidence:
@@ -181,11 +780,14 @@ def build_affordability_derivation_evidence(source: pd.DataFrame) -> Affordabili
     features = _features(raw)
     formula = _formula_audit(raw, audit)
     stability = _stability(features)
-    wide = features.pivot(index=["metric", "geo_id", "date"], columns="policy", values="structural_level").dropna().reset_index()
-    wide["level_difference_b_minus_a"] = wide[POLICY_B] - wide[POLICY_A]
-    divergence = wide.groupby("metric").level_difference_b_minus_a.agg(
-        median_absolute_difference=lambda x: x.abs().median(), p90_absolute_difference=lambda x: x.abs().quantile(.90),
-        p99_absolute_difference=lambda x: x.abs().quantile(.99), maximum_absolute_difference=lambda x: x.abs().max()).reset_index()
+
+    turning_points, turning_summary = (
+        _turning_point_tables(features)
+    )
+
+    divergence_detail, divergence = (
+        _divergence_tables(features)
+    )
     decision = policy_registry().rename(columns={"policy": "Policy", "derivation_order": "Derivation order"})[["Policy", "Derivation order"]]
     required_decision_columns = [
         "Price-to-income median abs MoM", "Price-to-income P90", "Price-to-income P99",
@@ -207,6 +809,24 @@ def build_affordability_derivation_evidence(source: pd.DataFrame) -> Affordabili
             decision.loc[index, f"{prefix} P99"] = stats.p99_abs_mom
             decision.loc[index, f"{prefix} max jump"] = stats.max_abs_jump
             decision.loc[index, f"{prefix} sign flips"] = stats.sign_flips
+
+            turn_stats = turning_summary.loc[
+                turning_summary["policy"].eq(row.Policy)
+                & turning_summary["metric"].eq(metric)
+            ]
+
+            if len(turn_stats) != 1:
+                raise AssertionError(
+                    "Expected exactly one turning-point summary row; "
+                    f"policy={row.Policy}, metric={metric}, "
+                    f"rows={len(turn_stats)}"
+                )
+
+            decision.loc[
+                index,
+                f"{prefix} turning points",
+            ] = turn_stats.iloc[0]["turning_points"]
+
         decision.loc[index, "Largest level divergence between policies"] = divergence.maximum_absolute_difference.max()
         decision.loc[index, "Median absolute level divergence"] = divergence.median_absolute_difference.median()
     decision["Decision"] = "pending"
@@ -220,8 +840,10 @@ def build_affordability_derivation_evidence(source: pd.DataFrame) -> Affordabili
         "affordability_derivation_normalized_feature_scores": empty,
         "affordability_derivation_metric_scores": empty,
         "affordability_derivation_metric_stability": stability,
-        "affordability_derivation_metric_turning_points": empty,
-        "affordability_derivation_metric_turning_point_summary": empty,
+        "affordability_derivation_metric_turning_points": turning_points,
+        "affordability_derivation_metric_turning_point_summary": turning_summary,
+        "affordability_derivation_level_divergence": divergence_detail,
+        "affordability_derivation_level_divergence_summary": divergence,
         "affordability_derivation_dimension_chronology": empty,
         "affordability_derivation_dimension_stability": empty,
         "affordability_derivation_dimension_turning_point_summary": empty,

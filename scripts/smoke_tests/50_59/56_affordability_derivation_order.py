@@ -16,7 +16,7 @@ from regime.experiments.affordability_derivation_order import (
 
 
 def fixture() -> pd.DataFrame:
-    dates = pd.date_range("2018-01-31", periods=60, freq="ME")
+    dates = pd.date_range("2018-01-31", periods=60, freq="M")
     rows = []
     for geo_index, geo in enumerate(("county-a", "county-b")):
         for i, date in enumerate(dates):
