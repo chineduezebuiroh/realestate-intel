@@ -13,6 +13,11 @@ from regime.experiments.affordability_derivation_order import (
     FEATURE_WEIGHTS, POLICY_A, POLICY_B, TARGET_METRICS,
     build_affordability_derivation_evidence, policy_registry,
 )
+from regime.affordability_derivation import (
+    LEVEL_WINDOW, LONG_LAG, PARITY_TOLERANCE, PROMOTED_POLICY, SHORT_LAG,
+    build_affordability_promotion_evidence,
+)
+from regime._00_config_loader import load_regime_config
 
 
 def fixture() -> pd.DataFrame:
@@ -37,6 +42,37 @@ def main() -> None:
     assert not registry.income_smoothed_before_derivation.any()
     assert not registry.mortgage_smoothed_before_derivation.any()
     result = build_affordability_derivation_evidence(fixture()).tables
+    promotion = build_affordability_promotion_evidence(
+        fixture(), result["affordability_derivation_raw_chronology"],
+        result["affordability_derivation_feature_chronology"],
+    )
+    promoted = promotion["affordability_derivation_promotion_policy_registry"].iloc[0]
+    assert PROMOTED_POLICY == POLICY_B == promoted.selected_policy
+    assert (LEVEL_WINDOW, SHORT_LAG, LONG_LAG, PARITY_TOLERANCE) == (12, 3, 12, 1e-12)
+    assert not promoted.income_smoothed_before_derivation
+    assert not promoted.mortgage_smoothed_before_derivation
+    assert (promoted.level_weight, promoted.short_weight, promoted.long_weight) == (.50, .20, .30)
+    assert promoted.calibration_stage == "phase4a_closed" and promoted.phase4b_state == "pending"
+    parity = promotion["affordability_derivation_promotion_parity_audit"]
+    assert len(parity) == 8 and parity.within_tolerance.all()
+    assert set(parity.comparison_level) == {"raw_derived", "structural_level", "short_feature", "long_feature"}
+    assert parity.maximum_absolute_error.max() <= PARITY_TOLERANCE
+
+    config = load_regime_config(validate=True)
+    affordability = config.features[config.features.metric_key.isin({"derived_price_to_income", "derived_payment_burden"})]
+    expected = {
+        "level": ("ma_level", "12m", .50),
+        "short_term_change": ("ma_pct_change", "12m/lag3m", .20),
+        "long_term_change": ("ma_pct_change", "12m/lag12m", .30),
+    }
+    for row in affordability.itertuples(index=False):
+        assert (row.transform, row.feature_window, float(row.feature_weight)) == expected[row.feature_type]
+    # Frozen neighboring production policies remain untouched by this settlement.
+    capital = config.features[config.features.dimension_context.eq("capital_markets")]
+    assert len(capital) == 21 and set(capital.feature_weight.astype(float)) == {.2, .6, .3, .4}
+    assert promotion["affordability_derivation_promotion_config_diff"].query(
+        "config_area in ['capital_markets_policy', 'supply_policy', 'demand_policy']"
+    ).new_value.eq("unchanged").all()
     audit = result["affordability_derivation_input_audit"]
     b = audit[audit.policy.eq(POLICY_B)]
     assert not b.smoothing_applied_before_derivation.any()

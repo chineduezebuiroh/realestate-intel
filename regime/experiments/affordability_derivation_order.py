@@ -13,6 +13,7 @@ import pandas as pd
 
 from regime.derived_metrics import DERIVED_METRIC_COMPONENTS, build_derived_metrics_with_lineage
 from regime.linked_price_family import build_structural_level
+from regime.affordability_derivation import build_promoted_affordability_chronology
 
 
 POLICY_A: Final = "AFF-DERIVATION-A"
@@ -132,9 +133,12 @@ def _derive(source: pd.DataFrame, policy: str) -> tuple[pd.DataFrame, pd.DataFra
         derived["pre_feature_derived_value"] = derived["value"]
         derived["structural_level"] = derived["value"]
     else:
+        promoted, smoothed, promoted_lineage = build_promoted_affordability_chronology(source)
+        derived = promoted.copy()
+        derived["policy"] = policy
         derived["pre_feature_derived_value"] = derived["value"]
-        smoothed = build_structural_level(derived, level_window=LEVEL_WINDOW)
-        derived["structural_level"] = smoothed["structural_level_value"]
+        derived["structural_level"] = smoothed["structural_level"].to_numpy()
+        lineage = promoted_lineage
     return derived, lineage
 
 
