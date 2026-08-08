@@ -77,6 +77,11 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 Capital Markets calibration is closed after promotion of the human-selected `MW-TEMPERED-C` production policy; no transform, feature-weight, or metric-weight calibration remains pending. Next is Affordability feature decisions and derivation-order confirmation.
 
 
+Affordability calibration is complete. Phase 4A's derive-first MA12/lag3/lag12
+contract remains frozen, and Phase 4B retained the incumbent 50/20/30 feature
+weights through the human-selected `AFF-FW-A` policy without promoting a
+challenger.
+
 Current development has shifted from infrastructure implementation toward county-level production calibration.
 
 The Phase 8c Inventory calibration campaign now has a bounded foundation: typed

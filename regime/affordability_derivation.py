@@ -91,7 +91,7 @@ def build_affordability_promotion_evidence(
         "level_weight": FEATURE_WEIGHTS["level"], "short_weight": FEATURE_WEIGHTS["short"],
         "long_weight": FEATURE_WEIGHTS["long"], "recommendation_state": "selected",
         "promotion_state": "promoted", "human_decision": "approved",
-        "calibration_stage": "phase4a_closed", "phase4b_state": "pending",
+        "calibration_stage": "affordability_complete", "phase4b_state": "closed",
     }])
     diff_rows = [{"config_area": "derive_smoothing_order", "metric": metric,
         "old_value": "MA12(price) -> derive", "new_value": "derive(raw inputs) -> MA12",
@@ -101,8 +101,8 @@ def build_affordability_promotion_evidence(
     diff_rows.extend({"config_area": area, "metric": "all", "old_value": "unchanged",
         "new_value": "unchanged", "change_reason": "Regression control; no semantic change"} for area in unchanged)
     status = pd.DataFrame([{"selected_policy": PROMOTED_POLICY, "recommendation_state": "selected",
-        "promotion_state": "promoted", "human_decision": "approved", "calibration_stage": "phase4a_closed",
-        "derivation_order": "settled", "feature_weights": "pending Phase 4B"}])
+        "promotion_state": "promoted", "human_decision": "approved", "calibration_stage": "affordability_complete",
+        "derivation_order": "settled", "feature_weights": "settled 50/20/30"}])
     runtime = pd.DataFrame([{"stage": "promotion_parity", "policy_count": 1, "metric_count": 2,
         "parity_tolerance": PARITY_TOLERANCE, "parity_status": "pass",
         "source_lineage_rows": len(lineage), "reused_phase4a_diagnostic": True}])
