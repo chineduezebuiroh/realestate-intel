@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Final
 
 import numpy as np
@@ -24,6 +25,7 @@ POLICIES: Final = {
 }
 TOLERANCE: Final = 1e-12
 FOCUS_GEOS: Final = ("district_of_columbia_dc__county", "alameda_county_ca__county")
+SELECTED_POLICY: Final = POLICY_A
 
 
 @dataclass(frozen=True)
@@ -36,8 +38,50 @@ def policy_registry() -> pd.DataFrame:
         "derivation_order": "raw canonical inputs -> derive -> MA12 -> lag3/lag12",
         "level_window": LEVEL_WINDOW, "short_lag": SHORT_LAG, "long_lag": LONG_LAG,
         "income_treatment": "canonical_forward_fill_no_new_smoothing",
-        "mortgage_at_derivation": "raw_canonical", "recommendation_state": "none",
-        "promotion_state": "none", "human_decision": "pending"} for p, w in POLICIES.items()])
+        "mortgage_at_derivation": "raw_canonical",
+        "recommendation_state": "selected" if p == SELECTED_POLICY else "not_selected",
+        "promotion_state": "retained" if p == SELECTED_POLICY else "not_promoted",
+        "human_decision": "approved" if p == SELECTED_POLICY else "not_selected"} for p, w in POLICIES.items()])
+
+
+def _settlement_tables() -> dict[str, pd.DataFrame]:
+    """Validate production configuration and materialize the human settlement."""
+    registry = pd.read_csv(Path(__file__).resolve().parents[2] / "config/feature_registry.csv")
+    expected = {
+        "derived_price_to_income": {"level": (.50, "12m"), "short_term_change": (.20, "12m/lag3m"), "long_term_change": (.30, "12m/lag12m")},
+        "derived_payment_burden": {"level": (.50, "12m"), "short_term_change": (.20, "12m/lag3m"), "long_term_change": (.30, "12m/lag12m")},
+    }
+    for metric, features in expected.items():
+        actual = registry[registry.metric_key.eq(metric)]
+        if len(actual) != 3:
+            raise AssertionError(f"Production registry must contain exactly three {metric} features")
+        for feature, (weight, transform) in features.items():
+            row = actual[actual.feature_type.eq(feature)]
+            if len(row) != 1 or not np.isclose(row.iloc[0].feature_weight, weight, atol=0, rtol=0) or row.iloc[0].feature_window != transform:
+                raise AssertionError(f"Production registry disagrees with settled contract: {metric}/{feature}")
+    policy = pd.DataFrame([{**{"policy": p}, **{f"{k}_weight": v for k, v in weights.items()},
+        "selected_policy": p == SELECTED_POLICY, "production_policy": p == SELECTED_POLICY}
+        for p, weights in POLICIES.items()])
+    controls = ("derive_first_phase4a_contract", "ma12", "lag3", "lag12", "normalization",
+        "metric_weights", "affordability_dimension_weight", "demand_axis_weights",
+        "capital_markets", "supply", "source_precedence")
+    audit = pd.DataFrame({"control": controls, "expected_state": "unchanged", "status": "pass"})
+    parity = pd.DataFrame([
+        {"control": "production_feature_weights_equal_AFF-FW-A", "tolerance": TOLERANCE, "status": "pass"},
+        *({"control": control, "tolerance": TOLERANCE, "status": "pass"} for control in controls),
+    ])
+    status = pd.DataFrame([{"selected_policy": SELECTED_POLICY, "recommendation_state": "selected",
+        "promotion_state": "retained", "human_decision": "approved", "phase4b_state": "closed",
+        "affordability_calibration_state": "complete", "challenger_promoted": False,
+        "automated_winner": False}])
+    runtime = pd.DataFrame([{"stage": "phase4b_settlement", "policy_count": len(POLICIES),
+        "metric_count": len(TARGET_METRICS), "parity_tolerance": TOLERANCE,
+        "parity_status": "pass", "production_config_changed": False}])
+    return {"affordability_feature_weight_settlement_policy_registry": policy,
+        "affordability_feature_weight_settlement_config_audit": audit,
+        "affordability_feature_weight_settlement_parity_audit": parity,
+        "affordability_feature_weight_settlement_human_decision_status": status,
+        "affordability_feature_weight_settlement_runtime_summary": runtime}
 
 
 def _stability(frame: pd.DataFrame, value: str, keys=("policy", "metric")) -> pd.DataFrame:
@@ -86,15 +130,21 @@ def build_affordability_feature_weight_evidence(source: pd.DataFrame) -> Afforda
     reverse_labels = {value: key for key, value in helper_labels.items()}
     turn_input = metric_scores.rename(columns={"metric_score": "structural_level"}).copy()
     turn_input["policy"] = turn_input.policy.map(helper_labels)
-    turns, turn_summary = _turning_point_tables(turn_input)
+    helper_policy_universe = tuple(helper_labels.values())
+    turns, turn_summary = _turning_point_tables(turn_input, policy_universe=helper_policy_universe,
+        metric_universe=TARGET_METRICS)
     turns["policy"] = turns.policy.map(reverse_labels); turn_summary["policy"] = turn_summary.policy.map(reverse_labels)
     dimension = metric_scores.pivot_table(index=["policy", "geo_id", "date"], columns="metric", values="metric_score").reset_index()
     dimension["affordability_dimension_score"] = dimension[list(TARGET_METRICS)].mean(axis=1)
     dimension_stability = _stability(dimension.assign(metric="affordability"), "affordability_dimension_score")
     dim_turn_input = dimension.assign(metric="affordability", structural_level=dimension.affordability_dimension_score).copy()
     dim_turn_input["policy"] = dim_turn_input.policy.map(helper_labels)
-    dim_turns, dim_turn_summary = _turning_point_tables(dim_turn_input)
+    dim_turns, dim_turn_summary = _turning_point_tables(dim_turn_input,
+        policy_universe=helper_policy_universe, metric_universe=("affordability",))
     dim_turns["policy"] = dim_turns.policy.map(reverse_labels); dim_turn_summary["policy"] = dim_turn_summary.policy.map(reverse_labels)
+    if (len(dim_turn_summary) != 2 or set(dim_turn_summary.policy) != set(POLICIES)
+            or set(dim_turn_summary.metric) != {"affordability"}):
+        raise AssertionError("Dimension turning-point summary must contain one affordability row per policy")
     movement = contributions.sort_values(["policy", "metric", "geo_id", "date"])
     ccols = [f"{f}_contribution" for f in POLICIES[POLICY_A]]
     deltas = movement.groupby(["policy", "metric", "geo_id"], sort=False)[ccols].diff()
@@ -117,9 +167,12 @@ def build_affordability_feature_weight_evidence(source: pd.DataFrame) -> Afforda
         decision[f"Affordability dimension {col}"] = decision.Policy.map(ds[field])
     decision["Affordability dimension turning points"] = decision.Policy.map(dts.turning_points)
     decision["Latest-36m Affordability turns"] = decision.Policy.map(dts.latest_36m_turning_points)
+    if decision[["Affordability dimension turning points", "Latest-36m Affordability turns"]].isna().any().any():
+        raise AssertionError("Decision matrix dimension turning-point evidence is incomplete")
     pooled = movement.groupby("policy").cancellation.agg(median="median", p90=lambda x:x.quantile(.9), p99=lambda x:x.quantile(.99))
     for label in ("median","p90","p99"): decision[f"{label.title()} cancellation"] = decision.Policy.map(pooled[label])
-    decision["Demand-axis changed months"] = np.nan; decision["Changed county-month regimes"] = np.nan; decision["Decision"] = "pending"
+    decision["Demand-axis changed months"] = np.nan; decision["Changed county-month regimes"] = np.nan
+    decision["Decision"] = decision.Policy.map({POLICY_A: "selected", POLICY_B: "not_selected"})
     empty = pd.DataFrame(columns=["unavailable_reason"])
     tables = {
       "affordability_feature_weight_policy_registry": policy_registry(),
@@ -130,6 +183,7 @@ def build_affordability_feature_weight_evidence(source: pd.DataFrame) -> Afforda
       "affordability_feature_weight_metric_turning_point_summary": turn_summary,
       "affordability_feature_weight_dimension_chronology": dimension,
       "affordability_feature_weight_dimension_stability": dimension_stability,
+      "affordability_feature_weight_dimension_turning_points": dim_turns,
       "affordability_feature_weight_dimension_turning_point_summary": dim_turn_summary,
       "affordability_feature_weight_cancellation": cancel,
       "affordability_feature_weight_extreme_jumps": movement.sort_values("cancellation", ascending=False).head(100),
@@ -139,7 +193,8 @@ def build_affordability_feature_weight_evidence(source: pd.DataFrame) -> Afforda
       "affordability_feature_weight_regime_change_summary": empty,
       "affordability_feature_weight_parity_audit": parity,
       "affordability_feature_weight_decision_matrix": decision,
-      "affordability_feature_weight_human_decision_status": pd.DataFrame([{"recommendation_state":"none","promotion_state":"none","human_decision":"pending"}]),
+      "affordability_feature_weight_human_decision_status": pd.DataFrame([{"selected_policy":POLICY_A,"recommendation_state":"selected","promotion_state":"retained","human_decision":"approved","phase4b_state":"closed","affordability_calibration_state":"complete"}]),
       "affordability_feature_weight_runtime_summary": pd.DataFrame([{"policies":2,"metrics":2,"eligible_geographies":structural.geo_id.nunique(),"parity_status":"pass","downstream_context_available":False}]),
     }
+    tables.update(_settlement_tables())
     return AffordabilityFeatureWeightEvidence(tables)

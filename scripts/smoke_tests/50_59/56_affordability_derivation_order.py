@@ -52,7 +52,7 @@ def main() -> None:
     assert not promoted.income_smoothed_before_derivation
     assert not promoted.mortgage_smoothed_before_derivation
     assert (promoted.level_weight, promoted.short_weight, promoted.long_weight) == (.50, .20, .30)
-    assert promoted.calibration_stage == "phase4a_closed" and promoted.phase4b_state == "pending"
+    assert promoted.calibration_stage == "affordability_complete" and promoted.phase4b_state == "closed"
     parity = promotion["affordability_derivation_promotion_parity_audit"]
     assert len(parity) == 8 and parity.within_tolerance.all()
     assert set(parity.comparison_level) == {"raw_derived", "structural_level", "short_feature", "long_feature"}

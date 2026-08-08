@@ -259,6 +259,9 @@ TURN_PERSISTENCE = 3
 
 def _turning_point_tables(
     features: pd.DataFrame,
+    *,
+    policy_universe: tuple[str, ...] | None = None,
+    metric_universe: tuple[str, ...] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build persistent structural-level turning-point evidence.
 
@@ -273,6 +276,8 @@ def _turning_point_tables(
     No prominence threshold is introduced in Phase 4A; persistence is the
     only qualification rule.
     """
+    policy_universe = policy_universe or (POLICY_A, POLICY_B)
+    metric_universe = metric_universe or TARGET_METRICS
 
     rows = []
 
@@ -450,18 +455,13 @@ def _turning_point_tables(
             ]
         )
 
-        summary = pd.DataFrame(
-            columns=[
-                "policy",
-                "metric",
-                "turning_points",
-                "peak_count",
-                "trough_count",
-                "geographies_with_turns",
-                "median_turn_spacing_months",
-                "latest_36m_turning_points",
-            ]
-        )
+        summary = pd.MultiIndex.from_product(
+            [policy_universe, metric_universe], names=["policy", "metric"]
+        ).to_frame(index=False)
+        for column in ("turning_points", "peak_count", "trough_count",
+                       "geographies_with_turns", "latest_36m_turning_points"):
+            summary[column] = 0
+        summary["median_turn_spacing_months"] = np.nan
 
         return detail, summary
 
@@ -597,8 +597,8 @@ def _turning_point_tables(
     # legitimately produces zero persistent turns.
     full_grid = pd.MultiIndex.from_product(
         [
-            (POLICY_A, POLICY_B),
-            TARGET_METRICS,
+            policy_universe,
+            metric_universe,
         ],
         names=[
             "policy",

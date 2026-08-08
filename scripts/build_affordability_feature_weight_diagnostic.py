@@ -45,7 +45,7 @@ def main() -> None:
     matrix = evidence.tables["affordability_feature_weight_decision_matrix"]
     registry = evidence.tables["affordability_feature_weight_policy_registry"]
     review = f"""<!doctype html><meta charset='utf-8'><title>Affordability Feature-Weight Review</title>
-<h1>Affordability Feature-Weight Review</h1><p><strong>Phase 4A derivation order is frozen.<br>Phase 4B changes feature weights only.<br>No production promotion is made here.</strong></p>
+<h1>Affordability Feature-Weight Review</h1><p><strong>Phase 4A derivation order is frozen.<br>Phase 4B is closed by human decision.<br>AFF-FW-A production weights are retained; no challenger is promoted.</strong></p>
 <p>Source run: <code>{html.escape(args.source_run_id)}</code></p><h2>Frozen derive-first contract and exact A/B weights</h2>{registry.to_html(index=False)}
 <h2>Metric stability and turning points</h2><p>See metric stability and geography-safe persistent turning-point CSVs.</p>
 <h2>Feature contributions and cancellation</h2><p>Contributions reconstruct scores under availability renormalization; unavailable features remain null.</p>

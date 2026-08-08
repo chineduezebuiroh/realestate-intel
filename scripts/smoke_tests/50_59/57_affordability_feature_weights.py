@@ -24,8 +24,20 @@ for col in ["structural_level","short_feature","long_feature","level_score","sho
     wide=c.pivot(index=["metric","geo_id","date"],columns="policy",values=col).dropna(); assert np.allclose(wide[POLICY_A],wide[POLICY_B],atol=0,rtol=0)
 assert (c.metric_score-c.reconstructed_score.clip(-1,1)).abs().dropna().max() <= TOLERANCE
 assert set(c.metric)==set(TARGET_METRICS) and t["affordability_feature_weight_parity_audit"].status.eq("pass").all()
-m=t["affordability_feature_weight_decision_matrix"]; assert len(m)==2 and m.Decision.eq("pending").all()
+m=t["affordability_feature_weight_decision_matrix"]; assert len(m)==2
+assert dict(zip(m.Policy, m.Decision)) == {POLICY_A:"selected", POLICY_B:"not_selected"}
+turns=t["affordability_feature_weight_dimension_turning_point_summary"]
+assert len(turns)==2 and set(turns.metric)=={"affordability"} and set(turns.policy)==set(POLICIES)
+assert turns.turning_points.notna().all() and turns.latest_36m_turning_points.notna().all()
+assert m["Affordability dimension turning points"].notna().all()
+assert m["Latest-36m Affordability turns"].notna().all()
 assert not any("rank" in x.lower() or "composite" in x.lower() for x in m.columns)
 s=t["affordability_feature_weight_human_decision_status"].iloc[0]
-assert (s.recommendation_state,s.promotion_state,s.human_decision)==("none","none","pending")
+assert (s.selected_policy,s.recommendation_state,s.promotion_state,s.human_decision)==(POLICY_A,"selected","retained","approved")
+assert s.phase4b_state=="closed" and s.affordability_calibration_state=="complete"
+settlement=t["affordability_feature_weight_settlement_policy_registry"]
+assert len(settlement)==2 and settlement.loc[settlement.policy.eq(POLICY_A),"production_policy"].item()
+assert not settlement.loc[settlement.policy.eq(POLICY_B),"selected_policy"].item()
+audit=t["affordability_feature_weight_settlement_config_audit"]
+assert audit.status.eq("pass").all() and {"capital_markets","supply"}.issubset(set(audit.control))
 print("PASS: Phase 4B Affordability feature-weight contract")

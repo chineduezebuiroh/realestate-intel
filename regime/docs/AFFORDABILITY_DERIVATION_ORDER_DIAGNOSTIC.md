@@ -83,7 +83,8 @@ Governance identity is
 `affordability_derivation_b_derive_first_ma12_2026_08_08` with recommendation
 `selected`, promotion `promoted`, human decision `approved`, and calibration
 stage `phase4a_closed`. **Derivation order is settled. Feature weights remain
-pending Phase 4B; overall Affordability calibration is not complete.** The
+subsequently settled in Phase 4B at the retained 50/20/30 production weights;
+overall Affordability calibration is complete.** The
 Phase 4A diagnostic retains `district_of_columbia_dc__county` and
 `alameda_county_ca__county` as required focus geographies and retains its
 eligibility/exclusion audit; it does not establish global production geography
