@@ -18,9 +18,9 @@ def main() -> int:
     before=Path("config/feature_registry.csv").read_bytes(); evidence=build_evidence(fixture(),"fixture")
     registry=evidence["policy_registry"]; assert len(registry)==2 and set(registry.policy_id)==set(POLICIES)
     ratio=registry.set_index("policy_id").loc["BPS-T-RATIO"]; diff=registry.set_index("policy_id").loc["BPS-T-DIFF"]
-    assert (ratio.short_formula,ratio.long_formula)==("MA12 / lag3(MA12) - 1","MA12 / lag12(MA12) - 1")
-    assert (diff.short_formula,diff.long_formula)==("MA12 - lag3(MA12)","MA12 - lag12(MA12)")
-    assert registry.level_formula.eq("MA12(raw bps_total_units)").all() and registry.short_horizon.eq("lag3").all() and registry.long_horizon.eq("lag12").all()
+    assert (ratio.short_formula,ratio.long_formula)==("MA12 / lag6(MA12) - 1","MA12 / lag12(MA12) - 1")
+    assert (diff.short_formula,diff.long_formula)==("MA12 - lag6(MA12)","MA12 - lag12(MA12)")
+    assert registry.level_formula.eq("MA12(raw bps_total_units)").all() and registry.short_horizon.eq("lag6").all() and registry.long_horizon.eq("lag12").all()
     assert np.allclose(registry[["level_weight","short_weight","long_weight"]],[.5,.25,.25])
     assert registry.normalization_method.eq("expanding_percentile").all() and registry.supply_metric_weight.eq(.20).all()
     chron=evidence["policy_chronology"]; assert chron.geo_id.nunique()==7 and set(chron.policy_id)==set(POLICIES)
