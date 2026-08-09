@@ -81,7 +81,23 @@ def _chronology(source):
     mapping={"BPS-FINAL-70":"BPS-W-70-15-15","BPS-FINAL-80":"BPS-W-80-10-10"}
     parity=[]
     for policy,weights in POLICIES.items():
-        old=prior.query("policy_id == @mapping[@policy]").copy(); frame=old.drop(columns=["policy_id","metric_score","effective_level_weight","effective_short_weight","effective_long_weight","level_contribution","short_contribution","long_contribution"])
+        prior_policy_id = mapping[policy]
+        old = prior.loc[
+            prior["policy_id"].eq(prior_policy_id)
+        ].copy()
+
+        frame = old.drop(
+            columns=[
+                "policy_id",
+                "metric_score",
+                "effective_level_weight",
+                "effective_short_weight",
+                "effective_long_weight",
+                "level_contribution",
+                "short_contribution",
+                "long_contribution",
+            ]
+        )
         score,effective,contrib=_weighted(frame,weights); frame.insert(0,"policy_id",policy)
         for f in FEATURES: frame[f"effective_{f}_weight"]=effective[f]; frame[f"{f}_contribution"]=contrib[f]
         frame["metric_score"]=score
