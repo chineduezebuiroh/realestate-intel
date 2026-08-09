@@ -81,12 +81,12 @@ def _stability(chronology: pd.DataFrame) -> pd.DataFrame:
 def _production_contract() -> pd.DataFrame:
     config = load_regime_config(validate=True)
     feats = config.features[config.features.feature_key.isin(FEATURES)].copy()
-    expected = {"bps_total_units_level": ("ma_level", "12m", .50),
-                "bps_total_units_short": ("ma_pct_change", "12m/lag6m", .25),
-                "bps_total_units_long": ("ma_pct_change", "12m/lag12m", .25)}
+    expected = {"bps_total_units_level": ("ma_level", "12m", .80),
+                "bps_total_units_short": ("ma_pct_change", "12m/lag6m", .10),
+                "bps_total_units_long": ("ma_pct_change", "12m/lag12m", .10)}
     if len(feats) != 3 or any((r.transform, r.feature_window, float(r.feature_weight)) != expected[r.feature_key]
                               for r in feats.itertuples()):
-        raise ValueError("current BPS feature registry disagrees with frozen MA12/50-25-25 contract")
+        raise ValueError("current BPS feature registry disagrees with settled MA12/80-10-10 contract")
     md = config.metric_dimensions[config.metric_dimensions.metric_key.eq("bps_total_units")]
     if len(md) != 1 or md.iloc[0].canonical_metric_key != "permit_activity" or float(md.iloc[0].metric_weight) != .20:
         raise ValueError("current Supply metric registry disagrees with frozen BPS 0.20 contract")
@@ -144,7 +144,7 @@ def build_evidence(source: pd.DataFrame, source_run_id: str) -> dict[str, pd.Dat
         "bps_total_units_short_score":"normalized_short_score", "bps_total_units_long":"long_feature",
         "bps_total_units_long_score":"normalized_long_score"})
     chronology = chronology.merge(metric[["geo_id","date","metric_score","feature_weight_sum"]], on=["geo_id","date"], how="left")
-    base_weights={"level":.5,"short":.25,"long":.25}
+    base_weights={"level":.8,"short":.1,"long":.1}
     for family in base_weights:
         available=chronology[f"normalized_{family}_score"].notna() & chronology.metric_score.notna()
         chronology[f"effective_{family}_weight"] = np.where(available,base_weights[family]/chronology.feature_weight_sum,0.0)

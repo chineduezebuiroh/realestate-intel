@@ -50,3 +50,10 @@ metrics.
 The next calibration stage is the BPS feature-weight family. `BPS-H-LAG6` is
 frozen throughout that work; this decision does not begin feature-weight
 calibration.
+
+## Subsequent feature-weight settlement
+
+This lag decision remains historical and unchanged. The later human-approved
+feature-weight settlement promoted `BPS-FINAL-80` (80/10/10) without changing
+the lag6 architecture. The current complete BPS contract is documented in
+[`bps_production_policy.md`](bps_production_policy.md).

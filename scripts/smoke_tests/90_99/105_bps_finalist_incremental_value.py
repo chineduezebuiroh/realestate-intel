@@ -24,5 +24,15 @@ def main():
     noise=e['short_noise_audit']; assert {'material_short_threshold_p75','minimal_metric_threshold_p25'}.issubset(noise); threshold=e['metric_divergence'].absolute_difference.quantile(.95); assert len(e['extreme_divergence_review']) and e['extreme_divergence_review'].absolute_difference.ge(threshold).all() and e['metric_divergence'].query('absolute_difference < @threshold').absolute_difference.max()<threshold
     d=e['decision_matrix']; assert len(d)==2 and d.Decision.eq('pending').all(); assert not any(any(x in str(col).lower() for x in ('rank','composite','winner')) for col in d)
     assert e['parity_audit'].status.eq('pass').all(); status=e['human_decision_status'].iloc[0]; assert status.recommendation_state=='none' and status.promotion_state=='none' and status.human_decision=='pending' and not status.automated_winner
+    promotion=e['promotion_human_decision_status'].iloc[0]; assert (promotion.selected_policy,promotion.recommendation_state,promotion.promotion_state,promotion.human_decision)==('BPS-FINAL-80','selected','promoted','approved')
+    assert (promotion.bps_feature_weight_calibration_state,promotion.bps_calibration_state)==('closed','complete') and not promotion.automated_winner
+    promoted=e['promotion_policy_registry'].set_index('policy_id'); assert promoted.loc['BPS-FINAL-70','selection_status']=='not_selected' and promoted.loc['BPS-FINAL-80','selection_status']=='selected'
+    diff=e['promotion_config_diff']; changed=diff.query("change_status == 'changed'")
+    assert changed[['governed_control','field','before','after']].to_dict('records')==[
+        {'governed_control':'bps_total_units_level','field':'feature_weight','before':'0.50','after':'0.80'},
+        {'governed_control':'bps_total_units_short','field':'feature_weight','before':'0.25','after':'0.10'},
+        {'governed_control':'bps_total_units_long','field':'feature_weight','before':'0.25','after':'0.10'}]
+    assert e['promotion_parity_audit'].field.tolist()==['ma12_level','short_raw_feature','long_raw_feature','normalized_level_score','normalized_short_score','normalized_long_score','effective_level_weight','effective_short_weight','effective_long_weight','level_contribution','short_contribution','long_contribution','metric_score']
+    assert e['promotion_parity_audit'].status.eq('pass').all() and e['promotion_parity_audit'].max_abs_difference.le(1e-12).all()
     print('[smoke] BPS finalist incremental value: PASS')
 if __name__=='__main__': main()

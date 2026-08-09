@@ -41,7 +41,9 @@ ORIGINAL_MA12_DEFINITION = {
 # deliberately the sole exception to the original five-target contract.
 BPS_LAG6_DEFINITION = {
     **ORIGINAL_MA12_DEFINITION,
-    "short_term_change": ("ma_pct_change", "12m/lag6m", 0.25),
+    "level": ("ma_level", "12m", 0.80),
+    "short_term_change": ("ma_pct_change", "12m/lag6m", 0.10),
+    "long_term_change": ("ma_pct_change", "12m/lag12m", 0.10),
 }
 # Phase 4A and AFF-FW-A subsequently settled derive-first MA12 features at
 # 50/20/30; these expectations must not retain the pre-Phase-4A transforms.
