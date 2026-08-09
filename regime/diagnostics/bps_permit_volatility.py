@@ -1,4 +1,4 @@
-"""Governed, diagnostic-only BPS/permit-intensity volatility evidence."""
+"""Diagnostic-only production-stage evidence for the BPS total-units metric."""
 from __future__ import annotations
 
 import html
@@ -12,7 +12,6 @@ from regime._00_config_loader import load_regime_config
 from regime._01_feature_engine import build_feature_matrix_with_lineage
 from regime._02_feature_normalizer import normalize_features
 from regime._03_metric_scorer import score_metrics
-from regime.derived_metrics import build_derived_metrics_with_lineage
 
 GEOGRAPHIES = (
     "district_of_columbia_dc__county", "essex_county_nj__county",
@@ -20,19 +19,19 @@ GEOGRAPHIES = (
     "fairfax_county_va__county", "san_francisco_county_ca__county",
     "los_angeles_county_ca__county",
 )
-STAGES = ("raw_bps_total_units", "raw_permit_intensity", "ma12_structural_level",
-          "normalized_level_score", "short_feature", "long_feature", "metric_score")
+FEATURES = ("bps_total_units_level", "bps_total_units_short", "bps_total_units_long")
+STAGES = ("raw_bps_total_units", "ma12_structural_level", "normalized_level_score",
+          "short_feature", "normalized_short_score", "long_feature",
+          "normalized_long_score", "metric_score")
 ATTRIBUTIONS = frozenset({"source_volatility", "sparse_zero_heavy_source",
-    "derivation_amplification", "normalization_amplification",
-    "short_long_feature_amplification", "mixed", "no_material_problem"})
+    "normalization_amplification", "short_long_feature_amplification", "mixed",
+    "no_material_problem"})
 TOLERANCE = 1e-12
 
 
 def _canonical_input(source: pd.DataFrame) -> pd.DataFrame:
-    """Accept persisted canonical long form (and common artifact aliases)."""
     work = source.copy()
-    aliases = {"metric_key": "canonical_metric_key", "metric_value": "value"}
-    for old, new in aliases.items():
+    for old, new in {"metric_key": "canonical_metric_key", "metric_value": "value"}.items():
         if new not in work and old in work:
             work = work.rename(columns={old: new})
     required = {"geo_id", "date", "canonical_metric_key", "value"}
@@ -41,35 +40,27 @@ def _canonical_input(source: pd.DataFrame) -> pd.DataFrame:
     work = work[list(required)].copy()
     work["date"] = pd.to_datetime(work["date"])
     work["value"] = pd.to_numeric(work["value"], errors="coerce")
-    work = work[work.geo_id.isin(GEOGRAPHIES)].dropna(subset=["value"])
+    work = work[work.geo_id.isin(GEOGRAPHIES) & work.canonical_metric_key.eq("permit_activity")].dropna(subset=["value"])
     if set(work.geo_id.unique()) != set(GEOGRAPHIES):
-        missing = sorted(set(GEOGRAPHIES) - set(work.geo_id.unique()))
-        raise ValueError(f"authoritative source lacks required geographies: {missing}")
-    return work.sort_values(["geo_id", "canonical_metric_key", "date"])
+        raise ValueError(f"authoritative source lacks required geographies: {sorted(set(GEOGRAPHIES)-set(work.geo_id.unique()))}")
+    return work.sort_values(["geo_id", "date"])
 
 
 def zero_streaks(raw: pd.DataFrame) -> pd.DataFrame:
-    """Return streaks of observed zero values; a missing month breaks a streak."""
-    rows: list[dict[str, object]] = []
+    rows = []
     for geo, group in raw.groupby("geo_id", sort=True):
-        z = group.sort_values("date").loc[group.value.eq(0), "date"]
-        if z.empty:
-            continue
-        run: list[pd.Timestamp] = []
-        for date in z:
-            gap = (date.to_period("M") - run[-1].to_period("M")).n if run else 1
-            if run and gap != 1:
-                rows.append({"geo_id": geo, "streak_start": run[0], "streak_end": run[-1],
-                             "streak_length_months": len(run)})
+        run = []
+        for date in group.sort_values("date").loc[group.value.eq(0), "date"]:
+            if run and (date.to_period("M") - run[-1].to_period("M")).n != 1:
+                rows.append({"geo_id": geo, "streak_start": run[0], "streak_end": run[-1], "streak_length_months": len(run)})
                 run = []
             run.append(date)
-        rows.append({"geo_id": geo, "streak_start": run[0], "streak_end": run[-1],
-                     "streak_length_months": len(run)})
+        if run:
+            rows.append({"geo_id": geo, "streak_start": run[0], "streak_end": run[-1], "streak_length_months": len(run)})
     return pd.DataFrame(rows, columns=["geo_id", "streak_start", "streak_end", "streak_length_months"])
 
 
 def _movement(series: pd.Series) -> float:
-    """Primary comparable measure: median absolute first difference / IQR."""
     x = pd.to_numeric(series, errors="coerce").dropna()
     scale = x.quantile(.75) - x.quantile(.25)
     return float(x.diff().abs().median() / scale) if len(x) > 1 and scale > 0 else 0.0
@@ -79,186 +70,181 @@ def _stability(chronology: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for geo, group in chronology.groupby("geo_id", sort=True):
         for stage in STAGES:
-            x = pd.to_numeric(group[stage], errors="coerce").dropna()
-            d = x.diff().dropna().abs()
-            mean = x.mean()
-            sign = np.sign(x.diff().dropna())
+            x = pd.to_numeric(group[stage], errors="coerce").dropna(); d = x.diff().abs().dropna()
             rows.append({"geo_id": geo, "stage": stage, "observation_count": len(x),
-                "level_std": x.std(), "level_cv": abs(x.std()/mean) if mean != 0 else "not_applicable",
-                "median_abs_mom_change": d.median(), "p90_abs_mom_change": d.quantile(.90),
+                "median_abs_mom_change": d.median(), "p90_abs_mom_change": d.quantile(.9),
                 "p99_abs_mom_change": d.quantile(.99), "max_abs_mom_change": d.max(),
-                "sign_flips": int((sign * sign.shift(1) < 0).sum()),
-                "rolling_12m_volatility": x.diff().rolling(12, min_periods=12).std().mean(),
-                "robust_comparable_movement": _movement(x),
-                "ratio_fields_status": "not_applicable" if stage == "raw_bps_total_units" and x.eq(0).any() else "applicable"})
+                "robust_comparable_movement": _movement(x)})
     return pd.DataFrame(rows)
 
 
-def _lineage_contract() -> tuple[pd.DataFrame, pd.DataFrame]:
+def _production_contract() -> pd.DataFrame:
     config = load_regime_config(validate=True)
-    feats = config.features[config.features.feature_key.str.startswith(("bps_total_units_", "permit_intensity_"))]
-    md = config.metric_dimensions[config.metric_dimensions.metric_key.isin(["bps_total_units", "derived_permit_intensity"])]
-    lineage = pd.DataFrame([
-        {"stage": "raw_bps_total_units", "registry_metric_key": "bps_total_units", "canonical_metric_key": "permit_activity", "formula": "Census BPS total permitted housing units", "units": "Units", "geo_grain": "state|county|place", "population_semantics": "not_applicable"},
-        {"stage": "raw_permit_intensity", "registry_metric_key": "derived_permit_intensity", "canonical_metric_key": "permit_intensity", "formula": "permit_activity / population * 1000", "units": "permits per 1,000 people", "geo_grain": "state|county", "population_semantics": "canonical population; annual observations as-of aligned and forward-filled; source date retained"},
-    ])
-    contract = feats.merge(md[["metric_key", "canonical_metric_key", "subcomponent", "metric_weight"]], on="metric_key", how="left")
-    contract = contract.assign(normalization_method="expanding_percentile", normalization_lookback=120,
-        normalization_min_periods=36, normalization_polarity="positive", incumbent_equals_ma12=True,
+    feats = config.features[config.features.feature_key.isin(FEATURES)].copy()
+    expected = {"bps_total_units_level": ("ma_level", "12m", .50),
+                "bps_total_units_short": ("ma_pct_change", "12m/lag3m", .25),
+                "bps_total_units_long": ("ma_pct_change", "12m/lag12m", .25)}
+    if len(feats) != 3 or any((r.transform, r.feature_window, float(r.feature_weight)) != expected[r.feature_key]
+                              for r in feats.itertuples()):
+        raise ValueError("current BPS feature registry disagrees with frozen MA12/50-25-25 contract")
+    md = config.metric_dimensions[config.metric_dimensions.metric_key.eq("bps_total_units")]
+    if len(md) != 1 or md.iloc[0].canonical_metric_key != "permit_activity" or float(md.iloc[0].metric_weight) != .20:
+        raise ValueError("current Supply metric registry disagrees with frozen BPS 0.20 contract")
+    return feats.merge(md[["metric_key", "canonical_metric_key", "subcomponent", "metric_weight"]], on="metric_key").assign(
+        normalization_method="expanding_percentile", normalization_polarity="positive",
         parity_tolerance=TOLERANCE, supply_membership=True)
-    return lineage, contract
+
+
+def _movement_evidence(chronology: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    columns = ["level_contribution", "short_contribution", "long_contribution"]
+    frames = []
+    for _, g in chronology.groupby("geo_id", sort=True):
+        x = g[["geo_id", "date", "metric_score", *columns]].copy()
+        x["metric_delta"] = x.metric_score.diff()
+        for c in columns: x[f"{c}_delta"] = x[c].diff()
+        x["reconstructed_metric_delta"] = sum(x[f"{c}_delta"] for c in columns)
+        x["absolute_reconstruction_error"] = (x.metric_delta-x.reconstructed_metric_delta).abs()
+        frames.append(x)
+    movement = pd.concat(frames, ignore_index=True).dropna(subset=["metric_delta", "reconstructed_metric_delta"])
+    if (movement.absolute_reconstruction_error > TOLERANCE).any():
+        raise AssertionError("weighted contribution deltas do not reconstruct metric delta")
+    summaries=[]; drivers=[]
+    for geo, g in movement.groupby("geo_id", sort=True):
+        denom = sum(g[f"{c}_delta"].abs() for c in columns)
+        for family, c in zip(("level", "short", "long"), columns):
+            d=g[f"{c}_delta"]; corr=d.corr(g.metric_delta)
+            nonzero=d.ne(0)&g.metric_delta.ne(0)
+            share=float((d.abs()/denom.replace(0,np.nan)).mean())
+            summaries.append({"geo_id":geo,"feature_family":family,
+                "median_abs_contribution_delta":d.abs().median(),"p90_abs_contribution_delta":d.abs().quantile(.9),
+                "p99_abs_contribution_delta":d.abs().quantile(.99),"max_abs_contribution_delta":d.abs().max(),
+                "mean_abs_contribution_delta":d.abs().mean(),
+                "share_of_total_absolute_child_movement":share,"correlation_with_metric_delta":corr})
+            drivers.append({"geo_id":geo,"feature_family":family,"observation_count":len(d),
+                "correlation_with_metric_delta":corr,"nonzero_comparison_count":int(nonzero.sum()),
+                "same_month_signed_agreement_share":float((np.sign(d[nonzero])==np.sign(g.loc[nonzero,"metric_delta"])).mean()) if nonzero.any() else np.nan})
+    return movement, pd.DataFrame(summaries), pd.DataFrame(drivers)
 
 
 def build_evidence(source: pd.DataFrame, source_run_id: str) -> dict[str, pd.DataFrame]:
-    raw = _canonical_input(source)
-    # The persisted source artifact is pre-feature. Rebuild the canonical ratio using
-    # the production derivation builder, preserving its annual as-of/ffill lineage.
-    derivation_input = raw[raw.canonical_metric_key.isin(["permit_activity", "population"])]
-    derived, deriv_lineage = build_derived_metrics_with_lineage(derivation_input)
-    permit = derived[derived.canonical_metric_key.eq("permit_intensity")]
-    observations = pd.concat([
-        raw[raw.canonical_metric_key.isin(["permit_activity", "population"])].assign(metric_origin=lambda x: np.where(x.canonical_metric_key.eq("permit_activity"), "bps_total_units", "population")),
-        permit.assign(metric_origin="derived_permit_intensity")], ignore_index=True)
-    features, _ = build_feature_matrix_with_lineage(canonical_observations=observations,
-                                                     derived_metric_lineage=deriv_lineage)
-    wanted = features[features.feature_key.str.startswith("permit_intensity_")]
-    normalized = normalize_features(wanted)
-    metric = score_metrics(normalized)
-    piv_raw = raw[raw.canonical_metric_key.eq("permit_activity")].pivot(index=["geo_id", "date"], columns="canonical_metric_key", values="value")
-    piv_permit = permit.pivot(index=["geo_id", "date"], columns="canonical_metric_key", values="value")
-    f = wanted.pivot(index=["geo_id", "date"], columns="feature_key", values="raw_feature_value")
-    n = normalized.pivot(index=["geo_id", "date"], columns="feature_key", values="feature_score")
-    idx = piv_raw.index.union(piv_permit.index).sort_values()
-    chronology = pd.DataFrame(index=idx).join(piv_raw).join(piv_permit).join(f).join(n, rsuffix="_score").reset_index()
-    chronology = chronology.rename(columns={"permit_activity":"raw_bps_total_units", "permit_intensity":"raw_permit_intensity",
-        "permit_intensity_level":"incumbent_structural_level", "permit_intensity_level_score":"normalized_level_score",
-        "permit_intensity_short":"short_feature", "permit_intensity_short_score":"normalized_short_score",
-        "permit_intensity_long":"long_feature", "permit_intensity_long_score":"normalized_long_score"})
-    chronology["ma12_structural_level"] = chronology["incumbent_structural_level"]
-    chronology = chronology.merge(metric[metric.canonical_metric_key.eq("permit_intensity")][["geo_id","date","metric_score"]], on=["geo_id","date"], how="left")
-    poplin = deriv_lineage[(deriv_lineage.derived_metric_key.eq("permit_intensity")) & (deriv_lineage.component_metric_key.eq("population"))]
-    poplin = poplin.rename(columns={"component_value":"population_value", "component_source_date":"population_source_date"})
-    chronology = chronology.merge(poplin[["geo_id","date","population_value","population_source_date"]], on=["geo_id","date"], how="left")
+    raw = _canonical_input(source); contract = _production_contract()
+    observations = raw.assign(metric_origin="bps_total_units")
+    features, _ = build_feature_matrix_with_lineage(
+        canonical_observations=observations, derived_metric_lineage=pd.DataFrame())
+    wanted = features[features.feature_key.isin(FEATURES)]
+    normalized = normalize_features(wanted); metric = score_metrics(normalized)
+    policies = normalized[["normalization_method", "lookback_periods", "min_periods", "score_direction"]].drop_duplicates()
+    if len(policies) != 1 or tuple(policies.iloc[0].astype(str)) != ("expanding_percentile", "120", "36", "positive"):
+        raise ValueError(f"current normalization registry disagrees with frozen BPS expanding-percentile contract: {policies.to_dict('records')}")
+    f = wanted.pivot(index=["geo_id","date"], columns="feature_key", values="raw_feature_value")
+    n = normalized.pivot(index=["geo_id","date"], columns="feature_key", values="feature_score")
+    chronology = raw.pivot(index=["geo_id","date"], columns="canonical_metric_key", values="value").join(f).join(n,rsuffix="_score").reset_index().rename(columns={
+        "permit_activity":"raw_bps_total_units", "bps_total_units_level":"ma12_structural_level",
+        "bps_total_units_level_score":"normalized_level_score", "bps_total_units_short":"short_feature",
+        "bps_total_units_short_score":"normalized_short_score", "bps_total_units_long":"long_feature",
+        "bps_total_units_long_score":"normalized_long_score"})
+    chronology = chronology.merge(metric[["geo_id","date","metric_score","feature_weight_sum"]], on=["geo_id","date"], how="left")
+    base_weights={"level":.5,"short":.25,"long":.25}
+    for family in base_weights:
+        available=chronology[f"normalized_{family}_score"].notna() & chronology.metric_score.notna()
+        chronology[f"effective_{family}_weight"] = np.where(available,base_weights[family]/chronology.feature_weight_sum,0.0)
+        chronology[f"{family}_contribution"] = np.where(chronology.metric_score.notna(),
+            chronology[f"normalized_{family}_score"].fillna(0)*chronology[f"effective_{family}_weight"],np.nan)
+    error=(chronology[["level_contribution","short_contribution","long_contribution"]].sum(axis=1,min_count=1)-chronology.metric_score).abs()
+    if (error.dropna()>TOLERANCE).any(): raise AssertionError("weighted contributions do not reconstruct metric score")
 
-    zstreak = zero_streaks(raw[raw.canonical_metric_key.eq("permit_activity")])
-    sparsity = []
-    for geo, g in raw[raw.canonical_metric_key.eq("permit_activity")].groupby("geo_id", sort=True):
-        x = g.set_index("date").value.sort_index(); expected = pd.date_range(x.index.min(), x.index.max(), freq="M")
-        diffs = x.diff().abs().dropna(); zs = zstreak[zstreak.geo_id.eq(geo)].streak_length_months
-        sparsity.append({"geo_id":geo, "observation_count":len(x), "first_date":x.index.min(), "last_date":x.index.max(),
-            "expected_month_count":len(expected), "missing_month_count":len(expected.difference(x.index)), "coverage_pct":len(x)/len(expected),
-            "zero_month_count":int(x.eq(0).sum()), "zero_share":x.eq(0).mean(), "nonzero_month_count":int(x.ne(0).sum()),
-            "longest_zero_streak":zs.max() if len(zs) else 0, "median_zero_streak":zs.median() if len(zs) else 0,
-            "p90_zero_streak":zs.quantile(.9) if len(zs) else 0, "max_raw_units":x.max(), "median_raw_units":x.median(),
-            "mean_raw_units":x.mean(), "std_raw_units":x.std(), "raw_coefficient_of_variation":x.std()/x.mean() if x.mean() else "not_applicable",
-            "largest_abs_monthly_change":diffs.max(), "p90_abs_monthly_change":diffs.quantile(.9), "p99_abs_monthly_change":diffs.quantile(.99)})
-    stability = _stability(chronology)
-    stab = stability.pivot(index="geo_id", columns="stage", values="robust_comparable_movement")
-    transitions = [("raw_bps_total_units","raw_permit_intensity"), ("raw_permit_intensity","ma12_structural_level"),
-                   ("ma12_structural_level","normalized_level_score"), ("normalized_level_score","metric_score"),
-                   ("normalized_level_score","short_feature"), ("normalized_level_score","long_feature")]
-    attribution = []
+    zstreak=zero_streaks(raw); sparsity=[]
+    for geo,g in raw.groupby("geo_id",sort=True):
+        x=g.set_index("date").value.sort_index(); months=x.index.to_period("M")
+        expected=pd.period_range(months.min(),months.max(),freq="M"); missing=expected.difference(months)
+        row={"geo_id":geo,"observation_count":len(x),"first_date":x.index.min(),"last_date":x.index.max(),
+             "expected_month_count":len(expected),"missing_month_count":len(missing),"coverage_pct":len(x)/len(expected),
+             "zero_month_count":int(x.eq(0).sum()),"zero_share":x.eq(0).mean()}
+        if not (row["expected_month_count"]>=row["observation_count"] and 0<=row["missing_month_count"]<=row["expected_month_count"] and 0<=row["coverage_pct"]<=1):
+            raise AssertionError(f"invalid monthly coverage audit for {geo}")
+        sparsity.append(row)
+    sparse=pd.DataFrame(sparsity); stability=_stability(chronology)
+    stab=stability.pivot(index="geo_id",columns="stage",values="robust_comparable_movement")
+    transitions=[("raw_bps_total_units","ma12_structural_level"),("ma12_structural_level","normalized_level_score"),
+      ("short_feature","normalized_short_score"),("long_feature","normalized_long_score"),
+      ("normalized_level_score","level_contribution"),("normalized_short_score","short_contribution"),
+      ("normalized_long_score","long_contribution")]
+    attribution=[]
     for geo in GEOGRAPHIES:
         for a,b in transitions:
-            before, after = stab.loc[geo,a], stab.loc[geo,b]
-            attribution.append({"geo_id":geo,"from_stage":a,"to_stage":b,"primary_measure":"median_absolute_first_difference_divided_by_IQR",
-                                "from_movement":before,"to_movement":after,"amplification_ratio":after/before if before else np.nan})
-    attribution = pd.DataFrame(attribution)
-    sparse = pd.DataFrame(sparsity)
+            before=_movement(chronology.loc[chronology.geo_id.eq(geo),a]); after=_movement(chronology.loc[chronology.geo_id.eq(geo),b])
+            attribution.append({"geo_id":geo,"from_stage":a,"to_stage":b,"primary_measure":"median_absolute_first_difference_divided_by_IQR","from_movement":before,"to_movement":after,"amplification_ratio":after/before if before else np.nan})
+        attribution.append({"geo_id":geo,"from_stage":"level_contribution+short_contribution+long_contribution","to_stage":"metric_score","primary_measure":"exact_weighted_reconstruction","from_movement":_movement(chronology.loc[chronology.geo_id.eq(geo),"metric_score"]),"to_movement":stab.loc[geo,"metric_score"],"amplification_ratio":1.0})
+    movement,contrib_summary,drivers=_movement_evidence(chronology)
     summaries=[]
     for geo in GEOGRAPHIES:
-        s=stab.loc[geo]; zero=float(sparse.loc[sparse.geo_id.eq(geo),"zero_share"].iloc[0]); ratios=attribution[attribution.geo_id.eq(geo)]
-        largest=ratios.loc[ratios.amplification_ratio.idxmax()] if ratios.amplification_ratio.notna().any() else None
-        amplified=[]
-        if zero >= .20: amplified.append("sparse_zero_heavy_source")
-        if s.raw_bps_total_units >= .50: amplified.append("source_volatility")
-        if (ratios.query("to_stage == 'raw_permit_intensity'").amplification_ratio > 1.25).any(): amplified.append("derivation_amplification")
-        if (ratios.query("to_stage == 'normalized_level_score'").amplification_ratio > 1.25).any(): amplified.append("normalization_amplification")
-        if max(s.short_feature,s.long_feature) > s.normalized_level_score*1.25: amplified.append("short_long_feature_amplification")
-        primary = "no_material_problem" if not amplified else amplified[0] if len(amplified)==1 else "mixed"
-        summaries.append({"geo_id":geo,"primary_attribution":primary,"secondary_attribution":"|".join(amplified if primary=="mixed" else amplified[1:]),
-            "raw_zero_share":zero,"raw_volatility":s.raw_bps_total_units,"ma12_volatility":s.ma12_structural_level,
-            "normalized_level_volatility":s.normalized_level_score,"short_feature_volatility":s.short_feature,
-            "long_feature_volatility":s.long_feature,"metric_score_volatility":s.metric_score,
-            "largest_amplification_stage":f"{largest.from_stage}->{largest.to_stage}" if largest is not None else "none",
-            "evidence_notes":"Governed thresholds: zero share >=0.20; robust movement >=0.50; stage amplification >1.25."})
-    parity=[]
-    for geo,g in chronology.groupby("geo_id",sort=True):
-        diff=(g.incumbent_structural_level-g.ma12_structural_level).abs().max()
-        parity.append({"geo_id":geo,"parity_check":"incumbent_level_equals_reconstructed_ma12","tolerance":TOLERANCE,"max_abs_difference":diff,"status":"pass" if pd.isna(diff) or diff<=TOLERANCE else "fail","context":"source+registries reconstruct production; no persisted feature/score artifact supplied"})
-        for check in ("short","long","normalized_level","metric_score"):
-            parity.append({"geo_id":geo,"parity_check":f"reconstructed_{check}_production_contract","tolerance":TOLERANCE,"max_abs_difference":np.nan,"status":"not_testable","context":"persisted production feature/score artifact unavailable"})
-    lineage, contract = _lineage_contract()
-    return {"lineage_audit":lineage, "production_contract":contract, "chronology":chronology,
-        "source_sparsity_audit":sparse, "zero_streaks":zstreak, "stage_stability":stability,
-        "stage_attribution":attribution, "parity_audit":pd.DataFrame(parity),
-        "attribution_summary":pd.DataFrame(summaries),
-        "human_decision_status":pd.DataFrame([{"source_run_id":source_run_id,"recommendation_state":"none","promotion_state":"none","human_decision":"pending"}])}
+        s=stab.loc[geo]; zero=float(sparse.loc[sparse.geo_id.eq(geo),"zero_share"].iloc[0]); flags=[]
+        if zero>=.2: flags.append("sparse_zero_heavy_source")
+        if s.raw_bps_total_units>=.5: flags.append("source_volatility")
+        if s.normalized_level_score>s.ma12_structural_level*1.25: flags.append("normalization_amplification")
+        if max(s.normalized_short_score,s.normalized_long_score)>s.normalized_level_score*1.25: flags.append("short_long_feature_amplification")
+        primary="no_material_problem" if not flags else flags[0] if len(flags)==1 else "mixed"
+        summaries.append({"geo_id":geo,"primary_attribution":primary,"secondary_attribution":"|".join(flags if primary=="mixed" else flags[1:]),
+          "raw_zero_share":zero,"raw_volatility":s.raw_bps_total_units,"ma12_volatility":s.ma12_structural_level,
+          "normalized_level_volatility":s.normalized_level_score,"normalized_short_volatility":s.normalized_short_score,
+          "normalized_long_volatility":s.normalized_long_score,"metric_score_volatility":s.metric_score,
+          "evidence_notes":"Descriptive classification only; absolute movement shares are not causal variance shares."})
+    lineage=pd.DataFrame([{"stage":"raw_bps_total_units","registry_metric_key":"bps_total_units","canonical_metric_key":"permit_activity","formula":"Census BPS total permitted housing units","units":"Units"}])
+    parity=pd.DataFrame([{"geo_id":g,"parity_check":"contributions_reconstruct_metric_score","tolerance":TOLERANCE,"max_abs_difference":error[chronology.geo_id.eq(g)].max(),"status":"pass"} for g in GEOGRAPHIES])
+    return {"lineage_audit":lineage,"production_contract":contract,"chronology":chronology,"source_sparsity_audit":sparse,
+      "zero_streaks":zstreak,"stage_stability":stability,"stage_attribution":pd.DataFrame(attribution),
+      "metric_movement_attribution":movement,"contribution_summary":contrib_summary,"metric_driver_audit":drivers,
+      "parity_audit":parity,"attribution_summary":pd.DataFrame(summaries),
+      "human_decision_status":pd.DataFrame([{"source_run_id":source_run_id,"recommendation_state":"none","promotion_state":"none","human_decision":"pending"}])}
 
 
 def _line_visual(frame: pd.DataFrame, geo: str, path: Path) -> None:
-    """Render dependency-light deterministic shared-x review panels with Pillow."""
     width,height=1400,920; image=Image.new("RGB",(width,height),"white"); draw=ImageDraw.Draw(image)
-    draw.text((30,15),f"{geo}: BPS / permit-intensity volatility lineage",fill="black")
-    panels=[(["raw_bps_total_units"],"Raw BPS units"),
-            (["raw_permit_intensity","ma12_structural_level"],"Raw intensity and MA12"),
-            (["normalized_level_score","normalized_short_score","normalized_long_score"],"Normalized level / short / long"),
-            (["metric_score"],"Final permit-intensity metric score")]
-    colors=["#2563eb","#dc2626","#059669"]
-    n=max(len(frame)-1,1)
+    draw.text((30,15),f"{geo}: BPS production-stage attribution",fill="black")
+    panels=[(["raw_bps_total_units"],"Panel 1 — raw monthly BPS units"),(["ma12_structural_level"],"Panel 2 — MA12 structural level"),
+      (["normalized_level_score","normalized_short_score","normalized_long_score"],"Panel 3 — normalized level / short / long scores"),
+      (["level_contribution","short_contribution","long_contribution","metric_score"],"Panel 4 — weighted contributions + final metric score")]
+    colors=["#2563eb","#dc2626","#059669","#111827"]; n=max(len(frame)-1,1)
     for p,(columns,title) in enumerate(panels):
         top=55+p*210; bottom=top+170; left=80; right=width-25
-        draw.rectangle((left,top,right,bottom),outline="#aaaaaa"); draw.text((left+5,top+5),title,fill="black")
-        vals=pd.concat([pd.to_numeric(frame[c],errors="coerce") for c in columns]).dropna()
-        lo,hi=(float(vals.min()),float(vals.max())) if len(vals) else (0.,1.)
+        draw.rectangle((left,top,right,bottom),outline="#aaa"); draw.text((left+5,top+5),title,fill="black")
+        vals=pd.concat([pd.to_numeric(frame[c],errors="coerce") for c in columns]).dropna(); lo,hi=(float(vals.min()),float(vals.max())) if len(vals) else (0.,1.)
         if hi==lo: hi=lo+1
         for ci,column in enumerate(columns):
-            series=pd.to_numeric(frame[column],errors="coerce"); points=[]
-            for i,value in enumerate(series):
+            points=[]
+            for i,value in enumerate(pd.to_numeric(frame[column],errors="coerce")):
                 if pd.isna(value):
                     if len(points)>1: draw.line(points,fill=colors[ci],width=2)
                     points=[]; continue
                 points.append((left+i*(right-left)/n,bottom-10-(float(value)-lo)/(hi-lo)*(bottom-top-30)))
-                if column=="raw_bps_total_units" and value==0: draw.ellipse((points[-1][0]-3,points[-1][1]-3,points[-1][0]+3,points[-1][1]+3),fill="#dc2626")
             if len(points)>1: draw.line(points,fill=colors[ci],width=2)
-            draw.text((left+220*ci,top+22),column,fill=colors[ci])
+            draw.text((left+290*ci,top+22),column,fill=colors[ci])
     image.save(path,format="PNG",optimize=False)
 
 
-def _comparison_visual(summary: pd.DataFrame, path: Path) -> None:
-    width,height=1400,600; image=Image.new("RGB",(width,height),"white"); draw=ImageDraw.Draw(image)
-    draw.text((20,15),"Seven-geography zero share and robust stage movement",fill="black")
-    columns=["raw_zero_share","raw_volatility","ma12_volatility","normalized_level_volatility","short_feature_volatility","long_feature_volatility","metric_score_volatility"]
-    maximum=max(float(pd.to_numeric(summary[c],errors="coerce").max()) for c in columns) or 1
-    colors=["#111827","#2563eb","#059669","#dc2626","#7c3aed","#ea580c","#0891b2"]
-    for i,(_,row) in enumerate(summary.iterrows()):
+def _comparison_visual(summary: pd.DataFrame,path:Path)->None:
+    width,height=1500,600; image=Image.new("RGB",(width,height),"white"); draw=ImageDraw.Draw(image)
+    draw.text((20,15),"Seven-geography robust production-stage movement",fill="black")
+    columns=["raw_volatility","ma12_volatility","normalized_level_volatility","normalized_short_volatility","normalized_long_volatility","metric_score_volatility"]
+    maximum=max(float(summary[c].max()) for c in columns) or 1; colors=["#111827","#2563eb","#059669","#dc2626","#7c3aed","#0891b2"]
+    for i,row in summary.iterrows():
         y=60+i*74; draw.text((10,y),str(row.geo_id)[:30],fill="black")
-        for j,column in enumerate(columns):
-            value=float(row[column]); x=300+j*150; bar=int(110*value/maximum)
-            draw.rectangle((x,y,x+bar,y+18),fill=colors[j]); draw.text((x,y+20),f"{column[:12]} {value:.3f}",fill=colors[j])
+        for j,c in enumerate(columns):
+            value=float(row[c]); x=300+j*190; draw.rectangle((x,y,x+int(120*value/maximum),y+18),fill=colors[j]); draw.text((x,y+20),f"{c[:16]} {value:.3f}",fill=colors[j])
     image.save(path,format="PNG",optimize=False)
 
 
-def write_bundle(evidence: dict[str, pd.DataFrame], output_dir: Path, source_run_id: str) -> int:
-    output_dir.mkdir(parents=True, exist_ok=True); visual_dir=output_dir/"visuals"; visual_dir.mkdir(exist_ok=True)
-    for key, frame in evidence.items(): frame.to_csv(output_dir/f"bps_permit_volatility_{key}.csv", index=False)
-    chronology=evidence["chronology"]
+def write_bundle(evidence:dict[str,pd.DataFrame],output_dir:Path,source_run_id:str)->int:
+    output_dir.mkdir(parents=True,exist_ok=True); visual_dir=output_dir/"visuals"; visual_dir.mkdir(exist_ok=True)
+    for key,frame in evidence.items(): frame.to_csv(output_dir/f"bps_permit_volatility_{key}.csv",index=False)
     figures=[]
     for geo in GEOGRAPHIES:
-        g=chronology[chronology.geo_id.eq(geo)].sort_values("date")
-        name=f"{geo}__bps_permit_volatility.png"; _line_visual(g,geo,visual_dir/name); figures.append(name)
-    summary=evidence["attribution_summary"]; comparison="seven_geo_bps_permit_volatility_comparison.png"; _comparison_visual(summary,visual_dir/comparison)
-    sections=["<h1>BPS / Permit-Intensity Raw-Data Volatility Diagnostic</h1>",
-      "<p class='guard'><strong>This diagnostic identifies where permit volatility originates. It does not change production policy.</strong></p>"]
-    order=[("Production lineage / contract",["lineage_audit","production_contract"]),("Source sparsity summary",["source_sparsity_audit"]),("Attribution summary",["attribution_summary"])]
-    for title,keys in order:
-        sections.append(f"<h2>{title}</h2>"+"".join(evidence[k].to_html(index=False) for k in keys))
-    sections.append(f"<h2>Seven-geo comparison</h2><img src='visuals/{comparison}'>")
-    sections.append("<h2>Geography chronology</h2>"+"".join(f"<h3>{html.escape(g)}</h3><img src='visuals/{n}'>" for g,n in zip(GEOGRAPHIES,figures)))
-    for title,key in [("Stage stability","stage_stability"),("Stage attribution","stage_attribution"),("Zero streak evidence","zero_streaks"),("Parity evidence","parity_audit")]:
-        sections.append(f"<h2>{title}</h2>{evidence[key].to_html(index=False)}")
-    sections.append("<h2>Interpretation guardrails</h2><p>Missing months are not zeros. NSA source treatment is unchanged. Classification is deterministic and descriptive; recommendation and promotion remain none, and human decision remains pending.</p>")
-    (output_dir/"bps_permit_volatility_review.html").write_text("<!doctype html><meta charset='utf-8'><style>body{font-family:sans-serif;margin:2rem}img{max-width:100%}table{font-size:11px;border-collapse:collapse}td,th{border:1px solid #ccc;padding:3px}.guard{padding:1rem;background:#fff3cd}</style>"+"".join(sections),encoding="utf-8")
-    runtime=pd.DataFrame([{"source_run_id":source_run_id,"geography_count":len(GEOGRAPHIES),"visual_count":len(figures)+1,"output_file_count":len(list(output_dir.rglob("*")))}])
+        name=f"{geo}__bps_permit_volatility.png"; _line_visual(evidence["chronology"].query("geo_id == @geo").sort_values("date"),geo,visual_dir/name); figures.append(name)
+    comparison="seven_geo_bps_permit_volatility_comparison.png"; _comparison_visual(evidence["attribution_summary"],visual_dir/comparison)
+    sections=["<h1>BPS Production-Stage Volatility Diagnostic</h1>","<p><strong>Diagnostic only: no production policy change or recommendation.</strong></p>"]
+    for title,key in [("Production contract","production_contract"),("Coverage","source_sparsity_audit"),("Attribution","attribution_summary"),("Absolute movement contribution shares","contribution_summary"),("Metric drivers","metric_driver_audit")]: sections.append(f"<h2>{title}</h2>{evidence[key].to_html(index=False)}")
+    sections.append(f"<img src='visuals/{comparison}'>"+"".join(f"<h3>{html.escape(g)}</h3><img src='visuals/{n}'>" for g,n in zip(GEOGRAPHIES,figures)))
+    (output_dir/"bps_permit_volatility_review.html").write_text("<!doctype html><meta charset='utf-8'><style>body{font-family:sans-serif}img{max-width:100%}table{font-size:11px}</style>"+"".join(sections),encoding="utf-8")
+    runtime=pd.DataFrame([{"source_run_id":source_run_id,"geography_count":7,"visual_count":8,"output_file_count":len(list(output_dir.rglob("*")))+1}])
     runtime.to_csv(output_dir/"bps_permit_volatility_runtime_summary.csv",index=False)
     return len(list(output_dir.rglob("*")))
