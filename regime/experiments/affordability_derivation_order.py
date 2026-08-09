@@ -11,6 +11,8 @@ from typing import Final
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime.derived_metrics import DERIVED_METRIC_COMPONENTS, build_derived_metrics_with_lineage
 from regime.linked_price_family import build_structural_level
 from regime.affordability_derivation import build_promoted_affordability_chronology
@@ -89,7 +91,7 @@ def _validate_source(source: pd.DataFrame) -> pd.DataFrame:
             pd.date_range(
                 dates.min(),
                 dates.max(),
-                freq="M",
+                freq=MONTH_END,
             )
         ).astype("datetime64[ns]")
 

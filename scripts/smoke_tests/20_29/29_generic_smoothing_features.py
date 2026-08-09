@@ -4,6 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime.experiments.smoothing_features import (
     build_smoothed_metric_features,
     build_smoothed_metric_features_wide,
@@ -26,7 +28,7 @@ def _build_test_observations() -> pd.DataFrame:
     dates = pd.date_range(
         "2020-01-31",
         periods=30,
-        freq="M",
+        freq=MONTH_END,
     )
 
     steady_values = [

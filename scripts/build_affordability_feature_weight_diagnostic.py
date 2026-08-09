@@ -8,6 +8,8 @@ import sys
 
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from regime.experiments.affordability_feature_weights import (  # noqa: E402
     FOCUS_GEOS, build_affordability_feature_weight_evidence,
@@ -26,7 +28,7 @@ def main() -> None:
     audit, eligible = [], set()
     for geo, frame in prices.groupby("geo_id", sort=True):
         dates = pd.DatetimeIndex(frame.date.dropna().drop_duplicates().sort_values())
-        expected = pd.date_range(dates.min(), dates.max(), freq="M") if len(dates) else pd.DatetimeIndex([])
+        expected = pd.date_range(dates.min(), dates.max(), freq=MONTH_END) if len(dates) else pd.DatetimeIndex([])
         ok = len(dates) >= 24 and len(dates) == len(expected) and not frame.duplicated("date").any() and pd.to_numeric(frame.value, errors="coerce").notna().all()
         if ok: eligible.add(str(geo))
         audit.append({"geo_id":geo, "eligible_flag":ok, "required_focus_geo_flag":geo in FOCUS_GEOS,

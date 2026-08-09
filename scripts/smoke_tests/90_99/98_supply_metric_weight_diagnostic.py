@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 import scripts.build_supply_metric_weight_diagnostic as diag
 
 GEO = diag.REVIEW_GEOS[0]
@@ -15,7 +17,7 @@ OTHER = "new_york_ny__cbsa_metro"
 def _fixture(root: Path, stale: bool = False) -> Path:
     src = root / "run"
     src.mkdir()
-    dates = pd.date_range("2024-01-31", periods=15, freq="M")
+    dates = pd.date_range("2024-01-31", periods=15, freq=MONTH_END)
     rows=[]
     for geo in [GEO, OTHER]:
         for i, date in enumerate(dates):
@@ -68,7 +70,7 @@ def test_end_to_end_diagnostic_contract():
 
 
 def test_directional_agreement_synthetic_cases():
-    dates = pd.date_range("2020-01-31", periods=15, freq="M")
+    dates = pd.date_range("2020-01-31", periods=15, freq=MONTH_END)
     base = pd.DataFrame({"geo_id":GEO,"date":dates,"policy_id":"incumbent","supply_dimension_score":range(15),"available_metric_count":3})
     same = base.assign(policy_id="challenger_a_60_20_20")
     inv = base.assign(policy_id="challenger_b_67_165_165", supply_dimension_score=list(reversed(range(15))))
@@ -84,7 +86,7 @@ def test_directional_agreement_synthetic_cases():
 
 
 def test_turning_points_and_matching():
-    dates = pd.date_range("2020-01-31", periods=14, freq="M")
+    dates = pd.date_range("2020-01-31", periods=14, freq=MONTH_END)
     vals = [0,1,2,3,2,1,0,1,2,3,2,1,0,-1]
     g = pd.DataFrame({"geo_id":GEO,"date":dates,"policy_id":"incumbent","supply_dimension_score":vals,"available_metric_count":3})
     turns = diag._detect_turns(g)

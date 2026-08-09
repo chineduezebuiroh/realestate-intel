@@ -14,6 +14,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime._00_config_loader import load_regime_config
 from regime._01_feature_engine import _compute_feature
 from regime.artifacts import RegimeArtifactStore
@@ -513,7 +515,7 @@ def build_ma_level_state(raw: pd.DataFrame, metric_key: str, window: int,
             pd.date_range(
                 actual_dates.min(),
                 actual_dates.max(),
-                freq="M",
+                freq=MONTH_END,
             )
         ).astype("datetime64[ns]")
 

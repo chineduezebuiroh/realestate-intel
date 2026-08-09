@@ -6,6 +6,8 @@ import re
 
 import numpy as np
 import pandas as pd
+
+from regime.pandas_compat import MONTH_END
 import scripts.build_capital_markets_ma_decomposition as builder
 
 from regime._03_metric_scorer import score_metrics
@@ -88,7 +90,7 @@ def main() -> None:
     try: reject_forbidden_formula("ma3_vs_ma12_pct", "3m/12m")
     except ValueError: pass
     else: raise AssertionError("forbidden formula accepted")
-    dates = pd.date_range("2018-01-31", periods=36, freq="M")
+    dates = pd.date_range("2018-01-31", periods=36, freq=MONTH_END)
     production_difference = _compute_feature(pd.DataFrame({"date": dates, "value": np.arange(36, dtype=float)}),
         "ma_difference", "9m/lag3m", "spread_short")
     expected_ma = pd.Series(np.arange(36, dtype=float)).rolling(9, min_periods=9).mean()
@@ -167,7 +169,7 @@ def main() -> None:
     # partially available leading month remains a valid level observation;
     # movement/cancellation warmup begins one observation later and must not
     # become the downstream alignment calendar.
-    mw_dates = pd.date_range("2009-06-30", periods=36, freq="M")
+    mw_dates = pd.date_range("2009-06-30", periods=36, freq=MONTH_END)
     mw_scores = pd.DataFrame([
         {"date": date, "canonical_metric_key": metric,
          "metric_score": (np.nan if date == mw_dates[0] and metric != "fedfunds"
@@ -434,7 +436,7 @@ def main() -> None:
     assert (candidate.score!=universe.score).sum()==1 and candidate.query("metric=='fedfunds'").equals(universe.query("metric=='fedfunds'"))
     unrelated=pd.DataFrame({"dimension":["supply","affordability"],"score":[.2,.3]}); assert unrelated.copy().equals(unrelated)
     # Exact standalone variance, covariance, additive movement, and deterministic ranks.
-    dts=pd.date_range("2020-01-31",periods=8,freq="M"); feature_rows=[]; metric_rows=[]
+    dts=pd.date_range("2020-01-31",periods=8,freq=MONTH_END); feature_rows=[]; metric_rows=[]
     metric_values={"mortgage_30y":np.arange(8)/10,"mortgage_15y":np.arange(8)[::-1]/20,"fedfunds":np.sin(np.arange(8))/10,"treasury_10y":np.cos(np.arange(8))/10,"spread_10y_2y":np.arange(8)/30,"spread_10y_fedfunds":-np.arange(8)/40}
     metric_weights=expected
     for metric,values in metric_values.items():

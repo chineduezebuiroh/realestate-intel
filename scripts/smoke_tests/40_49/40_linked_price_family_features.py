@@ -6,6 +6,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime.experiments.linked_price_family_features import (
     PRICE_FAMILY_METRICS,
     build_linked_price_family_features,
@@ -34,7 +36,7 @@ def _build_fixture() -> pd.DataFrame:
     dates = pd.date_range(
         "2020-01-31",
         periods=30,
-        freq="M",
+        freq=MONTH_END,
     )
 
     rows: list[

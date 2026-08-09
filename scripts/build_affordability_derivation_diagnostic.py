@@ -8,6 +8,8 @@ import sys
 
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from regime.experiments.affordability_derivation_order import build_affordability_derivation_evidence
@@ -76,7 +78,7 @@ def main() -> None:
                 pd.date_range(
                     dates.min(),
                     dates.max(),
-                    freq="M",
+                    freq=MONTH_END,
                 )
             ).astype("datetime64[ns]")
             missing = expected.difference(dates)

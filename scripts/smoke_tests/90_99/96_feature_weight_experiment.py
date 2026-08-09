@@ -6,6 +6,8 @@ import tempfile
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime.artifacts import RegimeArtifactStore
 from regime.diagnostics.feature_weight_experiment import (
     ALTERNATIVES, TARGET_METRICS, REVIEW_GEOGRAPHIES, audit_feature_registry,
@@ -61,7 +63,7 @@ def main() -> None:
     assert tuple(policies.policy.unique()) == ("incumbent", "ma12_incumbent", "alternative_a", "alternative_b", "alternative_c")
     assert set(policies.feature_definition) == {"incumbent", "ma12_structural"}
     assert not policies.policy.astype(str).str.contains("ma6|ma9", case=False).any()
-    rows=[]; dates=pd.date_range("2021-01-31", periods=6, freq="M")
+    rows=[]; dates=pd.date_range("2021-01-31", periods=6, freq=MONTH_END)
     for gi, geo in enumerate(REVIEW_GEOGRAPHIES):
         for mi, metric_name in enumerate(TARGET_METRICS):
             for fi, key in enumerate(audit[audit.metric.eq(metric_name)].sort_values("feature_type").feature_key):

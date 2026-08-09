@@ -12,6 +12,8 @@ import zipfile
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime._02_feature_normalizer import normalize_features
 from regime._03_metric_scorer import score_metrics
 from regime._05_dimension_scorer import score_dimensions
@@ -516,7 +518,7 @@ def _overlap_comparison(
     overlap_dates = inc_valid[["date"]].merge(chal_valid[["date"]], on="date", validate="one_to_one")
     if overlap_dates.empty:
         raise ValueError("Dimension overlap is empty")
-    expected = pd.date_range(overlap_dates.date.min(), overlap_dates.date.max(), freq="M")
+    expected = pd.date_range(overlap_dates.date.min(), overlap_dates.date.max(), freq=MONTH_END)
     if not pd.DatetimeIndex(overlap_dates.date).equals(expected):
         raise ValueError("Dimension overlap contains interior calendar gaps")
     inc_overlap = overlap_dates.merge(inc_valid, on="date", validate="one_to_one")
@@ -620,7 +622,7 @@ def _exact_policy_overlap(left: pd.DataFrame, right: pd.DataFrame, value: str
     dates = a[["date"]].merge(b[["date"]], on="date", validate="one_to_one")
     if dates.empty:
         raise ValueError("Pairwise chronology has no exact date overlap")
-    expected = pd.date_range(dates.date.min(), dates.date.max(), freq="M")
+    expected = pd.date_range(dates.date.min(), dates.date.max(), freq=MONTH_END)
     if not pd.DatetimeIndex(dates.date).equals(expected):
         raise ValueError("Pairwise overlap contains interior calendar gaps")
     return (dates.merge(a, on="date", validate="one_to_one"),
@@ -830,7 +832,7 @@ def _align_national_dimension_to_counties(
         raise ValueError("National Capital Markets chronology contains duplicate dates")
     source_dates = pd.DatetimeIndex(pd.to_datetime(national["date"]).sort_values())
     expected_source_dates = pd.date_range(
-        source_dates.min(), source_dates.max(), freq="M"
+        source_dates.min(), source_dates.max(), freq=MONTH_END
     )
     if not source_dates.equals(expected_source_dates):
         raise ValueError(
@@ -1026,7 +1028,7 @@ def _combined_policy_evidence(proof, registry, active, caches, national_metrics,
 
     # Use the exact common four-policy chronology for all primary comparisons.
     common=set.intersection(*(set(frame.dropna(subset=["dimension_score"]).date) for frame in dimensions.values()))
-    common_dates=pd.DatetimeIndex(sorted(common)); expected=pd.date_range(common_dates.min(),common_dates.max(),freq="M")
+    common_dates=pd.DatetimeIndex(sorted(common)); expected=pd.date_range(common_dates.min(),common_dates.max(),freq=MONTH_END)
     if not common_dates.equals(expected): raise ValueError("Combined exact-overlap chronology is not contiguous")
     chronology=[]; stability=[]; directions=[]; turns=[]; matches=[]; summaries=[]
     inc_common=dimensions["incumbent"].loc[lambda f:f.date.isin(common_dates)].sort_values("date")
@@ -1825,7 +1827,7 @@ def _feature_weight_evidence(proof, registry, active, caches, national_metrics, 
         raise ValueError("Normalized feature cache identity changed")
 
     common=pd.DatetimeIndex(sorted(set.intersection(*(set(x.dropna().date) for x in dimensions.values()))))
-    if not common.equals(pd.date_range(common.min(),common.max(),freq="M")): raise ValueError("Feature-weight overlap is not exact and contiguous")
+    if not common.equals(pd.date_range(common.min(),common.max(),freq=MONTH_END)): raise ValueError("Feature-weight overlap is not exact and contiguous")
     chronology=[]; stability=[]; directions=[]; turn_frames=[]; match_frames=[]; turn_summary=[]; metric_chron=[]; metric_summary=[]
     control=dimensions["FW-A"].loc[lambda f:f.date.isin(common)]
     control_turns=detect_turning_points(control,"dimension_score")

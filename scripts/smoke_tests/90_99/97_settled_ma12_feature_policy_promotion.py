@@ -7,6 +7,8 @@ import tempfile
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime._00_config_loader import load_regime_config
 from regime._01_feature_engine import build_feature_matrix_with_lineage
 from regime._02_feature_normalizer import normalize_features
@@ -192,7 +194,7 @@ def _assert_registry_scope(config: object) -> None:
 
 
 def _synthetic_observations() -> tuple[pd.DataFrame, pd.DataFrame]:
-    dates = pd.date_range("2020-01-31", periods=72, freq="M")
+    dates = pd.date_range("2020-01-31", periods=72, freq=MONTH_END)
     geo = "promotion_fixture__county"
     rows: list[dict[str, object]] = []
     for i, date in enumerate(dates, start=1):
