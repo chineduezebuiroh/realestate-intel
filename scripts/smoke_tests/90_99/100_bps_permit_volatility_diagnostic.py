@@ -34,7 +34,7 @@ def main() -> int:
     assert set(evidence["stage_stability"].stage)==set(STAGES)
     assert {"normalized_short_score","normalized_long_score"}.issubset(chronology)
     available=chronology.dropna(subset=["normalized_level_score","normalized_short_score","normalized_long_score"])
-    assert np.allclose(available[["effective_level_weight","effective_short_weight","effective_long_weight"]],[.5,.25,.25])
+    assert np.allclose(available[["effective_level_weight","effective_short_weight","effective_long_weight"]],[.8,.1,.1])
     contributions=chronology[["level_contribution","short_contribution","long_contribution"]].sum(axis=1,min_count=1)
     assert (contributions-chronology.metric_score).abs().dropna().max() <= 1e-12
     movement=evidence["metric_movement_attribution"]
@@ -47,7 +47,7 @@ def main() -> int:
     source_text=Path("regime/diagnostics/bps_permit_volatility.py").read_text()
     assert '(["level_contribution","short_contribution","long_contribution","metric_score"],"Panel 4' in source_text
     contract=evidence["production_contract"].set_index("feature_key")
-    assert contract.feature_weight.astype(float).to_dict()=={"bps_total_units_level":.5,"bps_total_units_short":.25,"bps_total_units_long":.25}
+    assert contract.feature_weight.astype(float).to_dict()=={"bps_total_units_level":.8,"bps_total_units_short":.1,"bps_total_units_long":.1}
     assert contract.metric_weight.astype(float).eq(.20).all()
     status=evidence["human_decision_status"].iloc[0]
     assert (status.recommendation_state,status.promotion_state,status.human_decision)==("none","none","pending")

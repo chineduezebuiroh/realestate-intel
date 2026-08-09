@@ -197,10 +197,14 @@ def _responsiveness(chron: pd.DataFrame, turns: pd.DataFrame, references: dict[s
 def build_evidence(source: pd.DataFrame, source_run_id: str) -> dict[str,pd.DataFrame]:
     _production_contract(); chron,reference=_chronologies(source); stability,stability_summary=_stability(chron); turns,turn_summary,turn_audit,references=_turns(chron); movement,contrib,drivers,extreme=_movement(chron)
     selected=chron.query("policy_id == @SELECTED_POLICY").set_index(["geo_id","date"]); ref=reference.set_index(["geo_id","date"]); parity=[]
+    # Preserve parity with the historical 50/25/25 lag diagnostic rather than
+    # relabeling today's production score as if it had always used those weights.
+    available=ref[[f"normalized_{f}_score" for f in WEIGHTS]].notna(); total=sum(available[f"normalized_{f}_score"]*w for f,w in WEIGHTS.items())
+    ref["metric_score"]=sum(ref[f"normalized_{f}_score"].fillna(0)*np.where(available[f"normalized_{f}_score"],w/total.replace(0,np.nan),0.) for f,w in WEIGHTS.items()).where(total.gt(0))
     for col in ["ma12_level","short_raw_feature","long_raw_feature","normalized_level_score","normalized_short_score","normalized_long_score","metric_score"]:
         delta=(selected[col]-ref[col]).abs(); parity.append({"decision_id":DECISION_ID,"production_policy":SELECTED_POLICY,"diagnostic_policy":SELECTED_POLICY,"field":col,"max_abs_difference":delta.max(),"tolerance":TOLERANCE,"status":"pass" if delta.max()<=TOLERANCE else "fail"})
     parity=pd.DataFrame(parity)
-    if parity.status.ne("pass").any(): raise AssertionError("lag6 production parity failed")
+    if parity.status.ne("pass").any(): raise AssertionError("historical lag6 diagnostic parity failed")
     responsiveness=_responsiveness(chron,turns,references); direction=[]
     wide=chron.pivot(index=["geo_id","date"],columns="policy_id",values="short_raw_feature")
     for a,b in (("BPS-H-LAG1","BPS-H-LAG3"),("BPS-H-LAG3","BPS-H-LAG6"),("BPS-H-LAG1","BPS-H-LAG6")):

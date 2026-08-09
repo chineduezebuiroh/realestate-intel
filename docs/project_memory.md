@@ -74,11 +74,11 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 
 ### Current Focus
 
-The BPS short-horizon calibration is closed. Human-approved `BPS-H-LAG6` is
-production: MA12 level, MA12/lag6 short ratio, and MA12/lag12 long ratio with
-50/25/25 weights, existing positive expanding-percentile normalization, and
-the 0.20 Supply metric weight unchanged. The next BPS stage is feature-weight
-family calibration with lag6 frozen.
+BPS calibration is complete. Human-approved `BPS-FINAL-80` is production:
+MA12 level, MA12/lag6 short ratio, and MA12/lag12 long ratio with 80/10/10
+feature weights, existing positive expanding-percentile normalization, and the
+0.20 Supply metric weight unchanged. The prior transform, lag, five-policy, and
+70-versus-80 finalist reviews remain the historical calibration trail.
 
 Capital Markets calibration is closed after promotion of the human-selected `MW-TEMPERED-C` production policy; no transform, feature-weight, or metric-weight calibration remains pending. Next is Affordability feature decisions and derivation-order confirmation.
 

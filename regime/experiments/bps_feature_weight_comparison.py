@@ -37,7 +37,7 @@ def policy_registry() -> pd.DataFrame:
         "short_horizon": "lag6", "long_horizon": "lag12", "transform_family": "ratio",
         "normalization_method": "expanding_percentile", "normalization_polarity": "positive",
         "supply_metric_weight": SUPPLY_METRIC_WEIGHT, "scope": "BPS-only",
-        "only_policy_difference": "feature_weights", "production_status": "production" if policy == INCUMBENT else "diagnostic",
+        "only_policy_difference": "feature_weights", "production_status": "historical_incumbent" if policy == INCUMBENT else "historical_diagnostic",
     } for policy, weights in POLICIES.items()])
 
 
@@ -104,12 +104,17 @@ def build_evidence(source: pd.DataFrame, source_run_id: str) -> dict[str,pd.Data
     movement,contrib,drivers,extreme=_movement(chron)
     responsiveness=_responsiveness(chron,turns,references).query("target_feature == 'metric_score'").reset_index(drop=True)
     selected=chron.query("policy_id == @INCUMBENT").set_index(["geo_id","date"]); ref=reference.set_index(["geo_id","date"])
+    # This is frozen historical diagnostic parity, not current-production parity.
+    # Reconstruct its then-incumbent score independently from the frozen scores.
+    available=ref[[f"normalized_{f}_score" for f in FEATURES]].notna()
+    total=sum(available[f"normalized_{f}_score"]*w for f,w in zip(FEATURES,POLICIES[INCUMBENT]))
+    ref["metric_score"]=sum(ref[f"normalized_{f}_score"].fillna(0)*np.where(available[f"normalized_{f}_score"],w/total.replace(0,np.nan),0.) for f,w in zip(FEATURES,POLICIES[INCUMBENT])).where(total.gt(0))
     parity=[]
     for col in ["ma12_level","short_raw_feature","long_raw_feature","normalized_level_score","normalized_short_score","normalized_long_score","metric_score"]:
         delta=(selected[col]-ref[col]).abs(); maximum=delta.max()
         parity.append({"field":col,"max_abs_difference":maximum,"tolerance":TOLERANCE,"status":"pass" if maximum<=TOLERANCE else "fail"})
     parity=pd.DataFrame(parity)
-    if parity.status.ne("pass").any(): raise AssertionError("50/25/25 production parity failed")
+    if parity.status.ne("pass").any(): raise AssertionError("historical 50/25/25 diagnostic parity failed")
     base=chron.query("policy_id == @INCUMBENT").set_index(["geo_id","date"])
     for policy,g in chron.groupby("policy_id"):
         candidate=g.set_index(["geo_id","date"])

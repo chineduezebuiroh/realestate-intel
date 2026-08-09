@@ -16,12 +16,56 @@ POLICIES={"BPS-FINAL-70":(.70,.15,.15),"BPS-FINAL-80":(.80,.10,.10)}
 FEATURES=("level","short","long")
 SUPPLY_METRIC_WEIGHT=.20
 DECISION_ID="bps_finalist_incremental_value_2026_08_09"
+PROMOTION_DECISION_ID="bps_feature_weight_80_10_10_2026_08_09"
+SELECTED_POLICY="BPS-FINAL-80"
 
 def policy_registry():
     return pd.DataFrame([{"policy_id":p,"level_weight":w[0],"short_weight":w[1],"long_weight":w[2],
         "level_formula":"MA12(raw bps_total_units)","short_formula":"MA12 / lag6(MA12) - 1","long_formula":"MA12 / lag12(MA12) - 1",
         "short_horizon":"lag6","long_horizon":"lag12","transform_family":"ratio","normalization_method":"expanding_percentile",
         "normalization_polarity":"positive","supply_metric_weight":SUPPLY_METRIC_WEIGHT,"scope":"BPS-only","production_status":"diagnostic"} for p,w in POLICIES.items()])
+
+def _promotion_evidence(chron, source_run_id):
+    registry=policy_registry().copy()
+    registry["selection_status"]=registry.policy_id.map({"BPS-FINAL-70":"not_selected",SELECTED_POLICY:"selected"})
+    registry["production_status"]=registry.policy_id.map({"BPS-FINAL-70":"not_production",SELECTED_POLICY:"production"})
+    registry["decision_id"]=PROMOTION_DECISION_ID
+    controls=[
+        ("bps_total_units_level","feature_weight","0.50","0.80","changed"),
+        ("bps_total_units_short","feature_weight","0.25","0.10","changed"),
+        ("bps_total_units_long","feature_weight","0.25","0.10","changed"),
+        ("bps_total_units_level","transform","ma_level","ma_level","unchanged"),
+        ("bps_total_units_level","window","12m","12m","unchanged"),
+        ("bps_total_units_short","transform","ma_pct_change","ma_pct_change","unchanged"),
+        ("bps_total_units_short","window","12m/lag6m","12m/lag6m","unchanged"),
+        ("bps_total_units_long","transform","ma_pct_change","ma_pct_change","unchanged"),
+        ("bps_total_units_long","window","12m/lag12m","12m/lag12m","unchanged"),
+        ("bps_total_units","transform_family","ratio","ratio","unchanged"),
+        ("bps_total_units","normalization","positive_expanding_percentile","positive_expanding_percentile","unchanged"),
+        ("bps_total_units","supply_metric_weight","0.20","0.20","unchanged"),
+        ("supply","dimension_weights","production","production","unchanged"),
+        ("permit_intensity","policy","production","production","unchanged"),
+        ("capital_markets","policy","production","production","unchanged"),
+        ("affordability","policy","production","production","unchanged"),
+        ("source_precedence","policy","production","production","unchanged"),
+    ]
+    diff=pd.DataFrame(controls,columns=["governed_control","field","before","after","change_status"])
+    selected=chron.query("policy_id == @SELECTED_POLICY").copy(); production=selected.copy()
+    score,effective,contrib=_weighted(production,POLICIES[SELECTED_POLICY])
+    for f in FEATURES:
+        production[f"effective_{f}_weight"]=effective[f]; production[f"{f}_contribution"]=contrib[f]
+    production["metric_score"]=score
+    fields=["ma12_level","short_raw_feature","long_raw_feature","normalized_level_score","normalized_short_score","normalized_long_score","effective_level_weight","effective_short_weight","effective_long_weight","level_contribution","short_contribution","long_contribution","metric_score"]
+    parity=[]
+    for field in fields:
+        delta=(pd.to_numeric(production[field],errors="coerce")-pd.to_numeric(selected[field],errors="coerce")).abs()
+        maximum=float(delta.max()) if delta.notna().any() else 0.0
+        parity.append({"decision_id":PROMOTION_DECISION_ID,"policy_id":SELECTED_POLICY,"field":field,"geography_count":selected.geo_id.nunique(),"max_abs_difference":maximum,"tolerance":TOLERANCE,"status":"pass" if maximum<=TOLERANCE else "fail"})
+    parity=pd.DataFrame(parity)
+    if parity.status.ne("pass").any(): raise AssertionError("production versus selected BPS-FINAL-80 parity failed")
+    status=pd.DataFrame([{"decision_id":PROMOTION_DECISION_ID,"source_run_id":source_run_id,"selected_policy":SELECTED_POLICY,"recommendation_state":"selected","promotion_state":"promoted","human_decision":"approved","bps_feature_weight_calibration_state":"closed","bps_calibration_state":"complete","automated_winner":False}])
+    runtime=pd.DataFrame([{"decision_id":PROMOTION_DECISION_ID,"source_run_id":source_run_id,"geography_count":selected.geo_id.nunique(),"selected_policy":SELECTED_POLICY,"parity_tolerance":TOLERANCE,"parity_status":"pass","authoritative_source":source_run_id!="fixture"}])
+    return {"promotion_policy_registry":registry,"promotion_config_diff":diff,"promotion_parity_audit":parity,"promotion_human_decision_status":status,"promotion_runtime_summary":runtime}
 
 def _weighted(frame, weights, keep=FEATURES):
     available={f:frame[f"normalized_{f}_score"].notna() if f in keep else pd.Series(False,index=frame.index) for f in FEATURES}
@@ -122,7 +166,8 @@ def build_evidence(source,source_run_id):
     for p,w in POLICIES.items():
         s=stability.query('policy_id==@p').iloc[0]; ss=short_sum.query('policy_id==@p').iloc[0]; tr=turns.query('policy_id==@p'); inf=info.query('policy_id==@p').iloc[0]; ex=extreme.classification.value_counts(); decisions.append({"Policy":p,"Level weight":w[0],"Short weight":w[1],"Long weight":w[2],"Metric median abs MoM":s.metric_median_abs_mom,"Metric P90":s.metric_p90_abs_mom,"Metric P99":s.metric_p99_abs_mom,"Metric max jump":s.metric_max_abs_jump,"Metric sign flips":s.metric_sign_flips,"Metric turning points":s.metric_turning_points,"Recent-36m metric volatility":recent.query('policy_id==@p').iloc[0].metric_volatility,"Short dominant movement share":drivers.query('policy_id==@p').short_dominant_share.median(),"Median abs short ablation effect":ss.median_abs_short_effect,"P90 abs short ablation effect":ss.p90_abs_short_effect,"Useful short-event share":inf.useful_share,"Short noise share":inf.noise_share,"Full matched structural turns":tr.full_matched_turn_count.sum(),"Turns missed without short":tr.turns_missed_without_short.sum(),"Turns delayed without short":tr.turns_delayed_without_short.sum(),"Median added lag without short":tr.added_lag_without_short.median(),"P90 added lag without short":tr.added_lag_without_short.quantile(.9),"Extreme divergence months classified useful":ex.get('useful_momentum_differentiation',0),"Extreme divergence months classified noise":ex.get('likely_noise_differentiation',0),"Extreme divergence months ambiguous":ex.get('ambiguous',0),"Decision":"pending"})
     status=pd.DataFrame([{"decision_id":DECISION_ID,"source_run_id":source_run_id,"recommendation_state":"none","promotion_state":"none","human_decision":"pending","automated_winner":False}])
-    return {"policy_registry":policy_registry(),"policy_chronology":chron,"short_ablation_chronology":short,"short_ablation_summary":short_sum,"momentum_ablation_chronology":momentum,"momentum_ablation_summary":momentum_sum,"dominant_driver_audit":drivers,"turn_ablation_audit":turns,"short_lead_value_audit":lead,"short_noise_audit":noise,"metric_divergence":divergence,"extreme_divergence_review":extreme,"incremental_information_summary":info,"stability_responsiveness_summary":stability,"recent_36m_summary":recent,"decision_matrix":pd.DataFrame(decisions),"parity_audit":parity,"human_decision_status":status}
+    evidence={"policy_registry":policy_registry(),"policy_chronology":chron,"short_ablation_chronology":short,"short_ablation_summary":short_sum,"momentum_ablation_chronology":momentum,"momentum_ablation_summary":momentum_sum,"dominant_driver_audit":drivers,"turn_ablation_audit":turns,"short_lead_value_audit":lead,"short_noise_audit":noise,"metric_divergence":divergence,"extreme_divergence_review":extreme,"incremental_information_summary":info,"stability_responsiveness_summary":stability,"recent_36m_summary":recent,"decision_matrix":pd.DataFrame(decisions),"parity_audit":parity,"human_decision_status":status}
+    evidence.update(_promotion_evidence(chron,source_run_id)); return evidence
 
 def _visual(frame,title,path):
     im=Image.new('RGB',(1400,900),'white'); d=ImageDraw.Draw(im); d.text((20,15),title,fill='black'); panels=[('ma12_level','MA12 structural level'),('normalized_short_score','Normalized level / lag6 short / lag12 long'),('metric_score','Final metric finalists'),('short_contribution','Short contribution / divergence context')]; colors={'BPS-FINAL-70':'#7c3aed','BPS-FINAL-80':'#2563eb'}

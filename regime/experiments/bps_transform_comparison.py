@@ -144,10 +144,14 @@ def build_evidence(source: pd.DataFrame, source_run_id: str) -> dict[str,pd.Data
     ratio=wide.xs("BPS-T-RATIO",axis=1,level=1); diff=wide.xs("BPS-T-DIFF",axis=1,level=1)
     parity_rows=[]
     original=incumbent.set_index(["geo_id","date"])
+    # Reconstruct the frozen diagnostic's 50/25/25 score; current production
+    # weights are intentionally different after the final settlement.
+    available=original[[f"normalized_{f}_score" for f in WEIGHTS]].notna(); total=sum(available[f"normalized_{f}_score"]*w for f,w in WEIGHTS.items())
+    original["metric_score"]=sum(original[f"normalized_{f}_score"].fillna(0)*np.where(available[f"normalized_{f}_score"],w/total.replace(0,np.nan),0.) for f,w in WEIGHTS.items()).where(total.gt(0))
     for col in ["ma12_level","short_raw_feature","long_raw_feature","normalized_level_score","normalized_short_score","normalized_long_score","metric_score"]:
         delta=(ratio[col]-original[col]).abs(); parity_rows.append({"field":col,"max_abs_difference":delta.max(),"tolerance":TOLERANCE,"status":"pass" if delta.max()<=TOLERANCE else "fail"})
     parity=pd.DataFrame(parity_rows)
-    if parity.status.ne("pass").any(): raise AssertionError("incumbent parity failed")
+    if parity.status.ne("pass").any(): raise AssertionError("historical transform diagnostic parity failed")
     direction=[]
     for horizon in ("short","long"):
         valid=ratio[f"{horizon}_raw_feature"].notna()&diff[f"{horizon}_raw_feature"].notna()
