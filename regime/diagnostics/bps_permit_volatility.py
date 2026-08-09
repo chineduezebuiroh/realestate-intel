@@ -82,7 +82,7 @@ def _production_contract() -> pd.DataFrame:
     config = load_regime_config(validate=True)
     feats = config.features[config.features.feature_key.isin(FEATURES)].copy()
     expected = {"bps_total_units_level": ("ma_level", "12m", .50),
-                "bps_total_units_short": ("ma_pct_change", "12m/lag3m", .25),
+                "bps_total_units_short": ("ma_pct_change", "12m/lag6m", .25),
                 "bps_total_units_long": ("ma_pct_change", "12m/lag12m", .25)}
     if len(feats) != 3 or any((r.transform, r.feature_window, float(r.feature_weight)) != expected[r.feature_key]
                               for r in feats.itertuples()):
