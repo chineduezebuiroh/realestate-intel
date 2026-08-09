@@ -71,7 +71,7 @@ ces_total_private_short,ces_total_private,short_term_change,mom_zscore,0.35,1m,d
 ces_total_private_long,ces_total_private,long_term_change,yoy_zscore,0.40,12m,demand,
 
 bps_total_units_level,bps_total_units,level,ma_level,0.50,12m,supply,
-bps_total_units_short,bps_total_units,short_term_change,ma_pct_change,0.25,12m/lag3m,supply,
+bps_total_units_short,bps_total_units,short_term_change,ma_pct_change,0.25,12m/lag6m,supply,Promoted BPS short-horizon policy BPS-H-LAG6 (2026-08-09).
 bps_total_units_long,bps_total_units,long_term_change,ma_pct_change,0.25,12m/lag12m,supply,
 bps_total_buildings_level,bps_total_buildings,level,level_zscore,0.25,,supply,
 bps_total_buildings_short,bps_total_buildings,short_term_change,mom_zscore,0.35,1m,supply,

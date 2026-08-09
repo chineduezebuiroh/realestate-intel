@@ -1,0 +1,14 @@
+{
+  "decision_id": "bps_short_horizon_lag6_2026_08_09",
+  "selected_policy": "BPS-H-LAG6",
+  "recommendation_state": "selected",
+  "promotion_state": "promoted",
+  "human_decision": "approved",
+  "bps_short_horizon_calibration_state": "closed",
+  "automated_winner": false,
+  "policy_status": {
+    "BPS-H-LAG1": "not_selected",
+    "BPS-H-LAG3": "not_selected",
+    "BPS-H-LAG6": "selected"
+  }
+}

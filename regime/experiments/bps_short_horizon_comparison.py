@@ -19,6 +19,8 @@ from regime.diagnostics.capital_markets_ma import detect_turning_points, match_t
 POLICIES = {"BPS-H-LAG1": 1, "BPS-H-LAG3": 3, "BPS-H-LAG6": 6}
 WEIGHTS = {"level": .50, "short": .25, "long": .25}
 SUPPLY_METRIC_WEIGHT = .20
+DECISION_ID = "bps_short_horizon_lag6_2026_08_09"
+SELECTED_POLICY = "BPS-H-LAG6"
 
 
 def policy_registry() -> pd.DataFrame:
@@ -29,6 +31,8 @@ def policy_registry() -> pd.DataFrame:
         "level_weight": .5, "short_weight": .25, "long_weight": .25,
         "normalization_method": "expanding_percentile", "normalization_polarity": "positive",
         "supply_metric_weight": SUPPLY_METRIC_WEIGHT, "scope": "BPS-only",
+        "selection_status": "selected" if policy == SELECTED_POLICY else "not_selected",
+        "production_status": "production" if policy == SELECTED_POLICY else "diagnostic",
     } for policy, lag in POLICIES.items()])
 
 
@@ -192,11 +196,11 @@ def _responsiveness(chron: pd.DataFrame, turns: pd.DataFrame, references: dict[s
 
 def build_evidence(source: pd.DataFrame, source_run_id: str) -> dict[str,pd.DataFrame]:
     _production_contract(); chron,reference=_chronologies(source); stability,stability_summary=_stability(chron); turns,turn_summary,turn_audit,references=_turns(chron); movement,contrib,drivers,extreme=_movement(chron)
-    lag3=chron.query("policy_id == 'BPS-H-LAG3'").set_index(["geo_id","date"]); ref=reference.set_index(["geo_id","date"]); parity=[]
+    selected=chron.query("policy_id == @SELECTED_POLICY").set_index(["geo_id","date"]); ref=reference.set_index(["geo_id","date"]); parity=[]
     for col in ["ma12_level","short_raw_feature","long_raw_feature","normalized_level_score","normalized_short_score","normalized_long_score","metric_score"]:
-        delta=(lag3[col]-ref[col]).abs(); parity.append({"field":col,"max_abs_difference":delta.max(),"tolerance":TOLERANCE,"status":"pass" if delta.max()<=TOLERANCE else "fail"})
+        delta=(selected[col]-ref[col]).abs(); parity.append({"decision_id":DECISION_ID,"production_policy":SELECTED_POLICY,"diagnostic_policy":SELECTED_POLICY,"field":col,"max_abs_difference":delta.max(),"tolerance":TOLERANCE,"status":"pass" if delta.max()<=TOLERANCE else "fail"})
     parity=pd.DataFrame(parity)
-    if parity.status.ne("pass").any(): raise AssertionError("lag3 incumbent parity failed")
+    if parity.status.ne("pass").any(): raise AssertionError("lag6 production parity failed")
     responsiveness=_responsiveness(chron,turns,references); direction=[]
     wide=chron.pivot(index=["geo_id","date"],columns="policy_id",values="short_raw_feature")
     for a,b in (("BPS-H-LAG1","BPS-H-LAG3"),("BPS-H-LAG3","BPS-H-LAG6"),("BPS-H-LAG1","BPS-H-LAG6")):
@@ -218,9 +222,18 @@ def build_evidence(source: pd.DataFrame, source_run_id: str) -> dict[str,pd.Data
     for policy,lag in POLICIES.items():
         ss=stability_summary.query("policy_id == @policy and feature == 'normalized_short_score'").iloc[0]; ms=stability_summary.query("policy_id == @policy and feature == 'metric_score'").iloc[0]
         ts=turn_summary.query("policy_id == @policy and feature == 'normalized_short_score'"); tm=turn_summary.query("policy_id == @policy and feature == 'metric_score'"); rr=responsiveness.query("policy_id == @policy and target_feature == 'normalized_short_score'"); dd=drivers.query("policy_id == @policy and feature_family == 'short'")
-        decision.append({"Policy":policy,"Short horizon":f"lag{lag}","Long horizon":"lag12","Feature weights":"50/25/25","Normalized short median abs MoM":ss.median_abs_mom,"Normalized short P90":ss.p90_abs_mom,"Normalized short P99":ss.p99_abs_mom,"Normalized short sign flips":ss.sign_flips,"Normalized short turning points":ts.turning_points.sum(),"Metric median abs MoM":ms.median_abs_mom,"Metric P90":ms.p90_abs_mom,"Metric P99":ms.p99_abs_mom,"Metric max jump":ms.max_abs_jump,"Metric sign flips":ms.sign_flips,"Metric turning points":tm.turning_points.sum(),"Latest-36m metric turns":tm.latest_36m_turning_points.sum(),"Short absolute movement contribution share":contrib.query("policy_id == @policy").short_absolute_movement_contribution_share.median(),"Short-metric correlation":dd.correlation_with_metric_delta.median(),"Reference turn count":rr.reference_turn_count.sum(),"Matched turn count":rr.matched_turn_count.sum(),"Median signed responsiveness lag months":rr.median_signed_lag_months.median(),"Median absolute responsiveness lag months":rr.median_absolute_lag_months.median(),"P90 absolute responsiveness lag months":rr.p90_absolute_lag_months.median(),"Share within 1 month":rr.share_within_1_month.mean(),"Share within 3 months":rr.share_within_3_months.mean(),"Share within 6 months":rr.share_within_6_months.mean(),"Largest metric jump":extreme.query("policy_id == @policy").abs_metric_delta.max(),"Recent-36m metric volatility":pd.DataFrame(recent).query("policy_id == @policy").metric_score_volatility.median(),"Decision":"pending"})
-    status=pd.DataFrame([{"source_run_id":source_run_id,"recommendation_state":"none","promotion_state":"none","human_decision":"pending"}])
-    return {"policy_registry":policy_registry(),"policy_chronology":chron,"stability":stability,"stability_summary":stability_summary,"turning_points":turns,"turning_point_summary":turn_summary,"turn_detection_audit":turn_audit,"contribution_summary":contrib,"metric_driver_audit":drivers,"metric_movement_attribution":movement,"responsiveness_audit":responsiveness,"directional_agreement":pd.DataFrame(direction),"extreme_jump_attribution":extreme,"recent_36m_summary":pd.DataFrame(recent),"metric_score_comparison":pd.DataFrame(comparisons),"decision_matrix":pd.DataFrame(decision),"parity_audit":parity,"human_decision_status":status}
+        decision.append({"Policy":policy,"Short horizon":f"lag{lag}","Long horizon":"lag12","Feature weights":"50/25/25","Normalized short median abs MoM":ss.median_abs_mom,"Normalized short P90":ss.p90_abs_mom,"Normalized short P99":ss.p99_abs_mom,"Normalized short sign flips":ss.sign_flips,"Normalized short turning points":ts.turning_points.sum(),"Metric median abs MoM":ms.median_abs_mom,"Metric P90":ms.p90_abs_mom,"Metric P99":ms.p99_abs_mom,"Metric max jump":ms.max_abs_jump,"Metric sign flips":ms.sign_flips,"Metric turning points":tm.turning_points.sum(),"Latest-36m metric turns":tm.latest_36m_turning_points.sum(),"Short absolute movement contribution share":contrib.query("policy_id == @policy").short_absolute_movement_contribution_share.median(),"Short-metric correlation":dd.correlation_with_metric_delta.median(),"Reference turn count":rr.reference_turn_count.sum(),"Matched turn count":rr.matched_turn_count.sum(),"Median signed responsiveness lag months":rr.median_signed_lag_months.median(),"Median absolute responsiveness lag months":rr.median_absolute_lag_months.median(),"P90 absolute responsiveness lag months":rr.p90_absolute_lag_months.median(),"Share within 1 month":rr.share_within_1_month.mean(),"Share within 3 months":rr.share_within_3_months.mean(),"Share within 6 months":rr.share_within_6_months.mean(),"Largest metric jump":extreme.query("policy_id == @policy").abs_metric_delta.max(),"Recent-36m metric volatility":pd.DataFrame(recent).query("policy_id == @policy").metric_score_volatility.median(),"Decision":"selected" if policy == SELECTED_POLICY else "not_selected"})
+    status=pd.DataFrame([{"decision_id":DECISION_ID,"source_run_id":source_run_id,"selected_policy":SELECTED_POLICY,"recommendation_state":"selected","promotion_state":"promoted","human_decision":"approved","bps_short_horizon_calibration_state":"closed","automated_winner":False}])
+    config_diff=pd.DataFrame([
+        {"feature_key":"bps_total_units_level","field":"window","before":"12m","after":"12m","change_status":"unchanged"},
+        {"feature_key":"bps_total_units_short","field":"window","before":"12m/lag3m","after":"12m/lag6m","change_status":"changed"},
+        {"feature_key":"bps_total_units_long","field":"window","before":"12m/lag12m","after":"12m/lag12m","change_status":"unchanged"},
+        {"feature_key":"bps_total_units","field":"feature_weights","before":"0.50/0.25/0.25","after":"0.50/0.25/0.25","change_status":"unchanged"},
+        {"feature_key":"bps_total_units","field":"transform_family","before":"ratio","after":"ratio","change_status":"unchanged"},
+        {"feature_key":"bps_total_units","field":"normalization","before":"positive expanding-percentile","after":"positive expanding-percentile","change_status":"unchanged"},
+        {"feature_key":"bps_total_units","field":"supply_metric_weight","before":"0.20","after":"0.20","change_status":"unchanged"},
+    ])
+    return {"policy_registry":policy_registry(),"policy_chronology":chron,"stability":stability,"stability_summary":stability_summary,"turning_points":turns,"turning_point_summary":turn_summary,"turn_detection_audit":turn_audit,"contribution_summary":contrib,"metric_driver_audit":drivers,"metric_movement_attribution":movement,"responsiveness_audit":responsiveness,"directional_agreement":pd.DataFrame(direction),"extreme_jump_attribution":extreme,"recent_36m_summary":pd.DataFrame(recent),"metric_score_comparison":pd.DataFrame(comparisons),"decision_matrix":pd.DataFrame(decision),"parity_audit":parity,"human_decision_status":status,"promotion_policy_registry":policy_registry(),"promotion_config_diff":config_diff,"promotion_parity_audit":parity,"promotion_human_decision_status":status}
 
 
 def _visual(frame: pd.DataFrame, title: str, path: Path) -> None:
@@ -232,8 +245,8 @@ def _visual(frame: pd.DataFrame, title: str, path: Path) -> None:
         vals=frame[col].dropna(); lo,hi=(vals.min(),vals.max()) if len(vals) else (0,1); hi=hi if hi!=lo else lo+1
         for j,(policy,g) in enumerate(frame.groupby("policy_id")):
             g=g.sort_values("date"); n=max(len(g)-1,1); pts=[(left+i*(right-left)/n,bottom-8-(v-lo)/(hi-lo)*(bottom-top-30)) for i,v in enumerate(g[col]) if pd.notna(v)]
-            if len(pts)>1: draw.line(pts,fill=colors[policy],width=4 if policy=="BPS-H-LAG3" else 2)
-            draw.text((left+j*240,top+20),policy+(" (incumbent)" if policy=="BPS-H-LAG3" else ""),fill=colors[policy])
+            if len(pts)>1: draw.line(pts,fill=colors[policy],width=4 if policy==SELECTED_POLICY else 2)
+            draw.text((left+j*240,top+20),policy+(" (production)" if policy==SELECTED_POLICY else ""),fill=colors[policy])
     image.save(path)
 
 
@@ -244,10 +257,10 @@ def write_bundle(evidence: dict[str,pd.DataFrame], output_dir: Path, source_run_
     for geo in GEOGRAPHIES:
         name=f"{geo}__bps_short_horizon_comparison.png"; _visual(evidence["policy_chronology"].query("geo_id == @geo"),geo,visuals/name); names.append(name)
     comparison="seven_geo_bps_short_horizon_comparison.png"; _visual(evidence["policy_chronology"],"Seven-geography BPS short-horizon comparison",visuals/comparison)
-    statement="This experiment tests only the BPS short horizon. Transform family, long horizon, MA12 level, weights, normalization, Supply metric weight, and Supply architecture are frozen. No production policy is promoted automatically."
+    statement="The diagnostic tested only the BPS short horizon. Human decision selected BPS-H-LAG6 for production; transform family, long horizon, MA12 level, weights, normalization, Supply metric weight, and Supply architecture remain frozen. There is no automated winner."
     order=["policy_registry","decision_matrix","stability_summary","responsiveness_audit","turn_detection_audit","turning_point_summary","contribution_summary","extreme_jump_attribution","recent_36m_summary","metric_score_comparison"]
     body=[f"<h1>BPS Short-Horizon Review</h1><p><strong>{html.escape(statement)}</strong></p>"]+[f"<h2>{k.replace('_',' ').title()}</h2>{evidence[k].to_html(index=False)}" for k in order]
     body.append(f"<h2>Seven-Geo Comparison</h2><img src='visuals/{comparison}'>"+"".join(f"<img src='visuals/{n}'>" for n in names)); body.append("<h2>Governance</h2>"+evidence["human_decision_status"].to_html(index=False))
     (output_dir/"bps_short_horizon_review.html").write_text("<!doctype html><meta charset='utf-8'><style>body{font-family:sans-serif}img{max-width:100%}table{font-size:10px}</style>"+"".join(body),encoding="utf-8")
-    runtime=pd.DataFrame([{"source_run_id":source_run_id,"geography_count":7,"policy_count":3,"visual_count":8,"output_file_count":len(list(output_dir.rglob('*')))+1}]); runtime.to_csv(output_dir/"bps_short_horizon_runtime_summary.csv",index=False)
+    runtime=pd.DataFrame([{"decision_id":DECISION_ID,"source_run_id":source_run_id,"selected_policy":SELECTED_POLICY,"geography_count":7,"policy_count":3,"visual_count":8,"parity_tolerance":TOLERANCE,"output_file_count":len(list(output_dir.rglob('*')))+2}]); runtime.to_csv(output_dir/"bps_short_horizon_runtime_summary.csv",index=False); runtime.to_csv(output_dir/"bps_short_horizon_promotion_runtime_summary.csv",index=False)
     return len(list(output_dir.rglob("*")))
