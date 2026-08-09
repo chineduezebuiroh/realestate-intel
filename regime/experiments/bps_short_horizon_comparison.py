@@ -14,7 +14,7 @@ from regime.diagnostics.bps_permit_volatility import (
     FEATURES, GEOGRAPHIES, TOLERANCE, _canonical_input, _production_contract,
     build_evidence as build_incumbent_evidence,
 )
-from regime.diagnostics.capital_markets_ma import detect_turning_points
+from regime.diagnostics.capital_markets_ma import detect_turning_points, match_turning_points
 
 POLICIES = {"BPS-H-LAG1": 1, "BPS-H-LAG3": 3, "BPS-H-LAG6": 6}
 WEIGHTS = {"level": .50, "short": .25, "long": .25}
@@ -89,11 +89,52 @@ def _stability(chron: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return detail,summary
 
 
-def _turns(chron: pd.DataFrame) -> tuple[pd.DataFrame,pd.DataFrame]:
-    rows=[]; summaries=[]
+def _scale_valid_turns(frame: pd.DataFrame, value: str) -> pd.DataFrame:
+    """Run persistent detection with scale-valid 12-month prominence.
+
+    Candidate dates still require the shared detector's three incoming and
+    three outgoing same-direction observations.  Qualification measures the
+    candidate's unitless excursion from its 12-month shoulders, rather than
+    only the six tiny changes immediately adjacent to a smooth extremum.
+    """
+    work=frame[["date",value]].copy(); work[value]=pd.to_numeric(work[value],errors="coerce")
+    finite=np.isfinite(work[value]); scale=work.loc[finite,value].std(ddof=0)
+    if not finite.any() or not np.isfinite(scale) or scale <= 0:
+        return pd.DataFrame(columns=["turning_point_date","turning_point_type","qualified"])
+    work.loc[finite,value]=(work.loc[finite,value]-work.loc[finite,value].mean())/scale
+    found=detect_turning_points(work,value)
+    if not len(found): return found
+    series=work.set_index(pd.to_datetime(work.date))[value]
+    prominence=[]
+    for date in pd.to_datetime(found.turning_point_date):
+        center=series.get(date,np.nan); before=series.get(date-pd.DateOffset(months=12),np.nan); after=series.get(date+pd.DateOffset(months=12),np.nan)
+        prominence.append(abs(center-before)+abs(center-after) if np.isfinite(center) and np.isfinite(before) and np.isfinite(after) else np.nan)
+    found["prominence"]=prominence; found["qualified"]=found.prominence.gt(found.prominence_threshold)
+    return found[found.qualified].copy()
+
+
+def _series_audit(policy: str, geo: str, name: str, frame: pd.DataFrame, turns: pd.DataFrame) -> dict:
+    work=frame[["date",name]].copy().sort_values("date"); values=pd.to_numeric(work[name],errors="coerce")
+    finite=values[np.isfinite(values)]; a=finite.to_numpy()
+    extrema=int(((((a[1:-1]>a[:-2])&(a[1:-1]>a[2:]))|((a[1:-1]<a[:-2])&(a[1:-1]<a[2:]))).sum())) if len(a)>2 else 0
+    return {"geo_id":geo,"policy_id":policy,"series_name":name,"row_count":len(work),"finite_count":len(finite),
+        "null_count":int(values.isna().sum()),"duplicate_date_count":int(pd.to_datetime(work.date).duplicated().sum()),
+        "first_date":pd.to_datetime(work.date).min(),"last_date":pd.to_datetime(work.date).max(),
+        "min_value":finite.min() if len(finite) else np.nan,"max_value":finite.max() if len(finite) else np.nan,
+        "std_value":finite.std(ddof=0) if len(finite) else np.nan,"simple_local_extrema_count":extrema,
+        "qualified_turn_count":len(turns),"turn_detection_status":"qualified_turns" if len(turns) else "no_qualified_turns"}
+
+
+def _turns(chron: pd.DataFrame) -> tuple[pd.DataFrame,pd.DataFrame,pd.DataFrame,dict[str,pd.DataFrame]]:
+    rows=[]; summaries=[]; audits=[]; references={}
     for (policy,geo),g in chron.groupby(["policy_id","geo_id"]):
+        structural=_scale_valid_turns(g,"ma12_level")
+        if geo in references:
+            if not structural.reset_index(drop=True).equals(references[geo].reset_index(drop=True)): raise AssertionError("structural reference turns differ by policy")
+        else: references[geo]=structural
+        audits.append(_series_audit(policy,geo,"ma12_level",g,structural))
         for feature in ("normalized_short_score","metric_score"):
-            found=detect_turning_points(g,feature); found=found[found.qualified] if len(found) else found
+            found=_scale_valid_turns(g,feature); audits.append(_series_audit(policy,geo,feature,g,found))
             dates=pd.to_datetime(found.turning_point_date) if len(found) else pd.Series(dtype="datetime64[ns]")
             rows.extend({"policy_id":policy,"geo_id":geo,"feature":feature,**r} for r in found.to_dict("records"))
             spacing=dates.sort_values().diff().dt.days/30.4375; cutoff=pd.to_datetime(g.date).max()-pd.DateOffset(months=36)
@@ -102,7 +143,7 @@ def _turns(chron: pd.DataFrame) -> tuple[pd.DataFrame,pd.DataFrame]:
     detail=pd.DataFrame(rows)
     if detail.empty:
         detail=pd.DataFrame(columns=["policy_id","geo_id","feature","turning_point_date","turning_point_type","qualified"])
-    return detail,pd.DataFrame(summaries)
+    return detail,pd.DataFrame(summaries),pd.DataFrame(audits),references
 
 
 def _movement(chron: pd.DataFrame):
@@ -126,34 +167,37 @@ def _movement(chron: pd.DataFrame):
     return movement,pd.DataFrame(shares),pd.DataFrame(drivers),extreme
 
 
-def _responsiveness(chron: pd.DataFrame, turns: pd.DataFrame) -> pd.DataFrame:
-    """Match same-type turns to nearest event within ±12 calendar months."""
+def _responsiveness(chron: pd.DataFrame, turns: pd.DataFrame, references: dict[str,pd.DataFrame]) -> pd.DataFrame:
+    """Match each reference to the nearest unused same-type turn within ±12 months."""
     rows=[]
     for (policy,geo),g in chron.groupby(["policy_id","geo_id"]):
-        structural=detect_turning_points(g,"ma12_level"); structural=structural[structural.qualified] if len(structural) else structural
+        structural=references[geo]
         for target in ("normalized_short_score","metric_score"):
             candidates=turns.query("policy_id == @policy and geo_id == @geo and feature == @target")
-            lags=[]
-            for event in structural.itertuples():
-                same=candidates[candidates.turning_point_type.eq(event.turning_point_type)].copy()
-                if len(same):
-                    same["lag"]=(pd.to_datetime(same.turning_point_date).dt.to_period("M")-pd.Timestamp(event.turning_point_date).to_period("M")).apply(lambda x:x.n)
-                    same=same[same.lag.abs().le(12)].sort_values("lag",key=lambda x:x.abs())
-                    if len(same): lags.append(int(same.iloc[0].lag))
-            a=pd.Series(lags,dtype=float).abs()
-            rows.append({"policy_id":policy,"geo_id":geo,"target_feature":target,"reference_definition":"qualified MA12 level turns","matching_window_months":12,"matched_turn_count":len(a),
-                "median_lag_months":a.median(),"p90_lag_months":a.quantile(.9),"share_within_1_month":a.le(1).mean() if len(a) else np.nan,"share_within_3_months":a.le(3).mean() if len(a) else np.nan,"share_within_6_months":a.le(6).mean() if len(a) else np.nan})
-    return pd.DataFrame(rows)
+            matched=match_turning_points(structural,candidates,window_months=12)
+            signed=matched.loc[matched.matched,"signed_delay_months"].astype(float); absolute=signed.abs()
+            rows.append({"policy_id":policy,"geo_id":geo,"target_feature":target,"reference_definition":"qualified scale-standardized MA12 level turns","matching_window_months":12,
+                "reference_turn_count":len(structural),"policy_turn_count":len(candidates),"matched_turn_count":len(signed),
+                "unmatched_reference_turn_count":len(structural)-len(signed),"unmatched_policy_turn_count":len(candidates)-len(signed),
+                "median_signed_lag_months":signed.median(),"median_absolute_lag_months":absolute.median(),"p90_absolute_lag_months":absolute.quantile(.9),
+                "share_within_1_month":absolute.le(1).mean() if len(absolute) else np.nan,"share_within_3_months":absolute.le(3).mean() if len(absolute) else np.nan,"share_within_6_months":absolute.le(6).mean() if len(absolute) else np.nan})
+    result=pd.DataFrame(rows)
+    if any(len(x)==0 for x in references.values()): raise AssertionError("every sufficient geography must have a structural reference turn")
+    if result.matched_turn_count.sum()==0: raise AssertionError("responsiveness produced zero matches")
+    if (result.matched_turn_count.gt(result.reference_turn_count)|result.matched_turn_count.gt(result.policy_turn_count)).any(): raise AssertionError("turn matching is not one-to-one")
+    shares=result[["share_within_1_month","share_within_3_months","share_within_6_months"]].dropna()
+    if ((shares.lt(0)|shares.gt(1)).any().any() or (shares.iloc[:,0]>shares.iloc[:,1]).any() or (shares.iloc[:,1]>shares.iloc[:,2]).any()): raise AssertionError("invalid responsiveness shares")
+    return result
 
 
 def build_evidence(source: pd.DataFrame, source_run_id: str) -> dict[str,pd.DataFrame]:
-    _production_contract(); chron,reference=_chronologies(source); stability,stability_summary=_stability(chron); turns,turn_summary=_turns(chron); movement,contrib,drivers,extreme=_movement(chron)
+    _production_contract(); chron,reference=_chronologies(source); stability,stability_summary=_stability(chron); turns,turn_summary,turn_audit,references=_turns(chron); movement,contrib,drivers,extreme=_movement(chron)
     lag3=chron.query("policy_id == 'BPS-H-LAG3'").set_index(["geo_id","date"]); ref=reference.set_index(["geo_id","date"]); parity=[]
     for col in ["ma12_level","short_raw_feature","long_raw_feature","normalized_level_score","normalized_short_score","normalized_long_score","metric_score"]:
         delta=(lag3[col]-ref[col]).abs(); parity.append({"field":col,"max_abs_difference":delta.max(),"tolerance":TOLERANCE,"status":"pass" if delta.max()<=TOLERANCE else "fail"})
     parity=pd.DataFrame(parity)
     if parity.status.ne("pass").any(): raise AssertionError("lag3 incumbent parity failed")
-    responsiveness=_responsiveness(chron,turns); direction=[]
+    responsiveness=_responsiveness(chron,turns,references); direction=[]
     wide=chron.pivot(index=["geo_id","date"],columns="policy_id",values="short_raw_feature")
     for a,b in (("BPS-H-LAG1","BPS-H-LAG3"),("BPS-H-LAG3","BPS-H-LAG6"),("BPS-H-LAG1","BPS-H-LAG6")):
         for geo,g in wide.groupby(level="geo_id"):
@@ -174,9 +218,9 @@ def build_evidence(source: pd.DataFrame, source_run_id: str) -> dict[str,pd.Data
     for policy,lag in POLICIES.items():
         ss=stability_summary.query("policy_id == @policy and feature == 'normalized_short_score'").iloc[0]; ms=stability_summary.query("policy_id == @policy and feature == 'metric_score'").iloc[0]
         ts=turn_summary.query("policy_id == @policy and feature == 'normalized_short_score'"); tm=turn_summary.query("policy_id == @policy and feature == 'metric_score'"); rr=responsiveness.query("policy_id == @policy and target_feature == 'normalized_short_score'"); dd=drivers.query("policy_id == @policy and feature_family == 'short'")
-        decision.append({"Policy":policy,"Short horizon":f"lag{lag}","Long horizon":"lag12","Feature weights":"50/25/25","Normalized short median abs MoM":ss.median_abs_mom,"Normalized short P90":ss.p90_abs_mom,"Normalized short P99":ss.p99_abs_mom,"Normalized short sign flips":ss.sign_flips,"Normalized short turning points":ts.turning_points.sum(),"Metric median abs MoM":ms.median_abs_mom,"Metric P90":ms.p90_abs_mom,"Metric P99":ms.p99_abs_mom,"Metric max jump":ms.max_abs_jump,"Metric sign flips":ms.sign_flips,"Metric turning points":tm.turning_points.sum(),"Latest-36m metric turns":tm.latest_36m_turning_points.sum(),"Short absolute movement contribution share":contrib.query("policy_id == @policy").short_absolute_movement_contribution_share.median(),"Short-metric correlation":dd.correlation_with_metric_delta.median(),"Median responsiveness lag months":rr.median_lag_months.median(),"P90 responsiveness lag months":rr.p90_lag_months.median(),"Share within 3 months":rr.share_within_3_months.mean(),"Largest metric jump":extreme.query("policy_id == @policy").abs_metric_delta.max(),"Recent-36m metric volatility":pd.DataFrame(recent).query("policy_id == @policy").metric_score_volatility.median(),"Decision":"pending"})
+        decision.append({"Policy":policy,"Short horizon":f"lag{lag}","Long horizon":"lag12","Feature weights":"50/25/25","Normalized short median abs MoM":ss.median_abs_mom,"Normalized short P90":ss.p90_abs_mom,"Normalized short P99":ss.p99_abs_mom,"Normalized short sign flips":ss.sign_flips,"Normalized short turning points":ts.turning_points.sum(),"Metric median abs MoM":ms.median_abs_mom,"Metric P90":ms.p90_abs_mom,"Metric P99":ms.p99_abs_mom,"Metric max jump":ms.max_abs_jump,"Metric sign flips":ms.sign_flips,"Metric turning points":tm.turning_points.sum(),"Latest-36m metric turns":tm.latest_36m_turning_points.sum(),"Short absolute movement contribution share":contrib.query("policy_id == @policy").short_absolute_movement_contribution_share.median(),"Short-metric correlation":dd.correlation_with_metric_delta.median(),"Reference turn count":rr.reference_turn_count.sum(),"Matched turn count":rr.matched_turn_count.sum(),"Median signed responsiveness lag months":rr.median_signed_lag_months.median(),"Median absolute responsiveness lag months":rr.median_absolute_lag_months.median(),"P90 absolute responsiveness lag months":rr.p90_absolute_lag_months.median(),"Share within 1 month":rr.share_within_1_month.mean(),"Share within 3 months":rr.share_within_3_months.mean(),"Share within 6 months":rr.share_within_6_months.mean(),"Largest metric jump":extreme.query("policy_id == @policy").abs_metric_delta.max(),"Recent-36m metric volatility":pd.DataFrame(recent).query("policy_id == @policy").metric_score_volatility.median(),"Decision":"pending"})
     status=pd.DataFrame([{"source_run_id":source_run_id,"recommendation_state":"none","promotion_state":"none","human_decision":"pending"}])
-    return {"policy_registry":policy_registry(),"policy_chronology":chron,"stability":stability,"stability_summary":stability_summary,"turning_points":turns,"turning_point_summary":turn_summary,"contribution_summary":contrib,"metric_driver_audit":drivers,"metric_movement_attribution":movement,"responsiveness_audit":responsiveness,"directional_agreement":pd.DataFrame(direction),"extreme_jump_attribution":extreme,"recent_36m_summary":pd.DataFrame(recent),"metric_score_comparison":pd.DataFrame(comparisons),"decision_matrix":pd.DataFrame(decision),"parity_audit":parity,"human_decision_status":status}
+    return {"policy_registry":policy_registry(),"policy_chronology":chron,"stability":stability,"stability_summary":stability_summary,"turning_points":turns,"turning_point_summary":turn_summary,"turn_detection_audit":turn_audit,"contribution_summary":contrib,"metric_driver_audit":drivers,"metric_movement_attribution":movement,"responsiveness_audit":responsiveness,"directional_agreement":pd.DataFrame(direction),"extreme_jump_attribution":extreme,"recent_36m_summary":pd.DataFrame(recent),"metric_score_comparison":pd.DataFrame(comparisons),"decision_matrix":pd.DataFrame(decision),"parity_audit":parity,"human_decision_status":status}
 
 
 def _visual(frame: pd.DataFrame, title: str, path: Path) -> None:
@@ -201,7 +245,7 @@ def write_bundle(evidence: dict[str,pd.DataFrame], output_dir: Path, source_run_
         name=f"{geo}__bps_short_horizon_comparison.png"; _visual(evidence["policy_chronology"].query("geo_id == @geo"),geo,visuals/name); names.append(name)
     comparison="seven_geo_bps_short_horizon_comparison.png"; _visual(evidence["policy_chronology"],"Seven-geography BPS short-horizon comparison",visuals/comparison)
     statement="This experiment tests only the BPS short horizon. Transform family, long horizon, MA12 level, weights, normalization, Supply metric weight, and Supply architecture are frozen. No production policy is promoted automatically."
-    order=["policy_registry","decision_matrix","stability_summary","responsiveness_audit","turning_point_summary","contribution_summary","extreme_jump_attribution","recent_36m_summary","metric_score_comparison"]
+    order=["policy_registry","decision_matrix","stability_summary","responsiveness_audit","turn_detection_audit","turning_point_summary","contribution_summary","extreme_jump_attribution","recent_36m_summary","metric_score_comparison"]
     body=[f"<h1>BPS Short-Horizon Review</h1><p><strong>{html.escape(statement)}</strong></p>"]+[f"<h2>{k.replace('_',' ').title()}</h2>{evidence[k].to_html(index=False)}" for k in order]
     body.append(f"<h2>Seven-Geo Comparison</h2><img src='visuals/{comparison}'>"+"".join(f"<img src='visuals/{n}'>" for n in names)); body.append("<h2>Governance</h2>"+evidence["human_decision_status"].to_html(index=False))
     (output_dir/"bps_short_horizon_review.html").write_text("<!doctype html><meta charset='utf-8'><style>body{font-family:sans-serif}img{max-width:100%}table{font-size:10px}</style>"+"".join(body),encoding="utf-8")
