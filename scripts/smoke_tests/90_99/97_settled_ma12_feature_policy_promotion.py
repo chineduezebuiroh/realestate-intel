@@ -14,7 +14,7 @@ from regime._03_metric_scorer import score_metrics
 from regime.artifacts import RegimeArtifactStore
 from regime.derived_metrics import build_derived_metrics_with_lineage
 
-PROMOTION_VERSION = "settled_ma12_feature_policy_promotion_2026_08_05"
+PROMOTION_VERSION = "settled_production_feature_policy_2026_08_09"
 EVIDENCE_SOURCE = "ma12_structural_feature_weight_experiment_v1"
 
 TARGETS = {
@@ -30,27 +30,41 @@ DIRECT_METRICS = {
     "median_sale_price",
     "median_ppsf",
 }
-EXPECTED_DEFINITION = {
+ORIGINAL_MA12_DEFINITION = {
     "level": ("ma_level", "12m", 0.50),
     "short_term_change": ("ma_pct_change", "12m/lag3m", 0.25),
     "long_term_change": ("ma_pct_change", "12m/lag12m", 0.25),
 }
-UNCHANGED_AFFORDABILITY = {
-    "price_to_income_level": ("derived_price_to_income", "level", "level_zscore", "", 0.50),
-    "price_to_income_short": ("derived_price_to_income", "short_term_change", "mom_zscore", "1m", 0.20),
-    "price_to_income_long": ("derived_price_to_income", "long_term_change", "yoy_zscore", "12m", 0.30),
-    "payment_burden_level": ("derived_payment_burden", "level", "level_zscore", "", 0.50),
-    "payment_burden_short": ("derived_payment_burden", "short_term_change", "mom_zscore", "1m", 0.20),
-    "payment_burden_long": ("derived_payment_burden", "long_term_change", "yoy_zscore", "12m", 0.30),
+# BPS-H-LAG6 was governed after the original 2026-08-05 MA12 promotion.  It is
+# deliberately the sole exception to the original five-target contract.
+BPS_LAG6_DEFINITION = {
+    **ORIGINAL_MA12_DEFINITION,
+    "short_term_change": ("ma_pct_change", "12m/lag6m", 0.25),
 }
+# Phase 4A and AFF-FW-A subsequently settled derive-first MA12 features at
+# 50/20/30; these expectations must not retain the pre-Phase-4A transforms.
+AFFORDABILITY = {
+    feature_key: (metric, feature_type, transform, window, weight)
+    for metric, prefix in (("derived_price_to_income", "price_to_income"),
+                           ("derived_payment_burden", "payment_burden"))
+    for feature_key, feature_type, transform, window, weight in (
+        (f"{prefix}_level", "level", "ma_level", "12m", 0.50),
+        (f"{prefix}_short", "short_term_change", "ma_pct_change", "12m/lag3m", 0.20),
+        (f"{prefix}_long", "long_term_change", "ma_pct_change", "12m/lag12m", 0.30),
+    )
+}
+# MW-TEMPERED-C subsequently settled the mixed structural transform
+# architecture and 60/20/20 feature weights.
 CAPITAL_MARKETS = {
-    "fred_mortgage_15y": (0.40, 0.30, 0.30),
-    "fred_2y": (0.40, 0.30, 0.30),
-    "fred_10y_fedfunds_spread": (0.40, 0.30, 0.30),
-    "fred_mortgage_30y": (0.40, 0.30, 0.30),
-    "fred_fedfunds": (0.40, 0.30, 0.30),
-    "fred_10y": (0.40, 0.30, 0.30),
-    "fred_2y10y_spread": (0.40, 0.30, 0.30),
+    "fred_mortgage_15y": (("ma_level", "ma_pct_change", "ma_pct_change"), ("12m", "12m/lag12m", "12m/lag3m"), (0.60, 0.20, 0.20)),
+    # Treasury 2y is an inactive zero-weight control, not one of the six
+    # MW-TEMPERED-C members, so its legacy feature contract stays frozen.
+    "fred_2y": (("level_zscore", "yoy_zscore", "mom_zscore"), ("", "12m", "1m"), (0.40, 0.30, 0.30)),
+    "fred_10y_fedfunds_spread": (("ma_level", "ma_difference", "ma_difference"), ("9m", "9m/lag12m", "9m/lag3m"), (0.60, 0.20, 0.20)),
+    "fred_mortgage_30y": (("ma_level", "ma_pct_change", "ma_pct_change"), ("12m", "12m/lag12m", "12m/lag3m"), (0.60, 0.20, 0.20)),
+    "fred_fedfunds": (("ma_level", "ma_pct_change", "ma_pct_change"), ("3m", "3m/lag12m", "3m/lag3m"), (0.60, 0.20, 0.20)),
+    "fred_10y": (("ma_level", "ma_pct_change", "ma_pct_change"), ("12m", "12m/lag12m", "12m/lag3m"), (0.60, 0.20, 0.20)),
+    "fred_2y10y_spread": (("ma_level", "ma_difference", "ma_difference"), ("9m", "9m/lag12m", "9m/lag3m"), (0.60, 0.20, 0.20)),
 }
 METRIC_WEIGHTS = {
     "redfin_inventory": 0.60,
@@ -60,7 +74,13 @@ METRIC_WEIGHTS = {
     "redfin_median_ppsf": 0.5,
     "derived_price_to_income": 0.50,
     "derived_payment_burden": 0.50,
-    "fred_mortgage_30y": 0.35,
+    "fred_mortgage_30y": 0.15,
+    "fred_mortgage_15y": 0.15,
+    "fred_10y": 0.15,
+    "fred_fedfunds": 0.10,
+    "fred_2y": 0.0,
+    "fred_2y10y_spread": 0.225,
+    "fred_10y_fedfunds_spread": 0.225,
 }
 AXIS_WEIGHTS = {
     ("demand", "demand"): 0.65,
@@ -70,6 +90,14 @@ AXIS_WEIGHTS = {
     ("supply", "supply"): 0.85,
     ("supply", "capital_markets"): 0.15,
 }
+SOURCE_PRIORITY_TWO = {
+    "acs5_population",
+    "acs5_median_household_income",
+    "bea_annual_gdp",
+    "laus_employment",
+    "fred_unemployment_rate",
+}
+EXPECTED_METRIC_DIMENSION_ROWS = 43
 PRIOR_LINEAGE = {
     "active_inventory": (("level_zscore", "mom_zscore", "yoy_zscore"), (0.25, 0.35, 0.40)),
     "permit_activity": (("ma12_level", "ma3_vs_ma12_pct", "ma12_yoy_pct"), (0.25, 0.35, 0.40)),
@@ -98,11 +126,12 @@ def _assert_registry_scope(config: object) -> None:
         family = promoted[promoted.canonical_metric_key.eq(metric)].copy()
         if set(family.metric_key) != {registry_key}:
             raise AssertionError(f"{metric} changed source/metric ownership")
-        if family.feature_type.duplicated().any() or set(family.feature_type) != set(EXPECTED_DEFINITION):
+        expected_definition = BPS_LAG6_DEFINITION if metric == "permit_activity" else ORIGINAL_MA12_DEFINITION
+        if family.feature_type.duplicated().any() or set(family.feature_type) != set(expected_definition):
             raise AssertionError(f"{metric} does not resolve one level, short, and long feature")
         if not np.isclose(family.feature_weight.sum(), 1.0):
             raise AssertionError(f"{metric} promoted weights do not sum to 1.0")
-        for feature_type, (transform, window, weight) in EXPECTED_DEFINITION.items():
+        for feature_type, (transform, window, weight) in expected_definition.items():
             row = family[family.feature_type.eq(feature_type)].iloc[0]
             if (row["transform"], row["feature_window"], float(row["feature_weight"])) != (transform, window, weight):
                 raise AssertionError(f"{metric}/{feature_type} is not the governed MA12 Alternative A policy")
@@ -114,22 +143,22 @@ def _assert_registry_scope(config: object) -> None:
     if changed_from_prior != set(TARGETS):
         raise AssertionError("Promotion lineage should identify exactly five changed metrics")
 
-    for feature_key, expected in UNCHANGED_AFFORDABILITY.items():
+    for feature_key, expected in AFFORDABILITY.items():
         row = rows[rows.feature_key.eq(feature_key)].iloc[0]
         actual = (row.metric_key, row.feature_type, row["transform"], row["feature_window"], float(row["feature_weight"]))
         if actual != expected:
-            raise AssertionError(f"Affordability feature changed unexpectedly: {feature_key}")
+            raise AssertionError(f"Affordability settled derive-first feature changed: {feature_key}")
 
     capital = rows[rows.dimension_context.eq("capital_markets")].copy()
     if set(capital.metric_key) != set(CAPITAL_MARKETS):
         raise AssertionError("Capital Markets feature ownership changed")
-    for metric_key, weights in CAPITAL_MARKETS.items():
+    for metric_key, (transforms, windows, weights) in CAPITAL_MARKETS.items():
         family = capital[capital.metric_key.eq(metric_key)].sort_values("feature_type")
-        if tuple(family["transform"]) != ("level_zscore", "yoy_zscore", "mom_zscore"):
-            # sorted feature_type order is level, long_term_change, short_term_change
-            raise AssertionError(f"Capital Markets transforms changed for {metric_key}")
-        if not np.allclose(tuple(family["feature_weight"]), (weights[0], weights[2], weights[1])):
-            raise AssertionError(f"Capital Markets weights changed for {metric_key}")
+        # Sorted feature-type order is level, long, short.
+        if tuple(family["transform"]) != transforms or tuple(family["feature_window"]) != windows:
+            raise AssertionError(f"Capital Markets settled transforms/windows changed for {metric_key}")
+        if not np.allclose(tuple(family["feature_weight"]), weights):
+            raise AssertionError(f"Capital Markets settled feature weights changed for {metric_key}")
 
     metric_rows = config.metric_dimensions.copy()
     metric_rows["metric_weight"] = pd.to_numeric(metric_rows["metric_weight"], errors="raise")
@@ -152,13 +181,18 @@ def _assert_registry_scope(config: object) -> None:
         raise AssertionError("BPS geography policy changed")
     if source.loc["derived_permit_intensity", "geo_levels"] != "state|county":
         raise AssertionError("Permit-intensity geography policy changed")
-    if not config.metric_dimensions["source_priority"].equals(load_regime_config(validate=True).metric_dimensions["source_priority"]):
-        # Same load guards accidental mutation during this validation process.
-        raise AssertionError("Source precedence mutated during validation")
+    # Freeze the complete settled precedence shape rather than comparing the
+    # registry to a second load of itself (which would be tautological).
+    priorities = pd.to_numeric(config.metric_dimensions["source_priority"], errors="raise")
+    priority_two = set(config.metric_dimensions.loc[priorities.eq(2), "metric_key"])
+    if (len(config.metric_dimensions) != EXPECTED_METRIC_DIMENSION_ROWS
+            or priority_two != SOURCE_PRIORITY_TWO
+            or not priorities.isin({1, 2}).all()):
+        raise AssertionError("Settled source precedence changed")
 
 
 def _synthetic_observations() -> tuple[pd.DataFrame, pd.DataFrame]:
-    dates = pd.date_range("2020-01-31", periods=72, freq="ME")
+    dates = pd.date_range("2020-01-31", periods=72, freq="M")
     geo = "promotion_fixture__county"
     rows: list[dict[str, object]] = []
     for i, date in enumerate(dates, start=1):
@@ -211,9 +245,12 @@ def _assert_production_resolution(config: object) -> pd.DataFrame:
     feature_weights = config.features.set_index("feature_key")["feature_weight"].astype(float)
     for metric, (level_key, short_key, long_key) in metric_to_features.items():
         level = raw[metric].rolling(12, min_periods=12).mean()
+        # The later BPS-H-LAG6 promotion changed only BPS short-horizon math;
+        # every other original MA12 target remains on lag3.
+        short_lag = 6 if metric == "permit_activity" else 3
         expected = {
             level_key: level,
-            short_key: level / level.shift(3) - 1.0,
+            short_key: level / level.shift(short_lag) - 1.0,
             long_key: level / level.shift(12) - 1.0,
         }
         wrong_ma3_raw = raw[metric].rolling(3, min_periods=3).mean() / level - 1.0
