@@ -16,8 +16,8 @@ from regime.diagnostics.bps_permit_volatility import (
 from regime.diagnostics.capital_markets_ma import detect_turning_points
 
 POLICIES = {
-    "BPS-T-RATIO": ("ratio", "MA12 / lag3(MA12) - 1", "MA12 / lag12(MA12) - 1"),
-    "BPS-T-DIFF": ("arithmetic_difference", "MA12 - lag3(MA12)", "MA12 - lag12(MA12)"),
+    "BPS-T-RATIO": ("ratio", "MA12 / lag6(MA12) - 1", "MA12 / lag12(MA12) - 1"),
+    "BPS-T-DIFF": ("arithmetic_difference", "MA12 - lag6(MA12)", "MA12 - lag12(MA12)"),
 }
 WEIGHTS = {"level": .50, "short": .25, "long": .25}
 SUPPLY_METRIC_WEIGHT = .20
@@ -25,7 +25,7 @@ SUPPLY_METRIC_WEIGHT = .20
 
 def policy_registry() -> pd.DataFrame:
     return pd.DataFrame([{"policy_id": p, "transform_family": v[0], "level_formula": "MA12(raw bps_total_units)",
-        "short_formula": v[1], "long_formula": v[2], "short_horizon": "lag3", "long_horizon": "lag12",
+        "short_formula": v[1], "long_formula": v[2], "short_horizon": "lag6", "long_horizon": "lag12",
         "level_weight": .5, "short_weight": .25, "long_weight": .25,
         "normalization_method": "expanding_percentile", "normalization_polarity": "positive",
         "supply_metric_weight": SUPPLY_METRIC_WEIGHT} for p, v in POLICIES.items()])
@@ -48,7 +48,7 @@ def _policy_chronologies(source: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     # it shortened the governed horizon.
     ma["month"] = ma.date.dt.to_period("M")
     month_level = ma.set_index(["geo_id", "month"]).ma12_level
-    for name, lag in (("short", 3), ("long", 12)):
+    for name, lag in (("short", 6), ("long", 12)):
         lag_index = pd.MultiIndex.from_arrays([ma.geo_id, ma.month-lag])
         ma[name] = ma.ma12_level.to_numpy()-month_level.reindex(lag_index).to_numpy()
     values = {"bps_total_units_level":"ma12_level", "bps_total_units_short":"short", "bps_total_units_long":"long"}
@@ -158,13 +158,13 @@ def build_evidence(source: pd.DataFrame, source_run_id: str) -> dict[str,pd.Data
     denom=[]
     for geo,g in chron.query("policy_id == 'BPS-T-RATIO'").sort_values("date").groupby("geo_id"):
         d=diff.loc[geo]; r=ratio.loc[geo]
-        corr3=r.short_raw_feature.abs().corr(r.ma12_level.shift(3)); corr12=r.long_raw_feature.abs().corr(r.ma12_level.shift(12))
+        corr6=r.short_raw_feature.abs().corr(r.ma12_level.shift(6)); corr12=r.long_raw_feature.abs().corr(r.ma12_level.shift(12))
         for date in r.index:
-            denom.append({"geo_id":geo,"date":date,"lag3_ma12_denominator":r.ma12_level.shift(3).loc[date],
+            denom.append({"geo_id":geo,"date":date,"lag6_ma12_denominator":r.ma12_level.shift(6).loc[date],
                 "lag12_ma12_denominator":r.ma12_level.shift(12).loc[date],"ratio_short_magnitude":abs(r.short_raw_feature.loc[date]),
                 "ratio_long_magnitude":abs(r.long_raw_feature.loc[date]),"arithmetic_short_magnitude":abs(d.short_raw_feature.loc[date]),
                 "arithmetic_long_magnitude":abs(d.long_raw_feature.loc[date]),
-                "correlation_abs_ratio_short_with_lag3_ma12_denominator":corr3,
+                "correlation_abs_ratio_short_with_lag6_ma12_denominator":corr6,
                 "correlation_abs_ratio_long_with_lag12_ma12_denominator":corr12})
     denominator=pd.DataFrame(denom)
     fairness=[]
