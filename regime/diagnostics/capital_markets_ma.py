@@ -607,11 +607,21 @@ def build_transform_features(level_state: pd.DataFrame, metric_key: str, window:
 def calendar_delta(frame: pd.DataFrame, value: str, months: int) -> pd.DataFrame:
     work = frame[["date", value]].copy().sort_values("date")
     work["date"] = pd.to_datetime(work.date)
-    lag = work.rename(columns={"date": "lag_date", value: "lag_value"})
-    work["lag_date"] = work.date - pd.offsets.MonthEnd(months)
-    out = work.merge(lag, on="lag_date", how="left", validate="many_to_one")
+    work["_month"] = work.date.dt.to_period("M")
+    if work._month.duplicated().any():
+        # Preserve legacy exact-date behavior for non-monthly/index-like
+        # diagnostic inputs; governed monthly chronologies take the path below.
+        work=work.drop(columns="_month")
+        lag=work.rename(columns={"date":"lag_date",value:"lag_value"})
+        work["lag_date"]=work.date-pd.offsets.MonthEnd(months)
+        out=work.merge(lag,on="lag_date",how="left",validate="many_to_one")
+        out["delta"]=out[value]-out.lag_value
+        return out
+    lag = work[["date", "_month", value]].rename(columns={"date": "lag_date", value: "lag_value"})
+    work["_lag_month"] = work._month - months
+    out = work.merge(lag, left_on="_lag_month", right_on="_month", how="left", validate="many_to_one", suffixes=("", "_matched"))
     out["delta"] = out[value] - out.lag_value
-    return out
+    return out.drop(columns=["_month", "_lag_month", "_month_matched"])
 
 
 def direction(value: float, tolerance: float = DIRECTION_TOLERANCE) -> str | None:
