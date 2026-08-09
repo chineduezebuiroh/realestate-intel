@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from regime.experiments.affordability_derivation_order import (
@@ -21,7 +23,7 @@ from regime._00_config_loader import load_regime_config
 
 
 def fixture() -> pd.DataFrame:
-    dates = pd.date_range("2018-01-31", periods=60, freq="M")
+    dates = pd.date_range("2018-01-31", periods=60, freq=MONTH_END)
     rows = []
     for geo_index, geo in enumerate(("county-a", "county-b")):
         for i, date in enumerate(dates):

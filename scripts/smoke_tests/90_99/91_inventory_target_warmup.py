@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime.experiments.in_memory_challenger import _target_replacement_reconciliation
 
 
 KEYS = ("inventory_level", "inventory_short", "inventory_long")
 GEOS = ("alpha__county", "beta__county")
-DATES = pd.date_range("2024-01-31", periods=6, freq="M")
+DATES = pd.date_range("2024-01-31", periods=6, freq=MONTH_END)
 
 
 def rows(starts: dict[tuple[str, str], int] | None = None) -> pd.DataFrame:

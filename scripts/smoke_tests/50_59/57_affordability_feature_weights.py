@@ -4,10 +4,12 @@ import sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
+
+from regime.pandas_compat import MONTH_END
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from regime.experiments.affordability_feature_weights import *
 
-dates = pd.date_range("2018-01-31", periods=72, freq="M")
+dates = pd.date_range("2018-01-31", periods=72, freq=MONTH_END)
 rows=[]
 for j, geo in enumerate(("district_of_columbia_dc__county","alameda_county_ca__county")):
     rows += [(geo,d,"median_sale_price",250000+j*50000+i*1200+5000*np.sin(i/4)) for i,d in enumerate(dates)]

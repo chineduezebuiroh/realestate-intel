@@ -6,6 +6,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime.derived_metrics import (
     build_derived_metrics_with_lineage,
 )
@@ -23,7 +25,7 @@ def _build_source_fixture() -> pd.DataFrame:
     dates = pd.date_range(
         "2020-01-31",
         periods=18,
-        freq="M",
+        freq=MONTH_END,
     )
 
     rows: list[
@@ -378,7 +380,7 @@ def main() -> int:
         pd.date_range(
             "2020-12-31",
             periods=7,
-            freq="M",
+            freq=MONTH_END,
         )
     )
 

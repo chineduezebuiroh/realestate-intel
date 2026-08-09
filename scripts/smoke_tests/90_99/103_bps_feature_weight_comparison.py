@@ -4,12 +4,14 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime.diagnostics.bps_permit_volatility import GEOGRAPHIES, TOLERANCE
 from regime.experiments import bps_feature_weight_comparison as diag
 
 
 def fixture() -> pd.DataFrame:
-    dates=pd.date_range("2015-01-31",periods=132,freq="ME"); rows=[]
+    dates=pd.date_range("2015-01-31",periods=132,freq=MONTH_END); rows=[]
     for number,geo in enumerate(GEOGRAPHIES):
         for i,date in enumerate(dates):
             value=100+number*8+i*.15+24*np.sin(i/5.0)+7*np.sin(i/2.2)
