@@ -74,6 +74,12 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 
 ### Current Focus
 
+The Regime Engine v1.0 historical/current county-level macro baseline has been
+prepared for merge to `main`. It freezes the settled production architecture as
+an auditable release candidate without changing scoring behavior. After human
+merge, validation, and tagging on `main`, the next stage is a lightweight
+Visualization MVP.
+
 BPS calibration is complete. Human-approved `BPS-FINAL-80` is production:
 MA12 level, MA12/lag6 short ratio, and MA12/lag12 long ratio with 80/10/10
 feature weights, existing positive expanding-percentile normalization, and the
