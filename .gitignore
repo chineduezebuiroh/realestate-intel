@@ -27,6 +27,7 @@ artifacts/regime/**/tmp/
 
 # Generated review bundles
 artifacts/review/
+artifacts/product_mvp/
 
 # macOS metadata
 .DS_Store
