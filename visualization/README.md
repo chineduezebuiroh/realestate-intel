@@ -1,4 +1,4 @@
-# Visualization MVP v0.1
+# Visualization MVP v0.1.1
 
 This presentation layer reads immutable Regime Engine run artifacts and renders
 a standalone county macro-regime snapshot in HTML, plus a small product-facing
@@ -15,6 +15,14 @@ PYTHONPATH=. python -u scripts/build_regime_visualization_mvp.py \
   --output-dir artifacts/product_mvp/v0_1
 ```
 
-The visualization only reads the four published Parquet artifacts and the
-governed axis registry; it does not query a serving database or recompute regime
-scores and assignments.
+The visualization reads the five published `regime_assignments`, `coordinates`,
+`axis_scores`, `dimension_scores`, and `metric_scores` Parquet artifacts plus
+the governed axis and metric-dimension registries. It does not query a serving
+database or recompute regime scores, coordinates, geometry, or assignments.
+
+The regime plane uses the production cycle-wheel's four major angular sectors,
+a fixed equal ±0.60 axis scale, and visual-only 0.25/0.50 radial references.
+Signed metric drilldowns apply the production available-weight semantics and
+fail closed unless their contributions reconcile the persisted dimension score.
+The five-year chronology includes both the existing axis lines and a compact
+four-color strip sourced directly from persisted major/minor assignments.

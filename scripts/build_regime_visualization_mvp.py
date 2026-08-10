@@ -17,7 +17,10 @@ def main() -> int:
     parser.add_argument("--market-name", default="Washington, DC")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
-    html_path, json_path, _ = render_snapshot(args.run_dir, args.geo_id, args.market_name, args.output_dir, ROOT / "config/axis_registry.csv")
+    html_path, json_path, _ = render_snapshot(
+        args.run_dir, args.geo_id, args.market_name, args.output_dir,
+        ROOT / "config/axis_registry.csv", ROOT / "config/metric_dimension_registry.csv",
+    )
     print(html_path)
     print(json_path)
     return 0
