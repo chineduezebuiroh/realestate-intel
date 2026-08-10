@@ -1481,34 +1481,11 @@ def _build_metric_contribution_summary(
     )
 
 
-def build_axis_contribution_audit(
-    run_id: str = DEFAULT_RUN_ID,
-    *,
-    artifact_root: str | Path = (
-        DEFAULT_ARTIFACT_ROOT
-    ),
-    geo_ids: list[str] | None = None,
+def build_axis_contribution_tables(
+    *, aligned_metric_scores: pd.DataFrame, dimension_scores: pd.DataFrame,
+    axis_scores: pd.DataFrame, geo_ids: list[str],
 ) -> dict[str, pd.DataFrame]:
-    """
-    Reconstruct metric-to-dimension and dimension-to-axis
-    contributions from persisted artifacts and frozen registries.
-
-    No pipeline stages are recomputed.
-    """
-    store = RegimeArtifactStore(
-        artifact_root
-    )
-
-    manifest = store.read_manifest(
-        run_id
-    )
-
-    if manifest.get("status") != "complete":
-        raise ValueError(
-            f"Run {run_id!r} is not complete: "
-            f"{manifest.get('status')!r}"
-        )
-
+    """Apply the established contribution/cancellation diagnostic to supplied artifacts."""
     if geo_ids is None:
         geo_ids = DEFAULT_AUDIT_GEOS.copy()
 
@@ -1525,26 +1502,17 @@ def build_axis_contribution_audit(
     )
 
     metric_scores = _prepare_metric_scores(
-        store.read_dataframe(
-            run_id,
-            "aligned_metric_scores",
-        )
+        aligned_metric_scores
     )
 
     dimension_scores = (
         _prepare_dimension_scores(
-            store.read_dataframe(
-                run_id,
-                "dimension_scores",
-            )
+            dimension_scores
         )
     )
 
     axis_scores = _prepare_axis_scores(
-        store.read_dataframe(
-            run_id,
-            "axis_scores",
-        )
+            axis_scores
     )
 
     metric_scores = metric_scores[
@@ -1670,3 +1638,48 @@ def build_axis_contribution_audit(
             highest_cancellation_months
         ),
     }
+
+
+def build_axis_cancellation_from_frames(
+    *, dimension_scores: pd.DataFrame, axis_scores: pd.DataFrame,
+    geo_ids: list[str], axis: str,
+) -> pd.DataFrame:
+    """Reuse the production cancellation diagnostic for one supplied axis."""
+    config = load_regime_config(validate=True)
+    registry = _prepare_axis_registry(config)
+    dimensions_for_axis = set(registry.loc[registry["axis"].eq(axis), "dimension"])
+    prepared_dimensions = _prepare_dimension_scores(dimension_scores)
+    prepared_dimensions = prepared_dimensions[
+        prepared_dimensions["geo_id"].isin(geo_ids)
+        & prepared_dimensions["dimension"].isin(dimensions_for_axis)
+    ]
+    prepared_axes = _prepare_axis_scores(axis_scores)
+    prepared_axes = prepared_axes[
+        prepared_axes["geo_id"].isin(geo_ids) & prepared_axes["axis"].eq(axis)
+    ]
+    contributions = _build_axis_contributions(
+        prepared_dimensions, registry[registry["axis"].eq(axis)], prepared_axes
+    )
+    return _build_axis_change_attribution(contributions)
+
+
+def build_axis_contribution_audit(
+    run_id: str = DEFAULT_RUN_ID,
+    *,
+    artifact_root: str | Path = DEFAULT_ARTIFACT_ROOT,
+    geo_ids: list[str] | None = None,
+) -> dict[str, pd.DataFrame]:
+    """Load persisted artifacts and run the established diagnostic adapter."""
+    store = RegimeArtifactStore(artifact_root)
+    manifest = store.read_manifest(run_id)
+    if manifest.get("status") != "complete":
+        raise ValueError(
+            f"Run {run_id!r} is not complete: {manifest.get('status')!r}"
+        )
+    selected = geo_ids if geo_ids is not None else DEFAULT_AUDIT_GEOS.copy()
+    return build_axis_contribution_tables(
+        aligned_metric_scores=store.read_dataframe(run_id, "aligned_metric_scores"),
+        dimension_scores=store.read_dataframe(run_id, "dimension_scores"),
+        axis_scores=store.read_dataframe(run_id, "axis_scores"),
+        geo_ids=selected,
+    )

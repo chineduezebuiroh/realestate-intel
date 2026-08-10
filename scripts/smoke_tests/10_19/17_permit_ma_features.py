@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from regime._00_config_loader import load_regime_config
 from regime._01_feature_engine import build_feature_matrix
 
 
@@ -22,6 +23,20 @@ PERMIT_FEATURES = [
 
 
 def main() -> int:
+    config = load_regime_config(validate=True)
+    bps = config.features[config.features.feature_key.isin(PERMIT_FEATURES[:3])].set_index("feature_key")
+    assert bps.feature_weight.astype(float).to_dict() == {
+        "bps_total_units_level": 0.80,
+        "bps_total_units_short": 0.10,
+        "bps_total_units_long": 0.10,
+    }
+    assert bps[["transform", "feature_window"]].to_dict("index") == {
+        "bps_total_units_level": {"transform": "ma_level", "feature_window": "12m"},
+        "bps_total_units_short": {"transform": "ma_pct_change", "feature_window": "12m/lag6m"},
+        "bps_total_units_long": {"transform": "ma_pct_change", "feature_window": "12m/lag12m"},
+    }
+    metric = config.metric_dimensions.set_index("metric_key").loc["bps_total_units"]
+    assert float(metric.metric_weight) == 0.20
     features = build_feature_matrix()
 
     sample = features[

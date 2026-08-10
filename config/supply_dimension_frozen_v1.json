@@ -1,0 +1,17 @@
+{
+  "contract_identity": "supply_dimension_frozen_v1",
+  "status": "frozen",
+  "effective_decision_date": "2026-08-06",
+  "promotion_contract": "supply_metric_weight_promotion_2026_08_06",
+  "metric_membership": ["active_inventory", "permit_activity", "permit_intensity"],
+  "metric_weights": {"active_inventory": 0.60, "permit_activity": 0.20, "permit_intensity": 0.20},
+  "feature_contract": {
+    "level": "MA12(raw)",
+    "short": "MA12(raw) / lag3(MA12(raw)) - 1",
+    "long": "MA12(raw) / lag12(MA12(raw)) - 1"
+  },
+  "feature_weights": {"level": 0.50, "short": 0.25, "long": 0.25},
+  "permit_intensity_lineage": "derive raw ratio first, then smooth once",
+  "downstream_policy": "Supply-axis configured weights remain unchanged",
+  "future_change_requirements": ["new diagnostic identity", "explicit human approval", "new promotion contract", "new frozen Supply version"]
+}

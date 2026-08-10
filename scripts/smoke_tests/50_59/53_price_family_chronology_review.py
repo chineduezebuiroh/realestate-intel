@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime.experiments.linked_price_family_comparison import (
     STRUCTURAL_CHALLENGER_IDS,
     build_linked_price_family_comparison,
@@ -184,7 +186,7 @@ def _synthetic_monthly(
     dates: pd.DatetimeIndex | None = None,
 ) -> pd.DataFrame:
     if dates is None:
-        dates = pd.date_range("2020-01-31", periods=len(values), freq="M")
+        dates = pd.date_range("2020-01-31", periods=len(values), freq=MONTH_END)
     return pd.DataFrame(
         {
             "geo_id": "geo_synth",

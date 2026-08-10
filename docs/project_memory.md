@@ -74,7 +74,48 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 
 ### Current Focus
 
+The Regime Engine v1.0 historical/current county-level macro baseline has been
+prepared for merge to `main`. It freezes the settled production architecture as
+an auditable release candidate without changing scoring behavior. After human
+merge, validation, and tagging on `main`, the next stage is a lightweight
+Visualization MVP.
+
+BPS calibration is complete. Human-approved `BPS-FINAL-80` is production:
+MA12 level, MA12/lag6 short ratio, and MA12/lag12 long ratio with 80/10/10
+feature weights, existing positive expanding-percentile normalization, and the
+0.20 Supply metric weight unchanged. The prior transform, lag, five-policy, and
+70-versus-80 finalist reviews remain the historical calibration trail.
+
+Capital Markets calibration is closed after promotion of the human-selected `MW-TEMPERED-C` production policy; no transform, feature-weight, or metric-weight calibration remains pending. Next is Affordability feature decisions and derivation-order confirmation.
+
+
+Affordability calibration is complete. Phase 4A's derive-first MA12/lag3/lag12
+contract remains frozen, and Phase 4B retained the incumbent 50/20/30 feature
+weights through the human-selected `AFF-FW-A` policy without promoting a
+challenger.
+
 Current development has shifted from infrastructure implementation toward county-level production calibration.
+
+The Phase 8c Inventory calibration campaign now has a bounded foundation: typed
+campaign and promotion-gate contracts, registry-validated MA3/MA6/MA9/MA12
+structural candidates, and fixture orchestration through the existing Review
+Platform. Analytical evidence generation, thresholds, gate evaluation, and any
+production-policy decision remain future Phase 8c work. Phase 8c Slice 3 adds an
+artifact-backed advisory scorer over the Slice 2 evidence: explicit configured
+weights and directions, hard eligibility gates, warmup as a scored coverage
+tradeoff, direction-aware min-max normalization, and deterministic ranking. It
+does not rematerialize challengers, mutate registries, or promote the result;
+human-reviewed promotion remains deferred.
+Phase 8c Slice 4 adds a pure rendering boundary over those immutable results: a
+self-contained HTML landing page, CSV evidence copies, deterministic PNG review
+figures, lineage/hash manifest, and compressed ZIP. Phase A retains the already-
+materialized target series and deterministic transition-window identities needed
+for overlays. No challenger construction, normalization, scoring, registry
+mutation, or promotion occurs in the renderer; a human decision remains pending.
+Phase 8c now enforces an explicit county-only macro campaign boundary before
+challenger materialization, independently of any optional manual county subset.
+ZIP remains reserved for future local-regime work. Prior authoritative scoring
+is provisional pending a corrected county-only authoritative rerun.
 
 Current work is organized into four sequential efforts:
 
@@ -186,12 +227,10 @@ The following topics remain active areas of investigation and should not be cons
 
 - Optimal smoothing and feature weighting for the Inventory dimension.
 - Appropriate feature weighting within the Price dimension.
-- Long-term integration of capital-market indicators into regime scoring.
 - CBSA labor-source treatment and geography contracts.
 - Geographic expansion beyond the county-level Macro Regime framework.
 - Future Market Balance and Market Profile architecture.
 - Opportunities to improve review automation and explainability.
-- Long-term integration of capital-market indicators into regime scoring.
 - Appropriate treatment of price and affordability interactions.
 - Geographic expansion strategy beyond the current macro framework.
 - Evolution of the Axis Engine and Coordinate Engine.
@@ -242,3 +281,9 @@ It should be updated whenever:
 - the active development roadmap is substantially revised.
 
 Detailed implementation history belongs in phase decision documents rather than this project summary.
+> **Phase 8c geography boundary:** The generated geography manifest is
+> authoritative. Legacy artifact IDs use the reviewed Phase 8c identity
+> crosswalk (the old manifest is migration evidence, not runtime authority),
+> after which county-only scope is applied before challengers. ZIP remains
+> reserved for future local work; city is outside both current macro and
+> planned local regimes; all other non-county levels are excluded.

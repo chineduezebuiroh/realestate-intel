@@ -12,6 +12,12 @@ source_family,bea,expanding_percentile,80,20,positive,0.01,0.99,true,BEA quarter
 source_family,bps,expanding_percentile,120,36,positive,0.01,0.99,true,BPS monthly permit metrics use a 120-month normalization window
 
 feature_key,permit_intensity_level,expanding_percentile,120,36,positive,0.01,0.99,true,Higher permit intensity means more supply pressure
+feature_key,fred_2y10y_spread_level,expanding_percentile,240,36,positive,0.01,0.99,true,Higher 10Y-minus-2Y spread is more favorable
+feature_key,fred_2y10y_spread_short,expanding_percentile,240,36,positive,0.01,0.99,true,Steepening 10Y-minus-2Y spread is more favorable
+feature_key,fred_2y10y_spread_long,expanding_percentile,240,36,positive,0.01,0.99,true,Structural steepening 10Y-minus-2Y spread is more favorable
+feature_key,fred_10y_fedfunds_spread_level,expanding_percentile,240,36,positive,0.01,0.99,true,Higher 10Y-minus-Fed-Funds spread is more favorable
+feature_key,fred_10y_fedfunds_spread_short,expanding_percentile,240,36,positive,0.01,0.99,true,Steepening 10Y-minus-Fed-Funds spread is more favorable
+feature_key,fred_10y_fedfunds_spread_long,expanding_percentile,240,36,positive,0.01,0.99,true,Structural steepening 10Y-minus-Fed-Funds spread is more favorable
 feature_key,permit_intensity_short,expanding_percentile,120,36,positive,0.01,0.99,true,Rising permit intensity means more supply pressure
 feature_key,permit_intensity_long,expanding_percentile,120,36,positive,0.01,0.99,true,Rising permit intensity means more supply pressure
 

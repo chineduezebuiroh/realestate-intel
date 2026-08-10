@@ -1,13 +1,13 @@
 feature_key,metric_key,feature_type,transform,feature_weight,feature_window,dimension_context,notes
-redfin_median_sale_price_level,redfin_median_sale_price,level,level_zscore,0.20,,price,
-redfin_median_sale_price_short,redfin_median_sale_price,short_term_change,mom_zscore,0.40,1m,price,
-redfin_median_sale_price_long,redfin_median_sale_price,long_term_change,yoy_zscore,0.40,12m,price,
-redfin_median_ppsf_level,redfin_median_ppsf,level,level_zscore,0.20,,price,
-redfin_median_ppsf_short,redfin_median_ppsf,short_term_change,mom_zscore,0.40,1m,price,
-redfin_median_ppsf_long,redfin_median_ppsf,long_term_change,yoy_zscore,0.40,12m,price,
-redfin_inventory_level,redfin_inventory,level,level_zscore,0.25,,supply,
-redfin_inventory_short,redfin_inventory,short_term_change,mom_zscore,0.35,1m,supply,
-redfin_inventory_long,redfin_inventory,long_term_change,yoy_zscore,0.40,12m,supply,
+redfin_median_sale_price_level,redfin_median_sale_price,level,ma_level,0.50,12m,price,
+redfin_median_sale_price_short,redfin_median_sale_price,short_term_change,ma_pct_change,0.25,12m/lag3m,price,
+redfin_median_sale_price_long,redfin_median_sale_price,long_term_change,ma_pct_change,0.25,12m/lag12m,price,
+redfin_median_ppsf_level,redfin_median_ppsf,level,ma_level,0.50,12m,price,
+redfin_median_ppsf_short,redfin_median_ppsf,short_term_change,ma_pct_change,0.25,12m/lag3m,price,
+redfin_median_ppsf_long,redfin_median_ppsf,long_term_change,ma_pct_change,0.25,12m/lag12m,price,
+redfin_inventory_level,redfin_inventory,level,ma_level,0.50,12m,supply,
+redfin_inventory_short,redfin_inventory,short_term_change,ma_pct_change,0.25,12m/lag3m,supply,
+redfin_inventory_long,redfin_inventory,long_term_change,ma_pct_change,0.25,12m/lag12m,supply,
 redfin_homes_sold_level,redfin_homes_sold,level,level_zscore,0.25,,transaction_activity,
 redfin_homes_sold_short,redfin_homes_sold,short_term_change,mom_zscore,0.35,1m,transaction_activity,
 redfin_homes_sold_long,redfin_homes_sold,long_term_change,yoy_zscore,0.40,12m,transaction_activity,
@@ -70,9 +70,9 @@ ces_total_private_level,ces_total_private,level,level_zscore,0.25,,demand,
 ces_total_private_short,ces_total_private,short_term_change,mom_zscore,0.35,1m,demand,
 ces_total_private_long,ces_total_private,long_term_change,yoy_zscore,0.40,12m,demand,
 
-bps_total_units_level,bps_total_units,level,ma12_level,0.25,,supply,
-bps_total_units_short,bps_total_units,short_term_change,ma3_vs_ma12_pct,0.35,1m,supply,
-bps_total_units_long,bps_total_units,long_term_change,ma12_yoy_pct,0.40,12m,supply,
+bps_total_units_level,bps_total_units,level,ma_level,0.80,12m,supply,Promoted BPS feature-weight policy BPS-FINAL-80 (2026-08-09).
+bps_total_units_short,bps_total_units,short_term_change,ma_pct_change,0.10,12m/lag6m,supply,Promoted BPS short-horizon policy BPS-H-LAG6 and BPS-FINAL-80 feature weights (2026-08-09).
+bps_total_units_long,bps_total_units,long_term_change,ma_pct_change,0.10,12m/lag12m,supply,Promoted BPS feature-weight policy BPS-FINAL-80 (2026-08-09).
 bps_total_buildings_level,bps_total_buildings,level,level_zscore,0.25,,supply,
 bps_total_buildings_short,bps_total_buildings,short_term_change,mom_zscore,0.35,1m,supply,
 bps_total_buildings_long,bps_total_buildings,long_term_change,yoy_zscore,0.40,12m,supply,
@@ -93,27 +93,27 @@ nrc_housing_completions_level,nrc_housing_completions,level,level_zscore,0.25,,s
 nrc_housing_completions_short,nrc_housing_completions,short_term_change,mom_zscore,0.35,1m,supply,
 nrc_housing_completions_long,nrc_housing_completions,long_term_change,yoy_zscore,0.40,12m,supply,
 
-fred_mortgage_15y_level,fred_mortgage_15y,level,level_zscore,0.40,,capital_markets,
-fred_mortgage_15y_short,fred_mortgage_15y,short_term_change,mom_zscore,0.30,1m,capital_markets,
-fred_mortgage_15y_long,fred_mortgage_15y,long_term_change,yoy_zscore,0.30,12m,capital_markets,
+fred_mortgage_15y_level,fred_mortgage_15y,level,ma_level,0.60,12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_mortgage_15y_short,fred_mortgage_15y,short_term_change,ma_pct_change,0.20,12m/lag3m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_mortgage_15y_long,fred_mortgage_15y,long_term_change,ma_pct_change,0.20,12m/lag12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
 fred_2y_level,fred_2y,level,level_zscore,0.40,,capital_markets,
 fred_2y_short,fred_2y,short_term_change,mom_zscore,0.30,1m,capital_markets,
 fred_2y_long,fred_2y,long_term_change,yoy_zscore,0.30,12m,capital_markets,
-fred_10y_fedfunds_spread_level,fred_10y_fedfunds_spread,level,level_zscore,0.40,,capital_markets,
-fred_10y_fedfunds_spread_short,fred_10y_fedfunds_spread,short_term_change,mom_zscore,0.30,1m,capital_markets,
-fred_10y_fedfunds_spread_long,fred_10y_fedfunds_spread,long_term_change,yoy_zscore,0.30,12m,capital_markets,
-fred_mortgage_30y_level,fred_mortgage_30y,level,level_zscore,0.40,,capital_markets,
-fred_mortgage_30y_short,fred_mortgage_30y,short_term_change,mom_zscore,0.30,1m,capital_markets,
-fred_mortgage_30y_long,fred_mortgage_30y,long_term_change,yoy_zscore,0.30,12m,capital_markets,
-fred_fedfunds_level,fred_fedfunds,level,level_zscore,0.40,,capital_markets,
-fred_fedfunds_short,fred_fedfunds,short_term_change,mom_zscore,0.30,1m,capital_markets,
-fred_fedfunds_long,fred_fedfunds,long_term_change,yoy_zscore,0.30,12m,capital_markets,
-fred_10y_level,fred_10y,level,level_zscore,0.40,,capital_markets,
-fred_10y_short,fred_10y,short_term_change,mom_zscore,0.30,1m,capital_markets,
-fred_10y_long,fred_10y,long_term_change,yoy_zscore,0.30,12m,capital_markets,
-fred_2y10y_spread_level,fred_2y10y_spread,level,level_zscore,0.40,,capital_markets,
-fred_2y10y_spread_short,fred_2y10y_spread,short_term_change,mom_zscore,0.30,1m,capital_markets,
-fred_2y10y_spread_long,fred_2y10y_spread,long_term_change,yoy_zscore,0.30,12m,capital_markets,
+fred_10y_fedfunds_spread_level,fred_10y_fedfunds_spread,level,ma_level,0.60,9m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_10y_fedfunds_spread_short,fred_10y_fedfunds_spread,short_term_change,ma_difference,0.20,9m/lag3m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_10y_fedfunds_spread_long,fred_10y_fedfunds_spread,long_term_change,ma_difference,0.20,9m/lag12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_mortgage_30y_level,fred_mortgage_30y,level,ma_level,0.60,12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_mortgage_30y_short,fred_mortgage_30y,short_term_change,ma_pct_change,0.20,12m/lag3m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_mortgage_30y_long,fred_mortgage_30y,long_term_change,ma_pct_change,0.20,12m/lag12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_fedfunds_level,fred_fedfunds,level,ma_level,0.60,3m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_fedfunds_short,fred_fedfunds,short_term_change,ma_pct_change,0.20,3m/lag3m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_fedfunds_long,fred_fedfunds,long_term_change,ma_pct_change,0.20,3m/lag12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_10y_level,fred_10y,level,ma_level,0.60,12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_10y_short,fred_10y,short_term_change,ma_pct_change,0.20,12m/lag3m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_10y_long,fred_10y,long_term_change,ma_pct_change,0.20,12m/lag12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_2y10y_spread_level,fred_2y10y_spread,level,ma_level,0.60,9m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_2y10y_spread_short,fred_2y10y_spread,short_term_change,ma_difference,0.20,9m/lag3m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
+fred_2y10y_spread_long,fred_2y10y_spread,long_term_change,ma_difference,0.20,9m/lag12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
 fred_cpi_level,fred_cpi,level,level_zscore,0.50,,affordability,
 fred_cpi_short,fred_cpi,short_term_change,mom_zscore,0.20,1m,affordability,
 fred_cpi_long,fred_cpi,long_term_change,yoy_zscore,0.30,12m,affordability,
@@ -121,14 +121,14 @@ fred_unemployment_rate_level,fred_unemployment_rate,level,level_zscore,0.25,,dem
 fred_unemployment_rate_short,fred_unemployment_rate,short_term_change,mom_zscore,0.35,1m,demand,
 fred_unemployment_rate_long,fred_unemployment_rate,long_term_change,yoy_zscore,0.40,12m,demand,
 
-price_to_income_level,derived_price_to_income,level,level_zscore,0.50,,affordability,
-price_to_income_short,derived_price_to_income,short_term_change,mom_zscore,0.20,1m,affordability,
-price_to_income_long,derived_price_to_income,long_term_change,yoy_zscore,0.30,12m,affordability,
+price_to_income_level,derived_price_to_income,level,ma_level,0.50,12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
+price_to_income_short,derived_price_to_income,short_term_change,ma_pct_change,0.20,12m/lag3m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
+price_to_income_long,derived_price_to_income,long_term_change,ma_pct_change,0.30,12m/lag12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
 
-payment_burden_level,derived_payment_burden,level,level_zscore,0.50,,affordability,
-payment_burden_short,derived_payment_burden,short_term_change,mom_zscore,0.20,1m,affordability,
-payment_burden_long,derived_payment_burden,long_term_change,yoy_zscore,0.30,12m,affordability,
+payment_burden_level,derived_payment_burden,level,ma_level,0.50,12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
+payment_burden_short,derived_payment_burden,short_term_change,ma_pct_change,0.20,12m/lag3m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
+payment_burden_long,derived_payment_burden,long_term_change,ma_pct_change,0.30,12m/lag12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
 
-permit_intensity_level,derived_permit_intensity,level,ma12_level,0.25,,supply,
-permit_intensity_short,derived_permit_intensity,short_term_change,ma3_vs_ma12_pct,0.35,1m,supply,
-permit_intensity_long,derived_permit_intensity,long_term_change,ma12_yoy_pct,0.40,12m,supply,
+permit_intensity_level,derived_permit_intensity,level,ma_level,0.50,12m,supply,
+permit_intensity_short,derived_permit_intensity,short_term_change,ma_pct_change,0.25,12m/lag3m,supply,
+permit_intensity_long,derived_permit_intensity,long_term_change,ma_pct_change,0.25,12m/lag12m,supply,

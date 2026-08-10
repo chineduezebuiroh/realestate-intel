@@ -40,27 +40,27 @@ EXPECTED_LAUS = {
 }
 
 EXPECTED_NON_LAUS_REGISTRY = """feature_key,metric_key,feature_type,transform,feature_weight,feature_window,dimension_context
-redfin_inventory_level,redfin_inventory,level,level_zscore,0.25,,supply
-redfin_inventory_short,redfin_inventory,short_term_change,mom_zscore,0.35,1m,supply
-redfin_inventory_long,redfin_inventory,long_term_change,yoy_zscore,0.40,12m,supply
+redfin_inventory_level,redfin_inventory,level,ma_level,0.50,12m,supply
+redfin_inventory_short,redfin_inventory,short_term_change,ma_pct_change,0.25,12m/lag3m,supply
+redfin_inventory_long,redfin_inventory,long_term_change,ma_pct_change,0.25,12m/lag12m,supply
 laus_unemployment_level,laus_unemployment,level,level_zscore,0.25,,demand
 laus_unemployment_short,laus_unemployment,short_term_change,mom_zscore,0.35,1m,demand
 laus_unemployment_long,laus_unemployment,long_term_change,yoy_zscore,0.40,12m,demand
 ces_total_nonfarm_level,ces_total_nonfarm,level,level_zscore,0.25,,demand
 ces_total_nonfarm_short,ces_total_nonfarm,short_term_change,mom_zscore,0.35,1m,demand
 ces_total_nonfarm_long,ces_total_nonfarm,long_term_change,yoy_zscore,0.40,12m,demand
-bps_total_units_level,bps_total_units,level,ma12_level,0.25,,supply
-bps_total_units_short,bps_total_units,short_term_change,ma3_vs_ma12_pct,0.35,1m,supply
-bps_total_units_long,bps_total_units,long_term_change,ma12_yoy_pct,0.40,12m,supply
+bps_total_units_level,bps_total_units,level,ma_level,0.50,12m,supply
+bps_total_units_short,bps_total_units,short_term_change,ma_pct_change,0.25,12m/lag3m,supply
+bps_total_units_long,bps_total_units,long_term_change,ma_pct_change,0.25,12m/lag12m,supply
 bps_total_buildings_level,bps_total_buildings,level,level_zscore,0.25,,supply
 bps_total_buildings_short,bps_total_buildings,short_term_change,mom_zscore,0.35,1m,supply
 bps_total_buildings_long,bps_total_buildings,long_term_change,yoy_zscore,0.40,12m,supply
 bps_total_value_level,bps_total_value,level,level_zscore,0.25,,supply
 bps_total_value_short,bps_total_value,short_term_change,mom_zscore,0.35,1m,supply
 bps_total_value_long,bps_total_value,long_term_change,yoy_zscore,0.40,12m,supply
-permit_intensity_level,derived_permit_intensity,level,ma12_level,0.25,,supply
-permit_intensity_short,derived_permit_intensity,short_term_change,ma3_vs_ma12_pct,0.35,1m,supply
-permit_intensity_long,derived_permit_intensity,long_term_change,ma12_yoy_pct,0.40,12m,supply
+permit_intensity_level,derived_permit_intensity,level,ma_level,0.50,12m,supply
+permit_intensity_short,derived_permit_intensity,short_term_change,ma_pct_change,0.25,12m/lag3m,supply
+permit_intensity_long,derived_permit_intensity,long_term_change,ma_pct_change,0.25,12m/lag12m,supply
 """
 
 REGISTRY_COMPARE_KEYS = [

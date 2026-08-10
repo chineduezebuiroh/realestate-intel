@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime.experiments.linked_price_family_features import (
     LONG_LAG_PERIODS,
     PRICE_FAMILY_METRICS,
@@ -35,7 +37,7 @@ DERIVED_METRICS = ("price_to_income", "payment_burden")
 
 
 def _build_fixture() -> pd.DataFrame:
-    dates = pd.date_range("2020-01-31", periods=30, freq="M")
+    dates = pd.date_range("2020-01-31", periods=30, freq=MONTH_END)
     rows: list[dict[str, object]] = []
     for geo_index, geo_id in enumerate(("geo_alpha", "geo_beta")):
         for index, date in enumerate(dates):

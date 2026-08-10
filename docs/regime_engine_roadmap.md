@@ -144,10 +144,34 @@ Current work is sequenced as follows:
    - Split full-history and recent-period Demand-delta heatmaps.
 
 2. Calibrate Inventory and the Supply axis.
+   - Macro Phase 8c v1 geography scope is county only. A future macro extension
+     may add `cbsa_metro`; ZIP geography remains reserved for future local-regime
+     campaigns and is not globally invalid.
+   - The Phase 8c campaign foundation is implemented for typed contracts,
+     structural-candidate validation, and fixture Review Platform packaging;
+     the analytical campaign and promotion decision remain incomplete.
    - Evaluate structural smoothing alternatives for active inventory.
+   - Phase 8c Slice 2 now supplies descriptive foundation evidence; Slice 3
+     converts that evidence into configuration-controlled eligibility, normalized
+     scoring, deterministic ranking, and an advisory recommendation. Warmup is a
+     scored coverage tradeoff rather than an automatic failure. Authoritative
+     scoring reuses the in-memory Phase A evidence and does not repeat challenger
+     normalization; human-reviewed promotion remains a subsequent slice.
+   - Phase 8c Slice 4 packages the supplied Phase A evidence and Slice 3 scores
+     into a hashed, downloadable human-review directory and ZIP. Static score,
+     seasonality, overlay, transition, volatility, sign-flip, and correlation
+     figures are advisory only; promotion remains blocked pending human review.
    - Reassess level, short, and long feature weighting.
    - Measure seasonality, volatility, sign flips, shock timing, and regime transitions.
    - Preserve genuine structural responsiveness while reducing unnecessary jaggedness.
+   - Campaigns govern primary decomposition axes separately from supporting
+     coordinate/regime axes. Inventory strictly decomposes Supply while consuming
+     persisted Supply and Demand for geometry. Historical county and CBSA Demand
+     scores do not consistently rebuild from the current dimension configuration;
+     the likely cause remains a configuration/provenance mismatch until resolved.
+     Demand-axis decomposition is therefore a fail-closed prerequisite for a future
+     Price/Affordability or other Demand-primary campaign, not evidence that Demand
+     is globally invalid.
 
 3. Calibrate Price feature weights.
    - Hold the linked MA12 observation policy constant.
@@ -251,3 +275,20 @@ It should be updated whenever:
 - the project's strategic direction materially evolves.
 
 Detailed implementation decisions should be documented within the corresponding phase decision documents rather than duplicated here.
+> **Phase 8c geography identity:** `config/geo_manifest.generated.csv` is the
+> authoritative registry. Governed migration resolves older persisted IDs;
+> `config/geo_manifest.csv` is evidence only. Macro v1 admits counties only,
+> with CBSA metro deferred as a future macro extension. ZIP is reserved for a
+> future local regime; city has no current macro or local-regime role. All
+> non-county levels are removed before challenger materialization.
+
+## Deferred calibration roadmap
+
+Capital Markets production calibration is closed with the promoted
+MW-TEMPERED-C policy. Next is Affordability feature decisions and derivation-order
+confirmation; no Affordability decision is made by the Capital Markets pass.
+
+A later BPS visual review remains deferred for DC, Essex, Montgomery, Prince
+George's, Fairfax, San Francisco, and Los Angeles. Its future plots are raw
+monthly permit units, the incumbent transform, MA12 structural level, and the
+normalized permit-activity score. No BPS implementation is part of this pass.

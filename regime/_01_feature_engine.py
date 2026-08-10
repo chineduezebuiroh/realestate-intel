@@ -10,7 +10,6 @@ import numpy as np
 from regime._00_config_loader import RegimeConfig, load_regime_config
 from regime.derived_metrics import build_derived_metrics_with_lineage
 from regime.canonical_metrics import resolve_canonical_metrics
-from regime.linked_price_family import apply_linked_price_family_augmentation
 
 
 SERVING_DB = Path("data/market_serving.duckdb")
@@ -22,11 +21,6 @@ CANONICAL_SOURCE_METRIC_COLUMNS = [
     "value",
     "metric_origin",
 ]
-
-PRICE_FAMILY_PRODUCTION_EXPERIMENT = (
-    "price_family_ma12_structural_linked"
-)
-
 
 def _zscore(s: pd.Series, min_obs: int = 12) -> pd.Series:
     expanding_mean = s.expanding(min_periods=min_obs).mean()
@@ -85,7 +79,7 @@ def _parse_ma_window_config(
             fail(expected)
         return parse_positive_months(value, expected), None
 
-    if transform == "ma_pct_change":
+    if transform in {"ma_pct_change", "ma_difference"}:
         expected = "<positive integer>m/lag<positive integer>m"
         parts = value.split("/")
         if len(parts) != 2:
@@ -157,7 +151,7 @@ def _compute_feature_for_contiguous_segment(
             min_periods=ma_periods,
         ).mean()
 
-    if transform == "ma_pct_change":
+    if transform in {"ma_pct_change", "ma_difference"}:
         ma_periods, lag_periods = _parse_ma_window_config(
             feature_window,
             transform=transform,
@@ -167,7 +161,10 @@ def _compute_feature_for_contiguous_segment(
             window=ma_periods,
             min_periods=ma_periods,
         ).mean()
-        denominator = ma_value.shift(lag_periods).replace(0.0, np.nan)
+        lagged = ma_value.shift(lag_periods)
+        if transform == "ma_difference":
+            return ma_value - lagged
+        denominator = lagged.replace(0.0, np.nan)
         return (ma_value / denominator) - 1.0
 
     if transform == "ma12_level":
@@ -216,7 +213,7 @@ def _compute_feature(
 ) -> pd.Series:
     group = group.sort_values("date")
 
-    if transform not in {"ma_level", "ma_pct_change"}:
+    if transform not in {"ma_level", "ma_pct_change", "ma_difference"}:
         return _compute_feature_for_contiguous_segment(
             group,
             transform,
@@ -518,14 +515,12 @@ def _apply_linked_price_family_augmentation(
     derived_lineage: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Apply the selected production linked Price/Affordability
-    observation policy.
+    Preserve canonical derive-first observations for Affordability.
+
+    MA12 and lag3/lag12 are now feature transforms. In particular, neither
+    price nor the Capital Markets mortgage feature state crosses this boundary.
     """
-    return apply_linked_price_family_augmentation(
-        observations=observations,
-        derived_lineage=derived_lineage,
-        experiment_id=PRICE_FAMILY_PRODUCTION_EXPERIMENT,
-    )
+    return observations.copy(), derived_lineage.copy()
 
 
 def _apply_observation_augmentations(

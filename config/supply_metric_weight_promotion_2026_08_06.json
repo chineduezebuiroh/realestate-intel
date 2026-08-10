@@ -1,0 +1,15 @@
+{
+  "promotion_identity": "supply_metric_weight_promotion_2026_08_06",
+  "status": "human_approved",
+  "decision_date": "2026-08-06",
+  "selected_policy": "challenger_a",
+  "prior_weights": {"active_inventory": 0.3334, "permit_activity": 0.3333, "permit_intensity": 0.3333},
+  "promoted_weights": {"active_inventory": 0.60, "permit_activity": 0.20, "permit_intensity": 0.20},
+  "evidence_contract": "supply_metric_weight_diagnostic_v1",
+  "authoritative_evidence_source_run": "macro_regime_v1_settled_ma12_features_20260805",
+  "diagnostic_recommendation_state": "none",
+  "diagnostic_promotion_state": "none",
+  "decision_authority": "subsequent explicit human policy decision informed by the diagnostic",
+  "explicit_non_changes": ["Supply metric membership", "settled MA12 feature definitions and weights", "price_to_income", "payment_burden", "Capital Markets", "non-Supply metric-to-dimension weights", "dimension-to-axis weights", "Supply-axis configured weights", "Demand", "source precedence", "alignment", "geography", "normalization", "coordinates", "geometry", "regimes", "transitions", "cancellation", "missing-value renormalization"],
+  "freeze_status": "frozen_as_supply_dimension_frozen_v1"
+}

@@ -4,6 +4,8 @@
 
 **Decision Date:** 2026-07-10
 
+**Feature-weight Promotion Date:** 2026-08-05
+
 ---
 
 # Purpose
@@ -49,10 +51,10 @@ Level(t) = MA12(t)
 
 ## Short-Term Change
 
-Percentage difference between the trailing 3-month moving average and the trailing 12-month moving average.
+Percentage difference between the trailing 12-month moving average and that same trailing 12-month moving average lagged three observations.
 
 ```text
-Short(t) = MA3(t) / MA12(t) - 1
+Short(t) = MA12(t) / lag3(MA12(t)) - 1
 ```
 
 ---
@@ -62,20 +64,26 @@ Short(t) = MA3(t) / MA12(t) - 1
 Percentage difference between the current trailing 12-month moving average and the trailing 12-month moving average one year earlier.
 
 ```text
-Long(t) = MA12(t) / MA12(t-12) - 1
+Long(t) = MA12(t) / lag12(MA12(t)) - 1
 ```
 
 ---
 
 # Feature Weights
 
-The selected feature weights remain unchanged from the original architecture.
+As of `settled_ma12_feature_policy_promotion_2026_08_05`, the selected
+permit-related MA12 structural feature definitions remain in force and the
+settled Alternative A feature weights are promoted for `permit_activity` and
+`permit_intensity`.
 
 | Feature | Weight |
 |---------|-------:|
-| Level | 0.25 |
-| Short | 0.35 |
-| Long | 0.40 |
+| Level | 0.50 |
+| Short | 0.25 |
+| Long | 0.25 |
+
+Prior production weights were `0.25 / 0.35 / 0.40`. The promotion changes only
+feature weights and does not change Supply metric weights.
 
 ---
 
@@ -194,7 +202,11 @@ Experiment A was selected as the production policy.
 
 The moving-average feature engineering substantially reduced artificial Supply-axis volatility while preserving the economic interpretation of percentage-based changes.
 
-No feature-weight adjustments were required.
+The later settled feature-weight promotion retains this moving-average feature
+family and promotes Alternative A (`0.50 / 0.25 / 0.25`) for `permit_activity`
+and `permit_intensity` only. This promotion does not claim to resolve
+permit-related volatility at the Supply-dimension level because Supply metric
+reweighting remains a separate pending decision.
 
 ---
 
@@ -217,7 +229,8 @@ Although this remained materially better than the original baseline, it consiste
 
 than Experiment A.
 
-The weighting adjustment was therefore rejected for Version 1.
+The Supply metric weighting adjustment was therefore rejected for Version 1 and
+remains outside `settled_ma12_feature_policy_promotion_2026_08_05`.
 
 ---
 
@@ -232,6 +245,24 @@ regime/_01_feature_engine.py
 ```
 
 This document explains the selected policy but does not override the machine-readable implementation.
+
+Permit-intensity lineage remains:
+
+```text
+raw permit_activity + raw/carried-forward population
+        ↓
+derive permit_intensity
+        ↓
+apply one MA12 structural feature family:
+    level = MA12(permit_intensity)
+    short = MA12(permit_intensity) / lag3(MA12(permit_intensity)) - 1
+    long = MA12(permit_intensity) / lag12(MA12(permit_intensity)) - 1
+        ↓
+normalize and score
+```
+
+`permit_intensity` must not be derived from already-smoothed
+`permit_activity` features and must not be double-smoothed.
 
 ---
 

@@ -15,6 +15,10 @@ from regime.smoothing_policy import (
 
 SUPPORTED_PIPELINE_EXPERIMENTS = {
     "inventory_ma3_deviation",
+    "inventory_ma3_structural",
+    "inventory_ma6_structural",
+    "inventory_ma9_structural",
+    "inventory_ma12_structural",
 }
 
 TARGET_METRIC = "active_inventory"
@@ -310,13 +314,21 @@ def _build_inventory_override(
             "active_inventory policy"
         )
 
+    supported_inventory_strategies = {
+        "ma_deviation",
+        "ma_structural",
+    }
+    
     if (
         policy.transform_strategy
-        != "ma_deviation"
+        not in supported_inventory_strategies
     ):
         raise ValueError(
-            "The approved inventory finalist must "
-            "use ma_deviation"
+            "Approved inventory pipeline experiments "
+            "must use one of "
+            f"{sorted(supported_inventory_strategies)}; "
+            f"found {policy.transform_strategy!r} for "
+            f"{experiment.experiment_id}"
         )
 
     raw_inventory = (
