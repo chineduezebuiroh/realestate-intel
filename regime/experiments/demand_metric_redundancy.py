@@ -42,6 +42,7 @@ ABLATIONS = {
 OUTPUTS = (
  "demand_metric_production_contract", "demand_metric_pairwise_redundancy",
  "demand_metric_contribution_summary", "demand_metric_movement_attribution",
+ "demand_metric_entry_exit_movement_audit",
  "demand_metric_cancellation_summary", "demand_axis_cancellation_summary",
  "demand_structural_vs_labor_summary", "demand_metric_ablation_summary",
  "demand_metric_incremental_information", "demand_metric_policy_registry",
@@ -111,6 +112,53 @@ def _score(x: pd.DataFrame, weights: dict, included: set[str]) -> pd.DataFrame:
     z["contribution"]=z.score*z.effective_weight
     z["demand_dimension"]=z.groupby(["geo_id","date"]).contribution.transform("sum")
     return z
+
+def build_complete_contribution_panel(incumbent: pd.DataFrame, persisted_dimension: pd.DataFrame,
+                                      weights: dict[str, float], metrics=METRICS) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Complete attribution bookkeeping without manufacturing unavailable scores."""
+    keys = ["geo_id", "date"]
+    chronology = persisted_dimension.rename(columns={"value":"demand_dimension", "persisted":"demand_dimension"})[keys+["demand_dimension"]].copy()
+    chronology["date"] = pd.to_datetime(chronology.date)
+    chronology = chronology[chronology.geo_id.isin(REVIEW_GEOS)].drop_duplicates(keys).sort_values(keys)
+    if set(chronology.geo_id) != set(REVIEW_GEOS):
+        raise ValueError(f"governed geography coverage missing: {set(REVIEW_GEOS)-set(chronology.geo_id)}")
+    chronology["dimension_delta"] = chronology.groupby("geo_id").demand_dimension.diff()
+    grid = chronology[keys].merge(pd.DataFrame({"metric":list(metrics)}), how="cross")
+    available = incumbent[keys+["metric","score","effective_weight","contribution"]].copy()
+    panel = grid.merge(available, on=keys+["metric"], how="left", validate="one_to_one")
+    panel["metric_available"] = panel.score.notna()
+    panel["configured_metric_weight"] = panel.metric.map(weights)
+    panel["effective_weight"] = panel.effective_weight.fillna(0.0)
+    panel["contribution"] = panel.contribution.fillna(0.0)
+    panel = panel.merge(chronology, on=keys, validate="many_to_one").sort_values(["geo_id","metric","date"])
+    panel["prior_contribution"] = panel.groupby(["geo_id","metric"]).contribution.shift()
+    panel["contribution_delta"] = panel.contribution-panel.prior_contribution
+    current = panel.groupby(keys).contribution.sum()
+    level_error = (current-chronology.set_index(keys).demand_dimension).abs().max()
+    movement = panel.groupby(keys).contribution_delta.sum(min_count=1)
+    delta = chronology.set_index(keys).groupby(level=0).demand_dimension.diff()
+    movement_error = (movement-delta).abs().max()
+    if level_error > TOL or movement_error > TOL:
+        raise ValueError(f"complete contribution parity failed: level={level_error}, movement={movement_error}")
+    audit_rows=[]
+    for (geo,date), group in panel.groupby(keys, sort=True):
+        # Availability, rather than a zero-valued contribution, defines entry and exit.
+        prior_date = pd.Timestamp(date)-pd.offsets.MonthEnd(1)
+        prior = panel[(panel.geo_id.eq(geo)) & panel.date.eq(prior_date)].set_index("metric")
+        if prior.empty: entered=[]; exited=[]; changed=False; weight_changed=False
+        else:
+            p_av=prior.metric_available.reindex(group.metric).fillna(False).to_numpy()
+            c_av=group.metric_available.to_numpy()
+            entered=group.loc[c_av & ~p_av,"metric"].tolist(); exited=group.loc[~c_av & p_av,"metric"].tolist()
+            changed=bool(entered or exited)
+            p_w=prior.effective_weight.reindex(group.metric).fillna(0).to_numpy()
+            weight_changed=bool(np.max(np.abs(group.effective_weight.to_numpy()-p_w)) > TOL)
+        audit_rows.append({"geo_id":geo,"date":date,"metrics_entered":"|".join(sorted(entered)),
+          "metrics_exited":"|".join(sorted(exited)),"metric_set_changed":changed,
+          "effective_weight_changed":weight_changed,"demand_dimension_delta":group.dimension_delta.iloc[0],
+          "reconstructed_contribution_delta":group.contribution_delta.sum(min_count=1),
+          "movement_residual":group.contribution_delta.sum(min_count=1)-group.dimension_delta.iloc[0]})
+    return panel, pd.DataFrame(audit_rows)
 
 def build_movement_audit(incumbent: pd.DataFrame, persisted_dimension: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Explain Demand movement reconstruction without altering scoring policy."""
@@ -202,7 +250,7 @@ def build_movement_audit(incumbent: pd.DataFrame, persisted_dimension: pd.DataFr
                                decomposition_error=error)
                 else:
                     dec.update(score_effect=np.nan, weight_effect=np.nan, interaction_effect=np.nan,
-                               decomposition_status="nonconsecutive", decomposition_error=np.nan)
+                               decomposition_status=("no_prior_available_observation" if previous is None else "nonconsecutive"), decomposition_error=np.nan)
                 decompositions.append(dec)
         max_change = max(weight_changes, default=0.)
         idx = chronology.index[(chronology.geo_id.eq(row.geo_id)) & chronology.date.eq(row.date)][0]
@@ -262,13 +310,17 @@ def build(run: Path, root: Path, debug_output: Path | None = None) -> dict[str,p
     x=_metric_long(_load(run,"aligned_metric_scores")); dimensions=_load(run,"dimension_scores"); persisted_axis=_load(run,"axis_scores")
     incumbent=_score(x,weights,set(METRICS)); inc_series=incumbent[["geo_id","date","demand_dimension"]].drop_duplicates()
     persisted_dim=_series(dimensions,dimension="demand").rename(columns={"value":"persisted"})
+    persisted_dim=persisted_dim[persisted_dim.geo_id.isin(REVIEW_GEOS)].copy()
+    if set(persisted_dim.geo_id) != set(REVIEW_GEOS): raise ValueError("governed Demand dimension geography coverage missing")
     p=inc_series.merge(persisted_dim,on=["geo_id","date"],how="left"); dim_err=(p.demand_dimension-p.persisted).abs().max()
     ar=pd.read_csv(root/"config/axis_registry.csv"); ar=ar[(ar.axis.eq("demand"))&ar.enabled.astype(bool)]; axis_weights=dict(zip(ar.dimension,ar.dimension_weight))
     inc_axis,inc_axis_detail=_axis(dimensions,inc_series,axis_weights)
     inc_axis_detail=inc_axis_detail.merge(inc_axis,on=["geo_id","date"],how="left")
     pa=_series(persisted_axis,axis="demand").rename(columns={"value":"persisted"}); ap=inc_axis.merge(pa,on=["geo_id","date"],how="left"); axis_err=(ap.demand_axis-ap.persisted).abs().max()
     if pd.isna(dim_err) or dim_err>TOL or pd.isna(axis_err) or axis_err>TOL: raise ValueError(f"incumbent parity failed: dimension={dim_err}, axis={axis_err}")
-    parity=pd.DataFrame([{"check":"normalized metric scores reused exactly","max_abs_error":0.,"status":"pass"},{"check":"effective metric weights and contributions reconstruct Demand dimension","max_abs_error":dim_err,"status":"pass"},{"check":"weighted Demand contribution and final Demand axis","max_abs_error":axis_err,"status":"pass"}])
+    complete_panel, entry_exit_audit = build_complete_contribution_panel(incumbent, persisted_dim, weights)
+    movement_err=entry_exit_audit.movement_residual.abs().max()
+    parity=pd.DataFrame([{"check":"complete monthly Demand movement including metric boundaries","max_abs_error":movement_err,"status":"pass"},{"check":"normalized metric scores reused exactly","max_abs_error":0.,"status":"pass"},{"check":"effective metric weights and contributions reconstruct Demand dimension","max_abs_error":dim_err,"status":"pass"},{"check":"weighted Demand contribution and final Demand axis","max_abs_error":axis_err,"status":"pass"}])
     movement_audit = build_movement_audit(incumbent, persisted_dim)
     if debug_output is not None:
         debug_output.mkdir(parents=True, exist_ok=True)
@@ -283,16 +335,17 @@ def build(run: Path, root: Path, debug_output: Path | None = None) -> dict[str,p
         pair.append({"geo_id":geo,"metric_a":a,"metric_b":b,"observations":len(q),"score_correlation":q[a].corr(q[b]),"first_difference_correlation":da.corr(db),"same_month_sign_agreement":(np.sign(q[a])==np.sign(q[b])).mean(),"rolling_36m_correlation_median":roll.median(),"rolling_36m_correlation_p10":_q(roll,.1),"rolling_36m_correlation_p90":_q(roll,.9),"polarity_aligned":True})
     pair=pd.DataFrame(pair)
     # Contributions and movement.
-    incumbent=incumbent.sort_values(["geo_id","metric","date"]); incumbent["contribution_delta"]=incumbent.groupby(["geo_id","metric"]).contribution.diff(); incumbent["dimension_delta"]=incumbent.groupby("geo_id").demand_dimension.diff()
-    abs_total=incumbent.contribution.abs().sum(); move_total=incumbent.contribution_delta.abs().sum()
+    incumbent=incumbent.sort_values(["geo_id","metric","date"]); movement_panel=complete_panel
+    abs_total=incumbent.contribution.abs().sum(); move_total=movement_panel.contribution_delta.abs().sum()
     contrib=[]; movement=[]
-    for metric,g in incumbent.groupby("metric"):
+    for metric,g_level in incumbent.groupby("metric"):
+      g=movement_panel[movement_panel.metric.eq(metric)]
       cutoff=g.date.max()-pd.DateOffset(months=35); recent=g[g.date>=cutoff]
       drivers=incumbent.assign(mx=incumbent.groupby(["geo_id","date"]).contribution.transform(lambda s:s.abs().max()), pos=incumbent.groupby(["geo_id","date"]).contribution.transform("max"), neg=incumbent.groupby(["geo_id","date"]).contribution.transform("min"))
-      contrib.append({"canonical_metric_key":metric,"configured_metric_weight":weights[metric],"mean_absolute_effective_contribution":g.contribution.abs().mean(),"median_absolute_effective_contribution":g.contribution.abs().median(),"p90_absolute_contribution":_q(g.contribution.abs(),.9),"share_total_absolute_contribution":g.contribution.abs().sum()/abs_total,"largest_absolute_driver_share":(drivers.query('metric==@metric').contribution.abs()==drivers.query('metric==@metric').mx).mean(),"largest_positive_driver_share":(drivers.query('metric==@metric').contribution==drivers.query('metric==@metric').pos).mean(),"largest_negative_driver_share":(drivers.query('metric==@metric').contribution==drivers.query('metric==@metric').neg).mean(),"latest_36m_mean_absolute_contribution":recent.contribution.abs().mean(),"latest_36m_share_absolute_contribution":recent.contribution.abs().sum()/incumbent[incumbent.date>=cutoff].contribution.abs().sum()})
-      movement.append({"canonical_metric_key":metric,"correlation_with_demand_dimension_delta":g.contribution_delta.corr(g.dimension_delta),"same_sign_agreement":(np.sign(g.contribution_delta)==np.sign(g.dimension_delta)).mean(),"mean_absolute_contribution_delta":g.contribution_delta.abs().mean(),"absolute_movement_share_descriptive":g.contribution_delta.abs().sum()/move_total,"dominant_monthly_movement_driver_share":(g.contribution_delta.abs()==incumbent.groupby(["geo_id","date"]).contribution_delta.transform(lambda s:s.abs().max()).loc[g.index]).mean(),"latest_36m_mean_absolute_delta":recent.contribution_delta.abs().mean(),"latest_36m_correlation":recent.contribution_delta.corr(recent.dimension_delta)})
+      contrib.append({"canonical_metric_key":metric,"configured_metric_weight":weights[metric],"mean_absolute_effective_contribution":g.contribution.abs().mean(),"median_absolute_effective_contribution":g.contribution.abs().median(),"p90_absolute_contribution":_q(g.contribution.abs(),.9),"share_total_absolute_contribution":g_level.contribution.abs().sum()/abs_total,"largest_absolute_driver_share":(drivers.query('metric==@metric').contribution.abs()==drivers.query('metric==@metric').mx).mean(),"largest_positive_driver_share":(drivers.query('metric==@metric').contribution==drivers.query('metric==@metric').pos).mean(),"largest_negative_driver_share":(drivers.query('metric==@metric').contribution==drivers.query('metric==@metric').neg).mean(),"latest_36m_mean_absolute_contribution":recent.contribution.abs().mean(),"latest_36m_share_absolute_contribution":recent.contribution.abs().sum()/movement_panel[movement_panel.date>=cutoff].contribution.abs().sum()})
+      movement.append({"canonical_metric_key":metric,"correlation_with_demand_dimension_delta":g.contribution_delta.corr(g.dimension_delta),"same_sign_agreement":(np.sign(g.contribution_delta)==np.sign(g.dimension_delta)).mean(),"mean_absolute_contribution_delta":g.contribution_delta.abs().mean(),"absolute_movement_share_descriptive":g.contribution_delta.abs().sum()/move_total,"dominant_monthly_movement_driver_share":(g.contribution_delta.abs()==movement_panel.groupby(["geo_id","date"]).contribution_delta.transform(lambda s:s.abs().max()).loc[g.index]).mean(),"latest_36m_mean_absolute_delta":recent.contribution_delta.abs().mean(),"latest_36m_correlation":recent.contribution_delta.corr(recent.dimension_delta)})
     # Exact movement reconstruction.
-    recon=incumbent.groupby(["geo_id","date"]).contribution_delta.sum(min_count=1)-incumbent.groupby(["geo_id","date"]).dimension_delta.first()
+    recon=movement_panel.groupby(["geo_id","date"]).contribution_delta.sum(min_count=1)-movement_panel.groupby(["geo_id","date"]).dimension_delta.first()
     if recon.abs().max()>TOL: raise ValueError("Demand movement reconstruction failed")
     def cancellation(detail, contribution, net):
       q=detail.groupby(["geo_id","date"]).agg(gross=(contribution,lambda s:s.abs().sum()),net=(net,"first")).reset_index(); q["ratio"]=np.where(q.gross.gt(0),1-q.net.abs()/q.gross,np.nan); return q
@@ -302,7 +355,7 @@ def build(run: Path, root: Path, debug_output: Path | None = None) -> dict[str,p
       for geo,g in [("POOLED",q),*q.groupby("geo_id")]: rows.append({"geo_id":geo,"median_cancellation_ratio":g.ratio.median(),"p90_cancellation_ratio":_q(g.ratio,.9),"p99_cancellation_ratio":_q(g.ratio,.99),"latest_36m_median_cancellation_ratio":g[g.date>=g.date.max()-pd.DateOffset(months=35)].ratio.median()})
       return pd.DataFrame(rows)
     # Group balance.
-    gg=incumbent.assign(group=np.where(incumbent.metric.isin(STRUCTURAL),"STRUCTURAL","LABOR_CYCLICAL")).groupby(["geo_id","date","group"]).agg(net_contribution=("contribution","sum"),gross_absolute_contribution=("contribution",lambda s:s.abs().sum()),movement_contribution=("contribution_delta","sum")).reset_index()
+    gg=movement_panel.assign(group=np.where(movement_panel.metric.isin(STRUCTURAL),"STRUCTURAL","LABOR_CYCLICAL")).groupby(["geo_id","date","group"]).agg(net_contribution=("contribution","sum"),gross_absolute_contribution=("contribution",lambda s:s.abs().sum()),movement_contribution=("contribution_delta","sum")).reset_index()
     denom=gg.groupby(["geo_id","date"]).gross_absolute_contribution.transform("sum"); gg["absolute_contribution_share"]=gg.gross_absolute_contribution/denom; gg["within_group_cancellation_ratio"]=np.where(gg.gross_absolute_contribution.gt(0),1-gg.net_contribution.abs()/gg.gross_absolute_contribution,np.nan)
     group_summary=gg.groupby(["geo_id","group"],as_index=False).agg(net_contribution_mean=("net_contribution","mean"),gross_absolute_contribution_mean=("gross_absolute_contribution","mean"),absolute_contribution_share=("absolute_contribution_share","mean"),mean_absolute_movement=("movement_contribution",lambda s:s.abs().mean()),median_within_group_cancellation=("within_group_cancellation_ratio","median"))
     # All challengers and policy family.
@@ -332,7 +385,14 @@ def build(run: Path, root: Path, debug_output: Path | None = None) -> dict[str,p
     recent=recent[recent.date>=recent.groupby("geo_id").date.transform("max")-pd.DateOffset(months=35)]
     governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"none","human_decision":"pending","automated_winner":False}])
     runtime=pd.DataFrame([{"authoritative_run":run.name,"geography_count":len(REVIEW_GEOS),"metric_count":len(METRICS),"parity_tolerance":TOL,"production_policy_changed":False}])
-    return dict(zip(OUTPUTS,[contract,pair,pd.DataFrame(contrib),pd.DataFrame(movement),cancel_summary(dc),cancel_summary(ac),group_summary,pd.DataFrame(ab),pd.DataFrame(incremental),pd.DataFrame(policy_registry),stab,pd.concat(turns,ignore_index=True),recent,pd.DataFrame(decision),parity,governance,runtime]))
+    tables=dict(zip(OUTPUTS,[contract,pair,pd.DataFrame(contrib),pd.DataFrame(movement),entry_exit_audit,cancel_summary(dc),cancel_summary(ac),group_summary,pd.DataFrame(ab),pd.DataFrame(incremental),pd.DataFrame(policy_registry),stab,pd.concat(turns,ignore_index=True),recent,pd.DataFrame(decision),parity,governance,runtime]))
+    for name, frame in tables.items():
+        if "geo_id" in frame:
+            leaked=set(frame.geo_id.dropna())-set(REVIEW_GEOS)-{"POOLED","OVERALL"}
+            if leaked: raise ValueError(f"non-governed geography leaked into {name}: {sorted(leaked)}")
+    if set(entry_exit_audit.geo_id) != set(REVIEW_GEOS):
+        raise ValueError("entry/exit audit does not contain exactly the governed review counties")
+    return tables
 
 def write_review(tables: dict[str,pd.DataFrame], output: Path) -> None:
     output.mkdir(parents=True,exist_ok=True)

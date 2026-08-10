@@ -21,6 +21,8 @@ def fixture(root: Path) -> Path:
         score=np.sin((i+mi)/7)+gi/20 if m!="laus_unemployment_rate" else -np.cos(i/8)+gi/20
         rows.append({"geo_id":geo,"evaluation_date":date,"canonical_metric_key":m,"metric_score":score})
     metrics=pd.DataFrame(rows); metrics.to_parquet(run/"aligned_metric_scores.parquet",index=False)
+    extra=metrics[metrics.geo_id.eq(d.REVIEW_GEOS[0])].assign(geo_id="fixture_cbsa__cbsa")
+    metrics=pd.concat([metrics,extra],ignore_index=True); metrics.to_parquet(run/"aligned_metric_scores.parquet",index=False)
     weights={m:.1667 for m in d.METRICS}; inc=d._score(d._metric_long(metrics),weights,set(d.METRICS)); ds=inc[["geo_id","date","demand_dimension"]].drop_duplicates()
     dims=[]
     for r in ds.itertuples():
@@ -44,6 +46,10 @@ def test_contract_and_bundle():
   with tempfile.TemporaryDirectory() as td:
     root=Path(td); run=fixture(root); tables=d.build(run,ROOT); out=root/"out"; d.write_review(tables,out)
     assert set(tables)==set(d.OUTPUTS)
+    for name,frame in tables.items():
+      if "geo_id" in frame:
+        assert "fixture_cbsa__cbsa" not in set(frame.geo_id), name
+    assert set(tables["demand_metric_entry_exit_movement_audit"].geo_id)==set(d.REVIEW_GEOS)
     assert not tables["demand_metric_pairwise_redundancy"].empty
     assert tables["demand_metric_pairwise_redundancy"].polarity_aligned.all()
     assert set(tables["demand_metric_parity_audit"].status)=={"pass"}
@@ -101,5 +107,29 @@ def test_movement_residual_audit():
   skipped=dec[(dec.date.eq(dates[2])) & dec.metric.eq("b")].iloc[0]
   assert skipped.decomposition_status == "nonconsecutive" and skipped.months_between_observations == 2
   assert pd.isna(skipped.score_t_minus_1)
+
+  # Complete attribution explicitly books entry/exit as zero contribution while scores stay missing.
+  rows=[]
+  for governed in d.REVIEW_GEOS:
+    rows.extend([(governed,dates[0],"a",0.),(governed,dates[0],"b",1.),
+                 (governed,dates[1],"a",1.),
+                 (governed,dates[2],"a",2.),(governed,dates[2],"b",3.)])
+  sparse=scored(rows)
+  chronology=sparse[["geo_id","date","demand_dimension"]].drop_duplicates().rename(columns={"demand_dimension":"value"})
+  panel,events=d.build_complete_contribution_panel(sparse,chronology,weights,("a","b"))
+  b=panel[(panel.geo_id.eq(d.REVIEW_GEOS[0])) & panel.metric.eq("b")].set_index("date")
+  assert not b.loc[dates[1],"metric_available"] and pd.isna(b.loc[dates[1],"score"])
+  assert b.loc[dates[1],"contribution"] == 0 and b.loc[dates[1],"contribution_delta"] == -.5
+  assert b.loc[dates[2],"contribution_delta"] == 1.5
+  assert events.movement_residual.abs().dropna().max() <= d.TOL
+  ev=events[events.geo_id.eq(d.REVIEW_GEOS[0])].set_index("date")
+  assert ev.loc[dates[1],"metrics_exited"] == "b" and ev.loc[dates[2],"metrics_entered"] == "b"
+  assert ev.loc[dates[1],"effective_weight_changed"] and ev.loc[dates[2],"effective_weight_changed"]
+
+  entering=scored([(geo,dates[0],"a",0.),(geo,dates[1],"a",1.),(geo,dates[1],"b",2.)])
+  entering_dims=entering[["geo_id","date","demand_dimension"]].drop_duplicates().rename(columns={"demand_dimension":"value"})
+  entering_dims.loc[entering_dims.date.eq(dates[1]),"value"] += .01
+  labels=d.build_movement_audit(entering,entering_dims)["demand_movement_effect_decomposition"]
+  assert labels[labels.metric.eq("b")].decomposition_status.iloc[0] == "no_prior_available_observation"
 
 if __name__=="__main__": test_contract_and_bundle(); test_fail_closed(); test_movement_residual_audit(); print("demand metric redundancy diagnostic smoke passed")
