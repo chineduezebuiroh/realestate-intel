@@ -51,6 +51,13 @@ OUTPUTS = (
  "demand_metric_runtime_summary",
 )
 
+MOVEMENT_AUDIT_OUTPUTS = (
+    "demand_movement_residual_audit",
+    "demand_movement_metric_detail",
+    "demand_movement_effect_decomposition",
+    "demand_movement_residual_summary",
+)
+
 def _col(df, *names):
     for n in names:
         if n in df.columns: return n
@@ -105,6 +112,121 @@ def _score(x: pd.DataFrame, weights: dict, included: set[str]) -> pd.DataFrame:
     z["demand_dimension"]=z.groupby(["geo_id","date"]).contribution.transform("sum")
     return z
 
+def build_movement_audit(incumbent: pd.DataFrame, persisted_dimension: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Explain Demand movement reconstruction without altering scoring policy."""
+    keys = ["geo_id", "date"]
+    detail = incumbent.copy()
+    detail["date"] = pd.to_datetime(detail["date"])
+    if detail.duplicated(keys + ["metric"]).any():
+        raise ValueError("duplicate governed metric chronology")
+    chronology = (persisted_dimension.rename(columns={"value": "demand_dimension", "persisted": "demand_dimension"})
+                  [keys + ["demand_dimension"]].copy())
+    if chronology.duplicated(keys).any():
+        raise ValueError("duplicate governed Demand dimension chronology")
+    chronology = chronology.sort_values(keys)
+    detail = detail.sort_values(["geo_id", "metric", "date"])
+    detail["diagnostic_contribution_delta"] = detail.groupby(["geo_id", "metric"]).contribution.diff()
+    reconstructed = (detail.groupby(keys, as_index=False).diagnostic_contribution_delta.sum(min_count=1)
+                     .rename(columns={"diagnostic_contribution_delta":"reconstructed_contribution_delta"}))
+    totals = detail.groupby(keys, as_index=False).agg(
+        sum_metric_contribution=("contribution", "sum"),
+        available_metric_count=("metric", "nunique"),
+        effective_weight_sum=("effective_weight", "sum"),
+    )
+    sets = detail.groupby(keys).metric.agg(lambda s: "|".join(sorted(set(s)))).rename("available_metric_set").reset_index()
+    chronology = (chronology.merge(totals, on=keys, how="left", validate="one_to_one")
+                  .merge(sets, on=keys, how="left", validate="one_to_one")
+                  .merge(reconstructed, on=keys, how="left", validate="one_to_one"))
+    chronology = chronology.sort_values(keys)
+    for col, prior in (("demand_dimension", "prior_demand_dimension"),
+                       ("sum_metric_contribution", "prior_sum_metric_contribution"),
+                       ("available_metric_count", "prior_available_metric_count"),
+                       ("available_metric_set", "prior_available_metric_set"),
+                       ("effective_weight_sum", "prior_effective_weight_sum")):
+        chronology[prior] = chronology.groupby("geo_id")[col].shift()
+    chronology["persisted_dimension_delta"] = chronology["demand_dimension"] - chronology["prior_demand_dimension"]
+    chronology["movement_residual"] = chronology["persisted_dimension_delta"] - chronology["reconstructed_contribution_delta"]
+    chronology["abs_movement_residual"] = chronology.movement_residual.abs()
+    chronology["available_metric_count_changed"] = chronology.available_metric_count.ne(chronology.prior_available_metric_count) & chronology.prior_available_metric_count.notna()
+    chronology["metric_set_changed"] = chronology.available_metric_set.ne(chronology.prior_available_metric_set) & chronology.prior_available_metric_set.notna()
+    chronology["max_abs_effective_weight_change"] = 0.0
+    chronology["any_effective_weight_change"] = False
+    chronology["metrics_entered"] = ""
+    chronology["metrics_exited"] = ""
+    chronology["any_nonconsecutive_metric_observation"] = False
+
+    current = detail.set_index(keys + ["metric"])[["score", "effective_weight", "contribution"]]
+    records = []
+    decompositions = []
+    for row in chronology.itertuples():
+        if pd.isna(row.prior_demand_dimension):
+            continue
+        current_metrics = set(str(row.available_metric_set).split("|")) if row.available_metric_set else set()
+        prior_metrics = set(str(row.prior_available_metric_set).split("|")) if row.prior_available_metric_set else set()
+        weight_changes = []
+        nonconsecutive = False
+        for metric in sorted(current_metrics | prior_metrics):
+            cur_key = (row.geo_id, pd.Timestamp(row.date), metric)
+            previous_rows = detail[(detail.geo_id.eq(row.geo_id)) & detail.metric.eq(metric) & (detail.date < row.date)].sort_values("date")
+            previous = previous_rows.iloc[-1] if len(previous_rows) else None
+            cur = current.loc[cur_key] if cur_key in current.index else None
+            months = ((pd.Period(row.date, freq="M") - pd.Period(previous.date, freq="M")).n
+                      if previous is not None and cur is not None else np.nan)
+            consecutive = bool(pd.notna(months) and months == 1)
+            if cur is not None and previous is not None and not consecutive:
+                nonconsecutive = True
+            wt = float(cur.effective_weight) if cur is not None else np.nan
+            wp = float(previous.effective_weight) if previous is not None and consecutive else np.nan
+            if pd.notna(wt) and pd.notna(wp): weight_changes.append(abs(wt-wp))
+            if row.abs_movement_residual > TOL:
+                contribution_delta = float(cur.contribution-previous.contribution) if cur is not None and previous is not None and consecutive else np.nan
+                base = {"geo_id":row.geo_id,"date":row.date,"metric":metric,
+                        "score_t":float(cur.score) if cur is not None else np.nan,
+                        "score_t_minus_1":float(previous.score) if previous is not None and consecutive else np.nan,
+                        "effective_weight_t":wt,"effective_weight_t_minus_1":wp,
+                        "contribution_t":float(cur.contribution) if cur is not None else np.nan,
+                        "contribution_t_minus_1":float(previous.contribution) if previous is not None and consecutive else np.nan,
+                        "contribution_delta":contribution_delta,"metric_present_t":cur is not None,
+                        "metric_present_t_minus_1":previous is not None and consecutive,
+                        "months_between_observations":months}
+                records.append(base)
+                dec = dict(base)
+                if consecutive:
+                    score_effect = wp*(float(cur.score)-float(previous.score))
+                    weight_effect = float(previous.score)*(wt-wp)
+                    interaction_effect = (float(cur.score)-float(previous.score))*(wt-wp)
+                    error = abs(contribution_delta-score_effect-weight_effect-interaction_effect)
+                    if error > TOL: raise ValueError(f"movement effect decomposition failed: {error}")
+                    dec.update(score_effect=score_effect, weight_effect=weight_effect,
+                               interaction_effect=interaction_effect, decomposition_status="reconciled",
+                               decomposition_error=error)
+                else:
+                    dec.update(score_effect=np.nan, weight_effect=np.nan, interaction_effect=np.nan,
+                               decomposition_status="nonconsecutive", decomposition_error=np.nan)
+                decompositions.append(dec)
+        max_change = max(weight_changes, default=0.)
+        idx = chronology.index[(chronology.geo_id.eq(row.geo_id)) & chronology.date.eq(row.date)][0]
+        chronology.loc[idx,"max_abs_effective_weight_change"] = max_change
+        chronology.loc[idx,"any_effective_weight_change"] = max_change > TOL
+        chronology.loc[idx,"metrics_entered"] = "|".join(sorted(current_metrics-prior_metrics))
+        chronology.loc[idx,"metrics_exited"] = "|".join(sorted(prior_metrics-current_metrics))
+        chronology.loc[idx,"any_nonconsecutive_metric_observation"] = nonconsecutive
+    chronology = chronology[chronology.prior_demand_dimension.notna()].copy()
+    chronology = chronology.sort_values(["abs_movement_residual","geo_id","date"], ascending=[False,True,True])
+    summaries=[]
+    for geo, group in [("OVERALL",chronology), *chronology.groupby("geo_id")]:
+        f=group[group.abs_movement_residual > TOL]; denom=len(f)
+        none = ~(f.metric_set_changed | f.any_effective_weight_change | f.any_nonconsecutive_metric_observation)
+        summaries.append({"geo_id":geo,"max_abs_residual":group.abs_movement_residual.max(),
+          "median_abs_residual":group.abs_movement_residual.median(),"p90_abs_residual":_q(group.abs_movement_residual,.90),
+          "p99_abs_residual":_q(group.abs_movement_residual,.99),"rows_above_1e12_tolerance":denom,
+          "share_residual_rows_with_metric_set_change":f.metric_set_changed.mean() if denom else 0.,
+          "share_residual_rows_with_weight_change":f.any_effective_weight_change.mean() if denom else 0.,
+          "share_residual_rows_with_nonconsecutive_metric_history":f.any_nonconsecutive_metric_observation.mean() if denom else 0.,
+          "share_residual_rows_with_none_of_the_above":none.mean() if denom else 0.})
+    return {MOVEMENT_AUDIT_OUTPUTS[0]:chronology, MOVEMENT_AUDIT_OUTPUTS[1]:pd.DataFrame(records),
+            MOVEMENT_AUDIT_OUTPUTS[2]:pd.DataFrame(decompositions), MOVEMENT_AUDIT_OUTPUTS[3]:pd.DataFrame(summaries)}
+
 def _series(raw, dimension=None, axis=None):
     geo=_col(raw,"geo_id"); date=_col(raw,"evaluation_date","date")
     q=raw.copy()
@@ -133,11 +255,11 @@ def _turns(frame,value,policy):
         if len(t): t=t.assign(geo_id=geo,policy=policy); rows.append(t)
     return pd.concat(rows,ignore_index=True) if rows else pd.DataFrame(columns=["turning_point_date","turning_point_type","qualified","geo_id","policy"])
 
-def build(run: Path, root: Path) -> dict[str,pd.DataFrame]:
+def build(run: Path, root: Path, debug_output: Path | None = None) -> dict[str,pd.DataFrame]:
     contract,weights=production_contract(root)
     # Presence checks are intentional even where diagnostic computation starts downstream.
     for name in ("source_metrics","features","normalized_features","regime_assignments"): _load(run,name)
-    x=_metric_long(_load(run,"metric_scores")); dimensions=_load(run,"dimension_scores"); persisted_axis=_load(run,"axis_scores")
+    x=_metric_long(_load(run,"aligned_metric_scores")); dimensions=_load(run,"dimension_scores"); persisted_axis=_load(run,"axis_scores")
     incumbent=_score(x,weights,set(METRICS)); inc_series=incumbent[["geo_id","date","demand_dimension"]].drop_duplicates()
     persisted_dim=_series(dimensions,dimension="demand").rename(columns={"value":"persisted"})
     p=inc_series.merge(persisted_dim,on=["geo_id","date"],how="left"); dim_err=(p.demand_dimension-p.persisted).abs().max()
@@ -147,6 +269,10 @@ def build(run: Path, root: Path) -> dict[str,pd.DataFrame]:
     pa=_series(persisted_axis,axis="demand").rename(columns={"value":"persisted"}); ap=inc_axis.merge(pa,on=["geo_id","date"],how="left"); axis_err=(ap.demand_axis-ap.persisted).abs().max()
     if pd.isna(dim_err) or dim_err>TOL or pd.isna(axis_err) or axis_err>TOL: raise ValueError(f"incumbent parity failed: dimension={dim_err}, axis={axis_err}")
     parity=pd.DataFrame([{"check":"normalized metric scores reused exactly","max_abs_error":0.,"status":"pass"},{"check":"effective metric weights and contributions reconstruct Demand dimension","max_abs_error":dim_err,"status":"pass"},{"check":"weighted Demand contribution and final Demand axis","max_abs_error":axis_err,"status":"pass"}])
+    movement_audit = build_movement_audit(incumbent, persisted_dim)
+    if debug_output is not None:
+        debug_output.mkdir(parents=True, exist_ok=True)
+        for name, frame in movement_audit.items(): frame.to_csv(debug_output/f"{name}.csv", index=False)
     # Pairwise aligned score diagnostics.
     pair=[]
     wide=x.pivot(index=["geo_id","date"],columns="metric",values="score")

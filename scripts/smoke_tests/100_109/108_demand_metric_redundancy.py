@@ -20,7 +20,7 @@ def fixture(root: Path) -> Path:
        for mi,m in enumerate(d.METRICS):
         score=np.sin((i+mi)/7)+gi/20 if m!="laus_unemployment_rate" else -np.cos(i/8)+gi/20
         rows.append({"geo_id":geo,"evaluation_date":date,"canonical_metric_key":m,"metric_score":score})
-    metrics=pd.DataFrame(rows); metrics.to_parquet(run/"metric_scores.parquet",index=False)
+    metrics=pd.DataFrame(rows); metrics.to_parquet(run/"aligned_metric_scores.parquet",index=False)
     weights={m:.1667 for m in d.METRICS}; inc=d._score(d._metric_long(metrics),weights,set(d.METRICS)); ds=inc[["geo_id","date","demand_dimension"]].drop_duplicates()
     dims=[]
     for r in ds.itertuples():
@@ -54,7 +54,7 @@ def test_contract_and_bundle():
     gov=tables["demand_metric_governance_status"].iloc[0]
     assert (gov.recommendation_state,gov.promotion_state,gov.human_decision)==("none","none","pending") and not bool(gov.automated_winner)
     # Every ablation preserves persisted metric scores; only membership/effective weights differ.
-    x=d._metric_long(pd.read_parquet(run/"metric_scores.parquet"))
+    x=d._metric_long(pd.read_parquet(run/"aligned_metric_scores.parquet"))
     for drops in d.ABLATIONS.values():
       q=d._score(x,weights,set(d.METRICS)-drops)
       merged=q.merge(x,on=["geo_id","date","metric"],suffixes=("_candidate","_persisted"))
@@ -66,9 +66,40 @@ def test_contract_and_bundle():
 def test_fail_closed():
   with tempfile.TemporaryDirectory() as td:
     root=Path(td); run=fixture(root)
-    m=pd.read_parquet(run/"metric_scores.parquet"); m=m[m.geo_id.ne(d.REVIEW_GEOS[-1])]; m.to_parquet(run/"metric_scores.parquet",index=False)
+    m=pd.read_parquet(run/"aligned_metric_scores.parquet"); m=m[m.geo_id.ne(d.REVIEW_GEOS[-1])]; m.to_parquet(run/"aligned_metric_scores.parquet",index=False)
     try: d.build(run,ROOT)
     except ValueError as e: assert "coverage missing" in str(e)
     else: raise AssertionError("missing governed geography did not fail closed")
 
-if __name__=="__main__": test_contract_and_bundle(); test_fail_closed(); print("demand metric redundancy diagnostic smoke passed")
+def test_movement_residual_audit():
+  geo="fixture_county__county"; dates=pd.to_datetime(["2020-01-31","2020-02-29","2020-03-31"])
+  weights={"a":.5,"b":.5}
+  def scored(rows):
+    raw=pd.DataFrame(rows,columns=["geo_id","date","metric","score"])
+    return d._score(raw,weights,{"a","b"})
+  complete=scored([(geo,date,metric,float(i+mi)) for i,date in enumerate(dates) for mi,metric in enumerate(("a","b"))])
+  dims=complete[["geo_id","date","demand_dimension"]].drop_duplicates().rename(columns={"demand_dimension":"value"})
+  audit=d.build_movement_audit(complete,dims)["demand_movement_residual_audit"]
+  assert audit.abs_movement_residual.max() <= d.TOL
+  assert not audit.metric_set_changed.any() and not audit.any_effective_weight_change.any()
+
+  missing=scored([(geo,dates[0],"a",0.),(geo,dates[0],"b",1.),
+                  (geo,dates[1],"a",1.),
+                  (geo,dates[2],"a",2.),(geo,dates[2],"b",3.)])
+  dims=missing[["geo_id","date","demand_dimension"]].drop_duplicates().rename(columns={"demand_dimension":"value"})
+  audit=d.build_movement_audit(missing,dims)["demand_movement_residual_audit"].set_index("date")
+  assert audit.loc[dates[1],"metric_set_changed"] and audit.loc[dates[1],"any_effective_weight_change"]
+  assert audit.loc[dates[2],"metric_set_changed"] and audit.loc[dates[2],"any_effective_weight_change"]
+  assert audit.loc[dates[2],"any_nonconsecutive_metric_observation"]
+
+  # Force a residual solely to exercise exact consecutive score/weight/interaction reconciliation.
+  bad_dims=dims.copy(); bad_dims.loc[bad_dims.date.eq(dates[1]),"value"] += .01
+  tables=d.build_movement_audit(missing,bad_dims)
+  dec=tables["demand_movement_effect_decomposition"]
+  reconciled=dec[dec.decomposition_status.eq("reconciled")]
+  assert not reconciled.empty and reconciled.decomposition_error.max() <= d.TOL
+  skipped=dec[(dec.date.eq(dates[2])) & dec.metric.eq("b")].iloc[0]
+  assert skipped.decomposition_status == "nonconsecutive" and skipped.months_between_observations == 2
+  assert pd.isna(skipped.score_t_minus_1)
+
+if __name__=="__main__": test_contract_and_bundle(); test_fail_closed(); test_movement_residual_audit(); print("demand metric redundancy diagnostic smoke passed")
