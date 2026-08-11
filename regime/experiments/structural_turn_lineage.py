@@ -70,24 +70,31 @@ def build_tables(scores: pd.DataFrame, labor_scores: pd.DataFrame, base_weights:
     """Build lineage tables from already governed inputs (also the smoke seam)."""
     weights = realized_metric_weights(base_weights, "LF-IN", "BAL-INCUMBENT-EXACT")
     structural = scores.loc[scores.metric.isin(STRUCTURAL)].copy()
-    panel_rows, chronology_rows = [], []
-    for (geo, date), g in structural.groupby(["geo_id", "date"], sort=True):
+    scenario_panel = pd.concat([structural[["geo_id", "date", "metric", "score"]], labor_scores], ignore_index=True)
+    panel_rows, chronology_rows, legacy_rows = [], [], []
+    for (geo, date), g in scenario_panel.groupby(["geo_id", "date"], sort=True):
+        # Missingness renormalization belongs at the complete parent (core
+        # Demand) grain.  Applying it after selecting Structural silently
+        # inflates that block and can change fixed-prominence qualification.
         calc = effective_contributions(g.score, g.metric.map(weights))
         q = g.assign(effective_weight=calc.effective_feature_weight.to_numpy(),
                      contribution=calc.weighted_feature_contribution.to_numpy())
-        panel_rows.append(q)
+        sq = q.loc[q.metric.isin(STRUCTURAL)].copy()
+        panel_rows.append(sq)
         row = {"geo_id": geo, "date": date}
         for metric in STRUCTURAL:
-            hit = q.loc[q.metric.eq(metric)]
+            hit = sq.loc[sq.metric.eq(metric)]
             row[f"{metric}_score"] = hit.score.iloc[0] if len(hit) else np.nan
             row[f"{metric}_effective_weight"] = hit.effective_weight.iloc[0] if len(hit) else np.nan
             row[f"{metric}_contribution"] = hit.contribution.iloc[0] if len(hit) else np.nan
-        row["structural_score"] = q.contribution.sum(min_count=1)
+        row["structural_score"] = sq.contribution.sum(min_count=1)
         chronology_rows.append(row)
+        legacy_calc = effective_contributions(sq.score, sq.metric.map(weights))
+        legacy_rows.append({"geo_id": geo, "date": date,
+                            "structural_score": legacy_calc.weighted_feature_contribution.sum(min_count=1)})
     panel = pd.concat(panel_rows, ignore_index=True) if panel_rows else pd.DataFrame()
     chronology = pd.DataFrame(chronology_rows).sort_values(["geo_id", "date"]).reset_index(drop=True)
 
-    scenario_panel = pd.concat([structural[["geo_id", "date", "metric", "score"]], labor_scores], ignore_index=True)
     scenario_rows = []
     for (geo, date), g in scenario_panel.groupby(["geo_id", "date"], sort=True):
         calc = effective_contributions(g.score, g.metric.map(weights))
@@ -144,6 +151,29 @@ def build_tables(scores: pd.DataFrame, labor_scores: pd.DataFrame, base_weights:
         "status": "match" if np.isclose(reconstructed, exported) else "mismatch"}])
 
     qualified = detected.loc[detected.qualified.fillna(False)]
+    legacy = pd.DataFrame(legacy_rows).sort_values(["geo_id", "date"]).reset_index(drop=True)
+    before_detected = []
+    for geo in GEOS:
+        before_detected.append(_turns(legacy.loc[legacy.geo_id.eq(geo)], "structural_score").assign(geo_id=geo))
+    before_detected = pd.concat(before_detected, ignore_index=True) if before_detected else pd.DataFrame()
+    before_qualified = before_detected.loc[before_detected.qualified.fillna(False)]
+    before_matches = []
+    for geo in GEOS:
+        bm = match_turning_points(before_detected.loc[before_detected.geo_id.eq(geo)],
+                                  scenario_turns.loc[scenario_turns.geo_id.eq(geo)].rename(columns={"turn_date":"turning_point_date"}))
+        if not bm.empty: before_matches.append(bm)
+    before_match = pd.concat(before_matches, ignore_index=True) if before_matches else pd.DataFrame(columns=["matched"])
+    before_numerator = int(before_match.matched.fillna(False).sum())
+    before_denominator = len(before_qualified)
+    before_share = before_numerator / before_denominator if before_denominator else 0.0
+    stage_counts = pd.DataFrame([
+        {"stage":"structural_composite_rows", "before":len(legacy), "after":len(chronology)},
+        {"stage":"detected_structural_turns", "before":len(before_detected), "after":len(detected)},
+        {"stage":"qualified_structural_turns", "before":before_denominator, "after":len(qualified)},
+        {"stage":"matched_structural_turns", "before":before_numerator, "after":int(match.matched.sum())},
+        {"stage":"expression_share", "before":before_share, "after":reconstructed},
+    ])
+
     scenario_qualified = scenario_turns.loc[scenario_turns.qualified.fillna(False)]
     std = float(chronology.structural_score.std())
     if not np.isfinite(std) or np.isclose(std, 0): cause, stage = "NO_STRUCTURAL_SCORE_VARIATION", STAGES[2]
@@ -192,6 +222,11 @@ def build_tables(scores: pd.DataFrame, labor_scores: pd.DataFrame, base_weights:
         for geo in (*GEOS, "POOLED"): stage_rows.append(_describe(name, geo, frame, value, turn_frame))
 
     return {
+        "before_vs_after_stage_counts": stage_counts,
+        "repaired_lineage_summary": pd.DataFrame(stage_rows),
+        "repaired_expression_share": expression,
+        "repaired_match_audit": match,
+        "repaired_export_comparison": comparison,
         "structural_turn_lineage_stage_summary": pd.DataFrame(stage_rows),
         "structural_turn_lineage_structural_chronology": chronology,
         "structural_turn_lineage_detector_input": chronology[["geo_id", "date", "structural_score"]],
@@ -227,4 +262,20 @@ def build_review(run: Path, output: Path, root: Path | None = None) -> Path:
     output.mkdir(parents=True, exist_ok=False)
     for name, frame in tables.items():
         frame.to_csv(output/f"{name}.csv", index=False, date_format="%Y-%m-%d", float_format="%.15g")
+    (output / "repaired_root_cause.md").write_text(
+        "# Structural turn-expression repair\n\n"
+        "## First failing stage\n\n"
+        "**Aggregation: Structural metric composite.**\n\n"
+        "The lineage diagnostic selected the Structural rows before calling "
+        "`effective_contributions()`. That function implements parent-level missingness "
+        "renormalization, so the premature selection incorrectly renormalized the three "
+        "Structural metrics to 100% instead of retaining their weights within complete core "
+        "Demand. The inflated composite could change fixed-prominence turn qualification.\n\n"
+        "The repair computes effective contributions once at the complete core-Demand grain "
+        "and only then selects and sums Structural contributions. The shared "
+        "`detect_turning_points()` and `match_turning_points()` implementations are unchanged. "
+        "No registry, feature weight, Demand balance, LAUS weight, detector, matcher, or "
+        "production policy changed. The repaired export comparison records whether expression "
+        "and its reconstruction reconcile.\n"
+    )
     return output
