@@ -5,9 +5,17 @@ import numpy as np
 import pandas as pd
 
 from regime.experiments.laus_feature_architecture import (
-    GEOS, LAUS, MA_POLICIES, WEIGHT_POLICIES, PRODUCTION_WEIGHTS,
-    _chronology, policy_registry, production_contract,
+    CANONICAL,
+    GEOS,
+    LAUS,
+    MA_POLICIES,
+    WEIGHT_POLICIES,
+    PRODUCTION_WEIGHTS,
+    _chronology,
+    policy_registry,
+    production_contract,
 )
+from regime.pandas_compat import MONTH_END
 
 root=Path(__file__).resolve().parents[3]
 before={p:hashlib.sha256((root/p).read_bytes()).hexdigest() for p in (
@@ -26,10 +34,32 @@ assert set(WEIGHT_POLICIES)==set(w.policy)
 
 # Exercise shared smoothing + production normalization twice.  All seven governed
 # counties and all three metrics receive identical, complete monthly fixtures.
-dates=pd.date_range("2008-01-31",periods=180,freq="M"); rows=[]
-for gi,geo in enumerate(GEOS):
- for mi,metric in enumerate(LAUS):
-  for i,date in enumerate(dates): rows.append({"geo_id":geo,"date":date,"canonical_metric_key":metric,"raw_value":1000+gi*20+mi*100+i*2+np.sin(i/5)})
+dates = pd.date_range(
+    "2008-01-31",
+    periods=180,
+    freq=MONTH_END,
+)
+rows = []
+
+for gi, geo in enumerate(GEOS):
+    for mi, registry_metric in enumerate(LAUS):
+        canonical_metric = CANONICAL[registry_metric]
+
+        for i, date in enumerate(dates):
+            rows.append(
+                {
+                    "geo_id": geo,
+                    "date": date,
+                    "canonical_metric_key": canonical_metric,
+                    "raw_value": (
+                        1000
+                        + gi * 20
+                        + mi * 100
+                        + i * 2
+                        + np.sin(i / 5)
+                    ),
+                }
+            )
 source=pd.DataFrame(rows); a=_chronology(source,"LAUS-MA6",6,PRODUCTION_WEIGHTS); b=_chronology(source,"LAUS-MA6",6,PRODUCTION_WEIGHTS)
 pd.testing.assert_frame_equal(a,b); assert set(a.geo_id)==set(GEOS); assert not a.geo_id.str.contains("cbsa|metro",case=False).any()
 reconstructed=a[["level_contribution","short_contribution","long_contribution"]].sum(axis=1)

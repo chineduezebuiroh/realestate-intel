@@ -69,9 +69,27 @@ def _source(run: Path) -> pd.DataFrame:
     raw = demand._load(run, "source_metrics")
     geo=demand._col(raw,"geo_id"); date=demand._col(raw,"date","evaluation_date")
     metric=demand._col(raw,"canonical_metric_key","metric_key"); value=demand._col(raw,"value","raw_value")
-    out=raw.rename(columns={geo:"geo_id",date:"date",metric:"canonical_metric_key",value:"raw_value"})
-    out=out.loc[out["geo_id"].isin(GEOS) & out["canonical_metric_key"].isin(LAUS),
-                ["geo_id","date","canonical_metric_key","raw_value"]].copy()
+    out = raw.rename(
+        columns={
+            geo: "geo_id",
+            date: "date",
+            metric: "canonical_metric_key",
+            value: "raw_value",
+        }
+    )
+
+    canonical_laus = set(CANONICAL.values())
+
+    out = out.loc[
+        out["geo_id"].isin(GEOS)
+        & out["canonical_metric_key"].isin(canonical_laus),
+        [
+            "geo_id",
+            "date",
+            "canonical_metric_key",
+            "raw_value",
+        ],
+    ].copy()
     out["date"]=pd.to_datetime(out.date)
     if set(out.geo_id) != set(GEOS): raise ValueError(f"missing governed counties: {set(GEOS)-set(out.geo_id)}")
     if out.geo_id.str.contains("cbsa|metro",case=False,regex=True).any(): raise ValueError("CBSA/metro leakage")
@@ -80,12 +98,42 @@ def _source(run: Path) -> pd.DataFrame:
 
 def _features(source: pd.DataFrame, ma: int) -> pd.DataFrame:
     chunks=[]
-    for metric in LAUS:
-        policy=SmoothingMetricPolicy(f"laus_ma{ma}",metric,"direct","ma_momentum",ma,ma,3,ma,12,False)
-        wide=build_smoothed_metric_features_wide(source.loc[source.canonical_metric_key.eq(metric)],policy=policy,value_column="raw_value")
+    for registry_metric in LAUS:
+        canonical_metric = CANONICAL[registry_metric]
+
+        policy = SmoothingMetricPolicy(
+            f"laus_ma{ma}",
+            canonical_metric,
+            "direct",
+            "ma_momentum",
+            ma,
+            ma,
+            3,
+            ma,
+            12,
+            False,
+        )
+
+        metric_source = source.loc[
+            source["canonical_metric_key"].eq(canonical_metric)
+        ].copy()
+
+        if metric_source.empty:
+            raise ValueError(
+                "Missing authoritative LAUS source chronology for "
+                f"{registry_metric} -> {canonical_metric}"
+            )
+
+        wide = build_smoothed_metric_features_wide(
+            metric_source,
+            policy=policy,
+            value_column="raw_value",
+        )
         for suffix,col in (("level","smoothed_level_value"),("short","smoothed_short_value"),("long","smoothed_long_value")):
             q=wide[["geo_id","date","canonical_metric_key",col]].rename(columns={col:"raw_feature_value"})
-            q["feature_key"]=f"{metric}_{suffix}"; q["feature_type"]=suffix; chunks.append(q)
+            q["feature_key"] = f"{registry_metric}_{suffix}"
+            q["feature_type"] = suffix
+            chunks.append(q)
     return pd.concat(chunks,ignore_index=True)
 
 
@@ -103,7 +151,13 @@ def _chronology(source: pd.DataFrame, policy: str, ma: int, weights: tuple[float
         out[f"effective_{f}_weight"]=np.where(available[f"{f}_score"],w/denom.replace(0,np.nan),0.)
         out[f"{f}_contribution"]=out[f"{f}_score"].fillna(0)*out[f"effective_{f}_weight"]
     out["metric_score"]=out[[f"{f}_contribution" for f in ("level","short","long")]].sum(axis=1).where(denom.gt(0))
-    out["metric"]=out.canonical_metric_key.map(CANONICAL); out["policy"]=policy
+    # canonical_metric_key is already the governed Demand metric identity:
+    # labor_force, employment, laus_unemployment_rate.
+    #
+    # Do not map it through CANONICAL again. CANONICAL maps registry/source
+    # identities -> canonical identities and is only needed at that boundary.
+    out["metric"] = out["canonical_metric_key"]
+    out["policy"] = policy
     return out
 
 
@@ -129,15 +183,76 @@ def _turns(frame: pd.DataFrame, value: str, series: str) -> pd.DataFrame:
     return pd.concat(rows,ignore_index=True) if rows else pd.DataFrame(columns=["turning_point_date","turning_point_type","qualified","policy","geo_id","series"])
 
 
-def _downstream(run: Path, chron: pd.DataFrame, weights: dict[str,float]):
-    persisted=demand._metric_long(demand._load(run,"aligned_metric_scores"))
-    replacement=chron[["policy","geo_id","date","metric","metric_score"]].rename(columns={"metric_score":"score"})
-    dimensions=demand._load(run,"dimension_scores"); axes=demand._load(run,"axis_scores")
+def _downstream(
+    run: Path,
+    chron: pd.DataFrame,
+    weights: dict[str, float],
+):
+    persisted = demand._metric_long(
+        demand._load(run, "aligned_metric_scores")
+    ).copy()
+
+    replacement = (
+        chron[
+            [
+                "policy",
+                "geo_id",
+                "date",
+                "metric",
+                "metric_score",
+            ]
+        ]
+        .rename(columns={"metric_score": "score"})
+        .copy()
+    )
+
+    # Canonicalize the concat boundary explicitly. Parquet-backed production
+    # chronology and freshly generated challenger chronology can otherwise
+    # carry different datetime resolutions / extension-array backing on
+    # different pandas/pyarrow versions.
+    persisted["date"] = (
+        pd.to_datetime(persisted["date"])
+        .astype("datetime64[ns]")
+    )
+    replacement["date"] = (
+        pd.to_datetime(replacement["date"])
+        .astype("datetime64[ns]")
+    )
+
+    for frame in (persisted, replacement):
+        frame["geo_id"] = frame["geo_id"].astype(str)
+        frame["metric"] = frame["metric"].astype(str)
+        frame["score"] = pd.to_numeric(
+            frame["score"],
+            errors="coerce",
+        )
+
+    dimensions = demand._load(run, "dimension_scores")
+    axes = demand._load(run, "axis_scores")
     ar=pd.read_csv("config/axis_registry.csv"); ar=ar.loc[ar["axis"].eq("demand") & ar["enabled"].eq(True)]
     axis_weights=dict(zip(ar.dimension,ar.dimension_weight)); dim=[]; axis=[]; detail=[]
     for policy in chron.policy.unique():
-        x=persisted.loc[~persisted.metric.isin(CANONICAL.values())].copy()
-        x=pd.concat([x,replacement.loc[replacement.policy.eq(policy),["geo_id","date","metric","score"]]],ignore_index=True)
+        x = persisted.loc[
+            ~persisted["metric"].isin(CANONICAL.values()),
+            ["geo_id", "date", "metric", "score"],
+        ].copy()
+
+        challenger = replacement.loc[
+            replacement["policy"].eq(policy),
+            ["geo_id", "date", "metric", "score"],
+        ].copy()
+
+        # Reassert exact column order and clean RangeIndexes before concat.
+        # This is intentionally a schema boundary, not a scoring change.
+        x = x.reset_index(drop=True)
+        challenger = challenger.reset_index(drop=True)
+
+        x = pd.concat(
+            [x, challenger],
+            axis=0,
+            ignore_index=True,
+            sort=False,
+        )
         scored=demand._score(x,weights,set(demand.METRICS)); d=scored[["geo_id","date","demand_dimension"]].drop_duplicates().assign(policy=policy)
         a,z=demand._axis(dimensions,d[["geo_id","date","demand_dimension"]],axis_weights); a["policy"]=policy; z["policy"]=policy
         dim.append(d); axis.append(a); detail.append(scored.assign(policy=policy))
@@ -147,13 +262,95 @@ def _downstream(run: Path, chron: pd.DataFrame, weights: dict[str,float]):
 def _parity(run: Path, chron: pd.DataFrame, dim: pd.DataFrame, axis: pd.DataFrame, incumbent: str) -> pd.DataFrame:
     rows=[]; c=chron.loc[chron.policy.eq(incumbent)]
     pf=demand._load(run,"features"); pn=demand._load(run,"normalized_features"); pm=demand._metric_long(demand._load(run,"aligned_metric_scores"))
-    def compare(name,left,right,keys,lcol,rcol):
-        m=left[keys+[lcol]].merge(right[keys+[rcol]],on=keys,suffixes=("_new","_prod")); err=(m[f"{lcol}_new"]-m[f"{rcol}_prod"]).abs().max()
-        rows.append({"field":name,"max_abs_error":err,"tolerance":TOL,"status":"pass" if pd.notna(err) and err<=TOL else "fail"})
+    def compare(
+        name,
+        left,
+        right,
+        keys,
+        lcol,
+        rcol,
+    ):
+        lhs = (
+            left[keys + [lcol]]
+            .rename(columns={lcol: "_new_value"})
+            .copy()
+        )
+        rhs = (
+            right[keys + [rcol]]
+            .rename(columns={rcol: "_prod_value"})
+            .copy()
+        )
+
+        # Canonicalize datetime join keys because production parquet and
+        # freshly generated challenger chronology may use different
+        # datetime resolutions on different pandas/pyarrow versions.
+        if "date" in keys:
+            lhs["date"] = (
+                pd.to_datetime(lhs["date"])
+                .astype("datetime64[ns]")
+            )
+            rhs["date"] = (
+                pd.to_datetime(rhs["date"])
+                .astype("datetime64[ns]")
+            )
+
+        merged = lhs.merge(
+            rhs,
+            on=keys,
+            how="inner",
+            validate="one_to_one",
+        )
+
+        if merged.empty:
+            err = np.nan
+        else:
+            err = (
+                merged["_new_value"]
+                - merged["_prod_value"]
+            ).abs().max()
+
+        rows.append(
+            {
+                "field": name,
+                "max_abs_error": err,
+                "tolerance": TOL,
+                "status": (
+                    "pass"
+                    if pd.notna(err) and err <= TOL
+                    else "fail"
+                ),
+            }
+        )
     for f in ("level","short","long"):
         q=c.loc[c.feature_key.eq(c.canonical_metric_key+"_"+f)] if "feature_key" in c else c
         prod=pf.loc[pf[demand._col(pf,"feature_key")].isin([m+"_"+f for m in LAUS])].rename(columns={demand._col(pf,"date","evaluation_date"):"date",demand._col(pf,"feature_key"):"feature_key",demand._col(pf,"raw_feature_value","value"):"raw_feature_value"})
-        left=c.assign(feature_key=c.canonical_metric_key+"_"+f)
+        canonical_to_registry = {
+            canonical: registry
+            for registry, canonical in CANONICAL.items()
+        }
+
+        left = c.copy()
+        left["feature_key"] = (
+            left["canonical_metric_key"]
+            .map(canonical_to_registry)
+            .astype("string")
+            + "_"
+            + f
+        )
+
+        if left["feature_key"].isna().any():
+            missing = (
+                left.loc[
+                    left["feature_key"].isna(),
+                    "canonical_metric_key",
+                ]
+                .drop_duplicates()
+                .tolist()
+            )
+            raise ValueError(
+                "Unable to map canonical LAUS metric identities "
+                f"back to production feature keys: {missing}"
+            )
         compare(f"raw {f}",left,prod,["geo_id","date","feature_key"],f+"_raw","raw_feature_value")
         prod_n=pn.loc[pn[demand._col(pn,"feature_key")].isin([m+"_"+f for m in LAUS])].rename(columns={demand._col(pn,"date","evaluation_date"):"date",demand._col(pn,"feature_key"):"feature_key",demand._col(pn,"feature_score","score"):"feature_score"})
         compare(f"normalized {f}",left,prod_n,["geo_id","date","feature_key"],f+"_score","feature_score")
