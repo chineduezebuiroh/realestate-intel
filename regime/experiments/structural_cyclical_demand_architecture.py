@@ -345,17 +345,97 @@ def build_review(run: Path, output: Path, root: Path | None = None) -> Path:
            "interaction_delta":vals.mean()-am[a]-bm[b]+grand,"county_consistency":max((deltas>=0).mean(),(deltas<=0).mean()),"period":period})
     interactions=pd.DataFrame(interactions)
 
-    supply=persisted_axis.loc[persisted_axis.axis.str.lower().eq("supply")].rename(columns={"persisted":"supply_axis_score"})
-    supply_context=[]
-    for sid,g in axis_scenarios.groupby("scenario_id"):
-      joined=g.merge(supply[["geo_id","date","supply_axis_score"]],on=["geo_id","date"],how="left",validate="one_to_one")
-      if joined.supply_axis_score.isna().any(): raise ValueError("persisted Supply axis coverage missing")
-      for geo in GEOS:
-       for period,q in _periods(joined.loc[joined.geo_id.eq(geo)]):
-        ds=q.demand_axis_score.std(); ss=q.supply_axis_score.std(); da=q.demand_axis_score.abs().median(); sa=q.supply_axis_score.abs().median()
-        supply_context.append({"scenario_id":sid,"geo_id":geo,"period":period,"demand_axis_std":ds,"supply_axis_std":ss,"demand_to_supply_std_ratio":ds/ss if ss else np.nan,
-          "demand_median_abs":da,"supply_median_abs":sa,"demand_to_supply_median_abs_ratio":da/sa if sa else np.nan})
-    supply_context=pd.DataFrame(supply_context)
+    supply = (
+        persisted_axis.loc[
+            persisted_axis.axis.str.lower().eq("supply")
+        ]
+        .rename(
+            columns={
+                "persisted": "supply_axis_score"
+            }
+        )
+        .copy()
+    )
+
+    supply_context = []
+
+    for sid, g in axis_scenarios.groupby("scenario_id"):
+        # Demand and Supply do not necessarily begin on the same month.
+        # Supply starts later in the authoritative chronology for several
+        # governed counties. The benchmark is therefore evaluated only on
+        # months where BOTH persisted Supply and scenario Demand exist.
+        joined = g.merge(
+            supply[
+                [
+                    "geo_id",
+                    "date",
+                    "supply_axis_score",
+                ]
+            ],
+            on=["geo_id", "date"],
+            how="inner",
+            validate="one_to_one",
+        )
+
+        present_geos = set(joined["geo_id"].unique())
+
+        if present_geos != set(GEOS):
+            raise ValueError(
+                "common Demand/Supply chronology missing governed "
+                f"geographies: present={sorted(present_geos)}"
+            )
+
+        for geo in GEOS:
+            common = joined.loc[
+                joined.geo_id.eq(geo)
+            ].copy()
+
+            if common.empty:
+                raise ValueError(
+                    "no common Demand/Supply chronology for "
+                    f"{geo}"
+                )
+
+            for period, q in _periods(common):
+                if q.empty:
+                    raise ValueError(
+                        "empty common Demand/Supply period for "
+                        f"{geo} / {period}"
+                    )
+
+                ds = q.demand_axis_score.std()
+                ss = q.supply_axis_score.std()
+                da = q.demand_axis_score.abs().median()
+                sa = q.supply_axis_score.abs().median()
+
+                supply_context.append(
+                    {
+                        "scenario_id": sid,
+                        "geo_id": geo,
+                        "period": period,
+                        "common_observations": len(q),
+                        "common_start_date": q.date.min(),
+                        "common_end_date": q.date.max(),
+                        "demand_axis_std": ds,
+                        "supply_axis_std": ss,
+                        "demand_to_supply_std_ratio": (
+                            ds / ss
+                            if pd.notna(ss) and ss != 0
+                            else np.nan
+                        ),
+                        "demand_median_abs": da,
+                        "supply_median_abs": sa,
+                        "demand_to_supply_median_abs_ratio": (
+                            da / sa
+                            if pd.notna(sa) and sa != 0
+                            else np.nan
+                        ),
+                    }
+                )
+
+    supply_context = pd.DataFrame(
+        supply_context
+    )
 
     parity=pd.DataFrame([{"check":k,"max_abs_error":v,"tolerance":TOL,"status":"pass"} for k,v in errors.items()])
     governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"none","human_decision":"pending","automated_winner":False,"production_policy_changed":False,"incumbent_similarity_used_as_evaluation":False}])
