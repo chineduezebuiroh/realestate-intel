@@ -28,7 +28,7 @@ POLICIES = {
     "DEM-LABOR-A": set(METRICS),
     "DEM-LABOR-B": set(METRICS) - {"labor_force"},
     "DEM-LABOR-C": set(METRICS) - {"labor_force", "employment"},
-    "DEM-LABOR-D": set(METRICS) - {"labor_force"},
+    "DEM-LABOR-D": set(METRICS) - {"labor_force", "laus_unemployment_rate"},
 }
 ABLATIONS = {
     "DROP-LABOR-FORCE": {"labor_force"}, "DROP-EMPLOYMENT": {"employment"},
@@ -362,7 +362,7 @@ def build(run: Path, root: Path, debug_output: Path | None = None) -> dict[str,p
     chron={"INCUMBENT":(inc_series,inc_axis,incumbent)}
     for name,drops in ABLATIONS.items():
       s=_score(x,weights,set(METRICS)-drops); ds=s[["geo_id","date","demand_dimension"]].drop_duplicates(); ax,_=_axis(dimensions,ds,axis_weights); chron[name]=(ds,ax,s)
-    policy_map={"DEM-LABOR-A":"INCUMBENT","DEM-LABOR-B":"DROP-LABOR-FORCE","DEM-LABOR-C":"DROP-LABOR-FORCE-AND-EMPLOYMENT","DEM-LABOR-D":"DROP-LABOR-FORCE"}
+    policy_map={"DEM-LABOR-A":"INCUMBENT","DEM-LABOR-B":"DROP-LABOR-FORCE","DEM-LABOR-C":"DROP-LABOR-FORCE-AND-EMPLOYMENT","DEM-LABOR-D":"DROP-EMPLOYMENT-AND-UNEMPLOYMENT"}
     ab=[]; incremental=[]; stability=[]; turns=[]
     base_turn=_turns(inc_axis,"demand_axis","INCUMBENT")
     for name,(ds,ax,detail) in chron.items():
