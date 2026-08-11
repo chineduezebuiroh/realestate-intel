@@ -244,21 +244,10 @@ def build_review(run: Path, output: Path, root: Path | None = None) -> Path:
     run = run.resolve(); root = (root or Path(__file__).resolve().parents[2]).resolve()
     if run.name != RUN_ID: raise ValueError(f"authoritative run identity must be {RUN_ID}")
     if not run.is_dir(): raise FileNotFoundError(f"authoritative run absent: {run}")
-    fr, mr, _ = production_contract(root)
-    scores = _load(run, "aligned_metric_scores")
-    scores = scores.rename(columns={_col(scores, "canonical_metric_key", "metric_key", "metric"): "metric",
-                                    _col(scores, "aligned_metric_score", "metric_score", "score"): "score"})
-    scores["metric"] = scores.metric.replace({"laus_labor_force":"labor_force", "laus_employment":"employment"})
-    scores = _scope(scores, "aligned_metric_scores", ["geo_id", "date", "metric"])
-    scores = scores.loc[scores.metric.isin(CORE_DEMAND), ["geo_id", "date", "metric", "score"]]
-    features, _ = _feature_panel(run, fr)
-    weights = dict(zip(("level", "short", "long"), WEIGHT_POLICIES["LAUS-W-70-15-15"]))
-    labor_rows = []
-    for keys, g in features.loc[features.metric.isin(LABOR)].groupby(["geo_id", "date", "metric"]):
-        calc = effective_contributions(g.normalized_feature_score, g.feature_type.map(weights))
-        labor_rows.append((*keys, calc.weighted_feature_contribution.sum(min_count=1)))
-    labor = pd.DataFrame(labor_rows, columns=["geo_id", "date", "metric", "score"])
+    chronology, scores, labor, mr = governed_detector_input(run, root)
     tables = build_tables(scores, labor, _metric_weights(mr))
+    if not tables["structural_turn_lineage_detector_input"].equals(chronology):
+        raise AssertionError("governed detector-input construction drifted")
     output.mkdir(parents=True, exist_ok=False)
     for name, frame in tables.items():
         frame.to_csv(output/f"{name}.csv", index=False, date_format="%Y-%m-%d", float_format="%.15g")
@@ -279,3 +268,23 @@ def build_review(run: Path, output: Path, root: Path | None = None) -> Path:
         "and its reconstruction reconcile.\n"
     )
     return output
+
+
+def governed_detector_input(run: Path, root: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Return the exact lineage detector input and its governed construction inputs."""
+    fr, mr, _ = production_contract(root)
+    scores = _load(run, "aligned_metric_scores")
+    scores = scores.rename(columns={_col(scores, "canonical_metric_key", "metric_key", "metric"): "metric",
+                                    _col(scores, "aligned_metric_score", "metric_score", "score"): "score"})
+    scores["metric"] = scores.metric.replace({"laus_labor_force":"labor_force", "laus_employment":"employment"})
+    scores = _scope(scores, "aligned_metric_scores", ["geo_id", "date", "metric"])
+    scores = scores.loc[scores.metric.isin(CORE_DEMAND), ["geo_id", "date", "metric", "score"]]
+    features, _ = _feature_panel(run, fr)
+    weights = dict(zip(("level", "short", "long"), WEIGHT_POLICIES["LAUS-W-70-15-15"]))
+    labor_rows = []
+    for keys, g in features.loc[features.metric.isin(LABOR)].groupby(["geo_id", "date", "metric"]):
+        calc = effective_contributions(g.normalized_feature_score, g.feature_type.map(weights))
+        labor_rows.append((*keys, calc.weighted_feature_contribution.sum(min_count=1)))
+    labor = pd.DataFrame(labor_rows, columns=["geo_id", "date", "metric", "score"])
+    chronology = build_tables(scores, labor, _metric_weights(mr))["structural_turn_lineage_detector_input"]
+    return chronology, scores, labor, mr
