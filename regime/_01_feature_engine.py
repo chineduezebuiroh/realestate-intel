@@ -723,17 +723,42 @@ def build_feature_matrix_with_lineage(
             )
         )
 
-        rows.append(
-            metric_df[
-                [
-                    "geo_id",
-                    "date",
-                    "canonical_metric_key",
-                    "feature_key",
-                    "raw_feature_value",
-                ]
+        output_frame = metric_df[
+            [
+                "geo_id",
+                "date",
+                "canonical_metric_key",
+                "feature_key",
+                "raw_feature_value",
             ]
+        ].copy()
+
+        # Canonicalize the feature-output schema before concatenating
+        # calendarized MA frames with untouched non-MA feature frames.
+        #
+        # Different pandas/pyarrow paths can otherwise retain different
+        # datetime resolutions even when the calendar dates are identical,
+        # which causes concat failures on some supported local environments.
+        output_frame["date"] = (
+            pd.to_datetime(output_frame["date"])
+            .astype("datetime64[ns]")
         )
+
+        output_frame["geo_id"] = (
+            output_frame["geo_id"].astype(str)
+        )
+        output_frame["canonical_metric_key"] = (
+            output_frame["canonical_metric_key"].astype(str)
+        )
+        output_frame["feature_key"] = (
+            output_frame["feature_key"].astype(str)
+        )
+        output_frame["raw_feature_value"] = pd.to_numeric(
+            output_frame["raw_feature_value"],
+            errors="coerce",
+        )
+
+        rows.append(output_frame)
 
     feature_columns = [
         "geo_id",
