@@ -9,6 +9,7 @@ import pandas as pd
 from regime.smoothing_policy import (
     SmoothingMetricPolicy,
 )
+from regime.calendar_ma import calendar_moving_average, calendarize_comparable_series
 
 
 REQUIRED_ID_COLUMNS = (
@@ -190,22 +191,8 @@ def _rolling_mean(
     *,
     window: int,
 ) -> pd.Series:
-    """
-    Full-window trailing moving average.
-
-    No partial-window values are emitted.
-    """
-    return (
-        pd.to_numeric(
-            series,
-            errors="coerce",
-        )
-        .rolling(
-            window=window,
-            min_periods=window,
-        )
-        .mean()
-    )
+    """Governed two-thirds-coverage calendar moving average."""
+    return calendar_moving_average(series, window)["calendar_ma"]
 
 
 def _feature_key(
@@ -259,6 +246,11 @@ def _build_group_features(
     work = group.sort_values(
         "date"
     ).copy()
+    work = calendarize_comparable_series(
+        work,
+        value_column=value_column,
+        origin_column="metric_origin" if "metric_origin" in work else None,
+    )
 
     raw = work[
         value_column
