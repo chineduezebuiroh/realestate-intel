@@ -40,6 +40,10 @@ second = build_tables(scores, labor, base)
 chron = first["structural_turn_lineage_structural_chronology"]
 assert chron.equals(second["structural_turn_lineage_structural_chronology"])
 assert not chron.duplicated(["geo_id", "date"]).any()
+# Structural contributions retain their governed share of the complete parent;
+# they are not renormalized to 100% after the block is selected.
+expected_first = wave[0] * .5 + (.15 * .05 + .20 * .10)
+assert np.isclose(chron.iloc[0].structural_score, expected_first)
 assert len(first["structural_turn_lineage_detector_input"]) == len(GEOS) * len(dates)
 assert {"geo_id", "turn_date", "turning_point_type", "qualified"}.issubset(first["structural_turn_lineage_detected_turns"])
 source = Path("regime/experiments/structural_turn_lineage.py").read_text()
@@ -56,6 +60,11 @@ allowed = {"NO_STRUCTURAL_SCORE_VARIATION", "NO_STRUCTURAL_TURNS_DETECTED", "STR
            "EXPRESSION_FORMULA_FAILURE", "EXPORT_WIRING_FAILURE", "NO_FAILURE_REPRODUCED", "OTHER"}
 assert root.root_cause.isin(allowed).all() and not root.production_policy_changed.any()
 assert set(first["structural_turn_lineage_stage_summary"].stage_name) == set(STAGES)
+for artifact in ("before_vs_after_stage_counts", "repaired_lineage_summary",
+                 "repaired_expression_share", "repaired_match_audit",
+                 "repaired_export_comparison"):
+    assert artifact in first
+assert first["repaired_export_comparison"].status.eq("match").all()
 assert "config/" not in source.split("to_csv")[-1]
 assert "automated_winner" not in source and '"Decision": "selected"' not in source
 
