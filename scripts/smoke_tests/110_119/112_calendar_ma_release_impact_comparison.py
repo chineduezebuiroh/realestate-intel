@@ -6,6 +6,8 @@ import tempfile
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 from regime.experiments.calendar_ma_release_impact import (
     BASELINE_ID, CANDIDATE_ID, GEOS, build_review, circular_angle_difference,
     classify_rows,
@@ -14,7 +16,11 @@ from regime.experiments.calendar_ma_release_impact import (
 
 def write_run(path: Path, candidate: bool = False, source_drift: bool = False) -> None:
     path.mkdir()
-    dates=pd.date_range("2025-08-31","2026-07-31",freq="ME")
+    dates = pd.date_range(
+    "2025-08-31",
+    "2026-07-31",
+    freq=MONTH_END,
+)
     base=pd.MultiIndex.from_product([GEOS,dates,["labor_force","employment","laus_unemployment_rate"]],names=["geo_id","date","canonical_metric_key"]).to_frame(index=False)
     base["value"]=100.0+np.arange(len(base))
     base.loc[base.date.eq("2025-10-31"),"value"]=np.nan
@@ -23,7 +29,15 @@ def write_run(path: Path, candidate: bool = False, source_drift: bool = False) -
     f=base.rename(columns={"canonical_metric_key":"metric_key"}); f["feature_key"]=f.metric_key+"_ma6_level"; f["raw_feature_value"]=f.value
     if candidate: f.loc[f.date.eq("2025-10-31"),"raw_feature_value"]=f.groupby(["geo_id","metric_key"]).raw_feature_value.transform(lambda x:x.ffill())
     f[["geo_id","date","metric_key","feature_key","raw_feature_value"]].to_parquet(path/"features.parquet")
-    n=f[["geo_id","date","feature_key"]].copy(); n["feature_score"]=f.raw_feature_value/100
+    n = f[
+        [
+            "geo_id",
+            "date",
+            "metric_key",
+            "feature_key",
+        ]
+    ].copy()
+    n["feature_score"] = f.raw_feature_value / 100
     n.to_parquet(path/"normalized_features.parquet")
     m=f[["geo_id","date","metric_key"]].copy(); m["metric_score"]=f.raw_feature_value/100
     m.to_parquet(path/"metric_scores.parquet"); m.rename(columns={"metric_score":"aligned_metric_score"}).to_parquet(path/"aligned_metric_scores.parquet")
@@ -61,11 +75,64 @@ with tempfile.TemporaryDirectory() as tmp:
     else: raise AssertionError("source drift must fail closed")
     assert not (root/"drift-output").exists()
     candidate_source.to_parquet(c/"source_metrics.parquet")
-    leaked=candidate_source.copy(); leaked.loc[0,"geo_id"]="unexpected_county__county"; leaked.to_parquet(c/"source_metrics.parquet")
-    try: build_review(b,c,root/"leak-output")
-    except ValueError as exc: assert "governed geography violation" in str(exc)
-    else: raise AssertionError("geography leakage must fail closed")
-    candidate_source.to_parquet(c/"source_metrics.parquet")
+    # Full-universe run artifacts may contain additional geographies.
+    # Extra non-governed geography rows must be ignored after scoping.
+    extra = candidate_source.iloc[[0]].copy()
+    extra["geo_id"] = "unexpected_county__county"
+
+    with_extra = pd.concat(
+        [candidate_source, extra],
+        ignore_index=True,
+    )
+
+    with_extra.to_parquet(
+        c / "source_metrics.parquet",
+        index=False,
+    )
+
+    extra_out = root / "extra-geo-output"
+    build_review(b, c, extra_out)
+
+    if not extra_out.exists():
+        raise AssertionError(
+            "extra non-governed geography should be allowed and scoped out"
+        )
+
+    candidate_source.to_parquet(
+        c / "source_metrics.parquet",
+        index=False,
+    )
+
+    # Removing a governed geography must still fail closed.
+    missing_governed = candidate_source.loc[
+        ~candidate_source["geo_id"].eq(GEOS[-1])
+    ].copy()
+
+    missing_governed.to_parquet(
+        c / "source_metrics.parquet",
+        index=False,
+    )
+
+    try:
+        build_review(
+            b,
+            c,
+            root / "missing-governed-output",
+        )
+    except ValueError as exc:
+        assert (
+            "governed geography coverage missing"
+            in str(exc)
+        )
+    else:
+        raise AssertionError(
+            "missing governed geography must fail closed"
+        )
+
+    candidate_source.to_parquet(
+        c / "source_metrics.parquet",
+        index=False,
+    )
     # Complete end-to-end build and deterministic CSV contents.
     out1=root/"out1"; out2=root/"out2"; build_review(b,c,out1); build_review(b,c,out2)
     required={"calendar_ma_decision_matrix.csv","calendar_ma_governance_status.csv","calendar_ma_review.html","calendar_ma_change_attribution.csv"}

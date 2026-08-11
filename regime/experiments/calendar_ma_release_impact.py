@@ -16,6 +16,8 @@ import time
 import numpy as np
 import pandas as pd
 
+from regime.pandas_compat import MONTH_END
+
 TOL = 1e-12
 BASELINE_ID = "macro_regime_v1_0_release_20260810"
 CANDIDATE_ID = "macro_regime_v1_0_1_candidate_20260810"
@@ -54,18 +56,62 @@ def _load(run: Path, stem: str) -> pd.DataFrame:
 
 def _scope(frame: pd.DataFrame, stem: str) -> pd.DataFrame:
     geo = _col(frame, "geo_id", "geography_id")
-    date = _col(frame, "date", "evaluation_date", "observation_date")
-    out = frame.rename(columns={geo: "geo_id", date: "date"}).copy()
+    date = _col(
+        frame,
+        "date",
+        "evaluation_date",
+        "observation_date",
+    )
+
+    out = frame.rename(
+        columns={
+            geo: "geo_id",
+            date: "date",
+        }
+    ).copy()
+
     out["geo_id"] = out["geo_id"].astype(str)
-    out["date"] = pd.to_datetime(out["date"]).astype("datetime64[ns]")
+    out["date"] = (
+        pd.to_datetime(out["date"])
+        .astype("datetime64[ns]")
+    )
+
+    # Authoritative run artifacts may contain the full supported geography
+    # universe (ZIPs, counties, CBSAs, states, etc.). The comparison itself
+    # is governed to exactly the seven validation counties.
     present = set(out["geo_id"])
-    unexpected = present - set(GEOS)
     missing = set(GEOS) - present
-    if missing or unexpected:
-        raise ValueError(f"{stem}: governed geography violation; missing={sorted(missing)}, unexpected={sorted(unexpected)}")
-    if out["geo_id"].str.contains("cbsa|metro", case=False, regex=True).any():
-        raise ValueError(f"{stem}: CBSA leakage")
-    return out
+
+    if missing:
+        raise ValueError(
+            f"{stem}: governed geography coverage missing="
+            f"{sorted(missing)}"
+        )
+
+    scoped = out.loc[
+        out["geo_id"].isin(GEOS)
+    ].copy()
+
+    # Fail closed if the comparator's scoped evidence somehow contains
+    # anything outside the governed county panel.
+    scoped_present = set(scoped["geo_id"])
+
+    if scoped_present != set(GEOS):
+        raise ValueError(
+            f"{stem}: governed geography scope failure; "
+            f"present={sorted(scoped_present)}"
+        )
+
+    if scoped["geo_id"].str.contains(
+        "cbsa|metro|__zip",
+        case=False,
+        regex=True,
+    ).any():
+        raise ValueError(
+            f"{stem}: non-county geography leaked into governed scope"
+        )
+
+    return scoped
 
 
 def _keyed(frame: pd.DataFrame, stem: str) -> tuple[pd.DataFrame, list[str], str]:
@@ -170,12 +216,12 @@ def _attribution(changes: pd.DataFrame, source: pd.DataFrame) -> pd.DataFrame:
         current_missing = reference_missing = False
         boundary = False
         if chronology is not None and ma:
-            current_dates = pd.date_range(row.date - pd.offsets.MonthEnd(ma - 1), row.date, freq="ME")
+            current_dates = pd.date_range(row.date - pd.offsets.MonthEnd(ma - 1), row.date, freq=MONTH_END)
             current = chronology.reindex(current_dates)
             current_missing = current["value"].isna().any()
             if lag:
                 ref_end = row.date - pd.offsets.MonthEnd(lag)
-                ref_dates = pd.date_range(ref_end - pd.offsets.MonthEnd(ma - 1), ref_end, freq="ME")
+                ref_dates = pd.date_range(ref_end - pd.offsets.MonthEnd(ma - 1), ref_end, freq=MONTH_END)
                 reference_missing = chronology.reindex(ref_dates)["value"].isna().any()
             origin = _col(chronology.reset_index(), "metric_origin", "source_origin", required=False)
             if origin:
@@ -339,7 +385,7 @@ def build_review(baseline_run: Path, candidate_run: Path, output_dir: Path, root
     )
     exports["current_state_comparison"]=current
     # LAUS gap audit (long feature presence at metric/month grain).
-    months=pd.MultiIndex.from_product([GEOS,pd.date_range("2025-08-31","2026-06-30",freq="ME"),LAUS],names=["geo_id","date","canonical_metric_key"]).to_frame(index=False)
+    months=pd.MultiIndex.from_product([GEOS,pd.date_range("2025-08-31","2026-06-30",freq=MONTH_END),LAUS],names=["geo_id","date","canonical_metric_key"]).to_frame(index=False)
     src,_k,_v=_keyed(b["source_metrics"],"source_metrics"); audit=months.merge(src.assign(source_raw_present=src.value.notna())[["geo_id","date","canonical_metric_key","source_raw_present"]],how="left")
     for prefix,frame in (("baseline",bf),("candidate",cf)):
         fp=frame.assign(**{f"{prefix}_feature_present":frame.value.notna()}).groupby(["geo_id","date","canonical_metric_key"],as_index=False)[f"{prefix}_feature_present"].max()
@@ -353,11 +399,115 @@ def build_review(baseline_run: Path, candidate_run: Path, output_dir: Path, root
                 audit=audit.merge(frame[["geo_id","date","canonical_metric_key",age]].rename(columns={age:f"{prefix}_metric_age_days"}),how="left")
     # Normalized feature scores are summarized at the requested metric/month
     # grain while the feature-detail export retains every constituent feature.
-    feature_metric=bf[["feature_key","canonical_metric_key"]].drop_duplicates("feature_key")
-    for prefix,frame in (("baseline",bn),("candidate",cn)):
-        scored=frame.merge(feature_metric,on="feature_key",how="left",validate="many_to_one")
-        scored=scored.groupby(["geo_id","date","canonical_metric_key"],as_index=False).value.mean().rename(columns={"value":f"{prefix}_normalized_score"})
-        audit=audit.merge(scored,how="left")
+    feature_metric = (
+        bf[
+            [
+                "feature_key",
+                "canonical_metric_key",
+            ]
+        ]
+        .drop_duplicates("feature_key")
+        .copy()
+    )
+
+    for prefix, frame in (
+        ("baseline", bn),
+        ("candidate", cn),
+    ):
+        scored = frame.copy()
+
+        if "canonical_metric_key" in scored.columns:
+            # Real normalized-feature artifacts may already carry metric
+            # identity. Validate it against the persisted feature mapping
+            # instead of merging a duplicate canonical_metric_key column.
+            check = scored[
+                [
+                    "feature_key",
+                    "canonical_metric_key",
+                ]
+            ].merge(
+                feature_metric.rename(
+                    columns={
+                        "canonical_metric_key":
+                        "_mapped_canonical_metric_key"
+                    }
+                ),
+                on="feature_key",
+                how="left",
+                validate="many_to_one",
+            )
+
+            mismatch = (
+                check["_mapped_canonical_metric_key"].notna()
+                & check["canonical_metric_key"].notna()
+                & check["canonical_metric_key"].ne(
+                    check["_mapped_canonical_metric_key"]
+                )
+            )
+
+            if mismatch.any():
+                examples = (
+                    check.loc[
+                        mismatch,
+                        [
+                            "feature_key",
+                            "canonical_metric_key",
+                            "_mapped_canonical_metric_key",
+                        ],
+                    ]
+                    .drop_duplicates()
+                    .head(20)
+                    .to_dict("records")
+                )
+                raise ValueError(
+                    "normalized feature metric identity conflicts "
+                    f"with feature mapping: {examples}"
+                )
+        else:
+            scored = scored.merge(
+                feature_metric,
+                on="feature_key",
+                how="left",
+                validate="many_to_one",
+            )
+
+        if scored["canonical_metric_key"].isna().any():
+            missing = (
+                scored.loc[
+                    scored["canonical_metric_key"].isna(),
+                    "feature_key",
+                ]
+                .drop_duplicates()
+                .head(20)
+                .tolist()
+            )
+            raise ValueError(
+                "unable to resolve canonical metric identity "
+                f"for normalized features: {missing}"
+            )
+
+        scored = (
+            scored.groupby(
+                [
+                    "geo_id",
+                    "date",
+                    "canonical_metric_key",
+                ],
+                as_index=False,
+            )["value"]
+            .mean()
+            .rename(
+                columns={
+                    "value":
+                    f"{prefix}_normalized_score"
+                }
+            )
+        )
+
+        audit = audit.merge(
+            scored,
+            how="left",
+        )
     audit["source_raw_present"]=audit.source_raw_present.fillna(False); exports["laus_gap_period_audit"]=audit
     exports["laus_gap_period_summary"]=audit.groupby(["canonical_metric_key","date"],as_index=False).agg(source_present_count=("source_raw_present","sum"),candidate_feature_count=("candidate_feature_present","sum"),baseline_feature_count=("baseline_feature_present","sum"))
     # Market consistency and governance.
