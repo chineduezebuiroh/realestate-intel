@@ -52,9 +52,14 @@ def test_bundle():
     assert len(tables["demand_labor_finalist_decision_matrix"])==2 and set(tables["demand_labor_finalist_decision_matrix"].Decision)=={"pending"}
     gov=tables["demand_labor_finalist_governance_status"].iloc[0]
     assert (gov.recommendation_state,gov.promotion_state,gov.human_decision,gov.automated_winner)==("none","none","pending",False)
-    leads=tables["demand_labor_finalist_lead_value"].query("record_type=='turn' and anticipated")
+    leads = tables["demand_labor_finalist_lead_value"].loc[
+        tables["demand_labor_finalist_lead_value"]["record_type"].eq("turn")
+        & tables["demand_labor_finalist_lead_value"]["anticipated"].eq(True)
+    ]
     assert (leads.observation_date < leads.turn_date).all()
-    match=tables["demand_labor_finalist_turn_match"].query("matched")
+    match = tables["demand_labor_finalist_turn_match"].loc[
+        tables["demand_labor_finalist_turn_match"]["matched"].eq(True)
+    ]
     assert match.groupby(["geo_id","series"]).challenger_date.apply(lambda x:x.is_unique).all()
     digest=lambda:hashlib.sha256((out/"demand_labor_finalist_decision_matrix.csv").read_bytes()).hexdigest()
     old=digest(); f.write_review(tables,out); assert old==digest()

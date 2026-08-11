@@ -189,17 +189,153 @@ def build(run: Path, root: Path) -> dict[str,pd.DataFrame]:
     market=[]
     movement_df=pd.DataFrame(movement).set_index("geo_id")
     for geo in REVIEW_GEOS:
-      axm=axis["DEM-FINAL-A"].query("geo_id==@geo").merge(axis["DEM-FINAL-B"].query("geo_id==@geo"),on=["geo_id","date"],suffixes=("_a","_b")); mm=matches.query("geo_id==@geo and series=='dimension' and matched")
+      axm = axis["DEM-FINAL-A"].loc[
+          axis["DEM-FINAL-A"]["geo_id"].eq(geo)
+      ].merge(
+          axis["DEM-FINAL-B"].loc[
+              axis["DEM-FINAL-B"]["geo_id"].eq(geo)
+          ],
+          on=["geo_id", "date"],
+          suffixes=("_a", "_b"),
+      )
+
+      mm = matches.loc[
+          matches["geo_id"].eq(geo)
+          & matches["series"].eq("dimension")
+          & matches["matched"].eq(True)
+      ]
       market.append({"geo_id":geo,"axis_correlation":axm.demand_axis_a.corr(axm.demand_axis_b),"axis_sign_disagreement":(np.sign(axm.demand_axis_a)!=np.sign(axm.demand_axis_b)).mean(),
-       "turn_count_change":int(turns.query("geo_id==@geo and policy=='DEM-FINAL-A' and series=='dimension'").qualified.sum()-turns.query("geo_id==@geo and policy=='DEM-FINAL-B' and series=='dimension'").qualified.sum()),
-       "median_turn_lag":mm.absolute_lag_months.median(),"labor_force_movement_share":movement_df.loc[geo,"share_total_demand_movement"],"labor_force_reversal_rate_6m":reversal_df.query("geo_id==@geo and horizon_months==6").reversal_share.iloc[0] if len(reversal_df.query("geo_id==@geo and horizon_months==6")) else np.nan,
-       "median_cancellation_delta":cancel.query("geo_id==@geo").cancellation_delta.median(),"recent_36m_median_axis_difference":(axm[axm.date>=axm.date.max()-pd.DateOffset(months=35)].demand_axis_a-axm[axm.date>=axm.date.max()-pd.DateOffset(months=35)].demand_axis_b).abs().median()})
+       "turn_count_change": int(
+           turns.loc[
+               turns["geo_id"].eq(geo)
+               & turns["policy"].eq("DEM-FINAL-A")
+               & turns["series"].eq("dimension"),
+               "qualified",
+           ].sum()
+           -
+           turns.loc[
+               turns["geo_id"].eq(geo)
+               & turns["policy"].eq("DEM-FINAL-B")
+               & turns["series"].eq("dimension"),
+               "qualified",
+           ].sum()
+       ),
+       "median_turn_lag": mm.absolute_lag_months.median(),
+       "labor_force_movement_share": movement_df.loc[
+           geo, "share_total_demand_movement"
+       ],
+       "labor_force_reversal_rate_6m": (
+           reversal_df.loc[
+               reversal_df["geo_id"].eq(geo)
+               & reversal_df["horizon_months"].eq(6),
+               "reversal_share",
+           ].iloc[0]
+           if (
+               reversal_df["geo_id"].eq(geo)
+               & reversal_df["horizon_months"].eq(6)
+           ).any()
+           else np.nan
+       ),
+       "median_cancellation_delta": cancel.loc[
+           cancel["geo_id"].eq(geo),
+           "cancellation_delta",
+       ].median(),
+       "recent_36m_median_axis_difference": (
+           axm.loc[
+               axm["date"].ge(
+                   axm["date"].max() - pd.DateOffset(months=35)
+               ),
+               "demand_axis_a",
+           ]
+           -
+           axm.loc[
+               axm["date"].ge(
+                   axm["date"].max() - pd.DateOffset(months=35)
+               ),
+               "demand_axis_b",
+           ]
+       ).abs().median(),
+      })
     registry=[]; decision=[]
     for p,included in FINALISTS.items():
-      ew={m:weights[m]/sum(weights[k] for k in included) for m in sorted(included)}; s=stability.query("policy==@p").iloc[0]; axm=axis["DEM-FINAL-A"].merge(axis[p],on=["geo_id","date"],suffixes=("_a","_p")); mt=matches.loc[matches["matched"].eq(True)]
+      ew = {
+          m: weights[m] / sum(weights[k] for k in included)
+          for m in sorted(included)
+      }
+
+      s = stability.loc[
+          stability["policy"].eq(p)
+      ].iloc[0]
+
+      axm = axis["DEM-FINAL-A"].merge(
+          axis[p],
+          on=["geo_id", "date"],
+          suffixes=("_a", "_p"),
+      )
+
+      mt = matches.loc[
+          matches["matched"].eq(True)
+      ]
       registry.append({"policy":p,"labor_metrics_included":"|".join(sorted(included&set(base.LABOR))),"effective_metric_weights":json.dumps(ew,sort_keys=True),"diagnostic_only":True})
-      pooled6=reversal_df.query("geo_id=='POOLED' and horizon_months==6")
-      decision.append({"policy":p,"labor_metrics_included":"|".join(sorted(included&set(base.LABOR))),"effective_metric_weights":json.dumps(ew,sort_keys=True),"median_Demand_movement":s.median_absolute_dimension_movement,"P90_Demand_movement":s.p90_dimension_movement,"rolling_volatility":s.rolling_12m_dimension_volatility,"sign_flips":s.dimension_sign_flips,"qualified_Demand_turns":s.qualified_dimension_turns,"latest_36m_turns":s.latest_36m_dimension_turns,"median_Demand_axis_movement":s.median_absolute_axis_movement,"Demand_axis_correlation_vs_incumbent":axm.demand_axis_a.corr(axm.demand_axis_p),"Demand_axis_sign_disagreement_vs_incumbent":(np.sign(axm.demand_axis_a)!=np.sign(axm.demand_axis_p)).mean(),"median_dimension_cancellation":cancellation[p].cancellation_ratio.median(),"median_cancellation_delta_vs_incumbent":0. if p=="DEM-FINAL-A" else cancel.cancellation_delta.median(),"Labor_Force_reversal_evidence":pooled6.reversal_share.iloc[0] if len(pooled6) else np.nan,"Labor_Force_lead_evidence":leads.query("record_type=='turn'").anticipated.mean(),"matched_turn_median_lag":mt.absolute_lag_months.median(),"matched_turn_P90_lag":base._q(mt.absolute_lag_months,.9),"unmatched_turn_count":int((~matches.matched).sum()),"Decision":"pending"})
+      pooled6 = reversal_df.loc[
+          reversal_df["geo_id"].eq("POOLED")
+          & reversal_df["horizon_months"].eq(6)
+      ]
+      turn_leads = leads.loc[
+          leads["record_type"].eq("turn")
+      ]
+
+      decision.append({
+          "policy": p,
+          "labor_metrics_included": "|".join(
+              sorted(included & set(base.LABOR))
+          ),
+          "effective_metric_weights": json.dumps(
+              ew,
+              sort_keys=True,
+          ),
+          "median_Demand_movement": s.median_absolute_dimension_movement,
+          "P90_Demand_movement": s.p90_dimension_movement,
+          "rolling_volatility": s.rolling_12m_dimension_volatility,
+          "sign_flips": s.dimension_sign_flips,
+          "qualified_Demand_turns": s.qualified_dimension_turns,
+          "latest_36m_turns": s.latest_36m_dimension_turns,
+          "median_Demand_axis_movement": s.median_absolute_axis_movement,
+          "Demand_axis_correlation_vs_incumbent": (
+              axm.demand_axis_a.corr(axm.demand_axis_p)
+          ),
+          "Demand_axis_sign_disagreement_vs_incumbent": (
+              np.sign(axm.demand_axis_a)
+              != np.sign(axm.demand_axis_p)
+          ).mean(),
+          "median_dimension_cancellation": (
+              cancellation[p].cancellation_ratio.median()
+          ),
+          "median_cancellation_delta_vs_incumbent": (
+              0.0
+              if p == "DEM-FINAL-A"
+              else cancel.cancellation_delta.median()
+          ),
+          "Labor_Force_reversal_evidence": (
+              pooled6.reversal_share.iloc[0]
+              if len(pooled6)
+              else np.nan
+          ),
+          "Labor_Force_lead_evidence": (
+              turn_leads.anticipated.mean()
+          ),
+          "matched_turn_median_lag": (
+              mt.absolute_lag_months.median()
+          ),
+          "matched_turn_P90_lag": base._q(
+              mt.absolute_lag_months,
+              0.9,
+          ),
+          "unmatched_turn_count": int(
+              (~matches.matched).sum()
+          ),
+          "Decision": "pending",
+      })
     governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"none","human_decision":"pending","automated_winner":False}])
     runtime=pd.DataFrame([{"authoritative_run":run.name,"geography_count":7,"finalist_count":2,"parity_tolerance":TOL,"production_policy_changed":False}])
     tables=dict(zip(OUTPUTS,[pd.DataFrame(registry),parity,pd.DataFrame(movement),reversal_df,persistence,turns,matches,leads,cancel,stability,pd.DataFrame(market),recent,pd.DataFrame(decision),governance,runtime]))
