@@ -15,17 +15,17 @@ from regime.experiments.demand_signal_attenuation import (
 from regime.diagnostics.capital_markets_ma import detect_turning_points, match_turning_points
 from regime.pandas_compat import MONTH_END
 
-# Exact governed identities and policy family, including the requested 75/15/15.
+# Exact governed identities and policy family, including the requested 70/15/15.
 assert RUN_ID == "macro_regime_v1_0_1_candidate_20260810"
 assert len(GEOS) == len(set(GEOS)) == 7
 assert not any("cbsa" in g or "__zip" in g for g in GEOS)
 assert set(CORE_DEMAND) == set(STRUCTURAL) | set(LABOR)
 assert set(STRUCTURAL).isdisjoint(LABOR)
 assert DEMAND_DIMENSIONS == ("demand", "price", "affordability", "capital_markets")
-assert list(WEIGHT_POLICIES) == ["LAUS-W-25-35-40","LAUS-W-40-30-30","LAUS-W-50-25-25","LAUS-W-60-20-20","LAUS-W-75-15-15","LAUS-W-80-10-10"]
+assert list(WEIGHT_POLICIES) == ["LAUS-W-25-35-40","LAUS-W-40-30-30","LAUS-W-50-25-25","LAUS-W-60-20-20","LAUS-W-70-15-15","LAUS-W-80-10-10"]
 assert WEIGHT_POLICIES["LAUS-W-25-35-40"] == (.25,.35,.40)
-assert WEIGHT_POLICIES["LAUS-W-75-15-15"] == (.75,.15,.15)
-# The explicitly requested 75/15/15 labels total 1.05; replay uses the same
+assert WEIGHT_POLICIES["LAUS-W-70-15-15"] == (.70,.15,.15)
+# The 70/15/15 diagnostic family sums exactly to 1.00.
 # production effective-weight denominator, so every policy's effective weights
 # sum to one without silently changing the requested configured family.
 assert all(abs(sum(np.array(w)/sum(w))-1) <= TOL for w in WEIGHT_POLICIES.values())

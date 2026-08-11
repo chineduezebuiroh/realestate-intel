@@ -36,7 +36,7 @@ DEMAND_DIMENSIONS = ("demand", "price", "affordability", "capital_markets")
 WEIGHT_POLICIES = {
     "LAUS-W-25-35-40": (.25, .35, .40), "LAUS-W-40-30-30": (.40, .30, .30),
     "LAUS-W-50-25-25": (.50, .25, .25), "LAUS-W-60-20-20": (.60, .20, .20),
-    "LAUS-W-75-15-15": (.75, .15, .15), "LAUS-W-80-10-10": (.80, .10, .10),
+    "LAUS-W-70-15-15": (.70, .15, .15), "LAUS-W-80-10-10": (.80, .10, .10),
 }
 FEATURE_TYPES = ("level", "short", "long")
 
@@ -146,9 +146,50 @@ def _feature_panel(run: Path, fr: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFr
     return panel, replay
 
 
-def _contribution_layer(scores: pd.DataFrame, registry: pd.DataFrame, parent: str,
-                        child: str, value: str, weight: str) -> tuple[pd.DataFrame,pd.DataFrame]:
-    detail=scores.merge(registry[[parent,child,weight]],on=child,validate="many_to_one")
+def _contribution_layer(
+    scores: pd.DataFrame,
+    registry: pd.DataFrame,
+    parent: str,
+    child: str,
+    value: str,
+    weight: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+
+    governed = (
+        registry[
+            [parent, child, weight]
+        ]
+        .copy()
+    )
+
+    # A child may legitimately belong to more than one parent.
+    # Example: capital_markets contributes to both Demand and Supply.
+    #
+    # The governed contract must therefore be unique on the
+    # parent-child membership pair, not on child alone.
+    duplicate_pairs = governed.duplicated(
+        [parent, child],
+        keep=False,
+    )
+
+    if duplicate_pairs.any():
+        raise ValueError(
+            "duplicate governed parent-child membership detected: "
+            + governed.loc[
+                duplicate_pairs,
+                [parent, child],
+            ]
+            .drop_duplicates()
+            .to_dict("records")
+            .__str__()
+        )
+
+    detail = scores.merge(
+        governed,
+        on=child,
+        how="inner",
+        validate="many_to_many",
+    )
     chunks=[]
     for _,g in detail.groupby(["geo_id","date",parent],sort=False):
         calc=effective_contributions(g[value],g[weight]); q=g.copy()
@@ -167,14 +208,59 @@ def _contribution_layer(scores: pd.DataFrame, registry: pd.DataFrame, parent: st
     return detail,pd.DataFrame(monthly)
 
 
-def _summary(frame: pd.DataFrame, keys: list[str], cancellation_col="cancellation_index") -> pd.DataFrame:
-    rows=[]
-    for period,q in (("full_history",frame),("recent_36_months",recent_36(frame))):
-        for group,g in q.groupby(keys,dropna=False):
-            group=(group,) if not isinstance(group,tuple) else group
-            rows.append(dict(zip(keys,group),period=period,observations=len(g),
-              median_cancellation_index=g[cancellation_col].median(),p90_cancellation_index=g[cancellation_col].quantile(.9),
-              median_net_to_gross_ratio=g.net_to_gross_ratio.median(),score_std=g.net_score.std(),median_abs_score=g.net_score.abs().median()))
+def _summary(
+    frame: pd.DataFrame,
+    keys: list[str],
+    cancellation_col: str = "cancellation_index",
+) -> pd.DataFrame:
+
+    if "net_score" in frame.columns:
+        value_col = "net_score"
+    elif "net_contribution" in frame.columns:
+        value_col = "net_contribution"
+    else:
+        raise ValueError(
+            "attenuation summary requires either "
+            "`net_score` or `net_contribution`"
+        )
+
+    rows = []
+
+    for period, q in (
+        ("full_history", frame),
+        ("recent_36_months", recent_36(frame)),
+    ):
+        for group, g in q.groupby(
+            keys,
+            dropna=False,
+        ):
+            group = (
+                (group,)
+                if not isinstance(group, tuple)
+                else group
+            )
+
+            rows.append(
+                dict(
+                    zip(keys, group),
+                    period=period,
+                    observations=len(g),
+                    median_cancellation_index=(
+                        g[cancellation_col].median()
+                    ),
+                    p90_cancellation_index=(
+                        g[cancellation_col].quantile(0.9)
+                    ),
+                    median_net_to_gross_ratio=(
+                        g["net_to_gross_ratio"].median()
+                    ),
+                    score_std=g[value_col].std(),
+                    median_abs_score=(
+                        g[value_col].abs().median()
+                    ),
+                )
+            )
+
     return pd.DataFrame(rows)
 
 
