@@ -38,11 +38,18 @@ def calendarize_comparable_series(
     if observations.empty:
         return observations.copy()
     work = observations.copy()
-    work["date"] = pd.to_datetime(work["date"]).dt.to_period("M").dt.to_timestamp("M")
-    work[value_column] = pd.to_numeric(work[value_column], errors="coerce")
-    work = work.sort_values("date")
-    if work["date"].duplicated().any():
-        raise ValueError("calendar MA input contains duplicate calendar months")
+    work["date"] = pd.to_datetime(work["date"])
+    work["_calendar_month"] = work["date"].dt.to_period("M")
+    work[value_column] = pd.to_numeric(
+        work[value_column],
+        errors="coerce",
+    )
+    work = work.sort_values("_calendar_month")
+
+    if work["_calendar_month"].duplicated().any():
+        raise ValueError(
+            "calendar MA input contains duplicate calendar months"
+        )
 
     if origin_column and origin_column in work:
         origins = work[origin_column].replace("", np.nan)
@@ -53,19 +60,99 @@ def calendarize_comparable_series(
         segment = pd.Series(1, index=work.index)
 
     frames: list[pd.DataFrame] = []
-    for segment_id, observed in work.groupby(segment, sort=False):
-        grid = pd.DataFrame({
-            "date": pd.date_range(observed["date"].iloc[0], observed["date"].iloc[-1], freq=MONTH_END)
-        })
-        merged = grid.merge(observed, on="date", how="left", suffixes=("", "_observed"))
-        merged["source_origin_segment"] = int(segment_id)
-        for column in observed.columns.difference(["date", value_column]):
-            if observed[column].nunique(dropna=False) == 1:
+
+    for segment_id, observed in work.groupby(
+        segment,
+        sort=False,
+    ):
+        observed = observed.copy()
+
+        # Calendar-window arithmetic is month based, but persisted feature
+        # dates must preserve the source series' established monthly anchor.
+        #
+        # Month-start and month-end are both valid production conventions.
+        # Do not silently migrate one convention to the other.
+        dates = pd.to_datetime(observed["date"])
+
+        all_month_start = dates.dt.is_month_start.all()
+        all_month_end = dates.dt.is_month_end.all()
+
+        if all_month_start:
+            anchor = "start"
+        elif all_month_end:
+            anchor = "end"
+        else:
+            raise ValueError(
+                "calendar MA source series has ambiguous monthly "
+                "date anchoring; expected consistently month-start "
+                "or month-end"
+            )
+
+        months = pd.period_range(
+            observed["_calendar_month"].iloc[0],
+            observed["_calendar_month"].iloc[-1],
+            freq="M",
+        )
+
+        grid = pd.DataFrame(
+            {"_calendar_month": months}
+        )
+
+        merged = grid.merge(
+            observed,
+            on="_calendar_month",
+            how="left",
+            suffixes=("", "_observed"),
+            validate="one_to_one",
+        )
+
+        # Preserve exact observed dates where source rows exist.
+        # Only synthesized missing-calendar rows need a generated date.
+        generated_date = (
+            merged["_calendar_month"].dt.to_timestamp(
+                how="start"
+            )
+            if anchor == "start"
+            else merged["_calendar_month"].dt.to_timestamp(
+                "M"
+            )
+        )
+
+        merged["date"] = pd.to_datetime(
+            merged["date"]
+        ).fillna(generated_date)
+
+        merged["source_origin_segment"] = int(
+            segment_id
+        )
+
+        for column in observed.columns.difference(
+            [
+                "date",
+                "_calendar_month",
+                value_column,
+            ]
+        ):
+            if observed[column].nunique(
+                dropna=False
+            ) == 1:
                 merged[column] = observed[column].iloc[0]
+
         if origin_column and origin_column in work:
-            merged[origin_column] = observed[origin_column].iloc[0]
-        frames.append(merged)
-    return pd.concat(frames, ignore_index=True)
+            merged[origin_column] = (
+                observed[origin_column].iloc[0]
+            )
+
+        frames.append(
+            merged.drop(
+                columns=["_calendar_month"]
+            )
+        )
+
+    return pd.concat(
+        frames,
+        ignore_index=True,
+    )
 
 
 def calendar_moving_average(values: pd.Series, window_months: int) -> pd.DataFrame:
