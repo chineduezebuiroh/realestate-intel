@@ -17,6 +17,33 @@ OUTPUT_FILES = ("detector_input.csv", "candidate_turns.csv", "candidate_criteria
                 "county_rejection_summary.csv", "pooled_rejection_summary.csv",
                 "representative_candidate_traces.csv", "detector_parity.csv")
 
+CRITERIA_COLUMNS = [
+    "geo_id",
+    "candidate_date",
+    "candidate_type",
+    "candidate_value",
+    "prior_value",
+    "next_value",
+    "incoming_direction",
+    "outgoing_direction",
+    "prominence",
+    "fixed_prominence_threshold",
+    "dynamic_prominence_threshold",
+    "effective_prominence_threshold",
+    "prominence_pass",
+    "persistence_observations",
+    "required_persistence",
+    "persistence_pass",
+    "direction",
+    "direction_pass",
+    "qualification_pass",
+    "edge_condition_pass",
+    "detector_accept",
+    "primary_rejection_reason",
+    "failed_criteria",
+    "change_index",
+]
+
 
 def analyze_county(frame: pd.DataFrame, geo_id: str) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Enumerate adjacent-sign reversals, then transparently replay the helper."""
@@ -69,7 +96,7 @@ def analyze_county(frame: pd.DataFrame, geo_id: str) -> tuple[pd.DataFrame, pd.D
             "direction_pass":direction_pass, "qualification_pass":bool(detector_accept and prominence_pass),
             "edge_condition_pass":edge_condition_pass, "detector_accept":detector_accept, "primary_rejection_reason":primary,
             "failed_criteria":"|".join(failed) if failed else "NONE", "change_index":i})
-    criteria = pd.DataFrame(rows)
+    criteria = pd.DataFrame(rows, columns=CRITERIA_COLUMNS)
     shared = detect_turning_points(work, "structural_score")
     reconstructed = criteria.loc[criteria.detector_accept] if len(criteria) else criteria
     shared_keys = {(pd.Timestamp(r.turning_point_date), r.turning_point_type) for r in shared.itertuples()}
