@@ -220,18 +220,28 @@ def _plots(chron: pd.DataFrame, output: Path):
     import matplotlib.pyplot as plt
     visual=output/"visual_review"; visual.mkdir(parents=True,exist_ok=True)
     pooled=chron.groupby(["scenario_id","date"],as_index=False).mean(numeric_only=True)
+    pooled=pooled.merge(
+        scenario_grid()[["scenario_id","laus_weight_policy","balance_policy","ma_window"]],
+        on="scenario_id",
+        how="left",
+        validate="many_to_one",
+    )
     views=[(g,chron.loc[chron.geo_id.eq(g)]) for g in GEOS]+[("seven_county_pooled",pooled)]
     for name,frame in views:
         for weight in LAUS_WEIGHTS:
             for balance in BALANCES:
                 fig,ax=plt.subplots(figsize=(10,4)); subset=frame.copy()
                 if "laus_weight_policy" not in subset:
-                    subset=subset.merge(scenario_grid(),on="scenario_id")
+                    subset=subset.merge(
+                        scenario_grid()[["scenario_id","laus_weight_policy","balance_policy","ma_window"]],
+                        on="scenario_id",
+                        how="left",
+                        validate="many_to_one",
+                    )
                 subset=subset.loc[subset.laus_weight_policy.eq(weight)&subset.balance_policy.eq(balance)]
                 for ma,g in subset.groupby("ma_window"): ax.plot(g.date,g.core_demand_score,label=ma)
                 ax.axhline(0,color="black",lw=.7); ax.legend(ncol=4); ax.set_title(f"{name} | {weight} | {balance}"); fig.tight_layout()
                 fig.savefig(visual/f"A__{name}__{weight}__{balance}.png",dpi=110); plt.close(fig)
-    pooled=pooled.merge(scenario_grid(),on="scenario_id")
     for weight in LAUS_WEIGHTS:
         for ma in MA_WINDOWS:
             q=pooled.loc[pooled.laus_weight_policy.eq(weight)&pooled.ma_months.eq(ma)]

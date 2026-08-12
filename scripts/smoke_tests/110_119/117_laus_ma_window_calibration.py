@@ -22,7 +22,7 @@ def main() -> None:
 
     # Missing February proves calendarization (not sparse-row rolling), no fill,
     # exact lag3/lag12, and the shared 2/3 coverage rule for every candidate.
-    dates=pd.date_range("2018-01-31",periods=30,freq="ME")
+    dates=pd.date_range("2018-01-31",periods=30,freq="M")
     rows=[]
     for metric in ("labor_force","employment","laus_unemployment_rate"):
         for i,date in enumerate(dates):
