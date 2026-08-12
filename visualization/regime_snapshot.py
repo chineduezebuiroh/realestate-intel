@@ -26,6 +26,7 @@ MAJOR_BOUNDARY_DEGREES = (45.0, 135.0, 225.0, 315.0)
 RADIAL_REFERENCES = (.25, .50)
 PLANE_EXTENT = .60
 NATIONAL_GEO_ID = "united_states__nation"
+DEMAND_BLOCK_WEIGHTS = {"structural": 0.25, "cyclical": 0.75}
 
 
 @dataclass
@@ -67,7 +68,8 @@ def load_metric_memberships(path: Path, active_dimensions: set[str]) -> pd.DataF
     if not path.is_file():
         raise FileNotFoundError(f"Metric registry does not exist: {path}")
     rows = pd.read_csv(path)
-    required = {"canonical_metric_key", "dimension", "metric_weight", "enabled", "diagnostic_only", "macro_enabled"}
+    required = {"canonical_metric_key", "dimension", "metric_weight", "demand_block", "block_weight",
+                "enabled", "diagnostic_only", "macro_enabled"}
     if not required.issubset(rows):
         raise ValueError(f"Metric registry is missing columns: {sorted(required - set(rows))}")
     rows = rows[_truthy(rows.enabled) & ~_truthy(rows.diagnostic_only) & _truthy(rows.macro_enabled)].copy()
@@ -75,13 +77,32 @@ def load_metric_memberships(path: Path, active_dimensions: set[str]) -> pd.DataF
     rows["canonical_metric_key"] = rows.canonical_metric_key.astype(str).str.strip()
     rows["metric_weight"] = pd.to_numeric(rows.metric_weight, errors="coerce")
     rows = rows[rows.dimension.isin(active_dimensions)]
-    conflicts = rows.groupby(["dimension", "canonical_metric_key"]).metric_weight.nunique()
+    metadata = ["dimension", "canonical_metric_key", "metric_weight", "demand_block", "block_weight"]
+    conflicts = rows[metadata].drop_duplicates().groupby(
+        ["dimension", "canonical_metric_key"], dropna=False).size()
     if (conflicts > 1).any() or rows.metric_weight.isna().any() or (rows.metric_weight < 0).any():
         raise ValueError("Active metric registry has conflicting, non-numeric, or negative weights")
-    rows = rows.drop_duplicates(["dimension", "canonical_metric_key"])
+    rows = rows.drop_duplicates(["dimension", "canonical_metric_key"]).copy()
+    demand_metadata = rows.demand_block.fillna("").astype(str).str.strip().ne("") | rows.block_weight.notna()
+    if (rows.dimension.ne("demand") & demand_metadata).any():
+        raise ValueError("Non-Demand metrics must not define Demand block metadata")
+    demand = rows[rows.dimension.eq("demand")].copy()
+    demand["demand_block"] = demand.demand_block.fillna("").astype(str).str.strip().str.lower()
+    demand["block_weight"] = pd.to_numeric(demand.block_weight, errors="coerce")
+    if demand.empty or demand.demand_block.eq("").any() or demand.block_weight.isna().any():
+        raise ValueError("Active Demand metrics require block membership and numeric block weights")
+    if demand.canonical_metric_key.duplicated().any() or set(demand.demand_block) != set(DEMAND_BLOCK_WEIGHTS):
+        raise ValueError("Demand block taxonomy must resolve exactly to structural and cyclical")
+    for block, expected in DEMAND_BLOCK_WEIGHTS.items():
+        weights = demand.loc[demand.demand_block.eq(block), "block_weight"].unique()
+        if len(weights) != 1 or not math.isclose(float(weights[0]), expected, abs_tol=1e-12):
+            raise ValueError(f"Demand {block} block_weight must be {expected}")
+    if not math.isclose(sum(DEMAND_BLOCK_WEIGHTS.values()), 1.0, abs_tol=1e-12):
+        raise ValueError("Demand block weights must sum to 1.0")
+    rows.loc[demand.index, ["demand_block", "block_weight"]] = demand[["demand_block", "block_weight"]]
     if set(rows.dimension) != active_dimensions or (rows.groupby("dimension").metric_weight.sum() <= 0).any():
         raise ValueError("Every active dimension must have positive governed metric membership")
-    return rows[["dimension", "canonical_metric_key", "metric_weight"]].sort_values(["dimension", "canonical_metric_key"]).reset_index(drop=True)
+    return rows[metadata].sort_values(["dimension", "canonical_metric_key"]).reset_index(drop=True)
 
 
 def _read_artifacts(run_dir: Path) -> dict[str, pd.DataFrame]:
@@ -134,12 +155,25 @@ def _metric_drivers(metrics: pd.DataFrame, memberships: pd.DataFrame, geo_id: st
         rows = governed.merge(latest_metrics[["canonical_metric_key", "metric_score", "metric_age_days"]],
                               on="canonical_metric_key", how="left", validate="one_to_one")
         available = rows.metric_score.notna()
-        available_weight = rows.loc[available, "metric_weight"].sum()
-        if available_weight <= 0:
+        if rows.loc[available, "metric_weight"].sum() <= 0:
             raise ValueError(f"No persisted metric evidence can reconstruct active dimension: {dimension}")
         rows = rows[available].copy()
-        rows["effective_metric_weight"] = rows.metric_weight / available_weight
-        rows["weighted_metric_contribution"] = rows.metric_score * rows.effective_metric_weight
+        if dimension == "demand":
+            block_totals = rows.groupby("demand_block").metric_weight.transform("sum")
+            if (block_totals <= 0).any():
+                raise ValueError("Available Demand blocks require positive metric weight")
+            rows["effective_metric_weight"] = rows.metric_weight / block_totals
+            available_blocks = rows[["demand_block", "block_weight"]].drop_duplicates()
+            available_block_weight = available_blocks.block_weight.sum()
+            if available_block_weight <= 0:
+                raise ValueError("Available Demand blocks require positive block weight")
+            rows["effective_block_weight"] = rows.block_weight / available_block_weight
+            rows["weighted_metric_contribution"] = (
+                rows.metric_score * rows.effective_metric_weight * rows.effective_block_weight)
+        else:
+            rows["effective_metric_weight"] = rows.metric_weight / rows.metric_weight.sum()
+            rows["effective_block_weight"] = pd.NA
+            rows["weighted_metric_contribution"] = rows.metric_score * rows.effective_metric_weight
         expected = float(expected_dimensions.set_index("dimension").loc[dimension, "dimension_score"])
         if not math.isclose(rows.weighted_metric_contribution.sum(), expected, abs_tol=1e-6):
             raise ValueError(f"Persisted metric evidence does not reconcile production dimension: {dimension}")
@@ -245,6 +279,21 @@ def _metric_chart(rows: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def _demand_metric_drilldown(rows: pd.DataFrame, config: dict) -> str:
+    blocks = []
+    for block in ("structural", "cyclical"):
+        members = rows[rows.demand_block.eq(block)]
+        if members.empty:
+            continue
+        configured = float(members.block_weight.iloc[0])
+        effective = float(members.effective_block_weight.iloc[0])
+        chart = pio.to_html(_metric_chart(members), full_html=False, include_plotlyjs=False, config=config)
+        blocks.append(
+            f'<div class="demand-block" data-demand-block="{block}"><h4>{block.title()} — '
+            f'{configured:.0%} governed <span class="eyebrow">({effective:.0%} effective)</span></h4>{chart}</div>')
+    return "".join(blocks)
+
+
 def _history(snapshot: Snapshot) -> go.Figure:
     fig = go.Figure()
     custom = snapshot.history[["major_regime", "minor_regime"]]
@@ -284,7 +333,9 @@ def render_snapshot(run_dir: Path, geo_id: str, market_name: str, output_dir: Pa
     for axis in ("demand", "supply"):
         blocks = []
         for dimension in snapshot.drivers[axis].dimension:
-            chart = pio.to_html(_metric_chart(snapshot.metric_drivers[dimension]), full_html=False, include_plotlyjs=False, config=config)
+            rows = snapshot.metric_drivers[dimension]
+            chart = (_demand_metric_drilldown(rows, config) if dimension == "demand" else
+                     pio.to_html(_metric_chart(rows), full_html=False, include_plotlyjs=False, config=config))
             blocks.append(f'<details data-axis="{axis}" data-dimension="{dimension}"><summary>{escape(dimension.replace("_", " ").title())} metric drivers</summary>{chart}</details>')
         drilldowns.append(f'<div><h3>{axis.title()} metric drilldowns</h3>{"".join(blocks)}</div>')
     history = pio.to_html(_history(snapshot), full_html=False, include_plotlyjs=False, config=config)
@@ -298,10 +349,16 @@ def render_snapshot(run_dir: Path, geo_id: str, market_name: str, output_dir: Pa
 <section id="dimension-drivers"><h2>Dimension drivers</h2><div class="drivers">{''.join(dimensions)}</div><div class="drilldowns">{''.join(drilldowns)}</div></section>
 <section id="historical-chronology"><h2>Historical chronology</h2><p class="eyebrow">Latest five years of monthly production axis scores and assignments.</p>{history}</section>
 <section id="major-regime-chronology"><h2>Major regime chronology</h2><p class="eyebrow">Persisted monthly assignments; dark markers indicate a major-regime transition.</p>{strip}</section>
-<footer>Visualization MVP v0.1.1 · Published run: {escape(run_dir.name)}</footer></main></body></html>'''
+<footer>Visualization MVP v0.1.2 · Published run: {escape(run_dir.name)}</footer></main></body></html>'''
     html_path, json_path = output_dir / f"{geo_id}.html", output_dir / f"{geo_id}_snapshot.json"
     html_path.write_text(html, encoding="utf-8")
-    compact_metrics = {dimension: rows[["canonical_metric_key", "metric_score", "metric_weight", "effective_metric_weight", "weighted_metric_contribution", "metric_age_days"]].to_dict("records") for dimension, rows in snapshot.metric_drivers.items()}
+    base_metric_fields = ["canonical_metric_key", "metric_score", "metric_weight", "effective_metric_weight",
+                          "weighted_metric_contribution", "metric_age_days"]
+    demand_metric_fields = base_metric_fields[:4] + ["demand_block", "block_weight", "effective_block_weight"] + base_metric_fields[4:]
+    compact_metrics = {
+        dimension: rows[demand_metric_fields if dimension == "demand" else base_metric_fields].to_dict("records")
+        for dimension, rows in snapshot.metric_drivers.items()
+    }
     payload = {"run_id": run_dir.name, "geo_id": geo_id, "market_name": market_name,
                **{key: (value.date().isoformat() if isinstance(value, pd.Timestamp) else value) for key, value in current.items()},
                "demand_drivers": snapshot.drivers["demand"][["dimension", "dimension_score", "dimension_weight", "weighted_contribution"]].to_dict("records"),
