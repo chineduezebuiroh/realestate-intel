@@ -28,15 +28,15 @@ LAUS_FEATURE_KEYS = [
 ]
 
 EXPECTED_LAUS = {
-    "laus_employment_level": ("ma_level", "6m"),
-    "laus_employment_short": ("ma_pct_change", "6m/lag3m"),
-    "laus_employment_long": ("ma_pct_change", "6m/lag12m"),
-    "laus_labor_force_level": ("ma_level", "6m"),
-    "laus_labor_force_short": ("ma_pct_change", "6m/lag3m"),
-    "laus_labor_force_long": ("ma_pct_change", "6m/lag12m"),
-    "laus_unemployment_rate_level": ("ma_level", "6m"),
-    "laus_unemployment_rate_short": ("ma_pct_change", "6m/lag3m"),
-    "laus_unemployment_rate_long": ("ma_pct_change", "6m/lag12m"),
+    "laus_employment_level": ("ma_level", "9m"),
+    "laus_employment_short": ("ma_pct_change", "9m/lag3m"),
+    "laus_employment_long": ("ma_pct_change", "9m/lag12m"),
+    "laus_labor_force_level": ("ma_level", "9m"),
+    "laus_labor_force_short": ("ma_pct_change", "9m/lag3m"),
+    "laus_labor_force_long": ("ma_pct_change", "9m/lag12m"),
+    "laus_unemployment_rate_level": ("ma_level", "9m"),
+    "laus_unemployment_rate_short": ("ma_pct_change", "9m/lag3m"),
+    "laus_unemployment_rate_long": ("ma_pct_change", "9m/lag12m"),
 }
 
 EXPECTED_NON_LAUS_REGISTRY = """feature_key,metric_key,feature_type,transform,feature_weight,feature_window,dimension_context
@@ -49,9 +49,9 @@ laus_unemployment_long,laus_unemployment,long_term_change,yoy_zscore,0.40,12m,de
 ces_total_nonfarm_level,ces_total_nonfarm,level,level_zscore,0.25,,demand
 ces_total_nonfarm_short,ces_total_nonfarm,short_term_change,mom_zscore,0.35,1m,demand
 ces_total_nonfarm_long,ces_total_nonfarm,long_term_change,yoy_zscore,0.40,12m,demand
-bps_total_units_level,bps_total_units,level,ma_level,0.50,12m,supply
-bps_total_units_short,bps_total_units,short_term_change,ma_pct_change,0.25,12m/lag3m,supply
-bps_total_units_long,bps_total_units,long_term_change,ma_pct_change,0.25,12m/lag12m,supply
+bps_total_units_level,bps_total_units,level,ma_level,0.80,12m,supply
+bps_total_units_short,bps_total_units,short_term_change,ma_pct_change,0.10,12m/lag6m,supply
+bps_total_units_long,bps_total_units,long_term_change,ma_pct_change,0.10,12m/lag12m,supply
 bps_total_buildings_level,bps_total_buildings,level,level_zscore,0.25,,supply
 bps_total_buildings_short,bps_total_buildings,short_term_change,mom_zscore,0.35,1m,supply
 bps_total_buildings_long,bps_total_buildings,long_term_change,yoy_zscore,0.40,12m,supply
@@ -155,25 +155,25 @@ def test_laus_unemployment_status(config: RegimeConfig) -> None:
         raise AssertionError("laus_unemployment should remain unused in production scoring")
 
 
-def test_ma6_math_and_exact_warmup() -> None:
-    dates = pd.date_range("2020-01-01", periods=20, freq="MS")
-    values = pd.Series(np.arange(1.0, 21.0))
+def test_ma9_math_and_exact_warmup() -> None:
+    dates = pd.date_range("2020-01-01", periods=24, freq="MS")
+    values = pd.Series(np.arange(1.0, 25.0))
     group = pd.DataFrame({"date": dates, "value": values})
 
-    level = _compute_feature(group, "ma_level", "6m", "test_level")
-    short = _compute_feature(group, "ma_pct_change", "6m/lag3m", "test_short")
-    long = _compute_feature(group, "ma_pct_change", "6m/lag12m", "test_long")
+    level = _compute_feature(group, "ma_level", "9m", "test_level")
+    short = _compute_feature(group, "ma_pct_change", "9m/lag3m", "test_short")
+    long = _compute_feature(group, "ma_pct_change", "9m/lag12m", "test_long")
 
-    if not level.iloc[:5].isna().all() or pd.isna(level.iloc[5]):
-        raise AssertionError("MA6 level first valid must be observation 6")
-    if not short.iloc[:8].isna().all() or pd.isna(short.iloc[8]):
-        raise AssertionError("MA6 lag3 short first valid must be observation 9")
-    if not long.iloc[:17].isna().all() or pd.isna(long.iloc[17]):
-        raise AssertionError("MA6 lag12 long first valid must be observation 18")
+    if not level.iloc[:8].isna().all() or pd.isna(level.iloc[8]):
+        raise AssertionError("MA9 level first valid must be observation 9")
+    if not short.iloc[:11].isna().all() or pd.isna(short.iloc[11]):
+        raise AssertionError("MA9 lag3 short first valid must be observation 12")
+    if not long.iloc[:20].isna().all() or pd.isna(long.iloc[20]):
+        raise AssertionError("MA9 lag12 long first valid must be observation 21")
 
-    _assert_close(level.iloc[5], values.iloc[0:6].mean(), "first MA6 level")
-    _assert_close(short.iloc[8], level.iloc[8] / level.iloc[5] - 1.0, "MA6 lag3 short")
-    _assert_close(long.iloc[17], level.iloc[17] / level.iloc[5] - 1.0, "MA6 lag12 long")
+    _assert_close(level.iloc[8], values.iloc[0:9].mean(), "first MA9 level")
+    _assert_close(short.iloc[11], level.iloc[11] / level.iloc[8] - 1.0, "MA9 lag3 short")
+    _assert_close(long.iloc[20], level.iloc[20] / level.iloc[8] - 1.0, "MA9 lag12 long")
 
 
 def test_strict_ma_config_errors_include_feature_key() -> None:
@@ -183,11 +183,11 @@ def test_strict_ma_config_errors_include_feature_key() -> None:
         ("ma_level", "-6m"),
         ("ma_level", "6"),
         ("ma_level", "6q"),
-        ("ma_level", "6m/lag3m"),
-        ("ma_pct_change", "6m"),
+        ("ma_level", "9m/lag3m"),
+        ("ma_pct_change", "9m"),
         ("ma_pct_change", "6m/3m"),
         ("ma_pct_change", "0m/lag3m"),
-        ("ma_pct_change", "6m/lag0m"),
+        ("ma_pct_change", "9m/lag0m"),
         ("ma_pct_change", "6q/lag3m"),
     ]
     group = pd.DataFrame(
@@ -208,26 +208,29 @@ def test_strict_ma_config_errors_include_feature_key() -> None:
 
 
 def test_origin_switch_and_calendar_gap_reset_ma_windows() -> None:
-    dates = pd.date_range("2020-01-01", periods=24, freq="MS")
-    origins = ["ces_total_nonfarm"] * 8 + ["laus_employment"] * 8 + ["ces_total_nonfarm"] * 8
+    dates = pd.date_range("2020-01-01", periods=36, freq="MS")
+    origins = ["ces_total_nonfarm"] * 12 + ["laus_employment"] * 12 + ["ces_total_nonfarm"] * 12
     group = pd.DataFrame(
         {
             "date": dates,
-            "value": np.arange(100.0, 124.0),
+            "value": np.arange(100.0, 136.0),
             "metric_origin": origins,
         }
     )
-    level = _compute_feature(group, "ma_level", "6m", "laus_employment_level")
-    if not level.iloc[8:13].isna().all() or pd.isna(level.iloc[13]):
-        raise AssertionError("MA6 level crossed CES -> LAUS source switch")
-    if not level.iloc[16:21].isna().all() or pd.isna(level.iloc[21]):
-        raise AssertionError("MA6 level crossed LAUS -> CES source switch")
+    level = _compute_feature(group, "ma_level", "9m", "laus_employment_level")
+    if not level.iloc[12:20].isna().all() or pd.isna(level.iloc[20]):
+        raise AssertionError("MA9 level crossed CES -> LAUS source switch")
+    if not level.iloc[24:32].isna().all() or pd.isna(level.iloc[32]):
+        raise AssertionError("MA9 level crossed LAUS -> CES source switch")
 
     gap_group = group[group["date"] != pd.Timestamp("2020-06-01")].reset_index(drop=True)
-    gap_level = _compute_feature(gap_group, "ma_level", "6m", "gap_feature")
-    july_position = gap_group.index[gap_group["date"].eq(pd.Timestamp("2020-07-01"))][0]
-    if not gap_level.iloc[july_position:july_position + 5].isna().all():
-        raise AssertionError("MA6 level crossed a missing monthly calendar row")
+    gap_level = _compute_feature(gap_group, "ma_level", "9m", "gap_feature")
+    october_position = gap_group.index[gap_group["date"].eq(pd.Timestamp("2020-10-01"))][0]
+    expected = gap_group.loc[
+        gap_group["date"].between(pd.Timestamp("2020-02-01"), pd.Timestamp("2020-10-01")),
+        "value",
+    ].mean()
+    _assert_close(gap_level.iloc[october_position], expected, "MA9 2/3 calendar coverage")
 
 
 def test_origin_specific_employment_preserves_ces(config: RegimeConfig) -> None:
@@ -277,7 +280,7 @@ def test_identical_transform_physical_defs_do_not_deduplicate(config: RegimeConf
                 "feature_type": "level",
                 "transform": "ma_level",
                 "feature_weight": "1.0",
-                "feature_window": "6m",
+                "feature_window": "9m",
                 "dimension_context": "demand",
             },
             {
@@ -286,13 +289,13 @@ def test_identical_transform_physical_defs_do_not_deduplicate(config: RegimeConf
                 "feature_type": "level",
                 "transform": "ma_level",
                 "feature_weight": "1.0",
-                "feature_window": "6m",
+                "feature_window": "9m",
                 "dimension_context": "demand",
             },
         ]
     )
     mini_config = _minimal_config(config, features)
-    dates = pd.date_range("2020-01-01", periods=6, freq="MS")
+    dates = pd.date_range("2020-01-01", periods=12, freq="MS")
     canonical = pd.DataFrame(
         [
             {
@@ -359,13 +362,13 @@ def main() -> int:
     config = load_regime_config(validate=True)
     test_registry_contract(config)
     test_laus_unemployment_status(config)
-    test_ma6_math_and_exact_warmup()
+    test_ma9_math_and_exact_warmup()
     test_strict_ma_config_errors_include_feature_key()
     test_origin_switch_and_calendar_gap_reset_ma_windows()
     test_origin_specific_employment_preserves_ces(config)
     test_identical_transform_physical_defs_do_not_deduplicate(config)
     test_canonical_resolution_audit(config)
-    print("[laus_ma6_production_contract] OK")
+    print("[laus_ma9_production_contract] OK")
     return 0
 
 

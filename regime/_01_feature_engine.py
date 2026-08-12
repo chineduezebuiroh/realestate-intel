@@ -10,6 +10,7 @@ import numpy as np
 from regime._00_config_loader import RegimeConfig, load_regime_config
 from regime.derived_metrics import build_derived_metrics_with_lineage
 from regime.canonical_metrics import resolve_canonical_metrics
+from regime.calendar_ma import calendar_moving_average, calendarize_comparable_series
 
 
 SERVING_DB = Path("data/market_serving.duckdb")
@@ -94,24 +95,6 @@ def _parse_ma_window_config(
     raise ValueError(f"Unsupported MA transform: {transform}")
 
 
-def _monthly_contiguous_segments(group: pd.DataFrame) -> pd.Series:
-    sorted_group = group.sort_values("date")
-    dates = pd.to_datetime(sorted_group["date"])
-    prior_dates = dates.shift(1)
-    month_gap = (
-        (dates.dt.to_period("M") - prior_dates.dt.to_period("M"))
-        .apply(lambda value: getattr(value, "n", np.nan))
-    )
-    boundary = month_gap.ne(1)
-
-    if "metric_origin" in sorted_group.columns:
-        origins = sorted_group["metric_origin"].astype(str)
-        boundary = boundary | origins.ne(origins.shift(1))
-
-    boundary.iloc[0] = True
-    return boundary.cumsum().reindex(group.index)
-
-
 def _compute_feature_for_contiguous_segment(
     group: pd.DataFrame,
     transform: str,
@@ -146,10 +129,7 @@ def _compute_feature_for_contiguous_segment(
             transform=transform,
             feature_key=feature_key,
         )
-        return value.rolling(
-            window=ma_periods,
-            min_periods=ma_periods,
-        ).mean()
+        return calendar_moving_average(value, ma_periods)["calendar_ma"]
 
     if transform in {"ma_pct_change", "ma_difference"}:
         ma_periods, lag_periods = _parse_ma_window_config(
@@ -157,10 +137,7 @@ def _compute_feature_for_contiguous_segment(
             transform=transform,
             feature_key=feature_key,
         )
-        ma_value = value.rolling(
-            window=ma_periods,
-            min_periods=ma_periods,
-        ).mean()
+        ma_value = calendar_moving_average(value, ma_periods)["calendar_ma"]
         lagged = ma_value.shift(lag_periods)
         if transform == "ma_difference":
             return ma_value - lagged
@@ -168,31 +145,19 @@ def _compute_feature_for_contiguous_segment(
         return (ma_value / denominator) - 1.0
 
     if transform == "ma12_level":
-        return value.rolling(
-            window=12,
-            min_periods=12,
-        ).mean()
+        return calendar_moving_average(value, 12)["calendar_ma"]
 
     if transform == "ma3_vs_ma12_pct":
-        fast_ma = value.rolling(
-            window=3,
-            min_periods=3,
-        ).mean()
+        fast_ma = calendar_moving_average(value, 3)["calendar_ma"]
 
-        slow_ma = value.rolling(
-            window=12,
-            min_periods=12,
-        ).mean()
+        slow_ma = calendar_moving_average(value, 12)["calendar_ma"]
 
         denominator = slow_ma.replace(0.0, np.nan)
 
         return (fast_ma / denominator) - 1.0
 
     if transform == "ma12_yoy_pct":
-        slow_ma = value.rolling(
-            window=12,
-            min_periods=12,
-        ).mean()
+        slow_ma = calendar_moving_average(value, 12)["calendar_ma"]
 
         prior_slow_ma = slow_ma.shift(12)
         denominator = prior_slow_ma.replace(0.0, np.nan)
@@ -213,7 +178,7 @@ def _compute_feature(
 ) -> pd.Series:
     group = group.sort_values("date")
 
-    if transform not in {"ma_level", "ma_pct_change", "ma_difference"}:
+    if transform not in MA_TRANSFORMS:
         return _compute_feature_for_contiguous_segment(
             group,
             transform,
@@ -221,9 +186,9 @@ def _compute_feature(
             feature_key,
         )
 
-    segments = _monthly_contiguous_segments(group)
+    calendar = calendarize_comparable_series(group)
     pieces = []
-    for _, segment in group.groupby(segments, sort=False):
+    for _, segment in calendar.groupby("source_origin_segment", sort=False):
         pieces.append(
             _compute_feature_for_contiguous_segment(
                 segment,
@@ -236,7 +201,19 @@ def _compute_feature(
     if not pieces:
         return pd.Series(index=group.index, dtype=float)
 
-    return pd.concat(pieces).reindex(group.index)
+    computed = pd.concat(pieces)
+    computed.index = calendar.loc[computed.index, "date"]
+    return computed.reindex(pd.to_datetime(group["date"])).set_axis(group.index)
+
+
+MA_TRANSFORMS = {
+    "ma_level",
+    "ma_pct_change",
+    "ma_difference",
+    "ma12_level",
+    "ma3_vs_ma12_pct",
+    "ma12_yoy_pct",
+}
 
 
 def load_raw_metric_series(
@@ -692,6 +669,17 @@ def build_feature_matrix_with_lineage(
             ]
         ).copy()
 
+        if transform in MA_TRANSFORMS:
+            metric_df = (
+                metric_df.groupby(
+                    ["geo_id", "canonical_metric_key"],
+                    group_keys=False,
+                    sort=False,
+                )
+                .apply(calendarize_comparable_series)
+                .reset_index(drop=True)
+            )
+
         feature_window = (
             feature_definition.get(
                 "feature_window",
@@ -735,17 +723,42 @@ def build_feature_matrix_with_lineage(
             )
         )
 
-        rows.append(
-            metric_df[
-                [
-                    "geo_id",
-                    "date",
-                    "canonical_metric_key",
-                    "feature_key",
-                    "raw_feature_value",
-                ]
+        output_frame = metric_df[
+            [
+                "geo_id",
+                "date",
+                "canonical_metric_key",
+                "feature_key",
+                "raw_feature_value",
             ]
+        ].copy()
+
+        # Canonicalize the feature-output schema before concatenating
+        # calendarized MA frames with untouched non-MA feature frames.
+        #
+        # Different pandas/pyarrow paths can otherwise retain different
+        # datetime resolutions even when the calendar dates are identical,
+        # which causes concat failures on some supported local environments.
+        output_frame["date"] = (
+            pd.to_datetime(output_frame["date"])
+            .astype("datetime64[ns]")
         )
+
+        output_frame["geo_id"] = (
+            output_frame["geo_id"].astype(str)
+        )
+        output_frame["canonical_metric_key"] = (
+            output_frame["canonical_metric_key"].astype(str)
+        )
+        output_frame["feature_key"] = (
+            output_frame["feature_key"].astype(str)
+        )
+        output_frame["raw_feature_value"] = pd.to_numeric(
+            output_frame["raw_feature_value"],
+            errors="coerce",
+        )
+
+        rows.append(output_frame)
 
     feature_columns = [
         "geo_id",
