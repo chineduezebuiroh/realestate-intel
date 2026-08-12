@@ -36,21 +36,24 @@ production weight. Quarterly GDP is not silently substituted for annual GDP.
 
 ### Feature definitions and weights
 
-All accepted subcomponents use Level `0.25`, Short `0.35`, and Long `0.40`.
+The governed LAUS families use Level `0.80`, Short `0.10`, and Long `0.10`; other accepted core-Demand subcomponents retain Level `0.25`, Short `0.35`, and Long `0.40`.
 Missing feature components are excluded and the remaining feature weights are
 renormalized; an absent metric is excluded and remaining metric weights are
 renormalized. No missing feature value is silently imputed.
 
 | Source/metric family | Level | Short | Long |
 |---|---|---|---|
-| LAUS employment, labor force, unemployment rate | full-window MA6 | `MA6 / lag3(MA6) - 1` | `MA6 / lag12(MA6) - 1` |
+| LAUS employment, labor force, unemployment rate | calendar MA9 (2/3 coverage) | `MA9 / lag3(MA9) - 1` | `MA9 / lag12(MA9) - 1` |
 | CES employment | raw level | one-month change | twelve-month change |
 | ACS population and income | raw level | annual change | three-year rolling annual change |
 | BEA annual GDP | raw level | annual change | three-year rolling annual change |
 
-The MA6 Labor transforms require complete windows and do not emit partial-
-window values. Unemployment-rate features retain negative direction; all other
+The MA9 Labor transforms use exact calendar-month windows and the shared 2/3 coverage rule, with no forward-fill or zero-fill. Unemployment-rate features retain negative direction; all other
 accepted Demand features retain positive direction.
+
+### Structural/Cyclical production composition
+
+Core Demand is composed from unchanged Structural membership (population, median household income, and annual GDP) at `0.25` and Cyclical membership (labor force, employment, and LAUS unemployment rate) at `0.75`. Each available block is internally normalized by its unchanged metric weights; available block weights are normalized. Labor Force is explicitly retained.
 
 ### Normalization
 
@@ -86,10 +89,7 @@ Demand score.
 
 ### Labor
 
-The LAUS MA6 challenger passed chronology, volatility, contribution,
-cancellation, readiness, deterministic-run, lineage, and immutable acceptance
-checks. It materially reduced seasonal and downstream volatility while
-retaining acceptable turning-point response. The accepted maximum District of
+The earlier LAUS MA6 challenger passed chronology, volatility, contribution, cancellation, readiness, deterministic-run, lineage, and immutable acceptance checks. The subsequent completed evidence sequence informed an explicit human promotion of LF-IN, MA9, 80/10/10, and S25/C75; it was not an automated winner. The accepted maximum District of
 Columbia Demand-axis lag was ten months because Labor is a structural regime
 signal rather than a tactical nowcast. The immutable acceptance verified exact
 formulas, non-LAUS parity, non-Demand isolation, and explicit coordinate/regime

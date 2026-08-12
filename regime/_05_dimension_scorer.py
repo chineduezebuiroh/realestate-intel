@@ -1,10 +1,15 @@
 from __future__ import annotations
 # regime/_05_dimension_scorer.py
 
+from pathlib import Path
+
 import pandas as pd
 
 from regime._00_config_loader import load_regime_config
 from regime._04_asof_aligner import align_metric_scores_asof
+
+
+DEMAND_BLOCK_REGISTRY = Path("config/demand_block_registry.csv")
 
 
 def _truthy(series: pd.Series) -> pd.Series:
@@ -100,7 +105,31 @@ def score_dimensions(metrics: pd.DataFrame | None = None) -> pd.DataFrame:
         if total_weight <= 0:
             continue
 
-        dimension_score = (g["metric_score"] * g["metric_weight"]).sum() / total_weight
+        if keys[2] == "demand":
+            blocks = pd.read_csv(DEMAND_BLOCK_REGISTRY, dtype=str).fillna("")
+            blocks = blocks[_truthy(blocks["enabled"])].copy()
+            blocks["block_weight"] = pd.to_numeric(blocks["block_weight"], errors="raise")
+            if blocks["canonical_metric_key"].duplicated().any():
+                raise ValueError("Duplicate Demand block membership")
+            block_weights = blocks.groupby("demand_block")["block_weight"].nunique()
+            if (block_weights != 1).any() or not set(block_weights.index) == {"structural", "cyclical"}:
+                raise ValueError("Demand blocks must define one Structural and Cyclical weight")
+            block_weights = blocks.groupby("demand_block")["block_weight"].first()
+            if abs(float(block_weights.sum()) - 1.0) > 1e-12:
+                raise ValueError("Demand block weights must sum to 1.0")
+            demand = g.merge(blocks, on="canonical_metric_key", how="left", validate="many_to_one")
+            if demand["demand_block"].eq("").any() or demand["demand_block"].isna().any():
+                missing = sorted(demand.loc[demand["demand_block"].isna() | demand["demand_block"].eq(""), "canonical_metric_key"].unique())
+                raise ValueError(f"Active Demand metrics missing block membership: {missing}")
+            block_scores = []
+            for block, members in demand.groupby("demand_block"):
+                member_weight = members["metric_weight"].sum()
+                if member_weight > 0:
+                    block_scores.append((members["metric_score"] * members["metric_weight"]).sum() / member_weight * block_weights[block])
+            available = block_weights.loc[demand["demand_block"].unique()].sum()
+            dimension_score = sum(block_scores) / available
+        else:
+            dimension_score = (g["metric_score"] * g["metric_weight"]).sum() / total_weight
 
         grouped.append(
             {
