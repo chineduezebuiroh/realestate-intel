@@ -74,6 +74,16 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 
 ### Current Focus
 
+Demand architecture calibration is closed. The explicit human-selected
+production architecture is LF-IN, LAUS calendar MA9 with 80/10/10
+Level/Short/Long weights, and 25/75 Structural/Cyclical composition. The
+selection was not an automated winner. Historical factorial, lineage,
+detector-semantics, and MA-window evidence remains intact.
+
+The next workstream is the previously started **Macro Regime Visualization
+MVP**, followed directionally by CBSA/metro expansion, a local-regime layer,
+and regime-informed forecasting integration.
+
 The Regime Engine v1.0 historical/current county-level macro baseline has been
 prepared for merge to `main`. It freezes the settled production architecture as
 an auditable release candidate without changing scoring behavior. After human

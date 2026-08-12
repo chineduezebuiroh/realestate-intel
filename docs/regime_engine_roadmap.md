@@ -135,6 +135,20 @@ The project is now in county-level production calibration. Remaining work is foc
 
 # Section 5 - Active Development Priorities
 
+Demand architecture calibration is complete. The human-selected production
+policy is LF-IN, calendar MA9 LAUS construction, 80/10/10 LAUS feature weights,
+and a 25/75 Structural/Cyclical composition. No further Demand model-selection
+experiment is pending.
+
+The next workstream returns to the previously started **Macro Regime
+Visualization MVP**. Subsequent direction remains:
+
+1. Complete Macro Regime Visualization MVP.
+2. Expand regime geography to CBSA / metro.
+3. Develop the local-regime layer.
+4. Continue toward regime-informed forecasting integration.
+
+
 Current work is sequenced as follows:
 
 1. Improve production-review tooling.

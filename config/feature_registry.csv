@@ -50,15 +50,15 @@ bea_quarterly_gdp_long,bea_quarterly_gdp,long_term_change,yoy_zscore,0.40,4q,dem
 laus_unemployment_level,laus_unemployment,level,level_zscore,0.25,,demand,
 laus_unemployment_short,laus_unemployment,short_term_change,mom_zscore,0.35,1m,demand,
 laus_unemployment_long,laus_unemployment,long_term_change,yoy_zscore,0.40,12m,demand,
-laus_labor_force_level,laus_labor_force,level,ma_level,0.25,6m,demand,
-laus_labor_force_short,laus_labor_force,short_term_change,ma_pct_change,0.35,6m/lag3m,demand,
-laus_labor_force_long,laus_labor_force,long_term_change,ma_pct_change,0.40,6m/lag12m,demand,
-laus_employment_level,laus_employment,level,ma_level,0.25,6m,demand,
-laus_employment_short,laus_employment,short_term_change,ma_pct_change,0.35,6m/lag3m,demand,
-laus_employment_long,laus_employment,long_term_change,ma_pct_change,0.40,6m/lag12m,demand,
-laus_unemployment_rate_level,laus_unemployment_rate,level,ma_level,0.25,6m,demand,
-laus_unemployment_rate_short,laus_unemployment_rate,short_term_change,ma_pct_change,0.35,6m/lag3m,demand,
-laus_unemployment_rate_long,laus_unemployment_rate,long_term_change,ma_pct_change,0.40,6m/lag12m,demand,
+laus_labor_force_level,laus_labor_force,level,ma_level,0.80,9m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
+laus_labor_force_short,laus_labor_force,short_term_change,ma_pct_change,0.10,9m/lag3m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
+laus_labor_force_long,laus_labor_force,long_term_change,ma_pct_change,0.10,9m/lag12m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
+laus_employment_level,laus_employment,level,ma_level,0.80,9m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
+laus_employment_short,laus_employment,short_term_change,ma_pct_change,0.10,9m/lag3m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
+laus_employment_long,laus_employment,long_term_change,ma_pct_change,0.10,9m/lag12m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
+laus_unemployment_rate_level,laus_unemployment_rate,level,ma_level,0.80,9m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
+laus_unemployment_rate_short,laus_unemployment_rate,short_term_change,ma_pct_change,0.10,9m/lag3m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
+laus_unemployment_rate_long,laus_unemployment_rate,long_term_change,ma_pct_change,0.10,9m/lag12m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
 
 ces_total_nonfarm_level,ces_total_nonfarm,level,level_zscore,0.25,,demand,
 ces_total_nonfarm_short,ces_total_nonfarm,short_term_change,mom_zscore,0.35,1m,demand,
