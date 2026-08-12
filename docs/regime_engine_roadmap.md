@@ -148,6 +148,14 @@ Visualization MVP**. Subsequent direction remains:
 3. Develop the local-regime layer.
 4. Continue toward regime-informed forecasting integration.
 
+The v0.2 visualization refinement should replace the single maximum-age
+headline with governed-cadence freshness: monthly/cyclical evidence freshness
+separate from annual/structural evidence vintage (and other materially distinct
+cadences only when supported by persisted membership metadata). It should also
+make drivers more decision-oriented, reduce the diagnostic-report feel, keep
+forensic metric drilldowns secondary, and improve hierarchy and readability
+without weakening transparency. This is a roadmap item, not part of v0.1.x.
+
 
 Current work is sequenced as follows:
 

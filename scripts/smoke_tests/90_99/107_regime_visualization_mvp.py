@@ -1,4 +1,4 @@
-"""Deterministic smoke test for Visualization MVP v0.1.1."""
+"""Deterministic smoke test for Visualization MVP v0.1.2."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from regime.pandas_compat import MONTH_END
 from regime._08_geometry_engine import _major_regime
 from visualization.regime_snapshot import (
     MAJOR_BOUNDARY_DEGREES, MAJOR_REGIMES, PLANE_EXTENT, RADIAL_REFERENCES,
-    REQUIRED_ARTIFACTS, _plane, render_snapshot,
+    REQUIRED_ARTIFACTS, _metric_drivers, _plane, load_metric_memberships, render_snapshot,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -43,7 +43,9 @@ def _fixture(run_dir: Path, axis_registry: Path, metric_registry: Path) -> None:
     dimensions = pd.DataFrame([{"geo_id": GEO_ID, "date": date, "dimension": dimension, "dimension_score": score}
                                for date in dates for dimension, score in scores.items()])
     metric_specs = {
-        "demand": (("population", .25, .8), ("employment", .75, 4 / 15)),
+        "demand": (("population", .1667, .8), ("median_household_income", .1667, .4),
+                   ("gdp_annual", .1667, 0), ("labor_force", .1667, .8),
+                   ("employment", .1667, .4), ("laus_unemployment_rate", .1667, 0)),
         "price": (("median_sale_price", .5, -.5), ("median_ppsf", .5, .1)),
         "capital_markets": (("mortgage_30y", .5, -.8), ("spread_10y_2y", .5, .2)),
         "affordability": (("payment_burden", .25, .1),),  # second governed metric is missing; effective weight is 1.
@@ -59,12 +61,15 @@ def _fixture(run_dir: Path, axis_registry: Path, metric_registry: Path) -> None:
                         "demand,demand,0.65,true\ndemand,price,0.175,true\ndemand,affordability,0.075,true\n"
                         "demand,capital_markets,0.10,true\nsupply,supply,0.85,true\nsupply,capital_markets,0.15,true\n"
                         "demand,liquidity,1.0,false\n", encoding="utf-8")
-    lines = ["canonical_metric_key,dimension,metric_weight,enabled,diagnostic_only,macro_enabled"]
+    lines = ["canonical_metric_key,dimension,metric_weight,demand_block,block_weight,enabled,diagnostic_only,macro_enabled"]
     for dimension, specs in metric_specs.items():
         for key, weight, _ in specs:
-            lines.append(f"{key},{dimension},{weight},true,false,true")
-    lines.append("price_to_income,affordability,0.75,true,false,true")
-    lines.append("non_member,liquidity,1.0,true,false,true")
+            block = "structural" if key in {"population", "median_household_income", "gdp_annual"} else "cyclical"
+            block_weight = .25 if block == "structural" else .75
+            hierarchy = f"{block},{block_weight}" if dimension == "demand" else ","
+            lines.append(f"{key},{dimension},{weight},{hierarchy},true,false,true")
+    lines.append("price_to_income,affordability,0.75,,,true,false,true")
+    lines.append("non_member,liquidity,1.0,,,true,false,true")
     metric_registry.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -103,6 +108,11 @@ def main() -> int:
         affordability = snapshot.metric_drivers["affordability"].iloc[0]
         assert affordability.metric_weight == .25 and affordability.effective_metric_weight == 1
         assert np.isclose(affordability.weighted_metric_contribution, .1)
+        demand_rows = snapshot.metric_drivers["demand"]
+        assert set(demand_rows.demand_block) == {"structural", "cyclical"}
+        assert np.isclose(demand_rows.weighted_metric_contribution.sum(), .4)
+        assert np.isclose(demand_rows.query("demand_block == 'structural'").weighted_metric_contribution.sum(), .1)
+        assert np.isclose(demand_rows.query("demand_block == 'cyclical'").weighted_metric_contribution.sum(), .3)
         expected_dimension_scores = (
             pd.concat(snapshot.drivers.values(), ignore_index=True)
             .drop_duplicates("dimension")
@@ -135,7 +145,35 @@ def main() -> int:
         for anchor in ("current-state", "regime-plane", "why-this-regime", "dimension-drivers", "historical-chronology", "major-regime-chronology"):
             assert f'id="{anchor}"' in html
         assert html.count("<details ") == 6  # Capital Markets appears under both axes.
-        assert "Visualization MVP v0.1.1" in html and "plotly" in html.lower()
+        assert "Visualization MVP v0.1.2" in html and "plotly" in html.lower()
+        assert 'data-demand-block="structural"' in html and 'data-demand-block="cyclical"' in html
+        payload = json.loads(json_path.read_text())
+        assert {"demand_block", "metric_weight", "effective_metric_weight", "block_weight",
+                "effective_block_weight", "weighted_metric_contribution"}.issubset(payload["metric_drivers"]["demand"][0])
+
+        memberships = load_metric_memberships(metric_registry, {"demand", "price", "affordability", "capital_markets", "supply"})
+        latest = pd.Timestamp("2026-07-31")
+        governed_scores = {"population": .8, "median_household_income": .4, "gdp_annual": 0,
+                           "labor_force": .8, "employment": .4, "laus_unemployment_rate": 0}
+        def check_missing(missing: set[str], expected: float, block_weights: dict[str, float]) -> pd.DataFrame:
+            evidence = pd.DataFrame([{"geo_id": GEO_ID, "date": latest, "canonical_metric_key": key,
+                                      "metric_score": score}
+                                     for key, score in governed_scores.items() if key not in missing])
+            expected_frame = pd.DataFrame([{"dimension": "demand", "dimension_score": expected}])
+            rows = _metric_drivers(evidence, memberships[memberships.dimension.eq("demand")], GEO_ID,
+                                   latest, expected_frame)["demand"]
+            assert np.isclose(rows.weighted_metric_contribution.sum(), expected)
+            for block, weight in block_weights.items():
+                assert np.isclose(rows.query("demand_block == @block").effective_block_weight.iloc[0], weight)
+                assert np.isclose(rows.query("demand_block == @block").effective_metric_weight.sum(), 1)
+            return rows
+
+        missing_structural = check_missing({"gdp_annual"}, .45, {"structural": .25, "cyclical": .75})
+        assert set(missing_structural.query("demand_block == 'structural'").effective_metric_weight) == {.5}
+        missing_cyclical = check_missing({"labor_force"}, .25, {"structural": .25, "cyclical": .75})
+        assert set(missing_cyclical.query("demand_block == 'cyclical'").effective_metric_weight) == {.5}
+        cyclical_only = check_missing({"population", "median_household_income", "gdp_annual"}, .4, {"cyclical": 1})
+        assert cyclical_only.demand_block.eq("cyclical").all()
         missing_dir = root / "missing"
         missing_dir.mkdir()
         try:
