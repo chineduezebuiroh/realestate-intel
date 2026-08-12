@@ -29,6 +29,11 @@ EXPLICIT_BALANCES = {
 }
 BALANCE_POLICIES = (*EXPLICIT_BALANCES, "BAL-INCUMBENT-EXACT")
 FEATURE_TYPES = ("level", "short", "long")
+STRUCTURAL_TURN_EXPRESSION_REASON = (
+    "not applicable: Structural is dominated by annual/infrequently updating "
+    "state variables, producing plateau-heavy monthly chronology incompatible "
+    "with the shared contiguous-month turning-point detector"
+)
 
 
 def scenario_grid() -> pd.DataFrame:
@@ -253,6 +258,17 @@ def build_review(run: Path, output: Path, root: Path | None = None) -> Path:
           "conflict_neutralization_share":g.loc[g.conflict_month.eq(True),"core_demand_score"].abs().lt(.05).mean(),"demand_axis_std":full.demand_axis_std,
           "recent_demand_axis_std":rec.demand_axis_std,"demand_axis_median_abs":full.median_abs_demand_axis})
     evaluation=pd.DataFrame(summaries); turn_expression=pd.DataFrame(expression)
+    # Preserve the historical measurement for lineage, but make its governed
+    # evaluation status machine-readable.  It must not enter ranking or
+    # qualitative preference under the current Structural chronology.
+    evaluation["structural_turn_expression_applicability"] = "not_applicable"
+    evaluation["structural_turn_expression_used_for_evaluation"] = False
+    evaluation["structural_turn_expression_reason"] = STRUCTURAL_TURN_EXPRESSION_REASON
+    turn_expression["evaluation_applicability"] = np.where(
+        turn_expression.component.eq("structural"), "not_applicable", "applicable")
+    turn_expression["used_for_scenario_evaluation"] = turn_expression.component.ne("structural")
+    turn_expression["applicability_reason"] = np.where(
+        turn_expression.component.eq("structural"), STRUCTURAL_TURN_EXPRESSION_REASON, "applicable")
 
     # Paired LF audit (positive deltas mean LF-IN is larger).
     paired=[]
@@ -318,6 +334,32 @@ def build_review(run: Path, output: Path, root: Path | None = None) -> Path:
           "conflict_neutralization":q.loc[q.conflict_month.eq(True),"core_demand_score"].abs().lt(.05).mean(),"demand_axis_std":ax.demand_axis_std,"demand_axis_median_abs":ax.median_abs_demand_axis})
     measures=pd.DataFrame(measures).merge(registry[["scenario_id","labor_force_membership","laus_weight_policy","balance_policy"]],on="scenario_id")
     laus_interactions=measures.copy()
+
+    # Decision-facing main effects use county-period observations rather than
+    # averaging already-pooled scenario summaries. DC remains visible but is
+    # explicitly separated from the six-county decision basis.
+    decision_metrics = [
+        "core_cancellation", "cyclical_cancellation", "core_std",
+        "median_abs_core", "reversal_1m", "reversal_3m", "reversal_6m",
+        "persistence", "zero_crossings", "turn_count",
+        "conflict_neutralization", "demand_axis_std",
+        "demand_axis_median_abs",
+    ]
+    decision_effects = []
+    for factor in ("labor_force_membership", "laus_weight_policy", "balance_policy"):
+        for scope, scoped in (
+            ("six_county_decision_basis", measures.loc[measures.geo_id.ne(GEOS[0])]),
+            ("dc_descriptive_only", measures.loc[measures.geo_id.eq(GEOS[0])]),
+            ("seven_county_descriptive", measures),
+        ):
+            grouped = scoped.groupby([factor, "period"], as_index=False)[decision_metrics].mean()
+            grouped = grouped.rename(columns={factor: "factor_level"})
+            grouped.insert(0, "factor", factor)
+            grouped.insert(1, "scope", scope)
+            grouped["county_count"] = scoped.geo_id.nunique()
+            grouped["scenario_count"] = scoped.scenario_id.nunique()
+            decision_effects.append(grouped)
+    decision_main_effects = pd.concat(decision_effects, ignore_index=True)
     balance_by_county=measures.groupby(["balance_policy","geo_id","period"],as_index=False).agg(median_core_cancellation=("core_cancellation","median"),core_std=("core_std","mean"),median_abs_core_score=("median_abs_core","median"),reversal_1m=("reversal_1m","mean"),reversal_3m=("reversal_3m","mean"),reversal_6m=("reversal_6m","mean"),persistence=("persistence","mean"),zero_crossings=("zero_crossings","mean"),turn_count=("turn_count","mean"),conflict_neutralization_share=("conflict_neutralization","mean"),demand_axis_std=("demand_axis_std","mean"),demand_axis_median_abs=("demand_axis_median_abs","mean"),scenario_count=("scenario_id","nunique"))
 
     consistency=[]
@@ -448,6 +490,8 @@ def build_review(run: Path, output: Path, root: Path | None = None) -> Path:
       "structural_cyclical_balance_main_effect":evaluation.groupby("balance_policy",as_index=False).mean(numeric_only=True),"structural_cyclical_balance_conflict_months":chronology.loc[chronology.conflict_month.eq(True)],"structural_cyclical_balance_by_county":balance_by_county,
       "structural_cyclical_conflict_episode_audit":chronology.loc[chronology.conflict_month.eq(True)].assign(record_grain="conflict_month"),"structural_cyclical_demand_axis_scenarios":axis_scenarios,"structural_cyclical_demand_axis_summary":axis_summary,"structural_cyclical_demand_supply_context":supply_context,
       "structural_cyclical_county_consistency":county_consistency,"structural_cyclical_dc_recent_chronology":block.loc[block.geo_id.eq(GEOS[0])&block.date.ge(pd.Timestamp("2023-08-01"))],
+      "structural_cyclical_turn_expression":turn_expression,
+      "structural_cyclical_decision_main_effects":decision_main_effects,
       "structural_cyclical_evaluation_matrix":evaluation,"structural_cyclical_main_effects":pd.concat([evaluation.groupby("labor_force_membership",as_index=False).mean(numeric_only=True).assign(effect="labor_force"),evaluation.groupby("laus_weight_policy",as_index=False).mean(numeric_only=True).assign(effect="laus_weight"),evaluation.groupby("balance_policy",as_index=False).mean(numeric_only=True).assign(effect="balance")],ignore_index=True),"structural_cyclical_interactions":interactions,
       "structural_cyclical_parity_audit":parity,"structural_cyclical_production_isolation":pd.DataFrame([{"persisted_non_core_dimensions_unchanged":True,"production_registries_unchanged":True,"production_write_path":False}]),"structural_cyclical_governance_status":governance,
       "structural_cyclical_runtime_summary":pd.DataFrame([{"run_id":RUN_ID,"governed_counties":7,"scenario_count":len(registry),"elapsed_seconds":time.time()-started,"deterministic_outputs":True}])}
@@ -455,5 +499,10 @@ def build_review(run: Path, output: Path, root: Path | None = None) -> Path:
     for name,frame in exports.items(): frame.to_csv(output/f"{name}.csv",index=False,date_format="%Y-%m-%d",float_format="%.15g")
     order=["Executive architecture summary","Structural vs Cyclical incumbent decomposition","Seven-county consistency","Labor Force incremental-value audit","LAUS feature-weight main effects","Structural/Cyclical balance main effects","Conflict-month behavior","Interaction effects","Demand-axis downstream impact","DC descriptive deep dive","Equal-footing evaluation matrix","Governance / parity / runtime"]
     sections="".join(f"<section><h2>{html.escape(x)}</h2><p>See governed CSV exports.</p></section>" for x in order)
-    (output/"structural_cyclical_review.html").write_text(f"<!doctype html><meta charset='utf-8'><title>Structural/Cyclical Demand review</title><h1>Diagnostic only — winner: NONE</h1>{sections}",encoding="utf-8")
+    (output/"structural_cyclical_review.html").write_text(
+        f"<!doctype html><meta charset='utf-8'><title>Structural/Cyclical Demand review</title>"
+        f"<h1>Diagnostic only — winner: NONE</h1><p><strong>Structural turn expression: "
+        f"not applicable for scenario evaluation.</strong> {html.escape(STRUCTURAL_TURN_EXPRESSION_REASON)}. "
+        "The historical value remains exported for provenance and is excluded from ranking, recommendation, "
+        f"and qualitative preference.</p>{sections}", encoding="utf-8")
     return output

@@ -32,7 +32,8 @@ required_exports = [
  "structural_cyclical_laus_weight_interactions", "structural_cyclical_balance_by_county",
  "structural_cyclical_demand_axis_scenarios", "structural_cyclical_demand_axis_summary",
  "structural_cyclical_demand_supply_context", "structural_cyclical_county_consistency",
- "structural_cyclical_interactions"]
+ "structural_cyclical_interactions", "structural_cyclical_turn_expression",
+ "structural_cyclical_decision_main_effects"]
 assert all(f'"{name}"' in source for name in required_exports)
 assert "empty=pd.DataFrame" not in source and ":empty" not in source
 for field in ["cyclical_turn_expression_share", "structural_turn_expression_share",
@@ -47,6 +48,9 @@ assert _summary_row(fixture,"score")["observations"] == 12
 assert _summary_row(fixture,"score") == _summary_row(fixture.copy(),"score")
 assert "incumbent_similarity" not in " ".join(grid.columns).lower()
 assert '"automated_winner":False' in source and '"production_policy_changed":False' in source
+assert '"structural_turn_expression_applicability"] = "not_applicable"' in source
+assert '"structural_turn_expression_used_for_evaluation"] = False' in source
+assert "six_county_decision_basis" in source and "dc_descriptive_only" in source
 assert ".to_csv(output/" in source and "config/" not in source.split("to_csv")[1]
 with tempfile.TemporaryDirectory() as tmp:
     out=Path(tmp)/"out"
