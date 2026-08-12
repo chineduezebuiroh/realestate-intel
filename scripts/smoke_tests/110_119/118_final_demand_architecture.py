@@ -73,8 +73,11 @@ def main() -> None:
         for row in rows.itertuples():
             assert (row.transform, row.feature_window, float(row.feature_weight)) == expected[row.feature_type]
 
-    dates = pd.date_range("2020-01-31", periods=24, freq="ME")
-    values = pd.Series(np.arange(1.0, 25.0)); values.iloc[4] = np.nan
+    # Explicit missing month and missing observation prove calendar MA9, 2/3
+    # coverage, no sparse-row rolling, and no forward/zero fill.
+    dates = pd.date_range("2020-01-31", periods=24, freq="M")
+    values = pd.Series(np.arange(1.0, 25.0))
+    values.iloc[4] = np.nan
     group = pd.DataFrame({"date": dates, "value": values})
     level = _compute_feature(group, "ma_level", "9m", "level")
     short = _compute_feature(group, "ma_pct_change", "9m/lag3m", "short")
