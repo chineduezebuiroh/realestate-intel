@@ -22,6 +22,12 @@ Level is MA9; Short is `MA9 / lag3(MA9) - 1`; Long is
 shared two-thirds coverage threshold, source-month anchoring, no forward-fill
 or zero-fill, and their existing sign orientation.
 
+## Single-registry hierarchical scoring contract
+
+`config/metric_dimension_registry.csv` is the single authoritative metric-governance registry. Demand rows carry `demand_block` and `block_weight` alongside the existing `metric_weight`; non-Demand rows leave both Demand-only fields blank. The former standalone Demand block registry is no longer a production input. Because the complete registry file participates in immutable configuration hashing, its metric membership, metric weights, Demand block membership, and block weights are all captured together.
+
+Demand scoring remains explicitly hierarchical. `metric_weight` governs relative weighting **within** each available Demand block. `block_weight` governs weighting **between** the Structural (`0.25`) and Cyclical (`0.75`) block scores. Missing metrics renormalize only inside their block, so an individual missing metric does not dilute the governed block allocation. If an entire block is unavailable, the scorer renormalizes across the available block. Non-Demand dimensions retain their ordinary availability-normalized metric-weight calculation.
+
 ## Human rationale
 
 ### Labor Force

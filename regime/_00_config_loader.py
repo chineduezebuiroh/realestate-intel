@@ -98,6 +98,8 @@ def validate_regime_config(config: RegimeConfig) -> None:
             "dimension",
             "subcomponent",
             "metric_weight",
+            "demand_block",
+            "block_weight",
             "source_priority",
             "merge_strategy",
             "enabled",
