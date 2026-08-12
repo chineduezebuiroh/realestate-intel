@@ -39,7 +39,6 @@ DEFAULT_CONFIG_PATHS = [
     Path("config/source_metric_registry.csv"),
     Path("config/feature_registry.csv"),
     Path("config/metric_dimension_registry.csv"),
-    Path("config/demand_block_registry.csv"),
     Path("config/axis_registry.csv"),
     Path("config/normalization_registry.csv"),
     Path("config/derived_input_freshness_registry.csv"),

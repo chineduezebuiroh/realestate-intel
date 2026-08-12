@@ -1,7 +1,0 @@
-canonical_metric_key,demand_block,block_weight,enabled,notes
-population,structural,0.25,true,Structural membership unchanged by 2026-08-12 Demand promotion.
-median_household_income,structural,0.25,true,Structural membership unchanged by 2026-08-12 Demand promotion.
-gdp_annual,structural,0.25,true,Structural membership unchanged by 2026-08-12 Demand promotion.
-labor_force,cyclical,0.75,true,LF-IN human-selected Demand promotion (2026-08-12).
-employment,cyclical,0.75,true,Human-selected Demand promotion (2026-08-12).
-laus_unemployment_rate,cyclical,0.75,true,Human-selected Demand promotion (2026-08-12).

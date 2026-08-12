@@ -38,8 +38,9 @@ production weight. Quarterly GDP is not silently substituted for annual GDP.
 
 The governed LAUS families use Level `0.80`, Short `0.10`, and Long `0.10`; other accepted core-Demand subcomponents retain Level `0.25`, Short `0.35`, and Long `0.40`.
 Missing feature components are excluded and the remaining feature weights are
-renormalized; an absent metric is excluded and remaining metric weights are
-renormalized. No missing feature value is silently imputed.
+renormalized. Within Demand, an absent metric renormalizes the remaining metric
+weights only inside its Structural or Cyclical block; the governed 25/75 block
+allocation does not drift. No missing feature value is silently imputed.
 
 | Source/metric family | Level | Short | Long |
 |---|---|---|---|
@@ -52,6 +53,11 @@ The MA9 Labor transforms use exact calendar-month windows and the shared 2/3 cov
 accepted Demand features retain positive direction.
 
 ### Structural/Cyclical production composition
+
+`config/metric_dimension_registry.csv` is the single authoritative governance
+surface. Its Demand-only `demand_block` and `block_weight` columns are blank for
+non-Demand rows. `metric_weight` controls relative weight within a Demand block,
+while `block_weight` controls weight between the blocks.
 
 Core Demand is composed from unchanged Structural membership (population, median household income, and annual GDP) at `0.25` and Cyclical membership (labor force, employment, and LAUS unemployment rate) at `0.75`. Each available block is internally normalized by its unchanged metric weights; available block weights are normalized. Labor Force is explicitly retained.
 
