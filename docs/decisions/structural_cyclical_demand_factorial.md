@@ -37,10 +37,11 @@ fields preserve provenance while preventing misuse.
 
 ## Decision reading
 
-The diagnostic exports three views of every main effect: a six-county decision
-basis, Washington, DC as descriptive-only evidence, and a seven-county
-descriptive pool. Conclusions below use the six-county view so DC cannot drive
-them. Full-history and recent-36-month results remain separate.
+The diagnostic exports two views of every main effect: a seven-county decision
+basis containing all governed counties, plus Washington, DC as a separate
+descriptive deep dive. Headline conclusions use the seven-county pooled evidence.
+The DC view provides additional context but does not replace or alter the governed
+decision population. Full-history and recent-36-month results remain separate.
 
 ### Labor Force membership
 
@@ -93,12 +94,12 @@ noise improvements should not be read as three independent reasons to choose
 that corner. Cyclical-heavy balances make the LAUS and LF choices more
 consequential, while Structural-heavy balances compress their differences.
 
-The direction of the principal effects is broadly shared across the six
-decision counties rather than created by one or two counties. County magnitudes
-vary, and DC shows more idiosyncratic recent chronology, which is why it is
-retained only in the descriptive view. Recent-36-month evidence strengthens
-rather than removes the central tradeoff: the cleanest configurations also
-show the greatest attenuation.
+The direction of the principal effects should be assessed across all seven
+governed counties rather than inferred from one or two counties. County magnitudes
+vary, and DC may show more idiosyncratic recent chronology, so it is also retained
+as a separate descriptive deep dive. It remains part of the seven-county pooled
+decision evidence. Recent-36-month evidence strengthens rather than removes the
+central tradeoff: the cleanest configurations also show the greatest attenuation.
 
 ## What remains unresolved
 

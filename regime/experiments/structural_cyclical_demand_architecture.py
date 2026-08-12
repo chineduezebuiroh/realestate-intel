@@ -336,8 +336,9 @@ def build_review(run: Path, output: Path, root: Path | None = None) -> Path:
     laus_interactions=measures.copy()
 
     # Decision-facing main effects use county-period observations rather than
-    # averaging already-pooled scenario summaries. DC remains visible but is
-    # explicitly separated from the six-county decision basis.
+    # averaging already-pooled scenario summaries. All seven governed counties
+    # form the decision basis; DC is also retained as a separate descriptive
+    # deep dive but is not excluded from pooled decision evidence.
     decision_metrics = [
         "core_cancellation", "cyclical_cancellation", "core_std",
         "median_abs_core", "reversal_1m", "reversal_3m", "reversal_6m",
@@ -348,9 +349,8 @@ def build_review(run: Path, output: Path, root: Path | None = None) -> Path:
     decision_effects = []
     for factor in ("labor_force_membership", "laus_weight_policy", "balance_policy"):
         for scope, scoped in (
-            ("six_county_decision_basis", measures.loc[measures.geo_id.ne(GEOS[0])]),
+            ("seven_county_decision_basis", measures),
             ("dc_descriptive_only", measures.loc[measures.geo_id.eq(GEOS[0])]),
-            ("seven_county_descriptive", measures),
         ):
             grouped = scoped.groupby([factor, "period"], as_index=False)[decision_metrics].mean()
             grouped = grouped.rename(columns={factor: "factor_level"})

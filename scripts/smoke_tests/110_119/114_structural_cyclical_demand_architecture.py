@@ -50,7 +50,7 @@ assert "incumbent_similarity" not in " ".join(grid.columns).lower()
 assert '"automated_winner":False' in source and '"production_policy_changed":False' in source
 assert '"structural_turn_expression_applicability"] = "not_applicable"' in source
 assert '"structural_turn_expression_used_for_evaluation"] = False' in source
-assert "six_county_decision_basis" in source and "dc_descriptive_only" in source
+assert "seven_county_decision_basis" in source and "dc_descriptive_only" in source
 assert ".to_csv(output/" in source and "config/" not in source.split("to_csv")[1]
 with tempfile.TemporaryDirectory() as tmp:
     out=Path(tmp)/"out"
