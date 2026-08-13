@@ -5,7 +5,8 @@
 This is diagnostic evidence only. It changes no production code, registry,
 architecture, recommendation state, or promotion state. The comparison uses
 the corrected production as-of alignment path and the seven governed counties
-over May 2006–May 2026. Results are pooled equally across counties. The final
+over May 2006–May 2026. County-first results are summarized equally, and pooled
+plots use within-county standardization plus complete seven-county coverage. The final
 60 months are also inspected separately to distinguish architecture effects
 from the unusually persistent recent labor chronology.
 
@@ -13,29 +14,34 @@ from the unusually persistent recent labor chronology.
 
 > **Meaningful cyclical variation is first attenuated during MA smoothing.**
 
-The clearest effect is directional rather than amplitude attenuation. Relative
-to raw LAUS, MA6 reduces reversal counts by **48% for Labor Force (134 to 70),
-65% for Employment (132 to 46), and 44% for unemployment (98 to 55)**. MA9
-reduces them by **55%, 73%, and 46%**, respectively. Correlation with the raw
-series remains high at MA6 (0.997, 0.988, and 0.916) and MA9 (0.996, 0.982, and
-0.869), so smoothing removes short changes without erasing the broad raw
-chronology.
+Raw-to-MA statistics are now calculated within each county and only then
+summarized. Mean MA6 reversal reductions are **49.0% for Labor Force, 57.6% for
+Employment, and 44.1% for unemployment** (medians 51.2%, 56.7%, and 43.2%).
+Mean MA9 reductions are **59.6%, 66.4%, and 51.8%** (medians 58.5%, 66.7%, and
+51.0%). The former 48%/65%/44% and 55%/73%/46% pooled headlines are therefore
+not retained. MA9 adds 10.5, 8.9, and 7.7 percentage points of mean reversal
+reduction beyond MA6: a consistent but smaller increment than MA6.
 
-There is **no evidence of a second meaningful amplitude collapse** at feature
-weighting or Core Demand aggregation. Moving from 70/15/15 to 80/10/10 raises,
-rather than reduces, full-history Cyclical standard deviation by 4.7% under
-MA6 (0.269 to 0.282) and 4.1% under MA9 (0.267 to 0.278). Core Demand standard
-deviation similarly rises 3.9% (MA6) and 2.9% (MA9). Demand-axis aggregation
-retains 77–79% of Core Demand standard deviation, but adds reversals rather
-than producing monotonicity; it therefore compresses magnitude modestly but is
-not where cyclicality first disappears.
+The May 2026 endpoint is excluded because coverage falls from seven counties in
+**April 2026** to DC and Los Angeles only. Both available counties' Labor Force
+and Employment declined from April, so those former upward endpoint spikes
+were entirely changing-composition artifacts. The unemployment jump was mostly,
+but not entirely, composition: the two counties had a 5.3% April mean versus
+4.46% across all seven, then each rose in May (DC to 6.0%, Los Angeles to 5.2%).
+No missing source value is filled.
 
-The recent visual impression is principally a **window-selection effect**.
-Across the final 60 months, standard deviation is only 63–67% of its full-history
-level at Core Demand and 42–43% at the Demand Axis for all four controls. The
-same recent-history compression under A, B, C, and D, combined with the absence
-of a controlled architecture cliff, indicates an unusually persistent recent
-labor-market trend rather than a newly introduced scoring defect.
+Attenuation is broad rather than driven by a few markets. MA6 reversal-reduction
+ranges are 29.3–65.6% (Labor Force), 48.3–76.2% (Employment), and 30.5–62.5%
+(unemployment); MA9 ranges are 42.9–76.8%, 55.0–87.1%, and 39.8–67.4%. Every
+county attenuates. The diagnosis that directional attenuation first occurs at
+MA smoothing still holds, while MA9 does not create a comparable second cliff
+beyond MA6.
+
+There is still no evidence of a second meaningful amplitude collapse at feature
+weighting or Core Demand aggregation. The A/B/C/D definitions, corrected as-of
+alignment, and downstream formulas are unchanged. The only downstream evidence
+change is exclusion of incomplete May 2026 from pooled diagnostic plots and
+statistics.
 
 ## Controlled comparison
 
@@ -65,7 +71,7 @@ main measured effects are lower cancellation and slightly higher persistence.
 
 | Stage | Quantitative reading | Attribution |
 |---|---|---|
-| Raw → MA6/MA9 | Reversals fall 44–73%; raw correlation remains 0.869–0.997 | **First meaningful attenuation** |
+| Raw → MA6/MA9 | Mean county reversal reductions are 44–58% at MA6 and 52–66% at MA9 | **First meaningful attenuation** |
 | MA → feature score | Feature SD remains 0.304–0.512; weight shift increases it | No amplitude cliff |
 | Feature → Cyclical block | SD remains 0.267–0.282; 52–76 reversals | Aggregation preserves movement |
 | Cyclical + Structural → Core Demand | SD rises to 0.298–0.316; cancellation falls to 0.148–0.179 | No attenuation |
@@ -82,29 +88,24 @@ turns alone.
 
 ## Supporting visuals
 
-1. Raw LAUS versus MA3/MA6/MA9: [Labor Force](demand_chronology_attenuation_visuals/01_raw_ma_labor_force.svg), [Employment](demand_chronology_attenuation_visuals/01_raw_ma_employment.svg), and [LAUS Unemployment](demand_chronology_attenuation_visuals/01_raw_ma_laus_unemployment_rate.svg).
-2. [Feature-score chronology](demand_chronology_attenuation_visuals/02_feature_score.svg).
-3. [Cyclical-block chronology](demand_chronology_attenuation_visuals/03_cyclical_block.svg).
-4. [Structural-block chronology](demand_chronology_attenuation_visuals/04_structural_block.svg).
-5. [Core Demand chronology](demand_chronology_attenuation_visuals/05_core_demand.svg).
-6. [Demand Axis chronology](demand_chronology_attenuation_visuals/06_demand_axis.svg).
-7. [A/B/C/D overlay](demand_chronology_attenuation_visuals/07_abcd_overlay.svg).
-8. [A−B, A−C, B−D, and C−D differences](demand_chronology_attenuation_visuals/08_difference_plots.svg).
+1. Washington, DC raw/MA: [Labor Force](demand_chronology_attenuation_visuals/01_dc_raw_ma_labor_force.svg), [Employment](demand_chronology_attenuation_visuals/01_dc_raw_ma_employment.svg), and [Unemployment](demand_chronology_attenuation_visuals/01_dc_raw_ma_laus_unemployment_rate.svg).
+2. Complete-panel standardized seven-county raw/MA: [Labor Force](demand_chronology_attenuation_visuals/01_seven_county_standardized_raw_ma_labor_force.svg), [Employment](demand_chronology_attenuation_visuals/01_seven_county_standardized_raw_ma_employment.svg), and [Unemployment](demand_chronology_attenuation_visuals/01_seven_county_standardized_raw_ma_laus_unemployment_rate.svg).
+3. [Feature-score chronology](demand_chronology_attenuation_visuals/02_feature_score.svg), [Cyclical block](demand_chronology_attenuation_visuals/03_cyclical_block.svg), [Structural block](demand_chronology_attenuation_visuals/04_structural_block.svg), [Core Demand](demand_chronology_attenuation_visuals/05_core_demand.svg), and [Demand Axis](demand_chronology_attenuation_visuals/06_demand_axis.svg).
+4. [A/B/C/D overlay](demand_chronology_attenuation_visuals/07_abcd_overlay.svg) and [controlled differences](demand_chronology_attenuation_visuals/08_difference_plots.svg).
 
-## Confidence and next step
+The [`demand_chronology_attenuation_evidence/`](demand_chronology_attenuation_evidence/)
+directory contains the five reproducible CSV evidence exports: county
+chronologies, county attenuation statistics, seven-county summary, monthly
+coverage, and the complete-panel standardized pooled chronology.
 
-**Confidence: medium-high.** Confidence is high that smoothing is the first
-attenuation stage because the result is large, consistent across all three
-LAUS measures, and preserved under both weight controls. Confidence is medium
-on interpreting the most recent five years as a durable economic property:
-that conclusion is descriptive, covers only one recent window, and is pooled
-across seven counties.
+## Confidence and governance conclusion
 
-No production change is supported. The recommended next step is only to retain
-full-history context beside five-year views in future review visuals. If the
-question is reopened, repeat this same fixed A/B/C/D diagnostic when another
-12–24 months of observations are available; do not start a new optimization
-campaign from the present evidence.
+**Confidence: high** that the May Labor Force and Employment spike was a panel
+composition defect and that attenuation first occurs at smoothing; all seven
+county-level comparisons support the latter. No production policy, parameter,
+scoring rule, registry, selected Demand architecture, or production artifact
+changed. This diagnostic does not recommend changing MA9 or any production
+parameter.
 
 ## Reproduction and governance
 
@@ -112,6 +113,5 @@ Run `scripts/build_demand_chronology_attenuation.py` against an immutable run
 containing the source and persisted aligned score artifacts. The builder
 validates current Demand membership and axis weights, rebuilds only the four
 specified controls, uses the corrected shared as-of aligner through the LAUS
-calibration implementation, and writes review-only CSV/SVG output. Generated
-review output is not a production artifact and is not committed except for the
-supporting SVGs linked above.
+calibration implementation, and writes review-only CSV/SVG output. The committed review CSVs and SVGs are diagnostic evidence, not production
+artifacts.

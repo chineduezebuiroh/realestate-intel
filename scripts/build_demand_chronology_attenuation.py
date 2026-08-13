@@ -50,7 +50,8 @@ def chronology_statistics(frame: pd.DataFrame) -> dict[str, float]:
     correlation = value.corr(pd.to_numeric(raw.loc[value.index], errors="coerce")) if raw is not None else np.nan
     return {
         "observations": len(value), "standard_deviation": value.std(),
-        "range": value.max() - value.min(), "turning_points": len(qualified),
+        "range": value.max() - value.min(), "mean_absolute_monthly_change": delta.abs().mean(),
+        "turning_points": len(qualified),
         "zero_crossings": len(_crossings(q, "value")), "reversal_count": reversals,
         "persistence": float(1 - reversals / max(len(direction) - 1, 1)),
         "cancellation": cancellation(value)[2], "correlation_to_raw_laus": correlation,
@@ -58,22 +59,91 @@ def chronology_statistics(frame: pd.DataFrame) -> dict[str, float]:
 
 
 def _line_svg(series: dict[str, pd.Series], title: str, path: Path) -> None:
-    """Write a compact review plot without adding a plotting dependency."""
+    """Write a compact plot on one calendar-faithful x-axis."""
     width, height, pad = 1100, 420, 48
+    series = {name: values.rename_axis("date").sort_index() for name, values in series.items()}
     all_values = pd.concat(series.values()).replace([np.inf, -np.inf], np.nan).dropna()
+    dates = pd.DatetimeIndex(sorted(set().union(*(pd.to_datetime(v.index) for v in series.values()))))
+    start, end = dates.min(), dates.max()
+    span = max((end - start).total_seconds(), 1)
     lo, hi = float(all_values.min()), float(all_values.max())
     if np.isclose(lo, hi): lo, hi = lo - 1, hi + 1
     colors = ("#2563eb", "#dc2626", "#059669", "#7c3aed", "#d97706")
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
              '<rect width="100%" height="100%" fill="white"/>',
              f'<text x="{pad}" y="28" font-family="sans-serif" font-size="18">{title}</text>']
+    for tick in pd.date_range(start, end, periods=6):
+        x = pad + (tick-start).total_seconds()*(width-2*pad)/span
+        parts += [f'<line x1="{x:.1f}" y1="{pad}" x2="{x:.1f}" y2="{height-pad}" stroke="#e5e7eb"/>',
+                  f'<text x="{x:.1f}" y="{height-pad+16}" text-anchor="middle" font-family="sans-serif" font-size="10">{tick:%Y-%m}</text>']
     for i, (name, values) in enumerate(series.items()):
-        q = values.dropna(); n = max(len(q) - 1, 1)
-        points = " ".join(f"{pad+j*(width-2*pad)/n:.1f},{height-pad-(v-lo)*(height-2*pad)/(hi-lo):.1f}" for j, v in enumerate(q))
-        parts += [f'<polyline points="{points}" fill="none" stroke="{colors[i % len(colors)]}" stroke-width="1.6"/>',
-                  f'<text x="{pad+150*i}" y="{height-12}" font-family="sans-serif" font-size="12" fill="{colors[i % len(colors)]}">{name}</text>']
+        calendar_values = values.reindex(dates)
+        for _, segment in calendar_values.groupby(calendar_values.isna().cumsum()):
+            q = segment.dropna()
+            if q.empty:
+                continue
+            points = " ".join(f"{pad+(pd.Timestamp(d)-start).total_seconds()*(width-2*pad)/span:.1f},{height-pad-(v-lo)*(height-2*pad)/(hi-lo):.1f}" for d, v in q.items())
+            parts.append(f'<polyline points="{points}" fill="none" stroke="{colors[i % len(colors)]}" stroke-width="1.6"/>')
+        parts.append(f'<text x="{pad+150*i}" y="{height-12}" font-family="sans-serif" font-size="12" fill="{colors[i % len(colors)]}">{name}</text>')
     parts.append('</svg>')
     path.write_text("\n".join(parts), encoding="utf-8")
+
+
+def _raw_ma_evidence(source: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Build county-first smoothing evidence and complete-panel standardized means."""
+    source = source.sort_values(["geo_id", "canonical_metric_key", "date"]).copy()
+    rows = []
+    for (geo, metric), group in source.groupby(["geo_id", "canonical_metric_key"], sort=True):
+        raw = group.drop_duplicates("date").set_index("date").raw_value.astype(float).sort_index()
+        raw = raw.reindex(pd.date_range(raw.index.min(), raw.index.max(), freq="ME", name="date"))
+        for stage, values in {"Raw": raw, **{f"MA{w}": raw.rolling(w, min_periods=w).mean() for w in (3, 6, 9)}}.items():
+            rows.extend({"geo_id": geo, "date": date, "metric": metric, "stage": stage, "value": value}
+                        for date, value in values.items())
+    by_county = pd.DataFrame(rows)
+
+    coverage = (by_county.loc[by_county.stage.eq("Raw") & by_county.value.notna()]
+                .groupby(["date", "metric"], as_index=False).geo_id.nunique()
+                .rename(columns={"geo_id": "county_count"}))
+    coverage["required_county_count"] = len(laus.GEOS)
+    coverage["complete_seven_county_panel"] = coverage.county_count.eq(len(laus.GEOS))
+
+    stat_rows = []
+    for (geo, metric), group in by_county.groupby(["geo_id", "metric"]):
+        raw = group.loc[group.stage.eq("Raw")].set_index("date").value
+        raw_z = (raw - raw.mean()) / raw.std()
+        raw_stats = None
+        for stage, sg in group.groupby("stage", sort=False):
+            q = sg.set_index("date").value.rename("value").to_frame().join(raw_z.rename("raw_reference"))
+            stats = chronology_statistics(q.reset_index())
+            if stage == "Raw": raw_stats = stats
+            row = {"geo_id": geo, "metric": metric, "stage": stage, **stats}
+            if stage != "Raw":
+                for name in ("standard_deviation", "range", "mean_absolute_monthly_change", "reversal_count", "zero_crossings"):
+                    base = raw_stats[name]
+                    row[f"{name}_attenuation_relative_to_raw"] = (base - stats[name]) / base if base else np.nan
+            stat_rows.append(row)
+    county_stats = pd.DataFrame(stat_rows)
+
+    attenuation_columns = [c for c in county_stats if c.endswith("_attenuation_relative_to_raw")]
+    summaries = []
+    for (metric, stage), group in county_stats.loc[county_stats.stage.ne("Raw")].groupby(["metric", "stage"]):
+        for measure in attenuation_columns:
+            values = group[measure].dropna()
+            summaries.append({"metric": metric, "stage": stage, "measure": measure,
+                              "seven_county_mean": values.mean(), "seven_county_median": values.median(),
+                              "minimum": values.min(), "maximum": values.max(), "county_count": len(values)})
+    summary = pd.DataFrame(summaries)
+
+    complete = set(map(tuple, coverage.loc[coverage.complete_seven_county_panel, ["date", "metric"]].itertuples(index=False, name=None)))
+    standardized = by_county.copy()
+    standardized["standardized_value"] = standardized.groupby(["geo_id", "metric", "stage"]).value.transform(
+        lambda x: (x - x.mean()) / x.std())
+    standardized = standardized.loc[[tuple(x) in complete for x in standardized[["date", "metric"]].itertuples(index=False, name=None)]]
+    pooled = (standardized.loc[standardized.standardized_value.notna()]
+              .groupby(["date", "metric", "stage"], as_index=False)
+              .agg(standardized_value=("standardized_value", "mean"), county_count=("geo_id", "nunique")))
+    pooled = pooled.loc[pooled.county_count.eq(len(laus.GEOS))]
+    return by_county, county_stats, summary, coverage, pooled
 
 
 def build(run: Path, output: Path, root: Path) -> None:
@@ -83,26 +153,38 @@ def build(run: Path, output: Path, root: Path) -> None:
     output.mkdir(parents=True, exist_ok=False)
 
     stage_rows = []
-    plot_series: dict[str, dict[str, pd.Series]] = {}
-    raw_pooled = source.groupby(["date", "canonical_metric_key"], as_index=False).raw_value.mean()
-    for metric in LABOR:
-        raw = raw_pooled.loc[raw_pooled.canonical_metric_key.eq(metric)].set_index("date").raw_value
-        stages = {"Raw LAUS": raw}
-        for ma in (3, 6, 9):
-            f = laus._features(source, ma)
-            key = {"labor_force":"laus_labor_force_level", "employment":"laus_employment_level",
-                   "laus_unemployment_rate":"laus_unemployment_rate_level"}[metric]
-            stages[f"MA{ma}"] = f.loc[f.feature_key.eq(key)].groupby("date").raw_feature_value.mean()
-        plot_series[metric] = stages
-        raw_z = (raw - raw.mean()) / raw.std()
-        for stage, values in stages.items():
-            q = values.rename("value").to_frame().join(raw_z.rename("raw_reference"))
-            stage_rows.append({"scenario":"raw_smoothing", "metric":metric, "stage":stage,
-                               **chronology_statistics(q.reset_index())})
+    by_county, county_stats, attenuation_summary, coverage, standardized = _raw_ma_evidence(source)
+    by_county.to_csv(output / "raw_ma_by_county.csv", index=False)
+    county_stats.to_csv(output / "raw_ma_attenuation_by_county.csv", index=False)
+    attenuation_summary.to_csv(output / "raw_ma_attenuation_pooled_summary.csv", index=False)
+    coverage.to_csv(output / "raw_ma_monthly_coverage.csv", index=False)
+    standardized.to_csv(output / "pooled_standardized_raw_ma.csv", index=False)
 
-    pooled = chronology.groupby(["scenario_id", "date"], as_index=False).mean(numeric_only=True)
+    dc = by_county.loc[by_county.geo_id.eq("district_of_columbia_dc__county")]
+    for metric in LABOR:
+        dc_series = {stage: group.set_index("date").value for stage, group in
+                     dc.loc[dc.metric.eq(metric)].groupby("stage", sort=False)}
+        _line_svg(dc_series, f"Washington, DC {metric}: Raw / MA3 / MA6 / MA9",
+                  output / f"01_dc_raw_ma_{metric}.svg")
+        pooled_series = {stage: group.set_index("date").standardized_value for stage, group in
+                         standardized.loc[standardized.metric.eq(metric)].groupby("stage", sort=False)}
+        _line_svg(pooled_series, f"Seven-county standardized {metric}: Raw / MA3 / MA6 / MA9",
+                  output / f"01_seven_county_standardized_raw_ma_{metric}.svg")
+
+    # Retain the legacy stage table, but source its raw-smoothing rows from the
+    # county-first evidence rather than an absolute-level cross-county pool.
+    for row in county_stats.itertuples(index=False):
+        stage_rows.append({"scenario": "raw_smoothing", **row._asdict()})
+
+    if "geo_id" not in chronology:
+        raise ValueError("controlled chronology lacks geo_id required for complete-panel pooling")
+    chronology_coverage = chronology.groupby(["scenario_id", "date"]).geo_id.nunique()
+    complete_dates = chronology_coverage.loc[chronology_coverage.eq(len(laus.GEOS))].index
+    complete_chronology = chronology.set_index(["scenario_id", "date"]).loc[
+        chronology.set_index(["scenario_id", "date"]).index.isin(complete_dates)].reset_index()
+    pooled = complete_chronology.groupby(["scenario_id", "date"], as_index=False).mean(numeric_only=True)
     for scenario, g in pooled.groupby("scenario_id"):
-        raw_ref = raw_pooled.groupby("date").raw_value.mean()
+        raw_ref = standardized.loc[standardized.stage.eq("Raw")].groupby("date").standardized_value.mean()
         for stage, column in (("Cyclical block","cyclical_score"), ("Structural block","structural_score"),
                               ("Core Demand","core_demand_score"), ("Demand Axis","demand_axis_score")):
             q = g.set_index("date")[[column]].rename(columns={column:"value"}).join(raw_ref.rename("raw_reference"))
@@ -113,7 +195,7 @@ def build(run: Path, output: Path, root: Path) -> None:
     for scenario, g in detail.groupby("scenario_id"):
         for metric, m in g.loc[g.metric.isin(LABOR)].groupby("metric"):
             q = m.groupby("date").agg(value=("score","mean"))
-            raw = raw_pooled.loc[raw_pooled.canonical_metric_key.eq(metric)].set_index("date").raw_value
+            raw = standardized.loc[(standardized.metric.eq(metric)) & (standardized.stage.eq("Raw"))].set_index("date").standardized_value
             q = q.join(((raw-raw.mean())/raw.std()).rename("raw_reference"))
             stage_rows.append({"scenario":scenario, "metric":metric, "stage":"Feature score",
                                **chronology_statistics(q.reset_index())})
@@ -126,8 +208,6 @@ def build(run: Path, output: Path, root: Path) -> None:
     stats.to_csv(output / "stage_attenuation_statistics.csv", index=False)
     chronology.to_csv(output / "controlled_chronology.csv", index=False)
     registry.to_csv(output / "controlled_scenarios.csv", index=False)
-    for metric, values in plot_series.items():
-        _line_svg(values, f"{metric}: Raw LAUS vs MA3 / MA6 / MA9", output / f"01_raw_ma_{metric}.svg")
     _line_svg(feature_plot, "LAUS feature-score chronology", output / "02_feature_score.svg")
     for number, (stage, column) in enumerate((("Cyclical block","cyclical_score"),("Structural block","structural_score"),
                                                ("Core Demand","core_demand_score"),("Demand Axis","demand_axis_score")), 3):
