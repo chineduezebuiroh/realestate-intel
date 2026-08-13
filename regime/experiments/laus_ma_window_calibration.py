@@ -13,6 +13,7 @@ import html
 import numpy as np
 import pandas as pd
 
+from regime._04_asof_aligner import align_metric_scores_asof
 from regime.diagnostics.capital_markets_ma import detect_turning_points
 from regime.experiments import laus_feature_architecture as laus
 from regime.experiments.demand_signal_attenuation import (
@@ -60,6 +61,71 @@ def construct_laus_features(source: pd.DataFrame, window: int) -> pd.DataFrame:
     if window not in MA_WINDOWS:
         raise ValueError(f"window must be one of {MA_WINDOWS}")
     return laus._features(source, window)
+
+
+def align_challenger_laus_scores(
+    challenger: pd.DataFrame,
+    persisted_aligned: pd.DataFrame,
+) -> pd.DataFrame:
+    """Apply production as-of semantics to challenger LAUS metric scores.
+
+    Persisted non-LAUS rows supply the authoritative production evaluation
+    calendar.  They are calendar carriers only: the returned frame contains
+    exclusively challenger LAUS rows aligned by the production aligner.
+    """
+    candidate = challenger.copy()
+    candidate["date"] = pd.to_datetime(candidate["date"])
+    candidate["canonical_metric_key"] = candidate["metric"]
+    candidate["metric_score"] = pd.to_numeric(candidate["metric_score"])
+    available = candidate[["level_score", "short_score", "long_score"]].notna()
+    candidate["feature_count"] = available.sum(axis=1)
+    candidate["feature_weight_sum"] = 1.0
+    candidate["min_feature_score"] = candidate[
+        ["level_score", "short_score", "long_score"]
+    ].min(axis=1)
+    candidate["max_feature_score"] = candidate[
+        ["level_score", "short_score", "long_score"]
+    ].max(axis=1)
+    metric_columns = [
+        "geo_id", "date", "canonical_metric_key", "metric_score",
+        "feature_count", "feature_weight_sum", "min_feature_score",
+        "max_feature_score",
+    ]
+
+    carriers = persisted_aligned.copy()
+    evaluation = _col(carriers, "evaluation_date", "date")
+    carriers = carriers.rename(columns={evaluation: "date"})
+    carriers = carriers.loc[
+        ~carriers[_col(carriers, "canonical_metric_key", "metric_key", "metric")]
+        .isin(LABOR)
+    ].copy()
+    carriers = carriers.rename(columns={
+        _col(carriers, "canonical_metric_key", "metric_key", "metric"):
+            "canonical_metric_key",
+        _col(carriers, "aligned_metric_score", "metric_score", "score"):
+            "metric_score",
+    })
+    # Aligner metadata is immaterial for calendar carriers, but its production
+    # input contract remains explicit and complete.
+    for column, default in (
+        ("feature_count", 1), ("feature_weight_sum", 1.0),
+        ("min_feature_score", carriers["metric_score"]),
+        ("max_feature_score", carriers["metric_score"]),
+    ):
+        if column not in carriers:
+            carriers[column] = default
+
+    aligned = align_metric_scores_asof(pd.concat(
+        [carriers[metric_columns], candidate[metric_columns]],
+        ignore_index=True,
+    ))
+    aligned = aligned.loc[
+        aligned["canonical_metric_key"].isin(LABOR)
+    ].rename(columns={
+        "evaluation_date": "date", "canonical_metric_key": "metric",
+        "metric_score": "score",
+    })
+    return aligned[["geo_id", "date", "metric_date", "metric", "score", "metric_age_days"]]
 
 
 def _turn_dates(frame: pd.DataFrame, value: str) -> pd.DataFrame:
@@ -138,10 +204,15 @@ def _build_chronology(run: Path, root: Path, registry: pd.DataFrame):
         for policy, weights in LAUS_WEIGHTS.items():
             metric_cache[n, policy] = laus._chronology(source, policy, n, weights)
 
+    aligned_metric_cache = {
+        key: align_challenger_laus_scores(value, persisted)
+        for key, value in metric_cache.items()
+    }
+
     rows=[]; detail_rows=[]
     for sc in registry.itertuples():
         weights = realized_metric_weights(base, "LF-IN", sc.balance_policy)
-        labor = metric_cache[sc.ma_months, sc.laus_weight_policy].rename(columns={"metric_score":"score"})
+        labor = aligned_metric_cache[sc.ma_months, sc.laus_weight_policy]
         panel = pd.concat([structural, labor[["geo_id","date","metric","score"]]], ignore_index=True)
         for (geo,date), g in panel.groupby(["geo_id","date"]):
             calc=effective_contributions(g.score,g.metric.map(weights)); q=g.assign(contribution=calc.weighted_feature_contribution.to_numpy())
