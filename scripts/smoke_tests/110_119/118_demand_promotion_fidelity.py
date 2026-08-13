@@ -19,7 +19,7 @@ def main() -> None:
     except ValueError: pass
     else: raise AssertionError("duplicate identity did not fail closed")
 
-    dates = pd.date_range("2024-01-31", periods=3, freq="ME")
+    dates = pd.date_range("2024-01-31", periods=3, freq="M")
     a = pd.DataFrame({"geo_id": "g", "date": dates, "a": [-.2, .1, .3]})
     b = a.rename(columns={"a": "b"})
     assert comparison(a, b, "a", "b")["exact_parity"]
