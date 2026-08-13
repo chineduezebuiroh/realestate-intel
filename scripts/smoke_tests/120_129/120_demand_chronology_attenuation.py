@@ -17,7 +17,7 @@ def main() -> None:
     assert tuple(MARGINS) == ("A-B", "A-C", "B-D", "C-D")
     assert SCENARIOS["A"] == (6, "LAUS-W-70-15-15")
     frame = pd.DataFrame({
-        "date": pd.date_range("2025-01-31", periods=6, freq="ME"),
+        "date": pd.date_range("2025-01-31", periods=6, freq="M"),
         "value": [-1.0, -0.5, 0.5, 1.0, 0.25, -0.25],
         "raw_reference": [-1.0, -0.5, 0.5, 1.0, 0.25, -0.25],
     })
