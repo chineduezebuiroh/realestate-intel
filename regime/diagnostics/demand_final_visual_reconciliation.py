@@ -54,6 +54,31 @@ def resolve_four(registry: pd.DataFrame) -> pd.DataFrame:
                 "laus_weight_policy", "balance_policy"]]
 
 
+def _parse_balance_policy(policy: str) -> tuple[float, float]:
+    """Resolve governed Structural/Cyclical weights from persisted scenario policy."""
+    parts = str(policy).strip().split("-")
+    if (
+        len(parts) != 3
+        or parts[0] != "BAL"
+        or not parts[1].startswith("S")
+        or not parts[2].startswith("C")
+    ):
+        raise ValueError(f"invalid balance policy: {policy}")
+
+    try:
+        structural = float(parts[1][1:]) / 100.0
+        cyclical = float(parts[2][1:]) / 100.0
+    except ValueError as exc:
+        raise ValueError(f"invalid numeric balance policy: {policy}") from exc
+
+    if structural <= 0 or cyclical <= 0 or not np.isclose(
+        structural + cyclical, 1.0, atol=1e-12, rtol=0
+    ):
+        raise ValueError(f"balance policy must resolve to positive weights summing to 1: {policy}")
+
+    return structural, cyclical
+
+
 def prepare_chronology(chronology: pd.DataFrame, scenarios: pd.DataFrame) -> pd.DataFrame:
     """Extract and validate block arithmetic exactly as persisted by calibration."""
     required = {"scenario_id", "geo_id", "date", "core_demand_score",
@@ -61,29 +86,87 @@ def prepare_chronology(chronology: pd.DataFrame, scenarios: pd.DataFrame) -> pd.
     missing = required - set(chronology)
     if missing:
         raise ValueError(f"calibration chronology missing fields: {sorted(missing)}")
-    q = chronology.merge(scenarios[["scenario", "scenario_id"]], on="scenario_id",
-                         how="inner", validate="many_to_one").copy()
+
+    q = chronology.merge(
+        scenarios[["scenario", "scenario_id", "balance_policy"]],
+        on="scenario_id",
+        how="inner",
+        validate="many_to_one",
+    ).copy()
+
     q = q.loc[q.geo_id.isin(GEOS)]
     if set(q.geo_id) != set(GEOS) or set(q.scenario) != set(FACTORS):
         raise ValueError("chronology does not contain exactly the governed scenario/geography scope")
+
     q["date"] = pd.to_datetime(q.date)
     if q.duplicated(["scenario", "geo_id", "date"]).any():
         raise ValueError("duplicate scenario/geography/month chronology")
-    # Calibration persisted structural_score/cyclical_score as final contributions.
+
+    # Persisted structural_score/cyclical_score are final block contributions,
+    # after availability-based block-weight renormalization.
     q["structural_contribution"] = q.structural_score
     q["cyclical_contribution"] = q.cyclical_score
-    q["structural_block_score"] = q.structural_contribution / .25
-    q["cyclical_block_score"] = q.cyclical_contribution / .75
-    if not np.allclose(q.core_demand_score,
-                       q.structural_contribution + q.cyclical_contribution,
-                       atol=1e-12, rtol=0, equal_nan=True):
-        raise ValueError("persisted Core Demand does not equal its block contributions")
-    control = q.pivot_table(index=["geo_id", "date"], columns="scenario",
-                            values="structural_contribution")
-    if control.max(axis=1).sub(control.min(axis=1)).max() > 1e-12:
-        raise ValueError("unexpected Structural contribution differences across finalists")
+
+    parsed = q.balance_policy.map(_parse_balance_policy)
+    q["configured_structural_weight"] = [value[0] for value in parsed]
+    q["configured_cyclical_weight"] = [value[1] for value in parsed]
+
+    structural_available = q.structural_contribution.notna()
+    cyclical_available = q.cyclical_contribution.notna()
+
+    available_weight = (
+        q.configured_structural_weight.where(structural_available, 0.0)
+        + q.configured_cyclical_weight.where(cyclical_available, 0.0)
+    )
+
+    q["effective_structural_weight"] = np.where(
+        structural_available & available_weight.gt(0),
+        q.configured_structural_weight / available_weight,
+        np.nan,
+    )
+    q["effective_cyclical_weight"] = np.where(
+        cyclical_available & available_weight.gt(0),
+        q.configured_cyclical_weight / available_weight,
+        np.nan,
+    )
+
+    q["structural_block_score"] = (
+        q.structural_contribution / q.effective_structural_weight
+    )
+    q["cyclical_block_score"] = (
+        q.cyclical_contribution / q.effective_cyclical_weight
+    )
+
+    reconstructed_core = q[
+        ["structural_contribution", "cyclical_contribution"]
+    ].sum(axis=1, min_count=1)
+
+    if not np.allclose(
+        q.core_demand_score,
+        reconstructed_core,
+        atol=1e-12,
+        rtol=0,
+        equal_nan=True,
+    ):
+        raise ValueError("persisted Core Demand does not equal available block contributions")
+
+    # Structural raw block chronology should be invariant across these finalists.
+    # Final Structural contribution may legitimately differ at availability
+    # boundaries because effective block weights renormalize.
+    control = q.pivot_table(
+        index=["geo_id", "date"],
+        columns="scenario",
+        values="structural_block_score",
+    )
+    comparable = control.notna().sum(axis=1).ge(2)
+    if comparable.any():
+        spread = control.loc[comparable].max(axis=1) - control.loc[comparable].min(axis=1)
+        if spread.max() > 1e-12:
+            raise ValueError("unexpected Structural block-score differences across finalists")
+
     return q[["scenario", "scenario_id", "geo_id", "date", *SERIES]].sort_values(
-        ["scenario", "geo_id", "date"]).reset_index(drop=True)
+        ["scenario", "geo_id", "date"]
+    ).reset_index(drop=True)
 
 
 def pooled(chronology: pd.DataFrame) -> pd.DataFrame:
