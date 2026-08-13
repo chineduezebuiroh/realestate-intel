@@ -18,7 +18,7 @@ def main() -> None:
         "ma_window":ma, "laus_weight_policy":weight, "balance_policy":"BAL-S25-C75"}
         for label,(ma,weight) in FACTORS.items()])
     scenarios = resolve_four(registry); assert scenarios.scenario.tolist() == list("ABCD")
-    dates = pd.date_range("2022-01-31", periods=8, freq="M")
+    dates = pd.date_range("2022-01-31", periods=8, freq="ME")
     rows=[]
     patterns={"A":[-.4,.4,-.4,.4,-.4,.4,-.4,.4], "B":[-.3,.3,-.3,.3,-.3,.3,-.3,.3],
               "C":[-.25,.25,-.25,.25,-.25,.25,-.25,.25], "D":[-.1,.1,-.1,.1,-.1,.1,-.1,.1]}
