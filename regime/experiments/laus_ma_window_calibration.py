@@ -180,10 +180,88 @@ def _comparison(candidate: pd.DataFrame, reference: pd.DataFrame) -> dict[str, f
     }
 
 
+def _calibration_contract(root: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Validate production membership/axis semantics without freezing LAUS candidates.
+
+    This diagnostic deliberately varies LAUS MA windows and feature weights, so
+    it must not reuse the historical production_contract() gate that requires
+    the former MA6 / 25-35-40 LAUS feature contract.
+    """
+    mr = pd.read_csv(root / "config/metric_dimension_registry.csv")
+    ar = pd.read_csv(root / "config/axis_registry.csv")
+
+    active_metric = mr["enabled"].astype(str).str.lower().isin(
+        {"true", "1", "yes", "y"}
+    )
+    active = mr.loc[active_metric].copy()
+
+    demand = active.loc[
+        active["dimension"].astype(str).str.lower().eq("demand")
+    ].copy()
+
+    canonical = set(
+        demand["canonical_metric_key"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
+
+    if canonical != set(CORE_DEMAND):
+        raise ValueError(
+            "active Core Demand membership drift: "
+            f"expected={sorted(CORE_DEMAND)} actual={sorted(canonical)}"
+        )
+
+    demand_axis = ar.loc[
+        ar["enabled"].astype(str).str.lower().isin({"true", "1", "yes", "y"})
+        & ar["axis"].astype(str).str.lower().eq("demand")
+    ].copy()
+
+    expected_dimensions = {
+        "demand",
+        "price",
+        "affordability",
+        "capital_markets",
+    }
+    actual_dimensions = set(
+        demand_axis["dimension"].astype(str).str.lower()
+    )
+
+    if actual_dimensions != expected_dimensions:
+        raise ValueError(
+            "Demand-axis membership drift: "
+            f"expected={sorted(expected_dimensions)} "
+            f"actual={sorted(actual_dimensions)}"
+        )
+
+    if demand_axis["dimension"].astype(str).str.lower().duplicated().any():
+        raise ValueError("Demand-axis dimensions must be unique")
+
+    demand_axis["dimension_weight"] = pd.to_numeric(
+        demand_axis["dimension_weight"],
+        errors="raise",
+    )
+
+    if (demand_axis["dimension_weight"] <= 0).any():
+        raise ValueError("Demand-axis weights must be positive")
+
+    if not np.isclose(
+        demand_axis["dimension_weight"].sum(),
+        1.0,
+        atol=1e-12,
+        rtol=0,
+    ):
+        raise ValueError("Demand-axis weights must sum to 1.0")
+
+    enabled_axis = ar.loc[
+        ar["enabled"].astype(str).str.lower().isin({"true", "1", "yes", "y"})
+    ].copy()
+
+    return active, enabled_axis
+
+
 def _build_chronology(run: Path, root: Path, registry: pd.DataFrame):
-    fr, mr, ar = __import__(
-        "regime.experiments.demand_signal_attenuation", fromlist=["production_contract"]
-    ).production_contract(root)
+    mr, ar = _calibration_contract(root)
     source = laus._source(run)
     base = _metric_weights(mr)
     persisted = _load(run, "aligned_metric_scores")
