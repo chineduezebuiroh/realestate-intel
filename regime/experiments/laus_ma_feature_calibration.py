@@ -132,15 +132,42 @@ def _series_statistics(frame: pd.DataFrame, value: str, keys: list[str], extras=
 
 def _raw_ma(source: pd.DataFrame) -> tuple[pd.DataFrame,pd.DataFrame]:
     panels=[]
+
+    # Shared LAUS feature construction requires the complete governed LAUS
+    # source surface. Build each MA candidate once from the full authoritative
+    # source, then slice the resulting level chronology by geography/metric.
+    feature_cache = {
+        ma: construct_laus_features(source, ma)
+        for ma in MA_WINDOWS
+    }
+
     for geo_metric,g in source.groupby(["geo_id","canonical_metric_key"]):
         calendar=pd.DataFrame({"date":pd.date_range(g.date.min(),g.date.max(),freq="ME")})
         q=calendar.merge(g[["date","raw_value"]],on="date",how="left").sort_values("date")
         q["geo_id"],q["metric"]=geo_metric
+
         for ma in MA_WINDOWS:
-            f=construct_laus_features(source.loc[(source.geo_id==geo_metric[0]) &
-                (source.canonical_metric_key==geo_metric[1])],ma)
-            level=f.loc[f.feature_type.eq("level"),["date","raw_feature_value"]]
-            q=q.merge(level.rename(columns={"raw_feature_value":f"ma{ma}"}),on="date",how="left")
+            f=feature_cache[ma]
+            level=f.loc[
+                f.feature_type.eq("level")
+                & f.geo_id.eq(geo_metric[0])
+                & f.canonical_metric_key.eq(geo_metric[1]),
+                ["date","raw_feature_value"],
+            ]
+
+            if level.empty:
+                raise ValueError(
+                    "missing governed MA level chronology for "
+                    f"geo={geo_metric[0]} metric={geo_metric[1]} MA{ma}"
+                )
+
+            q=q.merge(
+                level.rename(columns={"raw_feature_value":f"ma{ma}"}),
+                on="date",
+                how="left",
+                validate="one_to_one",
+            )
+
         panels.append(q)
     panel=pd.concat(panels,ignore_index=True)
     rows=[]
@@ -344,10 +371,34 @@ def build_review(run: Path,output: Path,root: Path|None=None) -> Path:
         standardize=("raw_value",))
     baselines=metric_analysis.pivot_table(index=["geo_id","date","metric"],columns="scenario_id",values="metric_score")
     def metric_extra(g):
-        idx=pd.MultiIndex.from_frame(g[["geo_id","date","metric"]]); base=baselines.reindex(idx)
-        return {"raw_chronology_correlation":g.metric_score.corr(g.raw_value),
-            "w0_baseline_correlation":g.metric_score.corr(base[f"MA{int(g.ma_months.iloc[0])}__W0"].to_numpy()),
-            "production_w5_correlation":g.metric_score.corr(base["MA9__W5"].to_numpy())}
+        idx=pd.MultiIndex.from_frame(g[["geo_id","date","metric"]])
+        base=baselines.reindex(idx)
+
+        candidate = pd.Series(
+            g.metric_score.to_numpy(),
+            index=idx,
+            dtype="float64",
+        )
+        raw_reference = pd.Series(
+            g.raw_value.to_numpy(),
+            index=idx,
+            dtype="float64",
+        )
+
+        w0_reference = base[
+            f"MA{int(g.ma_months.iloc[0])}__W0"
+        ].astype(float)
+
+        production_reference = base["MA9__W5"].astype(float)
+
+        return {
+            "raw_chronology_correlation":
+                candidate.corr(raw_reference),
+            "w0_baseline_correlation":
+                candidate.corr(w0_reference),
+            "production_w5_correlation":
+                candidate.corr(production_reference),
+        }
     metric_stats=_series_statistics(metric_analysis,"metric_score",["scenario_id","ma_months","weight_policy","geo_id","metric"],metric_extra)
     downstream_analysis=_with_equal_footing_pool(downstream,["structural_score","cyclical_score","core_demand_score",
         "demand_axis_score","cyclical_cancellation","structural_cyclical_cancellation",
