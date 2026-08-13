@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from regime.calendar_ma import minimum_valid_observations
 from regime.diagnostics.capital_markets_ma import detect_turning_points
 from regime.experiments import laus_feature_architecture as laus
 from regime.experiments.demand_signal_attenuation import LABOR, cancellation
@@ -96,7 +97,15 @@ def _raw_ma_evidence(source: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, 
     for (geo, metric), group in source.groupby(["geo_id", "canonical_metric_key"], sort=True):
         raw = group.drop_duplicates("date").set_index("date").raw_value.astype(float).sort_index()
         raw = raw.reindex(pd.date_range(raw.index.min(), raw.index.max(), freq="ME", name="date"))
-        for stage, values in {"Raw": raw, **{f"MA{w}": raw.rolling(w, min_periods=w).mean() for w in (3, 6, 9)}}.items():
+        for stage, values in {
+            "Raw": raw,
+            **{
+                f"MA{w}": raw.rolling(
+                    w, min_periods=minimum_valid_observations(w)
+                ).mean()
+                for w in (3, 6, 9)
+            },
+        }.items():
             rows.extend({"geo_id": geo, "date": date, "metric": metric, "stage": stage, "value": value}
                         for date, value in values.items())
     by_county = pd.DataFrame(rows)

@@ -15,12 +15,14 @@ from the unusually persistent recent labor chronology.
 > **Meaningful cyclical variation is first attenuated during MA smoothing.**
 
 Raw-to-MA statistics are now calculated within each county and only then
-summarized. Mean MA6 reversal reductions are **49.0% for Labor Force, 57.6% for
-Employment, and 44.1% for unemployment** (medians 51.2%, 56.7%, and 43.2%).
-Mean MA9 reductions are **59.6%, 66.4%, and 51.8%** (medians 58.5%, 66.7%, and
-51.0%). The former 48%/65%/44% and 55%/73%/46% pooled headlines are therefore
-not retained. MA9 adds 10.5, 8.9, and 7.7 percentage points of mean reversal
-reduction beyond MA6: a consistent but smaller increment than MA6.
+summarized. The MAs use the governed two-thirds valid-observation rule in exact
+calendar windows while leaving missing raw months missing. Mean MA6 reversal
+reductions are **48.1% for Labor Force, 56.5% for Employment, and 43.5% for
+unemployment** (medians 50.0%, 54.8%, and 43.2%). Mean MA9 reductions are
+**58.5%, 65.1%, and 50.1%** (medians 56.2%, 65.8%, and 49.5%). The prior
+full-window figures are therefore not retained. MA9 adds 10.4, 8.5, and 6.6
+percentage points of mean reversal reduction beyond MA6: a consistent but
+smaller increment than MA6.
 
 The May 2026 endpoint is excluded because coverage falls from seven counties in
 **April 2026** to DC and Los Angeles only. Both available counties' Labor Force
@@ -31,8 +33,8 @@ but not entirely, composition: the two counties had a 5.3% April mean versus
 No missing source value is filled.
 
 Attenuation is broad rather than driven by a few markets. MA6 reversal-reduction
-ranges are 29.3–65.6% (Labor Force), 48.3–76.2% (Employment), and 30.5–62.5%
-(unemployment); MA9 ranges are 42.9–76.8%, 55.0–87.1%, and 39.8–67.4%. Every
+ranges are 28.5–65.6% (Labor Force), 48.8–74.8% (Employment), and 29.5–62.5%
+(unemployment); MA9 ranges are 42.0–76.8%, 51.9–87.1%, and 39.8–64.2%. Every
 county attenuates. The diagnosis that directional attenuation first occurs at
 MA smoothing still holds, while MA9 does not create a comparable second cliff
 beyond MA6.
@@ -71,7 +73,7 @@ main measured effects are lower cancellation and slightly higher persistence.
 
 | Stage | Quantitative reading | Attribution |
 |---|---|---|
-| Raw → MA6/MA9 | Mean county reversal reductions are 44–58% at MA6 and 52–66% at MA9 | **First meaningful attenuation** |
+| Raw → MA6/MA9 | Mean county reversal reductions are 44–57% at MA6 and 50–65% at MA9 | **First meaningful attenuation** |
 | MA → feature score | Feature SD remains 0.304–0.512; weight shift increases it | No amplitude cliff |
 | Feature → Cyclical block | SD remains 0.267–0.282; 52–76 reversals | Aggregation preserves movement |
 | Cyclical + Structural → Core Demand | SD rises to 0.298–0.316; cancellation falls to 0.148–0.179 | No attenuation |
