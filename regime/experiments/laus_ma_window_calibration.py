@@ -63,6 +63,15 @@ def construct_laus_features(source: pd.DataFrame, window: int) -> pd.DataFrame:
     return laus._features(source, window)
 
 
+def _conflict_neutralization(structural_score: float, cyclical_score: float) -> bool:
+    """Resolve the scalar conflict result without implicit dtype conversion."""
+    conflict = conflict_month(
+        pd.Series([structural_score], dtype="float64"),
+        pd.Series([cyclical_score], dtype="float64"),
+    ).iloc[0]
+    return False if pd.isna(conflict) else bool(conflict)
+
+
 def align_challenger_laus_scores(
     challenger: pd.DataFrame,
     persisted_aligned: pd.DataFrame,
@@ -300,7 +309,8 @@ def _build_chronology(run: Path, root: Path, registry: pd.DataFrame):
             rows.append({"scenario_id":sc.scenario_id,"geo_id":geo,"date":date,
                 "core_demand_score":q.contribution.sum(min_count=1),"structural_score":ss,
                 "cyclical_score":cs,"core_demand_cancellation":cancel,
-                "cyclical_cancellation":cc,"conflict_neutralization":bool(conflict_month(pd.Series([ss]),pd.Series([cs])).fillna(False).iloc[0]),
+                "cyclical_cancellation":cc,
+                "conflict_neutralization":_conflict_neutralization(ss, cs),
                 "combined_gross":gross,"structural_gross":sg,"cyclical_gross":cg})
             detail_rows.extend(q.assign(scenario_id=sc.scenario_id,geo_id=geo,date=date).to_dict("records"))
     chronology=pd.DataFrame(rows).merge(registry[["scenario_id","laus_weight_policy","balance_policy","ma_window","ma_months"]],on="scenario_id")
