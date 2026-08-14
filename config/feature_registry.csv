@@ -32,34 +32,30 @@ redfin_off_market_two_weeks_long,redfin_off_market_two_weeks,long_term_change,yo
 redfin_dom_level,redfin_dom,level,level_zscore,0.25,,liquidity,
 redfin_dom_short,redfin_dom,short_term_change,mom_zscore,0.35,1m,liquidity,
 redfin_dom_long,redfin_dom,long_term_change,yoy_zscore,0.40,12m,liquidity,
-
-population_level,acs1_population,level,level_zscore,0.25,,demand,
-population_short,acs1_population,short_term_change,yoy_zscore,0.35,1y,demand,Annual data uses YoY as short-term change
-population_long,acs1_population,long_term_change,rolling_yoy_zscore,0.40,3y,demand,
-median_household_income_level,acs1_median_household_income,level,level_zscore,0.25,,demand,
-median_household_income_short,acs1_median_household_income,short_term_change,yoy_zscore,0.35,1y,demand,Annual data uses YoY as short-term change
-median_household_income_long,acs1_median_household_income,long_term_change,rolling_yoy_zscore,0.40,3y,demand,
-
-bea_annual_gdp_level,bea_annual_gdp,level,level_zscore,0.25,,demand,
-bea_annual_gdp_short,bea_annual_gdp,short_term_change,yoy_zscore,0.35,1y,demand,
-bea_annual_gdp_long,bea_annual_gdp,long_term_change,rolling_yoy_zscore,0.40,3y,demand,
+population_level,acs1_population,level,level_zscore,0.25,,market_context,
+population_short,acs1_population,short_term_change,yoy_zscore,0.35,1y,market_context,Annual data uses YoY as short-term change
+population_long,acs1_population,long_term_change,rolling_yoy_zscore,0.40,3y,market_context,
+median_household_income_level,acs1_median_household_income,level,level_zscore,0.25,,market_context,
+median_household_income_short,acs1_median_household_income,short_term_change,yoy_zscore,0.35,1y,market_context,Annual data uses YoY as short-term change
+median_household_income_long,acs1_median_household_income,long_term_change,rolling_yoy_zscore,0.40,3y,market_context,
+bea_annual_gdp_level,bea_annual_gdp,level,level_zscore,0.25,,market_context,
+bea_annual_gdp_short,bea_annual_gdp,short_term_change,yoy_zscore,0.35,1y,market_context,
+bea_annual_gdp_long,bea_annual_gdp,long_term_change,rolling_yoy_zscore,0.40,3y,market_context,
 bea_quarterly_gdp_level,bea_quarterly_gdp,level,level_zscore,0.25,,demand,
 bea_quarterly_gdp_short,bea_quarterly_gdp,short_term_change,qoq_zscore,0.35,1q,demand,
 bea_quarterly_gdp_long,bea_quarterly_gdp,long_term_change,yoy_zscore,0.40,4q,demand,
-
 laus_unemployment_level,laus_unemployment,level,level_zscore,0.25,,demand,
 laus_unemployment_short,laus_unemployment,short_term_change,mom_zscore,0.35,1m,demand,
 laus_unemployment_long,laus_unemployment,long_term_change,yoy_zscore,0.40,12m,demand,
-laus_labor_force_level,laus_labor_force,level,ma_level,0.80,9m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
-laus_labor_force_short,laus_labor_force,short_term_change,ma_pct_change,0.10,9m/lag3m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
-laus_labor_force_long,laus_labor_force,long_term_change,ma_pct_change,0.10,9m/lag12m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
-laus_employment_level,laus_employment,level,ma_level,0.80,9m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
-laus_employment_short,laus_employment,short_term_change,ma_pct_change,0.10,9m/lag3m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
-laus_employment_long,laus_employment,long_term_change,ma_pct_change,0.10,9m/lag12m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
-laus_unemployment_rate_level,laus_unemployment_rate,level,ma_level,0.80,9m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
-laus_unemployment_rate_short,laus_unemployment_rate,short_term_change,ma_pct_change,0.10,9m/lag3m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
-laus_unemployment_rate_long,laus_unemployment_rate,long_term_change,ma_pct_change,0.10,9m/lag12m,demand,Promoted human-selected Demand policy LF-IN / MA9 / 80-10-10 / S25-C75 (2026-08-12).
-
+laus_labor_force_level,laus_labor_force,level,ma_level,0.40,9m,demand,Promoted county Labor Demand policy LF-IN / MA9 / B3 40-15-45 under ADR-008 (2026-08-14).
+laus_labor_force_short,laus_labor_force,short_term_change,ma_pct_change,0.15,9m/lag3m,demand,Promoted county Labor Demand policy LF-IN / MA9 / B3 40-15-45 under ADR-008 (2026-08-14).
+laus_labor_force_long,laus_labor_force,long_term_change,ma_pct_change,0.45,9m/lag12m,demand,Promoted county Labor Demand policy LF-IN / MA9 / B3 40-15-45 under ADR-008 (2026-08-14).
+laus_employment_level,laus_employment,level,ma_level,0.40,9m,demand,Promoted county Labor Demand policy LF-IN / MA9 / B3 40-15-45 under ADR-008 (2026-08-14).
+laus_employment_short,laus_employment,short_term_change,ma_pct_change,0.15,9m/lag3m,demand,Promoted county Labor Demand policy LF-IN / MA9 / B3 40-15-45 under ADR-008 (2026-08-14).
+laus_employment_long,laus_employment,long_term_change,ma_pct_change,0.45,9m/lag12m,demand,Promoted county Labor Demand policy LF-IN / MA9 / B3 40-15-45 under ADR-008 (2026-08-14).
+laus_unemployment_rate_level,laus_unemployment_rate,level,ma_level,0.40,9m,demand,Promoted county Labor Demand policy LF-IN / MA9 / B3 40-15-45 under ADR-008 (2026-08-14).
+laus_unemployment_rate_short,laus_unemployment_rate,short_term_change,ma_pct_change,0.15,9m/lag3m,demand,Promoted county Labor Demand policy LF-IN / MA9 / B3 40-15-45 under ADR-008 (2026-08-14).
+laus_unemployment_rate_long,laus_unemployment_rate,long_term_change,ma_pct_change,0.45,9m/lag12m,demand,Promoted county Labor Demand policy LF-IN / MA9 / B3 40-15-45 under ADR-008 (2026-08-14).
 ces_total_nonfarm_level,ces_total_nonfarm,level,level_zscore,0.25,,demand,
 ces_total_nonfarm_short,ces_total_nonfarm,short_term_change,mom_zscore,0.35,1m,demand,
 ces_total_nonfarm_long,ces_total_nonfarm,long_term_change,yoy_zscore,0.40,12m,demand,
@@ -69,7 +65,6 @@ ces_construction_long,ces_construction,long_term_change,yoy_zscore,0.40,12m,supp
 ces_total_private_level,ces_total_private,level,level_zscore,0.25,,demand,
 ces_total_private_short,ces_total_private,short_term_change,mom_zscore,0.35,1m,demand,
 ces_total_private_long,ces_total_private,long_term_change,yoy_zscore,0.40,12m,demand,
-
 bps_total_units_level,bps_total_units,level,ma_level,0.80,12m,supply,Promoted BPS feature-weight policy BPS-FINAL-80 (2026-08-09).
 bps_total_units_short,bps_total_units,short_term_change,ma_pct_change,0.10,12m/lag6m,supply,Promoted BPS short-horizon policy BPS-H-LAG6 and BPS-FINAL-80 feature weights (2026-08-09).
 bps_total_units_long,bps_total_units,long_term_change,ma_pct_change,0.10,12m/lag12m,supply,Promoted BPS feature-weight policy BPS-FINAL-80 (2026-08-09).
@@ -85,14 +80,12 @@ bps_1_unit_long,bps_1_unit,long_term_change,yoy_zscore,0.40,12m,supply,
 bps_5plus_units_level,bps_5plus_units,level,level_zscore,0.25,,supply,
 bps_5plus_units_short,bps_5plus_units,short_term_change,mom_zscore,0.35,1m,supply,
 bps_5plus_units_long,bps_5plus_units,long_term_change,yoy_zscore,0.40,12m,supply,
-
 nrc_housing_starts_level,nrc_housing_starts,level,level_zscore,0.25,,supply,
 nrc_housing_starts_short,nrc_housing_starts,short_term_change,mom_zscore,0.35,1m,supply,
 nrc_housing_starts_long,nrc_housing_starts,long_term_change,yoy_zscore,0.40,12m,supply,
 nrc_housing_completions_level,nrc_housing_completions,level,level_zscore,0.25,,supply,
 nrc_housing_completions_short,nrc_housing_completions,short_term_change,mom_zscore,0.35,1m,supply,
 nrc_housing_completions_long,nrc_housing_completions,long_term_change,yoy_zscore,0.40,12m,supply,
-
 fred_mortgage_15y_level,fred_mortgage_15y,level,ma_level,0.60,12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
 fred_mortgage_15y_short,fred_mortgage_15y,short_term_change,ma_pct_change,0.20,12m/lag3m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
 fred_mortgage_15y_long,fred_mortgage_15y,long_term_change,ma_pct_change,0.20,12m/lag12m,capital_markets,Promoted Capital Markets policy MW-TEMPERED-C (2026-08-07).
@@ -120,15 +113,12 @@ fred_cpi_long,fred_cpi,long_term_change,yoy_zscore,0.30,12m,affordability,
 fred_unemployment_rate_level,fred_unemployment_rate,level,level_zscore,0.25,,demand,
 fred_unemployment_rate_short,fred_unemployment_rate,short_term_change,mom_zscore,0.35,1m,demand,
 fred_unemployment_rate_long,fred_unemployment_rate,long_term_change,yoy_zscore,0.40,12m,demand,
-
 price_to_income_level,derived_price_to_income,level,ma_level,0.50,12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
 price_to_income_short,derived_price_to_income,short_term_change,ma_pct_change,0.20,12m/lag3m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
 price_to_income_long,derived_price_to_income,long_term_change,ma_pct_change,0.30,12m/lag12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
-
 payment_burden_level,derived_payment_burden,level,ma_level,0.50,12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
 payment_burden_short,derived_payment_burden,short_term_change,ma_pct_change,0.20,12m/lag3m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
 payment_burden_long,derived_payment_burden,long_term_change,ma_pct_change,0.30,12m/lag12m,affordability,Promoted AFF-DERIVATION-B derive-first policy (2026-08-08).
-
 permit_intensity_level,derived_permit_intensity,level,ma_level,0.50,12m,supply,
 permit_intensity_short,derived_permit_intensity,short_term_change,ma_pct_change,0.25,12m/lag3m,supply,
 permit_intensity_long,derived_permit_intensity,long_term_change,ma_pct_change,0.25,12m/lag12m,supply,

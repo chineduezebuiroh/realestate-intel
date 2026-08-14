@@ -1,5 +1,5 @@
 axis,dimension,dimension_weight,enabled,notes
-demand,demand,0.65,true,Primary effective demand signal
+demand,demand,0.65,true,Labor Demand; canonical key retained for downstream compatibility (ADR-008)
 demand,price,0.175,true,Price confirms demand expression
 demand,affordability,0.075,true,Affordability constrains demand participation
 demand,capital_markets,0.10,true,Added after v1 docs; financing conditions affect effective demand

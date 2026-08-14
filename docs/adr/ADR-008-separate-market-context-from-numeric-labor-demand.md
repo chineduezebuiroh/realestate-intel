@@ -6,7 +6,7 @@
 
 This decision closes the county-level Demand architecture calibration program.
 
-Production promotion and final end-to-end validation remain required before the architecture is considered live.
+Promoted into governed production configuration and scoring semantics on 2026-08-14. A fresh local candidate run and end-to-end artifact audit remain required.
 
 ---
 
@@ -362,7 +362,7 @@ Quarterly GDP may contain useful cyclical information that annual county GDP can
 
 Therefore:
 
-> Reassess GDP independently during CBSA calibration before assigning quarterly metro GDP to Market Context or numeric Demand.
+> Reassess quarterly GDP independently during CBSA calibration before determining its scoring role.
 
 No CBSA GDP architecture decision is made by this ADR.
 

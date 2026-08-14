@@ -1,6 +1,5 @@
 policy_scope,policy_key,normalization_method,lookback_periods,min_periods,score_direction,clip_low,clip_high,enabled,notes
-global,*,expanding_percentile,240,36,positive,0.01,0.99,true,Fallback policy
-
+global,*,expanding_percentile,240,36,positive,0.01,0.99,true,Fallback policy; historical method identifier implements a bounded rolling window
 source_family,redfin,expanding_percentile,120,36,positive,0.01,0.99,true,Redfin monthly market metrics
 source_family,acs,expanding_percentile,25,8,positive,0.01,0.99,true,ACS annual metrics
 source_family,ces,expanding_percentile,120,36,positive,0.01,0.99,true,CES monthly labor metrics
@@ -10,7 +9,6 @@ source_family,fred_unemp,expanding_percentile,120,36,negative,0.01,0.99,true,FRE
 source_family,derived,expanding_percentile,120,36,negative,0.01,0.99,true,Derived affordability metrics default negative
 source_family,bea,expanding_percentile,80,20,positive,0.01,0.99,true,BEA quarterly GDP default
 source_family,bps,expanding_percentile,120,36,positive,0.01,0.99,true,BPS monthly permit metrics use a 120-month normalization window
-
 feature_key,permit_intensity_level,expanding_percentile,120,36,positive,0.01,0.99,true,Higher permit intensity means more supply pressure
 feature_key,fred_2y10y_spread_level,expanding_percentile,240,36,positive,0.01,0.99,true,Higher 10Y-minus-2Y spread is more favorable
 feature_key,fred_2y10y_spread_short,expanding_percentile,240,36,positive,0.01,0.99,true,Steepening 10Y-minus-2Y spread is more favorable
@@ -20,15 +18,12 @@ feature_key,fred_10y_fedfunds_spread_short,expanding_percentile,240,36,positive,
 feature_key,fred_10y_fedfunds_spread_long,expanding_percentile,240,36,positive,0.01,0.99,true,Structural steepening 10Y-minus-Fed-Funds spread is more favorable
 feature_key,permit_intensity_short,expanding_percentile,120,36,positive,0.01,0.99,true,Rising permit intensity means more supply pressure
 feature_key,permit_intensity_long,expanding_percentile,120,36,positive,0.01,0.99,true,Rising permit intensity means more supply pressure
-
 feature_key,laus_unemployment_rate_level,expanding_percentile,120,36,negative,0.01,0.99,true,Higher unemployment rate is worse
 feature_key,laus_unemployment_rate_short,expanding_percentile,120,36,negative,0.01,0.99,true,Rising unemployment rate is worse
 feature_key,laus_unemployment_rate_long,expanding_percentile,120,36,negative,0.01,0.99,true,Rising unemployment rate is worse
-
 feature_key,redfin_dom_level,expanding_percentile,120,36,negative,0.01,0.99,true,Higher DOM is weaker liquidity
 feature_key,redfin_dom_short,expanding_percentile,120,36,negative,0.01,0.99,true,Rising DOM is weaker liquidity
 feature_key,redfin_dom_long,expanding_percentile,120,36,negative,0.01,0.99,true,Rising DOM is weaker liquidity
-
 feature_key,bea_annual_gdp_level,expanding_percentile,25,8,positive,0.01,0.99,true,BEA annual GDP level
 feature_key,bea_annual_gdp_short,expanding_percentile,25,8,positive,0.01,0.99,true,BEA annual GDP short change
 feature_key,bea_annual_gdp_long,expanding_percentile,25,8,positive,0.01,0.99,true,BEA annual GDP long change

@@ -7,15 +7,12 @@ from regime._00_config_loader import load_regime_config
 from regime._04_asof_aligner import align_metric_scores_asof
 
 
-_DEMAND_BLOCK_WEIGHTS = {"structural": 0.25, "cyclical": 0.75}
-
-
 def _truthy(series: pd.Series) -> pd.Series:
     return series.astype(str).str.strip().str.lower().isin({"true", "1", "yes", "y"})
 
 
 def _build_dimension_weights() -> pd.DataFrame:
-    """Load and validate active metric and Demand hierarchy metadata once."""
+    """Load and validate active metric governance metadata once."""
     config = load_regime_config(validate=True)
     df = config.metric_dimensions.copy()
 
@@ -53,46 +50,18 @@ def _build_dimension_weights() -> pd.DataFrame:
             + conflicts.to_string(index=False)
         )
 
-    non_demand = df["dimension"].ne("demand")
+    # The former Structural/Cyclical Demand hierarchy is superseded. Keeping
+    # these legacy registry columns blank prevents stale block metadata from
+    # silently restoring the retired blend.
     has_demand_metadata = (
         df["demand_block"].astype(str).str.strip().ne("")
         | df["block_weight"].astype(str).str.strip().ne("")
     )
-    if (non_demand & has_demand_metadata).any():
+    if has_demand_metadata.any():
         raise ValueError(
-            "Non-Demand metrics must not define Demand block metadata:\n"
-            + df.loc[non_demand & has_demand_metadata, metadata_columns].to_string(index=False)
+            "Active production metrics must not define superseded Demand block metadata:\n"
+            + df.loc[has_demand_metadata, metadata_columns].to_string(index=False)
         )
-
-    demand = df[df["dimension"].eq("demand")].copy()
-    if demand.empty:
-        raise ValueError("Active production Demand metrics are required")
-    if demand["demand_block"].astype(str).str.strip().eq("").any():
-        missing = sorted(demand.loc[
-            demand["demand_block"].astype(str).str.strip().eq(""),
-            "canonical_metric_key",
-        ].unique())
-        raise ValueError(f"Active Demand metrics missing block membership: {missing}")
-    demand["block_weight"] = pd.to_numeric(demand["block_weight"], errors="coerce")
-    if demand["block_weight"].isna().any():
-        raise ValueError("Active Demand metrics require numeric block_weight values")
-
-    canonical_demand = demand[metadata_columns].drop_duplicates(
-        subset=["canonical_metric_key", "dimension"]
-    )
-    if canonical_demand["canonical_metric_key"].duplicated().any():
-        raise ValueError("Active Demand metrics must have exactly one block membership")
-    taxonomy = set(canonical_demand["demand_block"])
-    if taxonomy != set(_DEMAND_BLOCK_WEIGHTS):
-        raise ValueError("Demand block taxonomy must be exactly structural and cyclical")
-    for block, required_weight in _DEMAND_BLOCK_WEIGHTS.items():
-        weights = canonical_demand.loc[
-            canonical_demand["demand_block"].eq(block), "block_weight"
-        ].unique()
-        if len(weights) != 1 or abs(float(weights[0]) - required_weight) > 1e-12:
-            raise ValueError(f"Demand {block} block_weight must be {required_weight}")
-    if abs(sum(_DEMAND_BLOCK_WEIGHTS.values()) - 1.0) > 1e-12:
-        raise ValueError("Demand block weights must sum to 1.0")
 
     return unique_metadata.drop_duplicates(
         subset=["canonical_metric_key", "dimension"]
@@ -123,24 +92,7 @@ def score_dimensions(metrics: pd.DataFrame | None = None) -> pd.DataFrame:
         if total_weight <= 0:
             continue
 
-        if keys[2] == "demand":
-            block_scores = []
-            available_block_weight = 0.0
-            for _, members in g.groupby("demand_block"):
-                member_weight = members["metric_weight"].sum()
-                if member_weight > 0:
-                    block_weight = float(members["block_weight"].iloc[0])
-                    block_score = (
-                        (members["metric_score"] * members["metric_weight"]).sum()
-                        / member_weight
-                    )
-                    block_scores.append(block_score * block_weight)
-                    available_block_weight += block_weight
-            if available_block_weight <= 0:
-                continue
-            dimension_score = sum(block_scores) / available_block_weight
-        else:
-            dimension_score = (g["metric_score"] * g["metric_weight"]).sum() / total_weight
+        dimension_score = (g["metric_score"] * g["metric_weight"]).sum() / total_weight
 
         grouped.append({
             "geo_id": keys[0], "date": keys[1], "dimension": keys[2],

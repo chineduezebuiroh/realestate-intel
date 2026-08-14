@@ -75,8 +75,8 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 ### Current Focus
 
 Demand architecture calibration is closed. The explicit human-selected
-production architecture is LF-IN, LAUS calendar MA9 with 80/10/10
-Level/Short/Long weights, and 25/75 Structural/Cyclical composition. The
+production architecture is LF-IN, LAUS calendar MA9 with B3 40/15/45
+Level/Short/Long weights, Labor-only numeric Demand, and non-axis Market Context. The
 selection was not an automated winner. Historical factorial, lineage,
 detector-semantics, and MA-window evidence remains intact.
 
