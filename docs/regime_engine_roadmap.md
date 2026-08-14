@@ -136,8 +136,8 @@ The project is now in county-level production calibration. Remaining work is foc
 # Section 5 - Active Development Priorities
 
 Demand architecture calibration is complete. The human-selected production
-policy is LF-IN, calendar MA9 LAUS construction, 80/10/10 LAUS feature weights,
-and a 25/75 Structural/Cyclical composition. No further Demand model-selection
+policy is LF-IN, calendar MA9 LAUS construction, B3 40/15/45 LAUS feature weights,
+Labor-only numeric Demand, and non-axis Market Context. No further Demand model-selection
 experiment is pending.
 
 The next workstream returns to the previously started **Macro Regime

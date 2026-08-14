@@ -1,4 +1,4 @@
-"""Fail-closed contract smoke for the Regime Engine v1.0 release baseline."""
+"""Fail-closed contract smoke for governed production configuration."""
 
 from __future__ import annotations
 
@@ -27,6 +27,9 @@ FEATURE_POLICIES = {
     "fred_fedfunds": ("ma_level", "3m", .60, "ma_pct_change", "3m/lag3m", .20, "ma_pct_change", "3m/lag12m", .20),
     "fred_2y10y_spread": ("ma_level", "9m", .60, "ma_difference", "9m/lag3m", .20, "ma_difference", "9m/lag12m", .20),
     "fred_10y_fedfunds_spread": ("ma_level", "9m", .60, "ma_difference", "9m/lag3m", .20, "ma_difference", "9m/lag12m", .20),
+    "laus_labor_force": ("ma_level", "9m", .40, "ma_pct_change", "9m/lag3m", .15, "ma_pct_change", "9m/lag12m", .45),
+    "laus_employment": ("ma_level", "9m", .40, "ma_pct_change", "9m/lag3m", .15, "ma_pct_change", "9m/lag12m", .45),
+    "laus_unemployment_rate": ("ma_level", "9m", .40, "ma_pct_change", "9m/lag3m", .15, "ma_pct_change", "9m/lag12m", .45),
 }
 
 METRIC_WEIGHTS = {
@@ -34,11 +37,11 @@ METRIC_WEIGHTS = {
     "redfin_inventory": .60, "redfin_homes_sold": .50,
     "redfin_pending_sales": .50, "redfin_dom": .3333,
     "redfin_months_supply": .3333, "redfin_sale_to_list": .3334,
-    "acs1_population": .1667, "acs1_median_household_income": .1667,
-    "acs5_population": .1667, "acs5_median_household_income": .1667,
-    "bea_annual_gdp": .1667, "laus_labor_force": .1667,
-    "laus_employment": .1667, "laus_unemployment_rate": .1667,
-    "ces_total_nonfarm": .1667, "bps_total_units": .20,
+    "acs1_population": 1/3, "acs1_median_household_income": 1/3,
+    "acs5_population": 1/3, "acs5_median_household_income": 1/3,
+    "bea_annual_gdp": 1/3, "laus_labor_force": 1/3,
+    "laus_employment": 1/3, "laus_unemployment_rate": 1/3,
+    "ces_total_nonfarm": 1/3, "bps_total_units": .20,
     "derived_permit_intensity": .20, "derived_price_to_income": .50,
     "derived_payment_burden": .50, "fred_mortgage_30y": .15,
     "fred_mortgage_15y": .15, "fred_10y": .15, "fred_fedfunds": .10,
