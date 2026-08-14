@@ -5,8 +5,9 @@ import tempfile
 import pandas as pd
 
 from regime.diagnostics.laus_finalist_stability import (CONTROLLED_PAIRS,GOVERNANCE,
-    POLICIES,SCENARIOS,cluster_consensus_turns,match_consensus,reversal_events,
+    POLICIES,REQUIRED_INPUTS,SCENARIOS,cluster_consensus_turns,match_consensus,reversal_events,
     scenario_registry,validate_persisted_bundle)
+from regime.experiments.demand_signal_attenuation import GEOS
 
 
 def main():
@@ -30,6 +31,30 @@ def main():
         try: validate_persisted_bundle(Path(tmp))
         except FileNotFoundError: pass
         else: raise AssertionError("missing persisted evidence must fail closed")
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp)
+        generic=pd.DataFrame({"evidence":[1]})
+        for name in REQUIRED_INPUTS:
+            generic.to_csv(root/name,index=False)
+        metric=pd.DataFrame([{"scenario_id":sid,"ma_months":int(sid[2]),
+            "weight_policy":sid.split("__")[1],"geo_id":geo,"date":"2026-01-31",
+            "metric":"labor_force","metric_score":.1}
+            for sid in SCENARIOS for geo in GEOS])
+        metric.to_csv(root/"laus_long_weight_metric_chronology.csv",index=False)
+        downstream=pd.DataFrame([{"scenario_id":sid,"geo_id":geo,"date":"2026-01-31",
+            "cyclical_score":.1,"core_demand_score":.2}
+            for sid in SCENARIOS for geo in GEOS])
+        downstream.to_csv(root/"laus_long_weight_downstream_chronology.csv",index=False)
+        frames=validate_persisted_bundle(root)
+        assert {"date","cyclical_score","core_demand_score"}.issubset(
+            frames["laus_long_weight_downstream_chronology"])
+        # Aggregate statistics, and even chronology-shaped data hidden in an
+        # arbitrary required frame, cannot substitute for the explicit input.
+        downstream.to_csv(root/"laus_long_weight_cyclical_statistics.csv",index=False)
+        (root/"laus_long_weight_downstream_chronology.csv").unlink()
+        try: validate_persisted_bundle(root)
+        except FileNotFoundError: pass
+        else: raise AssertionError("the explicit downstream chronology must be required")
     print("PASS: diagnostic-only persisted LAUS finalist stability contract")
 
 
