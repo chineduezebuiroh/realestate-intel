@@ -189,7 +189,12 @@ def _plot(path: Path, panels, title, ylim=None):
     # plotted paths.  A new M command after each missing observation breaks the
     # line; epoch-time scaling makes the horizontal axis calendar-proportional.
     width=1100; panel_h=190; left=95; right=25; top=55; inner=width-left-right
-    all_dates=pd.concat([pd.to_datetime(s.date) for _,s in panels]).dropna()
+    # pandas is deprecating dtype inference when concat receives empty/all-NA
+    # entries.  Such entries cannot affect the plotted extent, so exclude them.
+    date_parts=[pd.to_datetime(s.date).dropna() for _,s in panels]
+    date_parts=[s for s in date_parts if not s.empty]
+    if not date_parts: raise ValueError("plot has no finite calendar dates")
+    all_dates=pd.concat(date_parts,ignore_index=True)
     lo_date,hi_date=all_dates.min(),all_dates.max(); span=max((hi_date-lo_date).total_seconds(),1)
     body=[]
     for i,(label,series) in enumerate(panels):
