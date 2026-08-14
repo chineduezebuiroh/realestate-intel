@@ -12,6 +12,7 @@ from regime.experiments.laus_long_weight_calibration import (
     MA_WINDOWS, REQUIRED_EXPORTS, RUN_ID, VISUAL_FAMILIES,
     align_challenger_laus_scores, construct_laus_features,
     marginal_effects, require_authoritative_run, scenario_registry,
+    validate_downstream_chronology,
 )
 
 
@@ -35,7 +36,16 @@ def main() -> None:
         "human_decision":"calibration_pending", "automated_winner":False,
         "production_policy_changed":False}
     assert minimum_valid_observations(6) == 4 and minimum_valid_observations(9) == 6
-    assert len(REQUIRED_EXPORTS) == 16 and len(set(REQUIRED_EXPORTS)) == 16
+    assert len(REQUIRED_EXPORTS) == 17 and len(set(REQUIRED_EXPORTS)) == 17
+    assert "laus_long_weight_downstream_chronology" in REQUIRED_EXPORTS
+    downstream=pd.DataFrame([{"scenario_id":row.scenario_id,"ma_months":row.ma_months,
+        "weight_policy":row.weight_policy,"geo_id":"governed_county","date":"2026-01-31",
+        "structural_score":.1,"cyclical_score":.2,"core_demand_score":.3}
+        for row in grid.itertuples(index=False)])
+    validate_downstream_chronology(downstream,grid)
+    try: validate_downstream_chronology(pd.concat([downstream,downstream.iloc[[0]]]),grid)
+    except ValueError: pass
+    else: raise AssertionError("duplicate downstream chronology must fail closed")
     dates = pd.date_range("2018-01-31", periods=30, freq="ME")
     rows = []
     for metric in ("labor_force", "employment", "laus_unemployment_rate"):

@@ -53,6 +53,7 @@ DC = "district_of_columbia_dc__county"
 REQUIRED_EXPORTS = (
     "laus_long_weight_scenario_registry", "laus_long_weight_feature_anatomy",
     "laus_long_weight_metric_chronology",
+    "laus_long_weight_downstream_chronology",
     "laus_long_weight_contributions", "laus_long_weight_metric_statistics",
     "laus_long_weight_cyclical_statistics", "laus_long_weight_core_demand_statistics",
     "laus_long_weight_demand_axis_statistics", "laus_long_weight_ma_effects",
@@ -105,6 +106,21 @@ def require_authoritative_run(run: Path) -> Path:
     if run.name!=RUN_ID: raise ValueError(f"authoritative run identity must be {RUN_ID}")
     if not run.is_dir(): raise FileNotFoundError(f"authoritative persisted run unavailable: {run}")
     return run
+
+
+def validate_downstream_chronology(downstream: pd.DataFrame,
+                                   registry: pd.DataFrame) -> None:
+    """Fail closed on the persisted, already-computed downstream evidence."""
+    required = {"scenario_id", "ma_months", "weight_policy", "geo_id", "date",
+                "structural_score", "cyclical_score", "core_demand_score"}
+    if not required.issubset(downstream):
+        raise ValueError(f"dated downstream chronology missing columns: {sorted(required-set(downstream))}")
+    downstream_key = ["scenario_id", "geo_id", "date"]
+    if downstream.duplicated(downstream_key).any():
+        raise ValueError("dated downstream chronology must be unique on scenario_id, geo_id, date")
+    governed_scenarios = set(registry.scenario_id)
+    if set(downstream.scenario_id) != governed_scenarios or len(governed_scenarios) != 22:
+        raise ValueError("dated downstream chronology must contain all 22 governed scenarios")
 
 
 def _turn_count(g: pd.DataFrame, value: str) -> int:
@@ -421,6 +437,7 @@ def build_review(run: Path,output: Path,root: Path|None=None) -> Path:
     run=require_authoritative_run(run); root=(root or Path(__file__).resolve().parents[2]).resolve()
     registry,source,metric,contributions,downstream=_build(run,root)
     if set(metric.geo_id)!=set(GEOS): raise ValueError("exact seven-county basis was not preserved")
+    validate_downstream_chronology(downstream, registry)
     raw_panel,raw_stats=_raw_ma(source)
     raw=source.rename(columns={"canonical_metric_key":"metric"})
     metric=metric.merge(raw[["geo_id","date","metric","raw_value"]],on=["geo_id","date","metric"],how="left",validate="many_to_one")
@@ -514,6 +531,7 @@ def build_review(run: Path,output: Path,root: Path|None=None) -> Path:
     exports={"laus_long_weight_scenario_registry":registry,
         "laus_long_weight_feature_anatomy":anatomy,
         "laus_long_weight_metric_chronology":metric,
+        "laus_long_weight_downstream_chronology":downstream,
         "laus_long_weight_contributions":contributions,
         "laus_long_weight_metric_statistics":metric_stats,
         "laus_long_weight_cyclical_statistics":cyc_stats,
@@ -544,4 +562,4 @@ def build_review(run: Path,output: Path,root: Path|None=None) -> Path:
 __all__=["FEATURE_WEIGHTS","FIXED_BALANCE","FIXED_LABOR_MEMBERSHIP","GOVERNANCE",
     "MA_WINDOWS","REQUIRED_EXPORTS","RUN_ID","VISUAL_FAMILIES","align_challenger_laus_scores","build_review",
     "construct_laus_features","marginal_effects","metric_chronology",
-    "require_authoritative_run","scenario_registry"]
+    "require_authoritative_run","scenario_registry","validate_downstream_chronology"]

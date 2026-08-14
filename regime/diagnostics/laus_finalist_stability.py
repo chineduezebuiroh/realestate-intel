@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from regime.diagnostics.capital_markets_ma import detect_turning_points
+from regime.experiments.demand_signal_attenuation import GEOS
 
 POLICIES = {"B2": (.45, .15, .40), "B3": (.40, .15, .45),
             "L0": (.35, .20, .45), "L1": (.35, .15, .50)}
@@ -29,6 +30,7 @@ GOVERNANCE = {"recommendation_state": "none",
     "human_decision": "finalist_review_pending", "automated_winner": False,
     "production_policy_changed": False}
 REQUIRED_INPUTS = ("laus_long_weight_metric_chronology.csv",
+    "laus_long_weight_downstream_chronology.csv",
     "laus_long_weight_feature_anatomy.csv", "laus_long_weight_cyclical_statistics.csv",
     "laus_long_weight_core_demand_statistics.csv", "laus_long_weight_by_county.csv",
     "laus_long_weight_controlled_comparisons.csv",
@@ -79,16 +81,17 @@ def validate_persisted_bundle(root: Path) -> dict[str, pd.DataFrame]:
         expected = registry.loc[row.scenario_id]
         if row.ma_months != expected.ma_months or row.weight_policy != expected.weight_policy:
             raise ValueError(f"factor identity mismatch for {row.scenario_id}")
-    # The predecessor must persist dated downstream chronologies somewhere in
-    # the required bundle. Aggregate statistics cannot recreate turns.
-    downstream = None
-    for frame in frames.values():
-        if {"scenario_id", "geo_id", "date", "cyclical_score", "core_demand_score"}.issubset(frame):
-            downstream = frame
-            break
-    if downstream is None:
-        raise ValueError("persisted evidence lacks dated cyclical/core-demand finalist chronology")
-    frames["downstream_chronology"] = downstream
+    downstream = frames["laus_long_weight_downstream_chronology"]
+    downstream_required = {"scenario_id", "geo_id", "date", "cyclical_score",
+                           "core_demand_score"}
+    if not downstream_required.issubset(downstream):
+        raise ValueError("downstream chronology missing columns: "
+                         f"{sorted(downstream_required-set(downstream))}")
+    finalists = downstream.loc[downstream.scenario_id.isin(SCENARIOS)]
+    if set(finalists.scenario_id) != set(SCENARIOS):
+        raise ValueError("downstream chronology does not contain exactly eight finalist identities")
+    if set(finalists.geo_id) != set(GEOS):
+        raise ValueError("downstream finalist chronology does not preserve governed geography scope")
     return frames
 
 
@@ -210,7 +213,7 @@ def _chronologies(frames):
     metric = frames["laus_long_weight_metric_chronology"].copy()
     metric = metric.loc[metric.scenario_id.isin(SCENARIOS)]
     metric = metric.rename(columns={"metric_score":"score", "metric":"series"})
-    downstream = frames["downstream_chronology"].copy()
+    downstream = frames["laus_long_weight_downstream_chronology"].copy()
     parts=[metric[["scenario_id","geo_id","date","series","score"]]]
     for col, name in (("cyclical_score","cyclical"),("core_demand_score","core_demand")):
         q=downstream.loc[downstream.scenario_id.isin(SCENARIOS),["scenario_id","geo_id","date",col]].rename(columns={col:"score"})
