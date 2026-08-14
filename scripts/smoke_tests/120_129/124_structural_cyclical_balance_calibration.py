@@ -6,17 +6,20 @@ import numpy as np
 import pandas as pd
 
 from regime.experiments.structural_cyclical_balance_calibration import *
+from regime.experiments.structural_cyclical_balance_calibration import _differences
 
 registry=scenario_registry()
 assert list(registry.scenario_id)==list(BALANCES)
-assert list(BALANCES)==["BAL-S15-C85","BAL-S20-C80","BAL-S25-C75","BAL-S30-C70","BAL-S35-C65","BAL-S40-C60"]
-assert list(BALANCES.values())==[(.15,.85),(.20,.80),(.25,.75),(.30,.70),(.35,.65),(.40,.60)]
-assert len(registry)==6 and registry.scenario_id.is_unique
+assert list(BALANCES)==["BAL-S05-C95","BAL-S10-C90","BAL-S15-C85","BAL-S20-C80","BAL-S25-C75","BAL-S30-C70","BAL-S35-C65","BAL-S40-C60"]
+assert list(BALANCES.values())==[(.05,.95),(.10,.90),(.15,.85),(.20,.80),(.25,.75),(.30,.70),(.35,.65),(.40,.60)]
+assert len(registry)==8 and registry.scenario_id.is_unique
+assert list(ROLES)==list(BALANCES)
 assert (registry.labor_force_membership=="LF-IN").all() and (registry.ma_window=="MA9").all()
 assert (registry.feature_policy=="B3").all()
 assert (registry[["level_weight","short_weight","long_weight"]].iloc[0].to_numpy()==[.40,.15,.45]).all()
 assert np.allclose(registry.structural_weight+registry.cyclical_weight,1)
 assert not registry.automated_winner.any() and not registry.production_policy_changed.any()
+assert (registry.human_decision=="structural_cyclical_lower_bound_review_pending").all()
 
 dates=pd.to_datetime(["2024-01-31","2024-02-29"])
 structural=pd.DataFrame({"geo_id":[GEOS[0]]*2,"date":dates,"metric":[STRUCTURAL[0]]*2,"score":[1.,1.]})
@@ -31,6 +34,12 @@ for (_,date),g in chron.groupby(["scenario_id","date"]):
     assert np.isclose(g.core_demand_score.iloc[0],g.structural_weighted_contribution.iloc[0]+g.cyclical_weighted_contribution.iloc[0])
 assert chron.groupby(["geo_id","date"]).structural_block_score.nunique().le(1).all()
 assert chron.groupby(["geo_id","date"]).cyclical_block_score.nunique().le(1).all()
+toy=pd.DataFrame({"scenario_id":list(BALANCES),"geo_id":[GEOS[0]]*8,
+                  "period":["full_history"]*8,"standard_deviation":range(8)})
+adjacent=_differences(toy,list(zip(list(BALANCES)[:-1],list(BALANCES)[1:])))
+assert list(adjacent.comparison_id[:2])==[
+    "BAL-S05-C95__to__BAL-S10-C90", "BAL-S10-C90__to__BAL-S15-C85"]
+assert adjacent.change_standard_deviation.eq(1).all()
 shuffled,_=reconstruct_chronology(structural.sample(frac=1,random_state=4),cyclical.sample(frac=1,random_state=5),base)
 pd.testing.assert_frame_equal(chron.sort_values(list(chron.columns[:3])).reset_index(drop=True),shuffled.sort_values(list(shuffled.columns[:3])).reset_index(drop=True))
 source=Path("regime/experiments/structural_cyclical_balance_calibration.py").read_text()

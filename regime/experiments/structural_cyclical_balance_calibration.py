@@ -26,15 +26,26 @@ from regime.experiments.laus_ma_window_calibration import _calibration_contract
 from regime.experiments.structural_cyclical_demand_architecture import _metric_weights
 
 BALANCES = {
+    "BAL-S05-C95": (.05, .95), "BAL-S10-C90": (.10, .90),
     "BAL-S15-C85": (.15, .85), "BAL-S20-C80": (.20, .80),
     "BAL-S25-C75": (.25, .75), "BAL-S30-C70": (.30, .70),
     "BAL-S35-C65": (.35, .65), "BAL-S40-C60": (.40, .60),
+}
+ROLES = {
+    "BAL-S05-C95": "aggressive_lower_bound_stress",
+    "BAL-S10-C90": "lower_challenger",
+    "BAL-S15-C85": "current_leader",
+    "BAL-S20-C80": "near_control",
+    "BAL-S25-C75": "former_production_control",
+    "BAL-S30-C70": "prior_non_finalist_context",
+    "BAL-S35-C65": "prior_non_finalist_context",
+    "BAL-S40-C60": "prior_non_finalist_context",
 }
 PERIODS = ("full_history", "2022_plus", "latest_36_months")
 DC = "district_of_columbia_dc__county"
 GOVERNANCE = {"recommendation_state": "none",
     "promotion_state": "current_production_unchanged",
-    "human_decision": "structural_cyclical_balance_review_pending",
+    "human_decision": "structural_cyclical_lower_bound_review_pending",
     "automated_winner": False, "production_policy_changed": False}
 FIXED = {"labor_force_membership": "LF-IN", "ma_window": "MA9",
     "feature_policy": "B3", "level_weight": .40, "short_weight": .15,
@@ -49,11 +60,12 @@ EXPORTS = (
 
 def scenario_registry() -> pd.DataFrame:
     rows = [{"scenario_id": sid, "balance_policy": sid,
+             "role": ROLES[sid],
              "structural_weight": weights[0], "cyclical_weight": weights[1],
              **FIXED, **GOVERNANCE} for sid, weights in BALANCES.items()]
     out = pd.DataFrame(rows)
-    if len(out) != 6 or out.scenario_id.duplicated().any():
-        raise AssertionError("exactly six unique balance scenarios required")
+    if len(out) != 8 or out.scenario_id.duplicated().any():
+        raise AssertionError("exactly eight unique balance scenarios required")
     if not np.allclose(out.structural_weight + out.cyclical_weight, 1):
         raise AssertionError("block weights must sum to one")
     return out
@@ -217,7 +229,7 @@ def build_review(run: Path, output: Path, root: Path|None=None) -> Path:
           "core_to_axis_reversal_retention":a["total_reversal_count"]/core["total_reversal_count"] if core["total_reversal_count"] else np.nan})
     axis_stats=pd.DataFrame(axis_rows)
     adjacent=_differences(stats,list(zip(list(BALANCES)[:-1],list(BALANCES)[1:])))
-    versus=_differences(stats,[(x,"BAL-S25-C75") if list(BALANCES).index(x)<2 else ("BAL-S25-C75",x) for x in BALANCES if x!="BAL-S25-C75"])
+    versus=_differences(stats,[(x,"BAL-S25-C75") if list(BALANCES).index(x)<4 else ("BAL-S25-C75",x) for x in BALANCES if x!="BAL-S25-C75"])
     by_county = stats.copy()
 
     numeric_cols = [
@@ -253,23 +265,30 @@ def _plots(chronology, stats, preservation, output):
     import matplotlib.pyplot as plt
     pooled=chronology.groupby(["scenario_id","date"],as_index=False).mean(numeric_only=True)
     for scope,data in (("dc",chronology.loc[chronology.geo_id.eq(DC)]),("seven_county_equal_footing",pooled)):
-      fig,axes=plt.subplots(3,2,figsize=(13,9),sharex=True)
-      for sid,ax in zip(BALANCES,axes.flat):
+      fig,axes=plt.subplots(1,3,figsize=(15,4),sharex=True)
+      for sid,ax in zip(list(BALANCES)[:3],axes.flat):
         q=data.loc[data.scenario_id.eq(sid)]; ax.plot(q.date,q.core_demand_score); ax.set_title(sid)
       fig.tight_layout(); fig.savefig(output/f"core_demand__{scope}.svg"); plt.close(fig)
-    fig,axes=plt.subplots(3,2,figsize=(13,9),sharex=True)
-    for sid,ax in zip(BALANCES,axes.flat):
+    fig,axes=plt.subplots(1,3,figsize=(15,4),sharex=True)
+    for sid,ax in zip(list(BALANCES)[:3],axes.flat):
       q=pooled.loc[pooled.scenario_id.eq(sid)]; ax.plot(q.date,q.structural_weighted_contribution,label="Structural"); ax.plot(q.date,q.cyclical_weighted_contribution,label="Cyclical"); ax.plot(q.date,q.core_demand_score,label="Core"); ax.set_title(sid); ax.legend()
     fig.tight_layout(); fig.savefig(output/"contributions__seven_county.svg"); plt.close(fig)
     response=stats.loc[stats.period.eq("full_history")].groupby("scenario_id",as_index=False).mean(numeric_only=True)
-    measures=("standard_deviation","total_reversal_count","whipsaw_2m_count","whipsaw_3m_count","persistence","median_absolute_turn_latency","cyclical_amplitude_retention","cyclical_reversal_retention","cancellation_index")
+    measures=("standard_deviation","total_reversal_count","whipsaw_2m_count","whipsaw_3m_count","persistence","median_absolute_turn_latency","cyclical_amplitude_retention","cyclical_turning_point_retention","cancellation_index")
     fig,axes=plt.subplots(3,3,figsize=(14,11))
-    for m,ax in zip(measures,axes.flat): ax.plot(range(15,41,5),response.set_index("scenario_id").loc[list(BALANCES),m],marker="o"); ax.set_title(m.replace("_"," "))
+    weights=[int(sw*100) for sw,_ in BALANCES.values()]
+    for m,ax in zip(measures,axes.flat):
+      ax.plot(weights,response.set_index("scenario_id").loc[list(BALANCES),m],marker="o")
+      ax.axvspan(5,25,color="tab:blue",alpha=.06); ax.set_title(m.replace("_"," "))
     fig.tight_layout(); fig.savefig(output/"response_curves.svg"); plt.close(fig)
     fig,axes=plt.subplots(1,3,figsize=(14,4)); frontier=(("whipsaw_2m_share","median_absolute_turn_latency"),("total_reversal_count","cyclical_turning_point_retention"),("structural_share_of_gross","cyclical_amplitude_retention"))
-    for (x,y),ax in zip(frontier,axes): ax.scatter(response[x],response[y]); ax.set(xlabel=x,ylabel=y)
+    for (x,y),ax in zip(frontier,axes):
+      ax.scatter(response[x],response[y])
+      for sid in list(BALANCES)[:3]:
+        row=response.loc[response.scenario_id.eq(sid)].iloc[0]; ax.annotate(sid.split("-")[1],(row[x],row[y]))
+      ax.set(xlabel=x,ylabel=y)
     fig.tight_layout(); fig.savefig(output/"stability_responsiveness_frontier.svg"); plt.close(fig)
     dc=stats.loc[(stats.geo_id==DC)&(stats.period=="full_history")].set_index("scenario_id"); seven=response.set_index("scenario_id")
     fig,axes=plt.subplots(1,2,figsize=(10,4))
-    for m,ax in zip(("standard_deviation","cyclical_amplitude_retention"),axes): ax.plot(range(15,41,5),dc.loc[list(BALANCES),m],label="DC"); ax.plot(range(15,41,5),seven.loc[list(BALANCES),m],label="7-county mean"); ax.set_title(m); ax.legend()
+    for m,ax in zip(("standard_deviation","cyclical_amplitude_retention"),axes): ax.plot(weights,dc.loc[list(BALANCES),m],label="DC"); ax.plot(weights,seven.loc[list(BALANCES),m],label="7-county mean"); ax.set_title(m); ax.legend()
     fig.tight_layout(); fig.savefig(output/"dc_vs_seven_county.svg"); plt.close(fig)
