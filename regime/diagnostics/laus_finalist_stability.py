@@ -247,12 +247,23 @@ def analyze(frames: dict[str,pd.DataFrame]) -> dict[str,pd.DataFrame]:
             c=cluster_consensus_turns(g,threshold); c["geo_id"],c["series"]=geo,series; consensus_rows.append(c)
             if threshold==6:
                 latency=match_consensus(g,c); latency["geo_id"],latency["series"]=geo,series; latency_rows.append(latency)
-    consensus=pd.concat(consensus_rows,ignore_index=True) if consensus_rows else pd.DataFrame()
-    latency=pd.concat(latency_rows,ignore_index=True) if latency_rows else pd.DataFrame()
+    consensus_nonempty=[frame for frame in consensus_rows if not frame.empty]
+    latency_nonempty=[frame for frame in latency_rows if not frame.empty]
+
+    consensus=(
+        pd.concat(consensus_nonempty,ignore_index=True)
+        if consensus_nonempty
+        else pd.DataFrame()
+    )
+    latency=(
+        pd.concat(latency_nonempty,ignore_index=True)
+        if latency_nonempty
+        else pd.DataFrame()
+    )
     preservation=[]
     for keys,g in latency.groupby(["scenario_id","geo_id","series"]):
         candidate=len(points.loc[(points.scenario_id==keys[0])&(points.geo_id==keys[1])&(points.series==keys[2])])
-        matched=int((~g.missed).sum()); total=len(g)
+        matched=int(g["missed"].eq(False).sum()); total=len(g)
         preservation.append(dict(zip(("scenario_id","geo_id","series"),keys),candidate_turns=candidate,
             consensus_turns_detected=matched,consensus_turns_missed=total-matched,
             non_consensus_turns_generated=max(0,candidate-matched),
@@ -329,11 +340,17 @@ def _plots(output: Path, exports: dict[str,pd.DataFrame], chronology: pd.DataFra
     latency=exports["laus_finalist_turn_latency"]
     if len(latency):
         latency=latency.assign(ma_months=latency.scenario_id.str.extract(r"MA(\d+)")[0].astype(int))
-        for series,q in latency.loc[~latency.missed].groupby("series"):
+        for series,q in latency.loc[latency["missed"].eq(False)].groupby("series"):
             fig,axes=plt.subplots(1,2,figsize=(12,4),sharey=True)
             for ax,(ma,g) in zip(axes,q.groupby("ma_months")):
                 groups=[g.loc[g.scenario_id.eq(f"MA{ma}__{p}"),"latency_months"] for p in POLICIES]
-                ax.boxplot(groups,tick_labels=list(POLICIES)); ax.axhline(0,color="black",lw=.8); ax.set_title(f"MA{ma}")
+                ax.boxplot(groups)
+                ax.set_xticks(
+                    range(1, len(POLICIES) + 1),
+                    list(POLICIES),
+                )
+                ax.axhline(0,color="black",lw=.8)
+                ax.set_title(f"MA{ma}")
             fig.suptitle(f"{series} consensus-turn latency (months)"); fig.tight_layout(); fig.savefig(visual/f"latency__{series}.svg"); plt.close(fig)
     consensus=exports["laus_finalist_consensus_turns"]
     primary=consensus.loc[consensus.support_threshold.eq(6)] if len(consensus) else consensus
