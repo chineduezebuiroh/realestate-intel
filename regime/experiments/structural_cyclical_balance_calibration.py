@@ -218,7 +218,20 @@ def build_review(run: Path, output: Path, root: Path|None=None) -> Path:
     axis_stats=pd.DataFrame(axis_rows)
     adjacent=_differences(stats,list(zip(list(BALANCES)[:-1],list(BALANCES)[1:])))
     versus=_differences(stats,[(x,"BAL-S25-C75") if list(BALANCES).index(x)<2 else ("BAL-S25-C75",x) for x in BALANCES if x!="BAL-S25-C75"])
-    by_county=stats.copy(); pooled=stats.groupby(["scenario_id","period"]).agg(["mean","median","min","max"]); pooled.columns=["_".join(x) for x in pooled.columns]; pooled=pooled.reset_index()
+    by_county = stats.copy()
+
+    numeric_cols = [
+        column
+        for column in stats.select_dtypes(include="number").columns
+        if column not in {"structural_weight", "cyclical_weight"}
+    ]
+
+    pooled = (
+        stats.groupby(["scenario_id", "period"])[numeric_cols]
+        .agg(["mean", "median", "min", "max"])
+    )
+    pooled.columns = ["_".join(x) for x in pooled.columns]
+    pooled = pooled.reset_index()
     evaluation=pooled.loc[pooled.period.eq("full_history")].copy(); evaluation["automated_winner"]=False; evaluation["human_review_required"]=True
     governance=pd.DataFrame([{**GOVERNANCE,**FIXED,"authoritative_run":RUN_ID,"decision_basis":"seven_county_equal_footing","governed_county_count":7,"dc_geo_id":DC}])
     exports={"scenario_registry":scenario_registry(),"chronology":chronology,"contributions":contributions,"core_statistics":stats,
