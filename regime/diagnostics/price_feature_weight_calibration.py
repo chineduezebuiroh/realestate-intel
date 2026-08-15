@@ -9,11 +9,11 @@ from pathlib import Path
 import html
 import numpy as np
 import pandas as pd
-from regime.diagnostics.capital_markets_ma import detect_turning_points
+from regime.diagnostics.capital_markets_ma import detect_turning_points, match_turning_points
 
 from regime.diagnostics.price_feature_anatomy import (
     DC, REVIEW_GEOS, TARGET_METRICS, _dates, _metric_col, _periods, _pool,
-    _series_stats, _value_col, load_run as _load_phase1, resolve_contract,
+    _plot, _series_stats, _value_col, load_run as _load_phase1, resolve_contract,
 )
 
 POLICIES = {
@@ -30,7 +30,10 @@ EXPORTS = (
  "price_dimension_statistics","demand_axis_statistics","long_reference_comparison",
  "raw_change_comparison","adjacent_comparisons","vs_p0","cross_metric_consistency",
  "by_county","period_sensitivity","evaluation_matrix","governance_status",
+ "raw_cycle_chronology","turning_point_comparison",
 )
+
+TURN_MATCH_WINDOW_MONTHS = 3
 
 def load_run(run: Path) -> dict[str,pd.DataFrame]:
     out=_load_phase1(run)
@@ -58,11 +61,61 @@ def _summaries(frame, keys, numeric):
        row=dict(zip(keys,ids)); row["geo_id"]=f"seven_county_{agg}"; row.update(getattr(g[numeric],agg)().to_dict()); rows.append(row)
     return pd.DataFrame(rows)
 
+def build_raw_cycle(source: pd.DataFrame, contract: pd.DataFrame) -> pd.DataFrame:
+    """Build a diagnostic raw-price cycle with exact calendar lag-12 semantics.
+
+    The complete county/metric month-end calendar is retained so an absent
+    source month cannot be mistaken for the twelfth preceding row.  The z-score
+    is descriptive, within-county/metric, and is never fed into production.
+    """
+    raw=_dates(source); mc=_metric_col(raw); rv=_value_col(raw,("value","metric_value","raw_value"))
+    keys=contract[["registry_metric_key","metric"]].drop_duplicates()
+    raw=raw.rename(columns={mc:"registry_metric_key",rv:"raw_value"}).merge(keys,on="registry_metric_key")
+    raw=raw.loc[raw.geo_id.isin(REVIEW_GEOS),["geo_id","date","metric","raw_value"]]
+    if raw.duplicated(["geo_id","date","metric"]).any():
+        raise ValueError("duplicate raw Price source observation")
+    panels=[]
+    for (geo,metric),g in raw.groupby(["geo_id","metric"],sort=True):
+        idx=pd.date_range(g.date.min(),g.date.max(),freq="ME")
+        q=g.set_index("date").reindex(idx).rename_axis("date").reset_index()
+        q["geo_id"],q["metric"]=geo,metric
+        # Reindexing makes shift(12) an exact calendar-month lag, not row lag.
+        q["lag12_raw_value"]=q.raw_value.shift(12)
+        q["raw_12m_change"]=q.raw_value.div(q.lag12_raw_value)-1
+        valid=q.raw_12m_change.dropna(); mean=valid.mean(); std=valid.std(ddof=0)
+        q["raw_cycle_zscore"]=(q.raw_12m_change-mean)/std if pd.notna(std) and std>0 else np.nan
+        panels.append(q)
+    return pd.concat(panels,ignore_index=True)[["geo_id","date","metric","raw_value","lag12_raw_value","raw_12m_change","raw_cycle_zscore"]]
+
+def _turn_evidence(score, ref, dates):
+    q=pd.DataFrame({"date":pd.to_datetime(dates),"score":score,"ref":ref}).dropna().sort_values("date")
+    rt=detect_turning_points(q[["date","ref"]],"ref")
+    ct=detect_turning_points(q[["date","score"]],"score")
+    matches=match_turning_points(rt,ct,TURN_MATCH_WINDOW_MONTHS)
+    reference=matches.incumbent_date.notna() if len(matches) else pd.Series(dtype=bool)
+    rm=matches.loc[reference] if len(matches) else matches
+    hit=rm.loc[rm.matched] if len(rm) else rm
+    delays=pd.to_numeric(hit.signed_delay_months,errors="coerce") if len(hit) else pd.Series(dtype=float)
+    qualified_ref=int(rt.qualified.sum()) if "qualified" in rt else 0
+    qualified_candidate=int(ct.qualified.sum()) if "qualified" in ct else 0
+    return {"reference_turn_count":qualified_ref,"candidate_turn_count":qualified_candidate,
+      "matched_turn_count":int(rm.matched.sum()) if len(rm) else 0,
+      "missed_turn_count":int((~rm.matched).sum()) if len(rm) else qualified_ref,
+      "turning_point_preservation":float(rm.matched.mean()) if len(rm) else np.nan,
+      "median_turning_point_latency_months":float(delays.abs().median()) if len(delays) else np.nan,
+      "same_month_turn_share":float(delays.abs().eq(0).mean()) if len(delays) else np.nan,
+      "plus_minus_1_month_turn_share":float(delays.abs().le(1).mean()) if len(delays) else np.nan,
+      "peak_latency_months":float(delays[hit.turning_point_type.eq("peak")].abs().median()) if len(delays) and hit.turning_point_type.eq("peak").any() else np.nan,
+      "trough_latency_months":float(delays[hit.turning_point_type.eq("trough")].abs().median()) if len(delays) and hit.turning_point_type.eq("trough").any() else np.nan}
+
 def _comparison(score, ref, dates):
-    q=pd.DataFrame({"date":dates,"score":score,"ref":ref}).dropna().sort_values("date")
-    return {"correlation":q.score.corr(q.ref),"sign_agreement":(np.sign(q.score)==np.sign(q.ref)).mean(),
-      "direction_agreement":(np.sign(q.score.diff())==np.sign(q.ref.diff())).mean(),
-      "turning_point_preservation":np.nan,"mean_turning_point_latency_months":np.nan}
+    q=pd.DataFrame({"date":pd.to_datetime(dates),"score":score,"ref":ref}).dropna().sort_values("date")
+    month_gap=(q.date.dt.year-q.date.shift().dt.year)*12+q.date.dt.month-q.date.shift().dt.month
+    deltas=q[["score","ref"]].diff().where(month_gap.eq(1),axis=0).dropna()
+    out={"valid_observation_count":len(q),"correlation":q.score.corr(q.ref),
+      "sign_agreement":float((np.sign(q.score)==np.sign(q.ref)).mean()) if len(q) else np.nan,
+      "direction_agreement":float((np.sign(deltas.score)==np.sign(deltas.ref)).mean()) if len(deltas) else np.nan}
+    out.update(_turn_evidence(q.score,q.ref,q.date)); return out
 
 def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFrame]:
     contract,mreg=resolve_contract(root)
@@ -114,14 +167,23 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
        row["direction_changes_vs_p0"]=(np.sign(q.demand_axis_score.diff())!=np.sign(q.p0_demand_axis.diff())).sum(); row["sign_changes_vs_p0"]=(np.sign(q.demand_axis_score)!=np.sign(q.p0_demand_axis)).sum(); dst.append(row)
     dst=pd.DataFrame(dst)
     long=contrib[contrib.feature_type.eq("long")][["policy","geo_id","date","metric","normalized_feature_score"]]
-    refs=[]; rawrefs=[]
-    raw=_dates(artifacts["source_metrics"]); mc=_metric_col(raw); rv=_value_col(raw,("value","metric_value","raw_value")); keys=contract[["registry_metric_key","metric"]].drop_duplicates()
-    raw=raw.rename(columns={mc:"registry_metric_key",rv:"raw_value"}).merge(keys,on="registry_metric_key"); raw=raw.sort_values("date"); raw["raw_annual_change"]=raw.groupby(["geo_id","metric"]).raw_value.pct_change(12,fill_method=None)
+    refs=[]; rawrefs=[]; turnrows=[]
+    raw=build_raw_cycle(artifacts["source_metrics"],contract)
     for (p,m,g),z in chron.groupby(["policy","metric","geo_id"]):
       l=long[(long.policy.eq(p))&(long.metric.eq(m))&(long.geo_id.eq(g))]; q=z.merge(l,on=["policy","geo_id","date","metric"])
-      refs.append({"policy":p,"metric":m,"geo_id":g,**_comparison(q.metric_score,q.normalized_feature_score,q.date)})
-      r=raw[(raw.metric.eq(m))&(raw.geo_id.eq(g))]; q=z.merge(r[["date","raw_annual_change"]],on="date")
-      rawrefs.append({"policy":p,"metric":m,"geo_id":g,**_comparison(q.metric_score,q.raw_annual_change,q.date)})
+      for period,part in _periods(q):
+       evidence=_comparison(part.metric_score,part.normalized_feature_score,part.date)
+       refs.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":"long_feature_reference",**evidence})
+       turnrows.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":"long_feature_reference","matching_tolerance_months":TURN_MATCH_WINDOW_MONTHS,**{k:v for k,v in evidence.items() if "turn" in k or "latency" in k}})
+      r=raw[(raw.metric.eq(m))&(raw.geo_id.eq(g))]; q=z.merge(r[["date","raw_12m_change","raw_cycle_zscore"]],on="date")
+      for period,part in _periods(q):
+       # Correlation/direction use the directly interpretable annual change;
+       # scale-invariant turning detection uses its within-county z-score.
+       evidence=_comparison(part.metric_score,part.raw_12m_change,part.date)
+       turns=_turn_evidence(part.metric_score,part.raw_cycle_zscore,part.date)
+       evidence.update(turns)
+       rawrefs.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":"raw_cycle_reference",**evidence})
+       turnrows.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":"raw_cycle_reference","matching_tolerance_months":TURN_MATCH_WINDOW_MONTHS,**{k:v for k,v in evidence.items() if "turn" in k or "latency" in k}})
     refs=pd.DataFrame(refs); rawrefs=pd.DataFrame(rawrefs)
     fc=[]
     for (p,m),g in contrib.groupby(["policy","metric"]):
@@ -143,9 +205,9 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
       if key in p0.index:
        x={"policy":row.policy,"metric":row.metric,"geo_id":row.geo_id,"period":row.period}; x.update({f"delta_{c}":getattr(row,c)-p0.loc[key,c] for c in numeric}); vp.append(x)
     cross=fc.pivot(index="policy",columns="metric",values=["net_to_gross_ratio","cancellation"]).reset_index(); cross.columns=["_".join(x).strip("_") for x in cross.columns]
-    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"price_feature_weight_review_pending","automated_winner":False,"production_policy_changed":False,"ma_window":"MA12_FIXED","long_weight_boundary_unresolved":"empirical_review_required"}])
+    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"price_feature_weight_review_pending","automated_winner":False,"production_policy_changed":False,"ma_window":"MA12_FIXED","long_weight_boundary_unresolved":"empirical_review_required","long_reference_role":"diagnostic_reference_not_optimization_target","raw_cycle_standardization":"within_county_metric_zscore_ddof0_diagnostic_only"}])
     evaluation=pd.DataFrame([{"question":i,"status":"empirical_review_required","evidence":"authoritative review tables and plots; no automated winner"} for i in range(1,19)])
-    return {"scenario_registry":registry,"metric_chronology":chron,"feature_contributions":contrib,"metric_statistics":stats,"price_dimension_statistics":dim,"demand_axis_statistics":dst,"long_reference_comparison":refs,"raw_change_comparison":rawrefs,"adjacent_comparisons":comparisons,"vs_p0":pd.DataFrame(vp),"cross_metric_consistency":cross,"by_county":basefull,"period_sensitivity":stats,"evaluation_matrix":evaluation,"governance_status":governance,"_dimension_chronology":wide}
+    return {"scenario_registry":registry,"metric_chronology":chron,"feature_contributions":contrib,"metric_statistics":stats,"price_dimension_statistics":dim,"demand_axis_statistics":dst,"long_reference_comparison":refs,"raw_change_comparison":rawrefs,"raw_cycle_chronology":raw,"turning_point_comparison":pd.DataFrame(turnrows),"adjacent_comparisons":comparisons,"vs_p0":pd.DataFrame(vp),"cross_metric_consistency":cross,"by_county":basefull,"period_sensitivity":stats,"evaluation_matrix":evaluation,"governance_status":governance,"_dimension_chronology":wide}
 
 def _svg(path, series, title):
     width,height=1100,480; left,right,top,bottom=75,25,45,45; dates=pd.concat([pd.to_datetime(x.date).dropna() for _,x in series if len(x)]); lo,hi=dates.min(),dates.max(); span=max((hi-lo).total_seconds(),1)
@@ -160,11 +222,43 @@ def _svg(path, series, title):
       paths.append(f'<path d="{" ".join(cmd)}" fill="none" stroke="{colors[n%len(colors)]}" stroke-width="1.5"/><text x="{left+120*n}" y="{height-12}" fill="{colors[n%len(colors)]}" font-family="sans-serif">{html.escape(label)}</text>')
     path.write_text(f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}"><title>{html.escape(title)}</title><rect width="100%" height="100%" fill="white"/><text x="20" y="28" font-family="sans-serif" font-size="20">{html.escape(title)}</text><rect x="{left}" y="{top}" width="{width-left-right}" height="{height-top-bottom}" fill="none" stroke="#94a3b8"/>{"".join(paths)}</svg>',encoding="utf-8")
 
+def _turn_plot(path: Path, reference: pd.DataFrame, candidate: pd.DataFrame, title: str) -> None:
+    """Render aligned series panels and visible governed turning-point markers."""
+    panels=[("raw 12m cycle",reference),("candidate metric score",candidate)]
+    _plot(path,panels,title)
+    joined=reference.rename(columns={"value":"ref"}).merge(candidate.rename(columns={"value":"score"}),on="date").dropna()
+    rt=detect_turning_points(joined[["date","ref"]],"ref")
+    ct=detect_turning_points(joined[["date","score"]],"score")
+    mt=match_turning_points(rt,ct,TURN_MATCH_WINDOW_MONTHS)
+    marks=[(0,d,"#dc2626") for d in mt.loc[mt.incumbent_date.notna(),"incumbent_date"]]
+    marks += [(1,d,"#059669") for d in mt.loc[mt.matched,"challenger_date"]]
+    dates=pd.concat([reference.date,candidate.date]).dropna(); lo,hi=dates.min(),dates.max(); span=max((hi-lo).total_seconds(),1)
+    extra=[]
+    for panel,date,color in marks:
+      x=95+(pd.Timestamp(date)-lo).total_seconds()/span*(1100-95-25); y=55+panel*190+12
+      extra.append(f'<circle cx="{x:.2f}" cy="{y}" r="5" fill="{color}"/>')
+    extra.append('<text x="720" y="30" font-family="sans-serif" font-size="12" fill="#dc2626">red: reference turns</text><text x="880" y="30" font-family="sans-serif" font-size="12" fill="#059669">green: matched candidate turns</text>')
+    path.write_text(path.read_text(encoding="utf-8").replace("</svg>","".join(extra)+"</svg>"),encoding="utf-8")
+
 def write_review(tables, out: Path):
     out.mkdir(parents=True,exist_ok=True)
     for name in EXPORTS: tables[name].to_csv(out/f"price_phase2_{name}.csv",index=False)
     plots=[]; chron=tables["metric_chronology"]
     for metric in TARGET_METRICS:
+      raw=tables["raw_cycle_chronology"].query("metric==@metric")
+      for scope in ("dc","seven_county_equal_footing"):
+       if scope=="dc": ref=raw[raw.geo_id.eq(DC)][["date","raw_12m_change"]].rename(columns={"raw_12m_change":"value"})
+       else: ref=_pool(raw,"raw_cycle_zscore",["geo_id"]).rename(columns={"raw_cycle_zscore":"value"})
+       panels=[("raw 12m cycle reference",ref)]
+       for p in ("P0","P3","P4","P5","P6"):
+        q=chron[(chron.metric.eq(metric))&(chron.policy.eq(p))]
+        q=(q[q.geo_id.eq(DC)][["date","metric_score"]] if scope=="dc" else _pool(q,"metric_score",["geo_id","policy"]))
+        panels.append((p,q.rename(columns={"metric_score":"value"})))
+       fn=f"price_phase2_{metric}_{scope}_raw_cycle.svg"; _plot(out/fn,panels,f"{metric} — {scope} — raw cycle and candidates"); plots.append(fn)
+      dcraw=raw[raw.geo_id.eq(DC)][["date","raw_cycle_zscore"]].rename(columns={"raw_cycle_zscore":"value"})
+      for p in ("P3","P4","P5","P6"):
+       cand=chron[(chron.metric.eq(metric))&(chron.policy.eq(p))&(chron.geo_id.eq(DC))][["date","metric_score"]].rename(columns={"metric_score":"value"})
+       fn=f"price_phase2_{metric}_dc_{p}_turning_point_overlay.svg"; _turn_plot(out/fn,dcraw,cand,f"{metric} — DC — {p} turning points"); plots.append(fn)
       for scope in ("dc","seven_county_equal_footing"):
        series=[]
        for p in POLICIES:
