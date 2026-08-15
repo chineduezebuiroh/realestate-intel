@@ -218,3 +218,9 @@ Based on the implemented MA6/MA9 Phase 1 scope, **no new numbered smoke test is 
 | Number | Script | Purpose | Command |
 |---:|---|---|---|
 | 128 | `scripts/smoke_tests/120_129/128_price_feature_anatomy.py` | Exact two-metric Price scope, registry-resolved contract, calendar-faithful missingness, seven-county equal-footing exports, feature/metric reconstruction, actual plotted SVG primitives, configuration immutability, diagnostic governance, and fail-closed authoritative loading. | `PYTHONPATH=. python scripts/smoke_tests/120_129/128_price_feature_anatomy.py` |
+
+## Affordability Phase 1 diagnostic coverage
+
+| Number | Script | Purpose | Command |
+|---:|---|---|---|
+| 133 | `scripts/smoke_tests/130_139/133_affordability_feature_anatomy.py` | Exact registry-resolved Affordability membership, calendar-faithful missingness, persisted metric and dimension reconstruction, actual SVG paths, registry immutability, diagnostic-only governance, and fail-closed authoritative loading through the canonical Price anatomy workflow. | `PYTHONPATH=. python scripts/smoke_tests/130_139/133_affordability_feature_anatomy.py` |
