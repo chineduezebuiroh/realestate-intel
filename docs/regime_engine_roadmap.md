@@ -89,7 +89,7 @@ Current Phase D work is organized around four calibration groups:
 
 1. review-tooling improvements;
 2. Inventory and Supply-axis calibration;
-3. Price feature-weight calibration;
+3. completed Price feature-weight and final-MA calibration (MA12/P6 promoted);
 4. deferred CBSA labor-source correctness review.
 
 Detailed implementation history is recorded in the corresponding Phase D decision documents and persisted comparison artifacts.
@@ -269,6 +269,8 @@ Significant milestones in the evolution of the Regime Engine include:
 - Verified exact Supply-axis isolation during the linked Price integration.
 - Established county-level production calibration as the current engineering phase.
 - Formalized Regime Engine architecture and ADR documentation.
+- Promoted the closed Price calibration decision: MA12 with P6 (35/20/45) for
+  both direct Price metrics; historical diagnostic policies are superseded.
 
 ---
 

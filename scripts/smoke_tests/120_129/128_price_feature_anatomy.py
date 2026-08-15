@@ -12,7 +12,7 @@ def fixture():
  dates=pd.date_range("2019-01-31",periods=84,freq="ME"); source=[]; features=[]; normalized=[]; metrics=[]; dims=[]
  keys={"median_sale_price":"redfin_median_sale_price","median_ppsf":"redfin_median_ppsf"}
  fkeys={m:{"level":f"redfin_{m}_level","short":f"redfin_{m}_short","long":f"redfin_{m}_long"} for m in TARGET_METRICS}
- weights={"level":.5,"short":.25,"long":.25}
+ weights={"level":.35,"short":.20,"long":.45}
  for j,geo in enumerate(REVIEW_GEOS):
   for mi,m in enumerate(TARGET_METRICS):
    for i,date in enumerate(dates):

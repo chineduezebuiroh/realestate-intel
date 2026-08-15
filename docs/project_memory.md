@@ -72,6 +72,12 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 - Demand-dimension production engineering freeze covering Labor, GDP, ACS,
   contribution, cancellation, and weighting behavior
 
+Price calibration is complete. The canonical production policy for both
+`median_sale_price` and `median_ppsf` is MA12/P6: 35% Level, 20% Short, and 45%
+Long. The bounded search converged without a structural MA9 advantage; prior
+Price diagnostic policies are superseded by production. Affordability and all
+other metric families remain unchanged by this promotion.
+
 ### Current Focus
 
 Demand architecture calibration is closed. The explicit human-selected
@@ -169,7 +175,7 @@ The project is currently transitioning from foundational engineering into analyt
 
 - Improve production-review tooling.
 - Complete Inventory and Supply-axis calibration.
-- Complete Price feature-weight calibration.
+- Maintain the closed MA12/P6 Price production policy.
 - Audit CBSA labor-source correctness.
 - Continue expanding architecture documentation and ADR coverage.
 
@@ -236,7 +242,6 @@ Several architectural principles have become foundational to the platform.
 The following topics remain active areas of investigation and should not be considered settled production policy.
 
 - Optimal smoothing and feature weighting for the Inventory dimension.
-- Appropriate feature weighting within the Price dimension.
 - CBSA labor-source treatment and geography contracts.
 - Geographic expansion beyond the county-level Macro Regime framework.
 - Future Market Balance and Market Profile architecture.
