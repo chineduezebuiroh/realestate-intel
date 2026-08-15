@@ -68,10 +68,106 @@ def build_raw_cycle(source: pd.DataFrame, contract: pd.DataFrame) -> pd.DataFram
     source month cannot be mistaken for the twelfth preceding row.  The z-score
     is descriptive, within-county/metric, and is never fed into production.
     """
-    raw=_dates(source); mc=_metric_col(raw); rv=_value_col(raw,("value","metric_value","raw_value"))
-    keys=contract[["registry_metric_key","metric"]].drop_duplicates()
-    raw=raw.rename(columns={mc:"registry_metric_key",rv:"raw_value"}).merge(keys,on="registry_metric_key")
-    raw=raw.loc[raw.geo_id.isin(REVIEW_GEOS),["geo_id","date","metric","raw_value"]]
+    raw = _dates(source)
+    mc = _metric_col(raw)
+    rv = _value_col(
+        raw,
+        ("value", "metric_value", "raw_value"),
+    )
+
+    # Production source_metrics use canonical_metric_key, while some
+    # deterministic fixtures / older diagnostic surfaces may carry the
+    # registry metric identity. Accept either at the diagnostic boundary,
+    # then canonicalize immediately.
+    identity_map = (
+        contract[
+            ["registry_metric_key", "metric"]
+        ]
+        .drop_duplicates()
+        .copy()
+    )
+
+    canonical_identity = (
+        contract[["metric"]]
+        .drop_duplicates()
+        .assign(
+            registry_metric_key=lambda q: q["metric"]
+        )[
+            ["registry_metric_key", "metric"]
+        ]
+    )
+
+    identity_map = (
+        pd.concat(
+            [
+                identity_map,
+                canonical_identity,
+            ],
+            ignore_index=True,
+        )
+        .drop_duplicates(
+            subset=["registry_metric_key"],
+            keep="last",
+        )
+    )
+
+    target_metrics = set(
+        contract["metric"]
+        .dropna()
+        .astype(str)
+        .unique()
+    )
+
+    raw = raw.rename(
+        columns={
+            mc: "source_metric_identity",
+            rv: "raw_value",
+        }
+    )
+
+    raw = raw.merge(
+        identity_map.rename(
+            columns={
+                "registry_metric_key":
+                    "source_metric_identity",
+            }
+        ),
+        on="source_metric_identity",
+        how="inner",
+        validate="many_to_one",
+    )
+
+    raw = raw.loc[
+        raw["geo_id"].isin(REVIEW_GEOS),
+        [
+            "geo_id",
+            "date",
+            "metric",
+            "raw_value",
+        ],
+    ].copy()
+
+    if raw.empty:
+        raise ValueError(
+            "No authoritative raw Price chronology resolved "
+            "from either canonical or registry metric identities; "
+            f"expected canonical metrics={sorted(target_metrics)}"
+        )
+
+    resolved_metrics = set(
+        raw["metric"]
+        .dropna()
+        .astype(str)
+        .unique()
+    )
+
+    missing_metrics = target_metrics - resolved_metrics
+
+    if missing_metrics:
+        raise ValueError(
+            "Authoritative raw Price chronology is missing "
+            f"canonical metrics={sorted(missing_metrics)}"
+        )
     if raw.duplicated(["geo_id","date","metric"]).any():
         raise ValueError("duplicate raw Price source observation")
     panels=[]
