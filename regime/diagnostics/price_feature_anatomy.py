@@ -1,4 +1,9 @@
-"""Artifact-first Price Phase-1 anatomy diagnostic (no challenger evaluation)."""
+"""Registry-driven metric-dimension Phase-1 anatomy diagnostic.
+
+Price was the first consumer.  The implementation is deliberately dimension
+parameterized so subsequent calibration campaigns reuse the same chronology,
+reconstruction, statistics, rendering, and governance machinery.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,15 +32,15 @@ OUTPUTS = (
 def _bool(s: pd.Series) -> pd.Series:
     return s.astype(str).str.lower().isin(("true","1","yes"))
 
-def resolve_contract(root: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Resolve rather than assume each governed Price feature contract."""
+def resolve_contract(root: Path, dimension: str = "price") -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Resolve rather than assume each governed dimension feature contract."""
     fr=pd.read_csv(root/"config/feature_registry.csv")
     mr=pd.read_csv(root/"config/metric_dimension_registry.csv")
     sr=pd.read_csv(root/"config/source_metric_registry.csv")
     nr=pd.read_csv(root/"config/normalization_registry.csv")
-    price=mr[_bool(mr.enabled)&mr.dimension.eq("price")]
-    if set(price.canonical_metric_key)!=set(TARGET_METRICS) or len(price)!=2:
-        raise ValueError("governed Price membership must be exactly median_sale_price and median_ppsf")
+    price=mr[_bool(mr.enabled)&~_bool(mr.diagnostic_only)&mr.dimension.eq(dimension)]
+    if price.empty or price.canonical_metric_key.duplicated().any():
+        raise ValueError(f"governed {dimension} membership is empty or ambiguous")
     rows=[]
     for m in price.itertuples(index=False):
         fs=fr[fr.metric_key.eq(m.metric_key)].copy()
@@ -105,8 +110,8 @@ def _periods(g):
     end=g.date.max()
     return (("full_history",g),("2022_plus",g[g.date.ge("2022-01-01")]),("latest_36_months",g[g.date.ge(end-pd.DateOffset(months=35))]))
 
-def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFrame]:
-    contract,mreg=resolve_contract(root); fmap=contract.set_index("feature_key")[["metric","feature_type","configured_feature_weight"]]
+def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price") -> dict[str,pd.DataFrame]:
+    contract,mreg=resolve_contract(root, dimension); target_metrics=tuple(sorted(contract.metric.unique())); fmap=contract.set_index("feature_key")[["metric","feature_type","configured_feature_weight"]]
     raw=_dates(artifacts["source_metrics"]); mc=_metric_col(raw); val=_value_col(raw,("value","metric_value","raw_value"))
     raw=raw.rename(columns={mc:"registry_metric_key",val:"raw_value"}).merge(contract[["metric","registry_metric_key"]].drop_duplicates(),on="registry_metric_key",how="inner")
     raw=raw[raw.geo_id.isin(REVIEW_GEOS)][["geo_id","date","metric","raw_value"]]
@@ -125,17 +130,18 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
     panel["effective_feature_weight"]=panel.configured_feature_weight.div(totals).where(available)
     panel["weighted_feature_contribution"]=panel.normalized_feature_score*panel.effective_feature_weight
     metric=_dates(artifacts["aligned_metric_scores"]); mc=_metric_col(metric); sv=_value_col(metric,("metric_score","aligned_metric_score","score"))
-    metric=metric.rename(columns={mc:"metric",sv:"production_metric_score"}); metric=metric[metric.metric.isin(TARGET_METRICS)&metric.geo_id.isin(REVIEW_GEOS)]
+    metric=metric.rename(columns={mc:"metric",sv:"production_metric_score"}); metric=metric[metric.metric.isin(target_metrics)&metric.geo_id.isin(REVIEW_GEOS)]
     panel=panel.merge(metric[["geo_id","date","metric","production_metric_score"]],on=["geo_id","date","metric"],how="left",validate="many_to_one")
     replay=panel.groupby(["geo_id","date","metric"]).weighted_feature_contribution.sum(min_count=1)
     actual=metric.set_index(["geo_id","date","metric"]).production_metric_score.reindex(replay.index)
     if not np.allclose(replay,actual,equal_nan=True,atol=1e-12): raise ValueError("feature contributions do not reconstruct production metric scores")
-    dims=_dates(artifacts["dimension_scores"]); dims=dims[dims.dimension.eq("price")&dims.geo_id.isin(REVIEW_GEOS)].rename(columns={"dimension_score":"price_dimension_score"})
+    dimension_score=f"{dimension}_dimension_score"
+    dims=_dates(artifacts["dimension_scores"]); dims=dims[dims.dimension.eq(dimension)&dims.geo_id.isin(REVIEW_GEOS)].rename(columns={"dimension_score":dimension_score})
     wide=metric.pivot(index=["geo_id","date"],columns="metric",values="production_metric_score")
     weights=mreg.set_index("canonical_metric_key").metric_weight
     valid=wide.notna(); denom=valid.mul(weights).sum(axis=1); reconstructed=wide.mul(weights).sum(axis=1,min_count=1).div(denom)
-    observed=dims.set_index(["geo_id","date"]).price_dimension_score.reindex(reconstructed.index)
-    if not np.allclose(reconstructed,observed,equal_nan=True,atol=1e-12): raise ValueError("metric weights do not reconstruct Price dimension")
+    observed=dims.set_index(["geo_id","date"])[dimension_score].reindex(reconstructed.index)
+    if not np.allclose(reconstructed,observed,equal_nan=True,atol=1e-12): raise ValueError(f"metric weights do not reconstruct {dimension} dimension")
     statistics=[]
     for (metric_name,ft,geo),g in panel.groupby(["metric","feature_type","geo_id"]):
       for period,q in _periods(g): statistics.append({"metric":metric_name,"feature_type":ft,"geo_id":geo,"period":period,**_series_stats(q.normalized_feature_score,q.date)})
@@ -150,12 +156,12 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
     for (m,geo),g in metric.groupby(["metric","geo_id"]):
       for period,q in _periods(g): ms.append({"metric":m,"geo_id":geo,"period":period,**_series_stats(q.production_metric_score,q.date)})
     ds=[]
-    joined=wide.reset_index().merge(dims[["geo_id","date","price_dimension_score"]],on=["geo_id","date"])
+    joined=wide.reset_index().merge(dims[["geo_id","date",dimension_score]],on=["geo_id","date"])
     for geo,g in joined.groupby("geo_id"):
       for period,q in _periods(g):
-       st=_series_stats(q.price_dimension_score,q.date); gross=q[list(TARGET_METRICS)].abs().mul(weights).sum(axis=1); net=q.price_dimension_score.abs()
+       st=_series_stats(q[dimension_score],q.date); gross=q[list(target_metrics)].abs().mul(weights).sum(axis=1); net=q[dimension_score].abs()
        ds.append({"geo_id":geo,"period":period,**st,"mean_cancellation_ratio":(1-net.div(gross.replace(0,np.nan))).mean(),
-        "both_metrics_positive_rate":q[list(TARGET_METRICS)].gt(0).all(axis=1).mean()})
+        "both_metrics_positive_rate":q[list(target_metrics)].gt(0).all(axis=1).mean()})
     rel=[]
     merged=anatomy.merge(panel[["geo_id","date","metric","feature_type","normalized_feature_score"]],on=["geo_id","date","metric","feature_type"])
     for (m,ft,geo),g in merged.groupby(["metric","feature_type","geo_id"]):
@@ -174,11 +180,11 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
        "calendar_month_effect_range":bymonth.max()-bymonth.min(),"strongest_calendar_month":bymonth.abs().idxmax() if len(bymonth) else np.nan})
     coverage=raw.groupby(["metric","date"]).raw_value.agg(available_count=lambda x:x.notna().sum(),total_count="size").reset_index(); coverage["coverage_rate"]=coverage.available_count/len(REVIEW_GEOS)
     evaluation=pd.DataFrame([{"question":i,"status":"empirical_review_required","evidence":"review linked plots and tables; no automated recommendation"} for i in range(1,13)])
-    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"price_feature_anatomy_review_pending","automated_winner":False,"production_policy_changed":False}])
+    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":f"{dimension}_feature_anatomy_review_pending","automated_winner":False,"production_policy_changed":False}])
     return {"production_contract":contract,"raw_chronology":raw,"feature_anatomy":anatomy,"normalized_features":panel[["geo_id","date","metric","feature_type","feature_key","normalized_feature_score"]],
-      "feature_contributions":panel,"feature_statistics":fs,"metric_statistics":pd.DataFrame(ms),"price_dimension_statistics":pd.DataFrame(ds),
+      "feature_contributions":panel,"feature_statistics":fs,"metric_statistics":pd.DataFrame(ms),f"{dimension}_dimension_statistics":pd.DataFrame(ds),
       "raw_feature_relationship":pd.DataFrame(rel),"seasonality_noise":pd.DataFrame(season),"monthly_coverage":coverage,"evaluation_matrix":evaluation,"governance_status":governance,
-      "_dimension":joined}
+      "_dimension":joined,"_metadata":{"dimension":dimension,"target_metrics":target_metrics,"dimension_score":dimension_score}}
 
 def _pool(frame,value,groups):
     q=frame.copy(); q[value]=q.groupby(groups)[value].transform(lambda x:(x-x.mean())/x.std() if x.std() else np.nan)
@@ -218,11 +224,15 @@ def _plot(path: Path, panels, title, ylim=None):
     svg=f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" role="img"><title>{html.escape(title)}</title><rect width="100%" height="100%" fill="white"/><text x="20" y="30" font-family="sans-serif" font-size="20">{html.escape(title)}</text>{"".join(body)}</svg>'
     path.write_text(svg,encoding="utf-8")
 
-def write_review(tables: dict[str,pd.DataFrame], out: Path) -> None:
+def write_review(tables: dict[str,pd.DataFrame], out: Path, dimension: str = "price") -> None:
+    metadata=tables.get("_metadata", {"dimension":dimension,"target_metrics":TARGET_METRICS,"dimension_score":"price_dimension_score"})
+    dimension=metadata["dimension"]; target_metrics=metadata["target_metrics"]; dimension_score=metadata["dimension_score"]
+    prefix=f"{dimension}_phase1"
+    outputs=tuple(f"{dimension}_dimension_statistics" if n=="price_dimension_statistics" else n for n in OUTPUTS)
     out.mkdir(parents=True,exist_ok=True)
-    for name in OUTPUTS: tables[name].to_csv(out/f"price_phase1_{name}.csv",index=False)
+    for name in outputs: tables[name].to_csv(out/f"{prefix}_{name}.csv",index=False)
     plots=[]
-    for metric in TARGET_METRICS:
+    for metric in target_metrics:
       for scope in ("dc","seven_county_standardized"):
        a=tables["feature_anatomy"].query("metric==@metric"); n=tables["normalized_features"].query("metric==@metric"); c=tables["feature_contributions"].query("metric==@metric")
        def series(frame,value,ft=None):
@@ -236,14 +246,14 @@ def write_review(tables: dict[str,pd.DataFrame], out: Path) -> None:
         ("normalized",[(x.title(),series(n,"normalized_feature_score",x)) for x in ("level","short","long")],(-1,1)),
         ("contributions",[(x.title(),series(c,"weighted_feature_contribution",x)) for x in ("level","short","long")]+[("Metric",series(c,"production_metric_score"))],(-1,1))]
        for kind,panels,ylim in families:
-        fn=f"price_phase1_{metric}_{scope}_{kind}.svg"; _plot(out/fn,panels,f"{metric} — {scope.replace('_',' ')} — {kind}",ylim); plots.append(fn)
+        fn=f"{prefix}_{metric}_{scope}_{kind}.svg"; _plot(out/fn,panels,f"{metric} — {scope.replace('_',' ')} — {kind}",ylim); plots.append(fn)
     d=tables["_dimension"]
     for scope in ("dc","seven_county_standardized"):
       panels=[]
-      for col in (*TARGET_METRICS,"price_dimension_score"):
+      for col in (*target_metrics,dimension_score):
        q=d[["geo_id","date",col]].dropna()
        q=(q[q.geo_id.eq(DC)].rename(columns={col:"value"}) if scope=="dc" else _pool(q,col,["geo_id"]).rename(columns={col:"value"}))
        panels.append((col,q))
-      fn=f"price_phase1_price_family_{scope}_comparison.svg"; _plot(out/fn,panels,f"Price family — {scope.replace('_',' ')}",(-1,1)); plots.append(fn)
-    links=[f'<li><a href="{html.escape(p)}">{html.escape(p)}</a></li>' for p in [*(f"price_phase1_{n}.csv" for n in OUTPUTS),*plots]]
-    (out/"price_phase1_review_index.html").write_text("<!doctype html><meta charset=utf-8><title>Price Phase 1</title><h1>Price Feature Anatomy — Phase 1</h1><p>Diagnostic only; human review pending; production unchanged.</p><ul>"+"".join(links)+"</ul>",encoding="utf-8")
+      fn=f"{prefix}_{dimension}_family_{scope}_comparison.svg"; _plot(out/fn,panels,f"{dimension.title()} family — {scope.replace('_',' ')}",(-1,1)); plots.append(fn)
+    links=[f'<li><a href="{html.escape(p)}">{html.escape(p)}</a></li>' for p in [*(f"{prefix}_{n}.csv" for n in outputs),*plots]]
+    (out/f"{prefix}_review_index.html").write_text(f"<!doctype html><meta charset=utf-8><title>{dimension.title()} Phase 1</title><h1>{dimension.title()} Feature Anatomy — Phase 1</h1><p>Diagnostic only; human review pending; production unchanged.</p><ul>"+"".join(links)+"</ul>",encoding="utf-8")
