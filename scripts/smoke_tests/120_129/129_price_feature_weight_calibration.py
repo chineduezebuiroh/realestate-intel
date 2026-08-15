@@ -26,7 +26,7 @@ def fixture():
     for ft,v in vals.items():
      row={"geo_id":geo,"date":date,"canonical_metric_key":m,"feature_key":fkeys[m][ft],"raw_feature_value":raw if ft=="level" else v}
      features.append(row); normalized.append({**row,"feature_score":v})
-    available={k:v for k,v in vals.items() if pd.notna(v)}; denom=sum({"level":.5,"short":.25,"long":.25}[k] for k in available); score=sum(v*{"level":.5,"short":.25,"long":.25}[k]/denom for k,v in available.items()); scores.append(score)
+    available={k:v for k,v in vals.items() if pd.notna(v)}; denom=sum({"level":.35,"short":.20,"long":.45}[k] for k in available); score=sum(v*{"level":.35,"short":.20,"long":.45}[k]/denom for k,v in available.items()); scores.append(score)
     metrics.append({"geo_id":geo,"evaluation_date":date,"canonical_metric_key":m,"metric_score":score})
    dims.append({"geo_id":geo,"date":date,"dimension":"price","dimension_score":sum(scores)/2})
    axes.append({"geo_id":geo,"date":date,"axis":"demand","axis_score":.65*np.sin(i/11)+.175*sum(scores)/2})

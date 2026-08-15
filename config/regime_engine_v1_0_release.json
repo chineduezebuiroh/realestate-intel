@@ -10,7 +10,8 @@
     "config/metric_dimension_registry.csv",
     "config/axis_registry.csv",
     "config/normalization_registry.csv",
-    "config/derived_input_freshness_registry.csv"
+    "config/derived_input_freshness_registry.csv",
+    "config/price_policy_promotion_2026_08_15.json"
   ],
   "decision_documents": [
     "docs/adr/ADR-001-feature-transform-governance.md",
@@ -30,6 +31,7 @@
     "scripts/smoke_tests/90_99/105_bps_finalist_incremental_value.py",
     "scripts/smoke_tests/90_99/104_pandas_monthly_frequency_compatibility.py",
     "scripts/smoke_tests/90_99/97_settled_ma12_feature_policy_promotion.py",
+    "scripts/smoke_tests/130_139/132_price_ma12_p6_production_promotion.py",
     "scripts/smoke_tests/90_99/95_capital_markets_ma_decomposition.py",
     "scripts/smoke_tests/50_59/56_affordability_derivation_order.py",
     "scripts/smoke_tests/50_59/57_affordability_feature_weights.py",

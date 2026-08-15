@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = ROOT / "config/regime_engine_v1_0_release.json"
 
 FEATURE_POLICIES = {
-    "redfin_median_sale_price": ("ma_level", "12m", .50, "ma_pct_change", "12m/lag3m", .25, "ma_pct_change", "12m/lag12m", .25),
-    "redfin_median_ppsf": ("ma_level", "12m", .50, "ma_pct_change", "12m/lag3m", .25, "ma_pct_change", "12m/lag12m", .25),
+    "redfin_median_sale_price": ("ma_level", "12m", .35, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .45),
+    "redfin_median_ppsf": ("ma_level", "12m", .35, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .45),
     "redfin_inventory": ("ma_level", "12m", .50, "ma_pct_change", "12m/lag3m", .25, "ma_pct_change", "12m/lag12m", .25),
     "bps_total_units": ("ma_level", "12m", .80, "ma_pct_change", "12m/lag6m", .10, "ma_pct_change", "12m/lag12m", .10),
     "derived_permit_intensity": ("ma_level", "12m", .50, "ma_pct_change", "12m/lag3m", .25, "ma_pct_change", "12m/lag12m", .25),
