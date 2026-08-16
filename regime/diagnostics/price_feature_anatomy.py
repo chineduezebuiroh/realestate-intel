@@ -124,8 +124,23 @@ def _periods(g):
 def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price") -> dict[str,pd.DataFrame]:
     contract,mreg=resolve_contract(root, dimension); target_metrics=tuple(sorted(contract.metric.unique())); fmap=contract.set_index("feature_key")[["metric","feature_type","configured_feature_weight"]]
     raw=_dates(artifacts["source_metrics"]); mc=_metric_col(raw); val=_value_col(raw,("value","metric_value","raw_value"))
-    raw=raw.rename(columns={mc:"registry_metric_key",val:"raw_value"}).merge(contract[["metric","registry_metric_key"]].drop_duplicates(),on="registry_metric_key",how="inner")
+    # Persisted source artifacts may identify the same governed observation by
+    # either its registry key or its canonical metric.  Resolve both forms at
+    # the artifact boundary and immediately expose only diagnostic ``metric``.
+    registry_identities=contract[["registry_metric_key","metric"]].drop_duplicates()
+    canonical_identities=(contract[["metric"]]
+        .assign(registry_metric_key=lambda q:q["metric"])
+        [["registry_metric_key","metric"]])
+    identities=pd.concat([registry_identities,canonical_identities],ignore_index=True).drop_duplicates()
+    ambiguous=identities.groupby("registry_metric_key").metric.nunique()
+    ambiguous=ambiguous[ambiguous.gt(1)]
+    if not ambiguous.empty:
+        raise ValueError(f"ambiguous raw source metric identities: {sorted(ambiguous.index)}")
+    raw=(raw.rename(columns={mc:"registry_metric_key",val:"raw_value"})
+        .merge(identities,on="registry_metric_key",how="inner",validate="many_to_one"))
     raw=raw[raw.geo_id.isin(REVIEW_GEOS)][["geo_id","date","metric","raw_value"]]
+    missing=set(target_metrics).difference(raw.metric.unique())
+    if missing: raise ValueError(f"governed raw metrics missing after identity resolution: {sorted(missing)}")
     if raw.duplicated(["geo_id","date","metric"]).any(): raise ValueError("duplicate raw monthly chronology")
     raw=_calendar(raw,["geo_id","metric"]).sort_values(["metric","geo_id","date"])
     features=_dates(artifacts["features"]); features=features[features.feature_key.isin(fmap.index)&features.geo_id.isin(REVIEW_GEOS)]

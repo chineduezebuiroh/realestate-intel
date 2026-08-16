@@ -9,7 +9,6 @@ from scripts.build_supply_feature_anatomy_diagnostic import DEFAULT_RUN
 
 def fixture(reverse=False):
  dates=pd.date_range("2022-08-31",periods=48,freq="ME"); source=[]; features=[]; normalized=[]; native=[]; aligned=[]; dims=[]
- keys={"active_inventory":"redfin_inventory","permit_activity":"bps_total_units","permit_intensity":"derived_permit_intensity"}
  fkeys={"active_inventory":{"level":"redfin_inventory_level","short":"redfin_inventory_short","long":"redfin_inventory_long"},"permit_activity":{"level":"bps_total_units_level","short":"bps_total_units_short","long":"bps_total_units_long"},"permit_intensity":{"level":"permit_intensity_level","short":"permit_intensity_short","long":"permit_intensity_long"}}
  fw={"active_inventory":{"level":.5,"short":.25,"long":.25},"permit_activity":{"level":.8,"short":.1,"long":.1},"permit_intensity":{"level":.5,"short":.25,"long":.25}}
  for j,geo in enumerate(REVIEW_GEOS):
@@ -18,7 +17,7 @@ def fixture(reverse=False):
    for i,date in enumerate(dates):
     native_date=date.to_period("M").to_timestamp() if m.startswith("permit_") else date
     raw=(100+mi*20)*(1+.002*i)+10*np.sin(i/6+mi*.2)+j
-    if not (j==1 and m=="active_inventory" and i==30): source.append({"geo_id":geo,"date":native_date,"metric_key":keys[m],"value":raw})
+    if not (j==1 and m=="active_inventory" and i==30): source.append({"geo_id":geo,"date":native_date,"canonical_metric_key":m,"value":raw})
     scores={"level":np.tanh((i-30)/25),"short":.7*np.sin(i/3+mi*.2),"long":.8*np.sin(i/9+mi*.3)}
     score=sum(scores[k]*fw[m][k] for k in scores); bydate.setdefault(date,{})[m]=score
     # Inventory deliberately has no native feature/metric rows in the last two
@@ -51,7 +50,8 @@ def main():
  assert len(tables["cross_metric_relationship"].query("period=='full_history'"))==21
  assert len(tables["permit_family_overlap"].query("period=='full_history'"))==7
  assert len(tables["dimension_contribution_structure"].query("period=='full_history'"))==7
- raw=tables["raw_chronology"]; gap=raw[(raw.geo_id==REVIEW_GEOS[1]) & (raw.metric=="active_inventory") & (raw.date==pd.Timestamp("2025-02-28"))]; assert len(gap)==1 and gap.raw_value.isna().all()
+ raw=tables["raw_chronology"]; assert set(raw.metric.unique())==set(EXPECTED_METRICS)
+ gap=raw[(raw.geo_id==REVIEW_GEOS[1]) & (raw.metric=="active_inventory") & (raw.date==pd.Timestamp("2025-02-28"))]; assert len(gap)==1 and gap.raw_value.isna().all()
  replay=tables["feature_contributions"].groupby(["geo_id","date","metric"]).weighted_feature_contribution.sum(); actual=tables["feature_contributions"].drop_duplicates(["geo_id","date","metric"]).set_index(["geo_id","date","metric"]).production_metric_score.reindex(replay.index); assert np.allclose(replay,actual)
  permit_native=tables["feature_contributions"].query("metric=='permit_activity'"); assert permit_native.date.dt.is_month_start.all()
  permit_aligned=tables["_aligned_metrics"].query("metric=='permit_activity'"); assert permit_aligned.date.dt.is_month_end.all() and permit_aligned.metric_date.dt.is_month_start.all()
@@ -64,6 +64,14 @@ def main():
   out=Path(tmp); write_review(tables,out); assert all((out/f"supply_phase1_{name}.csv").is_file() for name in OUTPUTS); svgs=list(out.glob("*.svg")); assert len(svgs)==24 and all("<path" in p.read_text() for p in svgs)
   assert "different incumbent feature policies" in (out/"supply_phase1_review_index.html").read_text()
  assert before=={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in protected}
+ missing=fixture(); missing["source_metrics"]=missing["source_metrics"].query("canonical_metric_key != 'permit_intensity'")
+ try: build(missing,Path("."))
+ except ValueError as exc: assert "governed raw metrics missing" in str(exc)
+ else: raise AssertionError("missing governed raw metric did not fail closed")
+ duplicate=fixture(); duplicate["source_metrics"]=pd.concat([duplicate["source_metrics"],duplicate["source_metrics"].iloc[[0]]],ignore_index=True)
+ try: build(duplicate,Path("."))
+ except ValueError as exc: assert "duplicate raw monthly chronology" in str(exc)
+ else: raise AssertionError("duplicate canonical raw row did not fail closed")
  try: load_run(Path("/absent/governed-production-run"))
  except FileNotFoundError: pass
  else: raise AssertionError("authoritative input did not fail closed")
