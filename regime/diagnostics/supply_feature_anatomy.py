@@ -20,7 +20,7 @@ REVIEW_GEOS = canonical.REVIEW_GEOS
 DC = canonical.DC
 OUTPUTS = (
     "production_contract", "raw_chronology", "feature_anatomy", "normalized_features",
-    "feature_contributions", "feature_statistics", "metric_statistics",
+    "feature_contributions", "aligned_metric_scores", "feature_statistics", "metric_statistics",
     "supply_dimension_statistics", "monthly_coverage", "seasonality_noise",
     "raw_feature_relationship", "cross_metric_relationship", "permit_family_overlap",
     "dimension_contribution_structure", "evaluation_matrix", "governance_status",
@@ -113,7 +113,7 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
     provenance=notes.map(lambda value: "" if pd.isna(value) else str(value).strip())
     tables["production_contract"]["feature_policy_provenance"]=[value or "governed registry; no explicit promotion metadata" for value in provenance]
     tables["production_contract"]["prior_explicit_calibration_or_promotion"]=[any(token in value.lower() for token in ("promoted","promotion","calibrat")) for value in provenance]
-    metric=tables["feature_contributions"][["geo_id","date","metric","production_metric_score"]].drop_duplicates()
+    metric=tables["_aligned_metrics"].rename(columns={"aligned_metric_score":"production_metric_score"})
     tables["cross_metric_relationship"]=pd.DataFrame(_relationship_rows(metric,tables["feature_contributions"],tables["raw_chronology"]))
     tables["permit_family_overlap"]=_permit_overlap(metric,tables["feature_contributions"])
     tables["dimension_contribution_structure"]=_structure(metric)
@@ -148,7 +148,7 @@ def write_review(tables: dict[str, pd.DataFrame], out: Path) -> None:
     # its additional family tables under the same deterministic prefix.
     for name in OUTPUTS:
       tables[name].to_csv(out/f"{prefix}_{name}.csv",index=False)
-    metric=tables["feature_contributions"][["geo_id","date","metric","production_metric_score"]].drop_duplicates()
+    metric=tables["_aligned_metrics"].rename(columns={"aligned_metric_score":"production_metric_score"})
     wide=metric.pivot(index=["geo_id","date"],columns="metric",values="production_metric_score").reset_index()
     wide=wide.merge(tables["_dimension"][["geo_id","date","supply_dimension_score"]],on=["geo_id","date"])
     for scope in ("dc","seven_county_standardized"):
