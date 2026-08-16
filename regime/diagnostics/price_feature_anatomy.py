@@ -24,7 +24,7 @@ REVIEW_GEOS = (
 DC = REVIEW_GEOS[0]
 OUTPUTS = (
  "production_contract","raw_chronology","feature_anatomy","normalized_features",
- "feature_contributions","feature_statistics","metric_statistics",
+ "feature_contributions","aligned_metric_scores","feature_statistics","metric_statistics",
  "price_dimension_statistics","raw_feature_relationship","seasonality_noise",
  "monthly_coverage","evaluation_matrix","governance_status",
 )
@@ -79,7 +79,7 @@ def _read(run: Path, name: str) -> pd.DataFrame:
 
 def load_run(run: Path) -> dict[str,pd.DataFrame]:
     if not run.is_dir(): raise FileNotFoundError(f"authoritative production run unavailable; no substitution: {run}")
-    return {n:_read(run,n) for n in ("source_metrics","features","normalized_features","aligned_metric_scores","dimension_scores")}
+    return {n:_read(run,n) for n in ("source_metrics","features","normalized_features","metric_scores","aligned_metric_scores","dimension_scores")}
 
 def _dates(frame: pd.DataFrame) -> pd.DataFrame:
     q=frame.copy(); col=next((x for x in ("date","evaluation_date","metric_date") if x in q),None)
@@ -140,15 +140,28 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price
     available=panel.normalized_feature_score.notna(); totals=panel.configured_feature_weight.where(available,0).groupby([panel.geo_id,panel.date,panel.metric]).transform("sum")
     panel["effective_feature_weight"]=panel.configured_feature_weight.div(totals).where(available)
     panel["weighted_feature_contribution"]=panel.normalized_feature_score*panel.effective_feature_weight
-    metric=_dates(artifacts["aligned_metric_scores"]); mc=_metric_col(metric); sv=_value_col(metric,("metric_score","aligned_metric_score","score"))
+    # Feature arithmetic lives at the native scoring identity.  It must be
+    # reconciled to metric_scores, not to the later as-of alignment surface.
+    metric=_dates(artifacts["metric_scores"]); mc=_metric_col(metric); sv=_value_col(metric,("metric_score","score"))
     metric=metric.rename(columns={mc:"metric",sv:"production_metric_score"}); metric=metric[metric.metric.isin(target_metrics)&metric.geo_id.isin(REVIEW_GEOS)]
     panel=panel.merge(metric[["geo_id","date","metric","production_metric_score"]],on=["geo_id","date","metric"],how="left",validate="many_to_one")
+    panel["native_metric_date"]=panel["date"]
+    panel["native_metric_score"]=panel["production_metric_score"]
     replay=panel.groupby(["geo_id","date","metric"]).weighted_feature_contribution.sum(min_count=1)
     actual=metric.set_index(["geo_id","date","metric"]).production_metric_score.reindex(replay.index)
     if not np.allclose(replay,actual,equal_nan=True,atol=1e-12): raise ValueError("feature contributions do not reconstruct production metric scores")
+    # Dimensions consume the common month-end, backward-as-of metric surface.
+    # Keep its evaluation and native metric identities distinct in evidence.
+    aligned=artifacts["aligned_metric_scores"].copy(); mc=_metric_col(aligned); sv=_value_col(aligned,("metric_score","aligned_metric_score","score"))
+    eval_col="evaluation_date" if "evaluation_date" in aligned else "date"
+    aligned=aligned.rename(columns={mc:"metric",sv:"aligned_metric_score",eval_col:"date"})
+    aligned["date"]=pd.to_datetime(aligned["date"],errors="raise")
+    if "metric_date" not in aligned: aligned["metric_date"]=aligned["date"]
+    aligned["metric_date"]=pd.to_datetime(aligned["metric_date"],errors="raise")
+    aligned=aligned[aligned.metric.isin(target_metrics)&aligned.geo_id.isin(REVIEW_GEOS)]
     dimension_score=f"{dimension}_dimension_score"
     dims=_dates(artifacts["dimension_scores"]); dims=dims[dims.dimension.eq(dimension)&dims.geo_id.isin(REVIEW_GEOS)].rename(columns={"dimension_score":dimension_score})
-    wide=metric.pivot(index=["geo_id","date"],columns="metric",values="production_metric_score")
+    wide=aligned.pivot(index=["geo_id","date"],columns="metric",values="aligned_metric_score")
     weights=mreg.set_index("canonical_metric_key").metric_weight
     valid=wide.notna(); denom=valid.mul(weights).sum(axis=1); reconstructed=wide.mul(weights).sum(axis=1,min_count=1).div(denom)
     observed=dims.set_index(["geo_id","date"])[dimension_score].reindex(reconstructed.index)
@@ -195,7 +208,9 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price
     return {"production_contract":contract,"raw_chronology":raw,"feature_anatomy":anatomy,"normalized_features":panel[["geo_id","date","metric","feature_type","feature_key","normalized_feature_score"]],
       "feature_contributions":panel,"feature_statistics":fs,"metric_statistics":pd.DataFrame(ms),f"{dimension}_dimension_statistics":pd.DataFrame(ds),
       "raw_feature_relationship":pd.DataFrame(rel),"seasonality_noise":pd.DataFrame(season),"monthly_coverage":coverage,"evaluation_matrix":evaluation,"governance_status":governance,
-      "_dimension":joined,"_metadata":{"dimension":dimension,"target_metrics":target_metrics,"dimension_score":dimension_score}}
+      "aligned_metric_scores":aligned[["geo_id","date","metric","metric_date","aligned_metric_score"]].rename(columns={"date":"evaluation_date","metric_date":"native_metric_date"}),
+      "_dimension":joined,"_aligned_metrics":aligned[["geo_id","date","metric","metric_date","aligned_metric_score"]],
+      "_metadata":{"dimension":dimension,"target_metrics":target_metrics,"dimension_score":dimension_score}}
 
 def _pool(frame,value,groups):
     q=frame.copy(); q[value]=q.groupby(groups)[value].transform(lambda x:(x-x.mean())/x.std() if x.std() else np.nan)

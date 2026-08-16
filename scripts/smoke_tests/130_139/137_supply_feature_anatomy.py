@@ -8,7 +8,7 @@ from regime.diagnostics.supply_feature_anatomy import EXPECTED_METRICS,EXPECTED_
 from scripts.build_supply_feature_anatomy_diagnostic import DEFAULT_RUN
 
 def fixture(reverse=False):
- dates=pd.date_range("2019-01-31",periods=48,freq="ME"); source=[]; features=[]; normalized=[]; metrics=[]; dims=[]
+ dates=pd.date_range("2022-08-31",periods=48,freq="ME"); source=[]; features=[]; normalized=[]; native=[]; aligned=[]; dims=[]
  keys={"active_inventory":"redfin_inventory","permit_activity":"bps_total_units","permit_intensity":"derived_permit_intensity"}
  fkeys={"active_inventory":{"level":"redfin_inventory_level","short":"redfin_inventory_short","long":"redfin_inventory_long"},"permit_activity":{"level":"bps_total_units_level","short":"bps_total_units_short","long":"bps_total_units_long"},"permit_intensity":{"level":"permit_intensity_level","short":"permit_intensity_short","long":"permit_intensity_long"}}
  fw={"active_inventory":{"level":.5,"short":.25,"long":.25},"permit_activity":{"level":.8,"short":.1,"long":.1},"permit_intensity":{"level":.5,"short":.25,"long":.25}}
@@ -16,16 +16,25 @@ def fixture(reverse=False):
   bydate={}
   for mi,m in enumerate(EXPECTED_METRICS):
    for i,date in enumerate(dates):
+    native_date=date.to_period("M").to_timestamp() if m.startswith("permit_") else date
     raw=(100+mi*20)*(1+.002*i)+10*np.sin(i/6+mi*.2)+j
-    if not (j==1 and m=="active_inventory" and i==30): source.append({"geo_id":geo,"date":date,"metric_key":keys[m],"value":raw})
+    if not (j==1 and m=="active_inventory" and i==30): source.append({"geo_id":geo,"date":native_date,"metric_key":keys[m],"value":raw})
     scores={"level":np.tanh((i-30)/25),"short":.7*np.sin(i/3+mi*.2),"long":.8*np.sin(i/9+mi*.3)}
     score=sum(scores[k]*fw[m][k] for k in scores); bydate.setdefault(date,{})[m]=score
-    for ft in scores:
-     row={"geo_id":geo,"date":date,"feature_key":fkeys[m][ft],"raw_feature_value":raw*(1 if ft=="level" else .01*np.sin(i/(3 if ft=="short" else 9)))}
-     features.append(row); normalized.append({**row,"feature_score":scores[ft]})
-    metrics.append({"geo_id":geo,"evaluation_date":date,"canonical_metric_key":m,"metric_score":score})
+    # Inventory deliberately has no native feature/metric rows in the last two
+    # evaluation months; the alignment layer legitimately carries May forward.
+    has_native=not (m=="active_inventory" and i>=46)
+    if has_native:
+     for ft in scores:
+      row={"geo_id":geo,"date":native_date,"feature_key":fkeys[m][ft],"raw_feature_value":raw*(1 if ft=="level" else .01*np.sin(i/(3 if ft=="short" else 9)))}
+      features.append(row); normalized.append({**row,"feature_score":scores[ft]})
+     native.append({"geo_id":geo,"date":native_date,"canonical_metric_key":m,"metric_score":score})
+    aligned_score=score if has_native else bydate[dates[45]][m]
+    aligned_date=native_date if has_native else dates[45]
+    aligned.append({"geo_id":geo,"evaluation_date":date,"metric_date":aligned_date,"canonical_metric_key":m,"metric_score":aligned_score})
+    bydate[date][m]=aligned_score
   for date,values in bydate.items(): dims.append({"geo_id":geo,"date":date,"dimension":"supply","dimension_score":sum(values[m]*EXPECTED_WEIGHTS[m] for m in EXPECTED_METRICS)})
- frames={"source_metrics":pd.DataFrame(source),"features":pd.DataFrame(features),"normalized_features":pd.DataFrame(normalized),"aligned_metric_scores":pd.DataFrame(metrics),"dimension_scores":pd.DataFrame(dims)}
+ frames={"source_metrics":pd.DataFrame(source),"features":pd.DataFrame(features),"normalized_features":pd.DataFrame(normalized),"metric_scores":pd.DataFrame(native),"aligned_metric_scores":pd.DataFrame(aligned),"dimension_scores":pd.DataFrame(dims)}
  if reverse:
   frames={k:v.iloc[::-1].reset_index(drop=True) for k,v in frames.items()}
  return frames
@@ -42,8 +51,13 @@ def main():
  assert len(tables["cross_metric_relationship"].query("period=='full_history'"))==21
  assert len(tables["permit_family_overlap"].query("period=='full_history'"))==7
  assert len(tables["dimension_contribution_structure"].query("period=='full_history'"))==7
- raw=tables["raw_chronology"]; gap=raw[(raw.geo_id==REVIEW_GEOS[1]) & (raw.metric=="active_inventory") & (raw.date==pd.Timestamp("2021-07-31"))]; assert len(gap)==1 and gap.raw_value.isna().all()
+ raw=tables["raw_chronology"]; gap=raw[(raw.geo_id==REVIEW_GEOS[1]) & (raw.metric=="active_inventory") & (raw.date==pd.Timestamp("2025-02-28"))]; assert len(gap)==1 and gap.raw_value.isna().all()
  replay=tables["feature_contributions"].groupby(["geo_id","date","metric"]).weighted_feature_contribution.sum(); actual=tables["feature_contributions"].drop_duplicates(["geo_id","date","metric"]).set_index(["geo_id","date","metric"]).production_metric_score.reindex(replay.index); assert np.allclose(replay,actual)
+ permit_native=tables["feature_contributions"].query("metric=='permit_activity'"); assert permit_native.date.dt.is_month_start.all()
+ permit_aligned=tables["_aligned_metrics"].query("metric=='permit_activity'"); assert permit_aligned.date.dt.is_month_end.all() and permit_aligned.metric_date.dt.is_month_start.all()
+ inventory_aligned=tables["_aligned_metrics"].query("metric=='active_inventory'").sort_values("date"); tail=inventory_aligned.groupby("geo_id").tail(2)
+ assert set(tail.date.dt.strftime("%Y-%m-%d"))=={"2026-06-30","2026-07-31"}
+ assert (tail.date>tail.metric_date).all() and not tables["feature_contributions"].merge(tail[["geo_id","date","metric"]],on=["geo_id","date","metric"]).shape[0]
  reverse=build(fixture(True),Path(".")); pd.testing.assert_frame_equal(tables["cross_metric_relationship"].reset_index(drop=True),reverse["cross_metric_relationship"].reset_index(drop=True))
  gov=tables["governance_status"].iloc[0]; assert gov.recommendation_state=="none" and not gov.production_policy_changed and not gov.metric_weight_policy_changed and not gov.capital_markets_changed
  with tempfile.TemporaryDirectory() as tmp:

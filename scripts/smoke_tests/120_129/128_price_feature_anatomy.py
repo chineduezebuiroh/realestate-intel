@@ -29,7 +29,9 @@ def fixture():
   for i,date in enumerate(dates):
    vals=[x["metric_score"] for x in metrics if x["geo_id"]==geo and x["evaluation_date"]==date]
    dims.append({"geo_id":geo,"date":date,"dimension":"price","dimension_score":sum(vals)/2})
- return {"source_metrics":pd.DataFrame(source),"features":pd.DataFrame(features),"normalized_features":pd.DataFrame(normalized),"aligned_metric_scores":pd.DataFrame(metrics),"dimension_scores":pd.DataFrame(dims)}
+ native=pd.DataFrame(metrics).rename(columns={"evaluation_date":"date"})
+ aligned=pd.DataFrame(metrics); aligned["metric_date"]=aligned["evaluation_date"]
+ return {"source_metrics":pd.DataFrame(source),"features":pd.DataFrame(features),"normalized_features":pd.DataFrame(normalized),"metric_scores":native,"aligned_metric_scores":aligned,"dimension_scores":pd.DataFrame(dims)}
 
 def main():
  protected=[Path("config/feature_registry.csv"),Path("config/metric_dimension_registry.csv"),Path("config/axis_registry.csv"),Path("config/normalization_registry.csv")]
