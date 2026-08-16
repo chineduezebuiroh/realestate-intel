@@ -161,9 +161,46 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
     material=[]
     for (sid,g),q in axis.groupby(["scenario_id","geo_id"]):
         for period,p in _periods(q):
-            candidate_turns=detect_turning_points(p,"demand_axis_score",persistence=PERSISTENCE)
-            control_turns=detect_turning_points(p,"control",persistence=PERSISTENCE)
-            material.append({"scenario_id":sid,"geo_id":g,"period":period,"correlation_to_MA12__P6":p.demand_axis_score.corr(p.control),"sign_changes":int((np.sign(p.demand_axis_score)!=np.sign(p.control)).sum()),"direction_changes":int((np.sign(p.demand_axis_score.diff())!=np.sign(p.control.diff())).sum()),"turning_point_changes":int(candidate_turns.qualified.sum()-control_turns.qualified.sum())})
+            candidate_turns=detect_turning_points(
+                p,
+                "demand_axis_score",
+                persistence=PERSISTENCE,
+            )
+            control_turns=detect_turning_points(
+                p,
+                "control",
+                persistence=PERSISTENCE,
+            )
+
+            candidate_count=(
+                int(candidate_turns["qualified"].sum())
+                if "qualified" in candidate_turns.columns
+                else 0
+            )
+
+            control_count=(
+                int(control_turns["qualified"].sum())
+                if "qualified" in control_turns.columns
+                else 0
+            )
+
+            material.append({
+                "scenario_id":sid,
+                "geo_id":g,
+                "period":period,
+                "correlation_to_MA12__P6":p.demand_axis_score.corr(p.control),
+                "sign_changes":int(
+                    (np.sign(p.demand_axis_score)!=np.sign(p.control)).sum()
+                ),
+                "direction_changes":int(
+                    (
+                        np.sign(p.demand_axis_score.diff())
+                        !=
+                        np.sign(p.control.diff())
+                    ).sum()
+                ),
+                "turning_point_changes":candidate_count-control_count,
+            })
     axisstats=axisstats.merge(pd.DataFrame(material),on=["scenario_id","geo_id","period"])
     evaluation=pd.DataFrame([{"decision_step":x,"status":"empirical_review_required","automated_winner":False} for x in ("raw_cycle_preservation","effective_delay","stability_cost","county_robustness","cross_metric_consistency","P6_robust_to_MA")])
     governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"price_final_ma_review_pending","automated_winner":False,"production_policy_changed":False,"detector_persistence":2,"candidate_grid_closed":True}])
