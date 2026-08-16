@@ -14,7 +14,7 @@ def fixture():
  dates=pd.date_range("2019-01-31",periods=84,freq="ME"); source=[]; features=[]; normalized=[]; metrics=[]; dims=[]
  keys={"price_to_income":"derived_price_to_income","payment_burden":"derived_payment_burden"}
  fkeys={m:{"level":f"{m}_level","short":f"{m}_short","long":f"{m}_long"} for m in TARGET_METRICS}
- weights={"level":.50,"short":.20,"long":.30}
+ weights={"level":.35,"short":.20,"long":.45}
  for j,geo in enumerate(REVIEW_GEOS):
   for mi,m in enumerate(TARGET_METRICS):
    for i,date in enumerate(dates):

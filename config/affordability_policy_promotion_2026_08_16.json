@@ -1,0 +1,18 @@
+{
+  "decision_id": "affordability_ma12_p4_2026_08_16",
+  "decision_date": "2026-08-16",
+  "selected_policy": "MA12/P4",
+  "human_decision": "approved",
+  "promotion_state": "promoted",
+  "calibration_state": "closed",
+  "automated_winner": false,
+  "metrics": ["price_to_income", "payment_burden"],
+  "derive_first": true,
+  "level_window_months": 12,
+  "short_lag_months": 3,
+  "long_lag_months": 12,
+  "feature_weights": {"level": 0.35, "short": 0.20, "long": 0.45},
+  "supersedes": "AFF-FW-A (50/20/30)",
+  "revisit_only_for": ["changed source architecture", "changed metric definition", "material out-of-sample failure", "CBSA-specific evidence invalidating county behavior", "structural data-frequency change"],
+  "explicit_non_changes": ["metric weights", "Affordability dimension weight", "Demand-axis weights", "normalization", "Price", "Labor", "Supply", "Capital Markets"]
+}

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Smoke 135: final Affordability MA closed-grid and fail-closed contracts."""
 from pathlib import Path
-import hashlib,tempfile
+import hashlib,tempfile,re
 import numpy as np,pandas as pd
 from regime._01_feature_engine import _compute_feature
 from regime.diagnostics.affordability_feature_weight_calibration import REVIEW_GEOS,TARGET_METRICS
@@ -30,7 +30,19 @@ g=t['governance_status'].iloc[0]; assert g.raw_cycle_orientation=='governed' and
 q=pd.DataFrame({'date':pd.date_range('2020-01-31',periods=22,freq='ME'),'value':np.arange(22.),'metric_origin':'x'}); q.loc[5,'value']=np.nan
 assert _compute_feature(q,'ma_level','9m','x').iloc[:8].isna().all(); assert _compute_feature(q,'ma_pct_change','9m/lag3m','x').iloc[:11].isna().all(); assert _compute_feature(q,'ma_pct_change','9m/lag12m','x').iloc[:20].isna().all()
 with tempfile.TemporaryDirectory() as d:
- out=Path(d); write_review(t,out); assert all((out/f'affordability_final_ma_{x}.csv').is_file() for x in EXPORTS); assert all('<path' in p.read_text() and ('<circle' in p.read_text() or 'effect_response' in p.name) for p in out.glob('*.svg'))
+ out=Path(d); write_review(t,out); assert all((out/f'affordability_final_ma_{x}.csv').is_file() for x in EXPORTS)
+ svgs=list(out.glob('*.svg')); assert svgs
+ for p in svgs:
+  text=p.read_text().lower(); assert '<path' in text and not re.search(r'(?<![a-z])(nan|[+-]?inf)(?![a-z])',text)
+  coords=[float(x) for x in re.findall(r'(?<=[ml ])-?\d+(?:\.\d+)?',text)]; assert coords and all(np.isfinite(coords))
+ chronology=next(out.glob('*price_to_income_dc_chronology.svg')).read_text(); assert chronology.count('class="series"')==4 and len(set(re.findall(r'd="([^"]+)"',chronology)))>=4
+ # Row-order changes cannot affect deterministic rendering.
+ shuffled={k:(v.sample(frac=1,random_state=7).reset_index(drop=True) if isinstance(v,pd.DataFrame) else v) for k,v in t.items()}
+ out2=out/'reordered'; write_review(shuffled,out2); assert (out2/'affordability_final_ma_price_to_income_dc_chronology.svg').read_bytes()==(out/'affordability_final_ma_price_to_income_dc_chronology.svg').read_bytes()
+ # Missing calendar months create separate SVG path subpaths rather than bridges.
+ damaged={**t}; damaged['metric_chronology']=t['metric_chronology'].copy(); mask=(damaged['metric_chronology'].scenario_id=='MA12__P3')&(damaged['metric_chronology'].metric=='price_to_income')&(damaged['metric_chronology'].geo_id==REVIEW_GEOS[0]); idx=damaged['metric_chronology'][mask].index[30]; damaged['metric_chronology'].loc[idx,'metric_score']=np.nan
+ out3=out/'gap'; write_review(damaged,out3); gap=(out3/'affordability_final_ma_price_to_income_dc_chronology.svg').read_text(); p3=re.search(r'data-series="MA12__P3" d="([^"]+)"',gap).group(1); assert p3.count('M')>=2
+ assert 'independent y-domains' in (out/'affordability_final_ma_price_to_income_dc_raw_cycle.svg').read_text()
  try: load_run(out/'missing')
  except FileNotFoundError as e: assert 'no substitute permitted' in str(e)
  else: raise AssertionError('did not fail closed')

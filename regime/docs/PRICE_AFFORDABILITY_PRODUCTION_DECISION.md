@@ -47,33 +47,20 @@ machine-readable decision is
 and the exact production rows are in
 [`config/feature_registry.csv`](../../config/feature_registry.csv).
 
-## Current Affordability incumbent — preserved, pending future recalibration
+## Current Affordability production policy — promoted (2026-08-16)
 
-The Price promotion does **not** resolve, rewrite, or recalibrate Affordability.
-The repository currently has a separately governed Affordability incumbent:
-`AFF-FW-A`, with Level/Short/Long weights of `0.50 / 0.20 / 0.30` for both
-`price_to_income` and `payment_burden`. This is the **current incumbent pending
-any future recalibration**, not a decision made by the Price promotion. Its
-governing decision source is
-[`docs/decisions/affordability_production_policy.md`](../../docs/decisions/affordability_production_policy.md),
-and its machine-readable feature rows are in
-[`config/feature_registry.csv`](../../config/feature_registry.csv).
+Affordability calibration is closed at human-approved `MA12/P4`, with
+Level/Short/Long weights `0.35 / 0.20 / 0.45` for exactly `price_to_income` and
+`payment_burden`. The former `AFF-FW-A` 50/20/30 policy is superseded while its
+historical evidence remains preserved.
 
-The incumbent Affordability lineage remains derive-first:
-
-- `price_to_income` is derived from raw `median_sale_price` and canonical
-  forward-filled household income;
-- `payment_burden` is derived from those inputs plus raw canonical monthly
-  `mortgage_30y`;
-- the derived series are then transformed into full-window MA12 level,
-  MA12/lag3 short, and MA12/lag12 long features;
-- there is no new income smoothing, no mortgage smoothing before derivation,
-  and no substitution of the Capital Markets mortgage structural state across
-  this boundary.
-
-Accordingly, the Price promotion changes neither the status, feature policy,
-formulas, linked Price-to-Affordability lineage, normalization, metric weights,
-nor dimension weights of `price_to_income` or `payment_burden`.
+The lineage remains derive-first: raw governed Price and canonical forward-filled
+income produce price-to-income; payment burden additionally consumes the canonical
+raw monthly `mortgage_30y`; only then are MA12 level, lag-3 ratio, and lag-12 ratio
+features constructed. No mortgage pre-smoothing or Capital Markets structural state
+crosses this boundary. Normalization, metric/dimension/axis weights, Price, Labor,
+Supply, and Capital Markets are unchanged. ADR-009 and
+`config/affordability_policy_promotion_2026_08_16.json` govern this closure.
 
 ---
 
