@@ -49,9 +49,20 @@ def resolve_contract(root: Path, dimension: str = "price") -> tuple[pd.DataFrame
             raise ValueError(f"{m.canonical_metric_key} does not own exactly Level/Short/Long")
         source=sr[sr.metric_key.eq(m.metric_key)]
         if len(source)!=1: raise ValueError("ambiguous source family")
-        policy=nr[(_bool(nr.enabled)) & nr.policy_scope.eq("source_family") & nr.policy_key.eq(source.source_id.iloc[0])]
-        if len(policy)!=1: raise ValueError("ambiguous normalization policy")
         for f in fs.itertuples(index=False):
+            enabled=nr[_bool(nr.enabled)]
+            # Match production precedence: a feature override wins, followed by
+            # source family.  Older BPS registry rows use ``census_bps`` while
+            # the normalization family is named ``bps``; the governed metric
+            # key prefix supplies that registry alias without dimension logic.
+            candidates=(
+                enabled[enabled.policy_scope.eq("feature_key") & enabled.policy_key.eq(f.feature_key)],
+                enabled[enabled.policy_scope.eq("source_family") & enabled.policy_key.eq(source.source_id.iloc[0])],
+                enabled[enabled.policy_scope.eq("source_family") & enabled.policy_key.eq(str(m.metric_key).split("_")[0])],
+                enabled[enabled.policy_scope.eq("global") & enabled.policy_key.eq("*")],
+            )
+            policy=next((candidate for candidate in candidates if len(candidate)==1),None)
+            if policy is None: raise ValueError(f"ambiguous normalization policy for {f.feature_key}")
             rows.append({"metric":m.canonical_metric_key,"registry_metric_key":m.metric_key,
               "source_family":source.source_id.iloc[0],"feature_type":f.feature_type,"feature_key":f.feature_key,
               "transform":f.transform,"window_lag_definition":f.feature_window,
