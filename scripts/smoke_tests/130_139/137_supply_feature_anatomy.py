@@ -1,6 +1,6 @@
 """Smoke 137: Supply Phase-1 scope, reconstruction, family evidence, and governance."""
 from __future__ import annotations
-import hashlib,tempfile
+import hashlib,re,tempfile
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -33,7 +33,13 @@ def fixture(reverse=False):
     aligned.append({"geo_id":geo,"evaluation_date":date,"metric_date":aligned_date,"canonical_metric_key":m,"metric_score":aligned_score})
     bydate[date][m]=aligned_score
   for date,values in bydate.items(): dims.append({"geo_id":geo,"date":date,"dimension":"supply","dimension_score":sum(values[m]*EXPECTED_WEIGHTS[m] for m in EXPECTED_METRICS)})
- frames={"source_metrics":pd.DataFrame(source),"features":pd.DataFrame(features),"normalized_features":pd.DataFrame(normalized),"metric_scores":pd.DataFrame(native),"aligned_metric_scores":pd.DataFrame(aligned),"dimension_scores":pd.DataFrame(dims)}
+ # One unavailable aligned metric exercises production weight renormalization;
+ # native Feature -> Metric evidence remains present and is not fabricated.
+ aligned_frame=pd.DataFrame(aligned)
+ aligned_frame=aligned_frame[~((aligned_frame.geo_id==REVIEW_GEOS[1])&(aligned_frame.canonical_metric_key=="permit_intensity")&(aligned_frame.evaluation_date==dates[5]))]
+ aw=aligned_frame.pivot(index=["geo_id","evaluation_date"],columns="canonical_metric_key",values="metric_score"); valid=aw.notna(); weights=pd.Series(EXPECTED_WEIGHTS)
+ dim=aw.mul(weights).sum(axis=1,min_count=1).div(valid.mul(weights).sum(axis=1)).rename("dimension_score").reset_index().rename(columns={"evaluation_date":"date"}); dim["dimension"]="supply"
+ frames={"source_metrics":pd.DataFrame(source),"features":pd.DataFrame(features),"normalized_features":pd.DataFrame(normalized),"metric_scores":pd.DataFrame(native),"aligned_metric_scores":aligned_frame,"dimension_scores":dim}
  if reverse:
   frames={k:v.iloc[::-1].reset_index(drop=True) for k,v in frames.items()}
  return frames
@@ -51,18 +57,31 @@ def main():
  assert len(tables["permit_family_overlap"].query("period=='full_history'"))==7
  assert len(tables["dimension_contribution_structure"].query("period=='full_history'"))==7
  raw=tables["raw_chronology"]; assert set(raw.metric.unique())==set(EXPECTED_METRICS)
- gap=raw[(raw.geo_id==REVIEW_GEOS[1]) & (raw.metric=="active_inventory") & (raw.date==pd.Timestamp("2025-02-28"))]; assert len(gap)==1 and gap.raw_value.isna().all()
+ assert raw.query("metric=='active_inventory'").native_date.dt.is_month_end.all() and raw.query("metric=='permit_activity'").native_date.dt.is_month_start.all()
+ pair=tables["raw_cross_metric_alignment"].query("left_metric=='active_inventory' and right_metric=='permit_activity'")
+ assert (pair.left_native_date!=pair.right_native_date).all() and pair.calendar_month.notna().all()
+ assert tables["cross_metric_relationship"].raw_chronology_correlation.notna().all()
  replay=tables["feature_contributions"].groupby(["geo_id","date","metric"]).weighted_feature_contribution.sum(); actual=tables["feature_contributions"].drop_duplicates(["geo_id","date","metric"]).set_index(["geo_id","date","metric"]).production_metric_score.reindex(replay.index); assert np.allclose(replay,actual)
  permit_native=tables["feature_contributions"].query("metric=='permit_activity'"); assert permit_native.date.dt.is_month_start.all()
  permit_aligned=tables["_aligned_metrics"].query("metric=='permit_activity'"); assert permit_aligned.date.dt.is_month_end.all() and permit_aligned.metric_date.dt.is_month_start.all()
  inventory_aligned=tables["_aligned_metrics"].query("metric=='active_inventory'").sort_values("date"); tail=inventory_aligned.groupby("geo_id").tail(2)
  assert set(tail.date.dt.strftime("%Y-%m-%d"))=={"2026-06-30","2026-07-31"}
  assert (tail.date>tail.metric_date).all() and not tables["feature_contributions"].merge(tail[["geo_id","date","metric"]],on=["geo_id","date","metric"]).shape[0]
+ aligned_contrib=tables["aligned_metric_contributions"]; assert aligned_contrib.evaluation_date.dt.is_month_end.all()
+ replay2=aligned_contrib.groupby(["geo_id","evaluation_date"]).weighted_metric_contribution.sum(); dim2=aligned_contrib.drop_duplicates(["geo_id","evaluation_date"]).set_index(["geo_id","evaluation_date"]).supply_dimension_score.reindex(replay2.index); assert np.allclose(replay2,dim2,atol=1e-12)
+ unavailable=aligned_contrib[(aligned_contrib.geo_id==REVIEW_GEOS[1])&(aligned_contrib.evaluation_date==pd.Timestamp("2023-01-31"))]
+ assert len(unavailable)==3 and (~unavailable.metric_available).sum()==1 and np.isclose(unavailable.effective_metric_weight.sum(),1) and np.isclose(unavailable.available_configured_weight_sum.unique(),.8)
+ assert tables["dimension_contribution_structure"].mean_cancellation_ratio.between(0,1).all() and tables["dimension_contribution_structure"].net_to_gross_contribution.between(0,1).all()
+ pc=tables["permit_family_overlap"].query("geo_id==@REVIEW_GEOS[0]").set_index("period").contribution_correlation
+ assert pc.round(8).nunique()>1
  reverse=build(fixture(True),Path(".")); pd.testing.assert_frame_equal(tables["cross_metric_relationship"].reset_index(drop=True),reverse["cross_metric_relationship"].reset_index(drop=True))
  gov=tables["governance_status"].iloc[0]; assert gov.recommendation_state=="none" and not gov.production_policy_changed and not gov.metric_weight_policy_changed and not gov.capital_markets_changed
  with tempfile.TemporaryDirectory() as tmp:
-  out=Path(tmp); write_review(tables,out); assert all((out/f"supply_phase1_{name}.csv").is_file() for name in OUTPUTS); svgs=list(out.glob("*.svg")); assert len(svgs)==24 and all("<path" in p.read_text() for p in svgs)
-  assert "different incumbent feature policies" in (out/"supply_phase1_review_index.html").read_text()
+  out=Path(tmp); write_review(tables,out); assert all((out/f"supply_phase1_{name}.csv").is_file() for name in OUTPUTS); svgs=list(out.glob("*.svg")); assert len(svgs)==24 and all("<path" in p.read_text() and not re.search(r"(?:NaN|Inf)",p.read_text(),re.I) for p in svgs)
+  for metric_name in EXPECTED_METRICS:
+   for scope in ("dc","seven_county_standardized"):
+    svg=(out/f"supply_phase1_{metric_name}_{scope}_raw_features.svg").read_text(); paths=re.findall(r'<path d="([^"]*)"',svg); assert len(paths)>=4 and all(re.search(r"[ML][0-9]",d) for d in paths[1:])
+  index=(out/"supply_phase1_review_index.html").read_text(); assert "different incumbent feature policies" in index and "calendar-month identity" in index and "aligned evaluation dates" in index and "native feature dates" in index
  assert before=={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in protected}
  missing=fixture(); missing["source_metrics"]=missing["source_metrics"].query("canonical_metric_key != 'permit_intensity'")
  try: build(missing,Path("."))
@@ -70,7 +89,7 @@ def main():
  else: raise AssertionError("missing governed raw metric did not fail closed")
  duplicate=fixture(); duplicate["source_metrics"]=pd.concat([duplicate["source_metrics"],duplicate["source_metrics"].iloc[[0]]],ignore_index=True)
  try: build(duplicate,Path("."))
- except ValueError as exc: assert "duplicate raw monthly chronology" in str(exc)
+ except ValueError as exc: assert "duplicate raw calendar-month chronology" in str(exc)
  else: raise AssertionError("duplicate canonical raw row did not fail closed")
  try: load_run(Path("/absent/governed-production-run"))
  except FileNotFoundError: pass
