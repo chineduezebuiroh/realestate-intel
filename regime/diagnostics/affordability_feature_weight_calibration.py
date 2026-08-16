@@ -26,11 +26,11 @@ def resolve_contract(root: Path):
 POLICIES = {
     "P0": (.50, .20, .30), "P1": (.45, .20, .35),
     "P2": (.40, .20, .40), "P3": (.40, .15, .45),
-    "P4": (.35, .20, .45),
+    "P4": (.35, .20, .45), "P5": (.30, .20, .50),
 }
 FEATURES = ("level", "short", "long")
 PERIOD_NAMES = ("full_history", "2022_plus", "latest_36_months")
-ADJACENT = (("P0","P1"),("P1","P2"),("P2","P3"),("P2","P4"),("P3","P4"))
+ADJACENT = (("P0","P1"),("P1","P2"),("P2","P3"),("P2","P4"),("P3","P4"),("P4","P5"))
 EXPORTS = (
  "scenario_registry","metric_chronology","feature_contributions","metric_statistics",
  "dimension_statistics","demand_axis_statistics","feature_reference_comparison",
@@ -74,6 +74,14 @@ def build_raw_cycle(source: pd.DataFrame, contract: pd.DataFrame) -> pd.DataFram
     source month cannot be mistaken for the twelfth preceding row.  The z-score
     is descriptive, within-county/metric, and is never fed into production.
     """
+    directions = contract.groupby("metric").score_direction.agg(lambda x: set(str(v).strip().lower() for v in x))
+    if directions.map(len).ne(1).any():
+        raise ValueError("governed Affordability score direction is ambiguous")
+    direction_map = directions.map(lambda x: next(iter(x)))
+    unsupported = set(direction_map) - {"positive", "negative"}
+    if unsupported:
+        raise ValueError(f"unsupported governed score direction: {sorted(unsupported)}")
+    multiplier_map = direction_map.map({"positive": 1.0, "negative": -1.0})
     raw = _dates(source)
     mc = _metric_col(raw)
     rv = _value_col(
@@ -184,10 +192,15 @@ def build_raw_cycle(source: pd.DataFrame, contract: pd.DataFrame) -> pd.DataFram
         # Reindexing makes shift(12) an exact calendar-month lag, not row lag.
         q["lag12_raw_value"]=q.raw_value.shift(12)
         q["raw_12m_change"]=q.raw_value.div(q.lag12_raw_value)-1
+        q["score_direction"]=direction_map.loc[metric]
+        q["orientation_multiplier"]=multiplier_map.loc[metric]
+        q["oriented_raw_cycle"]=q.raw_12m_change*q.orientation_multiplier
         valid=q.raw_12m_change.dropna(); mean=valid.mean(); std=valid.std(ddof=0)
         q["raw_cycle_zscore"]=(q.raw_12m_change-mean)/std if pd.notna(std) and std>0 else np.nan
+        oriented=q.oriented_raw_cycle.dropna(); omean=oriented.mean(); ostd=oriented.std(ddof=0)
+        q["oriented_raw_cycle_zscore"]=(q.oriented_raw_cycle-omean)/ostd if pd.notna(ostd) and ostd>0 else np.nan
         panels.append(q)
-    return pd.concat(panels,ignore_index=True)[["geo_id","date","metric","raw_value","lag12_raw_value","raw_12m_change","raw_cycle_zscore"]]
+    return pd.concat(panels,ignore_index=True)[["geo_id","date","metric","score_direction","orientation_multiplier","raw_value","lag12_raw_value","raw_12m_change","oriented_raw_cycle","raw_cycle_zscore","oriented_raw_cycle_zscore"]]
 
 def _turn_evidence(score, ref, dates):
     q=pd.DataFrame({"date":pd.to_datetime(dates),"score":score,"ref":ref}).dropna().sort_values("date")
@@ -279,10 +292,25 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
        row["direction_changes_vs_p0"]=(np.sign(q.demand_axis_score.diff())!=np.sign(q.p0_demand_axis.diff())).sum()
        row["sign_changes_vs_p0"]=(np.sign(q.demand_axis_score)!=np.sign(q.p0_demand_axis)).sum()
        row["turning_point_count_change_vs_p0"]=row["turning_point_count"]-p0_stats["turning_point_count"]
+       row["reversal_change_vs_p0"]=row["reversals"]-p0_stats["reversals"]
+       row["whipsaw_2m_change_vs_p0"]=row["whipsaw_2m"]-p0_stats["whipsaw_2m"]
+       row["whipsaw_3m_change_vs_p0"]=row["whipsaw_3m"]-p0_stats["whipsaw_3m"]
+       row["persistence_change_vs_p0"]=row["persistence"]-p0_stats["persistence"]
        dst.append(row)
     dst=pd.DataFrame(dst)
     refs=[]; rawrefs=[]; turnrows=[]
     raw=build_raw_cycle(artifacts["source_metrics"],contract)
+    rawdim=raw.pivot(index=["geo_id","date"],columns="metric",values="oriented_raw_cycle").reset_index()
+    raw_available=rawdim[list(TARGET_METRICS)].notna()
+    rawdim["oriented_affordability_cycle"]=rawdim[list(TARGET_METRICS)].mul(metric_weights).sum(axis=1,min_count=1).div(raw_available.mul(metric_weights).sum(axis=1))
+    for i,row in dim.iterrows():
+      candidate=wide[(wide.policy.eq(row.policy))&(wide.geo_id.eq(row.geo_id))][["date","affordability_dimension_score"]]
+      joined=candidate.merge(rawdim[rawdim.geo_id.eq(row.geo_id)][["date","oriented_affordability_cycle"]],on="date")
+      period_frame=next(q for name,q in _periods(joined) if name==row.period)
+      evidence=_comparison(period_frame.affordability_dimension_score,period_frame.oriented_affordability_cycle,period_frame.date)
+      dim.loc[i,"oriented_cycle_correlation"]=evidence["correlation"]
+      dim.loc[i,"oriented_cycle_sign_agreement"]=evidence["sign_agreement"]
+      dim.loc[i,"oriented_cycle_direction_agreement"]=evidence["direction_agreement"]
     for (p,m,g),z in chron.groupby(["policy","metric","geo_id"]):
       for feature_type in FEATURES:
        feature = contrib[(contrib.policy.eq(p))&(contrib.metric.eq(m))&(contrib.geo_id.eq(g))&(contrib.feature_type.eq(feature_type))][["policy","geo_id","date","metric","normalized_feature_score"]]
@@ -290,17 +318,16 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
        for period,part in _periods(q):
         evidence=_comparison(part.metric_score,part.normalized_feature_score,part.date)
         refs.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":f"{feature_type}_feature_reference",**evidence})
-      r=raw[(raw.metric.eq(m))&(raw.geo_id.eq(g))]; q=z.merge(r[["date","raw_12m_change","raw_cycle_zscore"]],on="date")
+      r=raw[(raw.metric.eq(m))&(raw.geo_id.eq(g))]; q=z.merge(r[["date","score_direction","orientation_multiplier","raw_12m_change","oriented_raw_cycle","oriented_raw_cycle_zscore"]],on="date")
       for period,part in _periods(q):
-       # Correlation/direction use the directly interpretable annual change;
-       # scale-invariant turning detection uses its within-county z-score.
-       evidence=_comparison(part.metric_score,part.raw_12m_change,part.date)
-       turns=_turn_evidence(part.metric_score,part.raw_cycle_zscore,part.date)
+       # Every primary comparison follows governed production-score semantics.
+       evidence=_comparison(part.metric_score,part.oriented_raw_cycle,part.date)
+       turns=_turn_evidence(part.metric_score,part.oriented_raw_cycle_zscore,part.date)
        evidence.update(turns)
        evidence["missed_raw_cycle_turns"]=evidence["missed_turn_count"]
        evidence["median_absolute_latency"]=evidence["median_turning_point_latency_months"]
-       rawrefs.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":"raw_cycle_reference",**evidence})
-       turnrows.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":"raw_cycle_reference","matching_tolerance_months":TURN_MATCH_WINDOW_MONTHS,**{k:v for k,v in evidence.items() if "turn" in k or "latency" in k}})
+       rawrefs.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":"oriented_raw_cycle_reference","score_direction":part.score_direction.iloc[0],"orientation_multiplier":part.orientation_multiplier.iloc[0],**evidence})
+       turnrows.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":"oriented_raw_cycle_reference","score_direction":part.score_direction.iloc[0],"orientation_multiplier":part.orientation_multiplier.iloc[0],"matching_tolerance_months":TURN_MATCH_WINDOW_MONTHS,**{k:v for k,v in evidence.items() if "turn" in k or "latency" in k}})
     refs=pd.DataFrame(refs); rawrefs=pd.DataFrame(rawrefs)
     fc=[]
     for (p,m),g in contrib.groupby(["policy","metric"]):
@@ -317,13 +344,22 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
       for idx in a.index.intersection(b.index):
        row={"from_policy":left,"to_policy":right,"metric":idx[0],"geo_id":idx[1]}; row.update({f"delta_{c}":b.loc[idx,c]-a.loc[idx,c] for c in numeric}); comparisons.append(row)
     comparisons=pd.DataFrame(comparisons)
+    # Controlled comparisons combine chronology, stability, and contribution evidence.
+    rawfull=rawrefs[rawrefs.period.eq("full_history")].set_index(["policy","metric","geo_id"])
+    fcidx=fc.set_index(["policy","metric"])
+    for i,row in comparisons.iterrows():
+      left,right,metric,geo=row.from_policy,row.to_policy,row.metric,row.geo_id
+      for c in ("correlation","sign_agreement","direction_agreement","turning_point_preservation","median_turning_point_latency_months"):
+       comparisons.loc[i,f"delta_oriented_raw_cycle_{c}"]=rawfull.loc[(right,metric,geo),c]-rawfull.loc[(left,metric,geo),c]
+      for c in ("level_share_of_absolute_contribution","short_share_of_absolute_contribution","long_share_of_absolute_contribution","cancellation","net_to_gross_ratio"):
+       comparisons.loc[i,f"delta_{c}"]=fcidx.loc[(right,metric),c]-fcidx.loc[(left,metric),c]
     p0=stats[stats.policy.eq("P0")].set_index(["metric","geo_id","period"]); vp=[]
     for row in stats[~stats.policy.eq("P0")].itertuples(index=False):
       key=(row.metric,row.geo_id,row.period)
       if key in p0.index:
        x={"policy":row.policy,"metric":row.metric,"geo_id":row.geo_id,"period":row.period}; x.update({f"delta_{c}":getattr(row,c)-p0.loc[key,c] for c in numeric}); vp.append(x)
     cross=fc.pivot(index="policy",columns="metric",values=["net_to_gross_ratio","cancellation"]).reset_index(); cross.columns=["_".join(x).strip("_") for x in cross.columns]
-    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"affordability_feature_weight_review_pending","automated_winner":False,"production_policy_changed":False,"ma_window":"MA12_FIXED","affordability_long_weight_boundary_unresolved":"empirical_review_required","feature_reference_role":"diagnostic_only_not_optimization_target","normalization_changed":False,"raw_cycle_standardization":"within_county_metric_zscore_ddof0_diagnostic_only"}])
+    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"affordability_feature_weight_review_pending","automated_winner":False,"production_policy_changed":False,"ma_window":"MA12_FIXED","candidate_grid_closed":True,"affordability_long_weight_boundary_unresolved":"empirical_review_required","affordability_long_weight_boundary_supported":"empirical_review_required","feature_reference_role":"diagnostic_only_not_optimization_target","normalization_changed":False,"raw_cycle_orientation":"registry_score_direction","raw_cycle_standardization":"within_county_metric_zscore_ddof0_diagnostic_only"}])
     evaluation=pd.DataFrame([{"question":i,"status":"empirical_review_required","evidence":"authoritative review tables and plots; no automated winner"} for i in range(1,25)])
     return {"scenario_registry":registry,"metric_chronology":chron,"feature_contributions":contrib,"metric_statistics":stats,"dimension_statistics":dim,"demand_axis_statistics":dst,"feature_reference_comparison":refs,"raw_cycle_comparison":rawrefs,"raw_cycle_chronology":raw,"turning_point_comparison":pd.DataFrame(turnrows),"adjacent_comparisons":comparisons,"vs_p0":pd.DataFrame(vp),"cross_metric_consistency":cross,"by_county":basefull,"period_sensitivity":stats,"evaluation_matrix":evaluation,"governance_status":governance,"_dimension_chronology":wide}
 
@@ -342,7 +378,7 @@ def _svg(path, series, title):
 
 def _turn_plot(path: Path, reference: pd.DataFrame, candidate: pd.DataFrame, title: str) -> None:
     """Render aligned series panels and visible governed turning-point markers."""
-    panels=[("raw 12m cycle",reference),("candidate metric score",candidate)]
+    panels=[("oriented raw 12m cycle",reference),("candidate metric score",candidate)]
     _plot(path,panels,title)
     joined=reference.rename(columns={"value":"ref"}).merge(candidate.rename(columns={"value":"score"}),on="date").dropna()
     rt=detect_turning_points(joined[["date","ref"]],"ref")
@@ -365,16 +401,16 @@ def write_review(tables, out: Path):
     for metric in TARGET_METRICS:
       raw=tables["raw_cycle_chronology"].query("metric==@metric")
       for scope in ("dc","seven_county_equal_footing"):
-       if scope=="dc": ref=raw[raw.geo_id.eq(DC)][["date","raw_12m_change"]].rename(columns={"raw_12m_change":"value"})
-       else: ref=_pool(raw,"raw_cycle_zscore",["geo_id"]).rename(columns={"raw_cycle_zscore":"value"})
-       panels=[("raw 12m cycle reference",ref)]
-       for p in ("P0","P2","P3","P4"):
+       if scope=="dc": ref=raw[raw.geo_id.eq(DC)][["date","oriented_raw_cycle"]].rename(columns={"oriented_raw_cycle":"value"})
+       else: ref=_pool(raw,"oriented_raw_cycle_zscore",["geo_id"]).rename(columns={"oriented_raw_cycle_zscore":"value"})
+       panels=[("oriented raw cycle (production-score semantics)",ref)]
+       for p in ("P2","P3","P4","P5"):
         q=chron[(chron.metric.eq(metric))&(chron.policy.eq(p))]
         q=(q[q.geo_id.eq(DC)][["date","metric_score"]] if scope=="dc" else _pool(q,"metric_score",["geo_id","policy"]))
         panels.append((p,q.rename(columns={"metric_score":"value"})))
-       fn=f"affordability_phase2_{metric}_{scope}_raw_cycle.svg"; _plot(out/fn,panels,f"{metric} — {scope} — raw cycle and candidates"); plots.append(fn)
-      dcraw=raw[raw.geo_id.eq(DC)][["date","raw_cycle_zscore"]].rename(columns={"raw_cycle_zscore":"value"})
-      for p in ("P2","P3","P4"):
+       fn=f"affordability_phase2_{metric}_{scope}_raw_cycle.svg"; _plot(out/fn,panels,f"{metric} — {scope} — raw cycle oriented to production-score semantics"); plots.append(fn)
+      dcraw=raw[raw.geo_id.eq(DC)][["date","oriented_raw_cycle_zscore"]].rename(columns={"oriented_raw_cycle_zscore":"value"})
+      for p in ("P2","P3","P4","P5"):
        cand=chron[(chron.metric.eq(metric))&(chron.policy.eq(p))&(chron.geo_id.eq(DC))][["date","metric_score"]].rename(columns={"metric_score":"value"})
        fn=f"affordability_phase2_{metric}_dc_{p}_turning_point_overlay.svg"; _turn_plot(out/fn,dcraw,cand,f"{metric} — DC — {p} turning points"); plots.append(fn)
       for scope in ("dc","seven_county_equal_footing"):
@@ -384,9 +420,9 @@ def write_review(tables, out: Path):
         q=(q[q.geo_id.eq(DC)].groupby("date",as_index=False).metric_score.mean() if scope=="dc" else _pool(q,"metric_score",["geo_id","policy"]))
         series.append((p,q.rename(columns={"metric_score":"value"})))
        fn=f"affordability_phase2_{metric}_{scope}_policies.svg"; _svg(out/fn,series,f"{metric} — {scope}"); plots.append(fn)
-       focus=[x for x in series if x[0] in ("P0","P2","P3","P4")]; fn=f"affordability_phase2_{metric}_{scope}_focus.svg"; _svg(out/fn,focus,f"{metric} finalist neighborhood — {scope}"); plots.append(fn)
+       focus=[x for x in series if x[0] in ("P2","P3","P4","P5")]; fn=f"affordability_phase2_{metric}_{scope}_focus.svg"; _svg(out/fn,focus,f"{metric} finalist neighborhood — {scope}"); plots.append(fn)
       q=tables["feature_contributions"]
-      for policy in ("P0", "P2", "P3", "P4"):
+      for policy in ("P0", "P2", "P3", "P4", "P5"):
        selected=q[(q.metric.eq(metric))&(q.policy.eq(policy))&(q.geo_id.eq(DC))]
        series=[]
        for feature_type in FEATURES:
@@ -399,7 +435,7 @@ def write_review(tables, out: Path):
     d=tables["_dimension_chronology"]
     for scope in ("dc","seven_county_equal_footing"):
       series=[]
-      for p in ("P0","P1","P2","P3","P4"):
+      for p in POLICIES:
        q=d[d.policy.eq(p)]; q=(q[q.geo_id.eq(DC)][["date","affordability_dimension_score"]] if scope=="dc" else _pool(q,"affordability_dimension_score",["geo_id","policy"])); series.append((p,q.rename(columns={"affordability_dimension_score":"value"})))
       fn=f"affordability_phase2_affordability_dimension_{scope}.svg"; _svg(out/fn,series,f"Affordability dimension — {scope}"); plots.append(fn)
     # Response-curve files use a proportional numeric policy axis represented as dates.
