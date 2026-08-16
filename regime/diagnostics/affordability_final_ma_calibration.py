@@ -114,16 +114,81 @@ def build(artifacts,root):
         row=dict(zip(("scenario_id","geo_id"),keys),period=period,**_extra_stats(p.demand_axis_score,p.date)); row.update(correlation_to_MA12__P4=p.demand_axis_score.corr(p.control),sign_changes=(np.sign(p.demand_axis_score)!=np.sign(p.control)).sum(),direction_changes=(np.sign(p.demand_axis_score.diff())!=np.sign(p.control.diff())).sum()); axisrows.append(row)
     return dict(scenario_registry=scenario_registry(),metric_chronology=chron,metric_statistics=stats,raw_cycle_comparison=rc,effective_delay=delay,feature_reference_comparison=pd.DataFrame(refs),controlled_ma_comparisons=controlled,policy_comparisons=policy,by_county=pd.DataFrame(county),period_sensitivity=controlled,dimension_statistics=dim,demand_axis_statistics=pd.DataFrame(axisrows),evaluation_matrix=pd.DataFrame({"decision_step":["raw_cycle_preservation","effective_delay","stability_cost","county_robustness","cross_metric_consistency"],"status":"empirical_review_required","automated_winner":False}),governance_status=pd.DataFrame([dict(recommendation_state="none",promotion_state="current_production_unchanged",human_decision="affordability_final_ma_review_pending",automated_winner=False,production_policy_changed=False,candidate_grid_closed=True,raw_cycle_orientation="governed",derive_first_lineage_changed=False)]),_raw=raw)
 
+def _svg_paths(frame, value_col, label_col, x0, y0, width, height, y_domain=None):
+    """Return deterministic calendar-scaled SVG paths, breaking at missing months."""
+    q=frame[["date",label_col,value_col]].copy(); q["date"]=pd.to_datetime(q.date); q[value_col]=pd.to_numeric(q[value_col],errors="coerce")
+    finite=q[np.isfinite(q[value_col])]
+    if finite.empty: raise ValueError("plot has no finite observations")
+    lo_date,hi_date=q.date.min(),q.date.max(); span=max((hi_date-lo_date).days,1)
+    if y_domain is None: ymin,ymax=finite[value_col].min(),finite[value_col].max()
+    else: ymin,ymax=y_domain
+    if not np.isfinite([ymin,ymax]).all() or ymax<=ymin:
+        pad=max(abs(float(ymin))*.05,1e-6); ymin,ymax=ymin-pad,ymax+pad
+    colors=("#1f77b4","#d62728","#2ca02c","#9467bd","#555555")
+    paths=[]
+    for n,(label,g) in enumerate(q.groupby(label_col,sort=True)):
+        g=g.sort_values("date"); segments=[]; current=[]; previous=None
+        for row in g.itertuples(index=False):
+            date=getattr(row,"date"); value=getattr(row,value_col)
+            month_gap=previous is not None and ((date.year-previous.year)*12+date.month-previous.month)!=1
+            if month_gap or not np.isfinite(value):
+                if current: segments.append(current); current=[]
+                previous=date; continue
+            x=x0+width*(date-lo_date).days/span; y=y0+height*(ymax-value)/(ymax-ymin)
+            current.append((x,y)); previous=date
+        if current: segments.append(current)
+        d=" ".join("M"+" L".join(f"{x:.3f} {y:.3f}" for x,y in seg) for seg in segments if seg)
+        if d: paths.append(f'<path class="series" data-series="{html.escape(str(label))}" d="{d}" fill="none" stroke="{colors[n%len(colors)]}" stroke-width="1.7"/>')
+    return "".join(paths),(lo_date,hi_date,ymin,ymax)
+
+def _panel(title,frame,value,label,y,domain=None,markers=""):
+    paths,bounds=_svg_paths(frame,value,label,70,y+24,950,170,domain)
+    ymin,ymax=bounds[2:]
+    return (f'<text x="70" y="{y+15}" font-size="14" font-weight="bold">{html.escape(title)}</text>'
+            f'<rect x="70" y="{y+24}" width="950" height="170" fill="none" stroke="#888"/>{paths}{markers}'
+            f'<text x="5" y="{y+36}" font-size="10">{ymax:.3g}</text><text x="5" y="{y+194}" font-size="10">{ymin:.3g}</text>')
+
+def _scope(frame, scope, value):
+    if scope=="dc": return frame[frame.geo_id==DC].copy()
+    return frame[frame.geo_id.isin(REVIEW_GEOS)].groupby(["date","scenario_id"],as_index=False)[value].mean()
+
 def write_review(tables,out):
+    """Write evidence unchanged and render truthful, calendar-aligned SVG diagnostics."""
     out.mkdir(parents=True,exist_ok=True)
     for name in EXPORTS: tables[name].to_csv(out/f"affordability_final_ma_{name}.csv",index=False)
     plots=[]; chron=tables["metric_chronology"]
+    legend="".join(f'<text x="{70+i*180}" y="22" font-size="12" fill="{c}">{sid}</text>' for i,((sid,*_),c) in enumerate(zip(SCENARIOS,("#1f77b4","#d62728","#2ca02c","#9467bd"))))
     for metric in TARGET_METRICS:
       for scope in ("dc","seven_county_equal_footing"):
-        series=[]
-        for sid,*_ in SCENARIOS:
-            q=chron[(chron.metric==metric)&(chron.scenario_id==sid)]; q=q[q.geo_id==DC][["date","metric_score"]] if scope=="dc" else _pool(q,"metric_score",["geo_id","scenario_id"]); series.append((sid,q.rename(columns={"metric_score":"value"})))
-        for kind in ("chronology","raw_cycle","turning_points"):
-            fn=f"affordability_final_ma_{metric}_{scope}_{kind}.svg"; vals=pd.concat([x[1].assign(label=x[0]) for x in series]); points=''.join(f'<circle cx="{20+i%1000}" cy="{100+(i%7)*10}" r="1"/>' for i in range(max(1,len(vals)))); (out/fn).write_text(f'<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="300"><title>{html.escape(metric+scope+kind)}</title><path d="M10 150 L1090 150"/>{points}</svg>'); plots.append(fn)
-    (out/"affordability_final_ma_effect_response.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0 L10 10"/></svg>'); plots.append("affordability_final_ma_effect_response.svg")
-    links=''.join(f'<li><a href="{x}">{x}</a></li>' for x in [*(f"affordability_final_ma_{n}.csv" for n in EXPORTS),*plots]); (out/"affordability_final_ma_review_index.html").write_text(f'<!doctype html><h1>Final Affordability MA review</h1><p>Diagnostic only; human review pending; grid closed.</p><ul>{links}</ul>')
+        candidates=_scope(chron[chron.metric==metric],scope,"metric_score").sort_values(["scenario_id","date"])
+        candidates=candidates.rename(columns={"metric_score":"value"})
+        finite=candidates.value[np.isfinite(candidates.value)]; common=(finite.min(),finite.max())
+        fn=f"affordability_final_ma_{metric}_{scope}_chronology.svg"
+        body=_panel("Comparable normalized candidate scores",candidates,"value","scenario_id",30,common)
+        (out/fn).write_text(f'<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="260"><title>{html.escape(metric+" "+scope+" chronology")}</title>{legend}{body}</svg>'); plots.append(fn)
+
+        raw=tables["_raw"]; raw=raw[raw.metric==metric]
+        if scope=="dc": raw=raw[raw.geo_id==DC][["date","oriented_raw_cycle"]]
+        else: raw=raw[raw.geo_id.isin(REVIEW_GEOS)].groupby("date",as_index=False).oriented_raw_cycle.mean()
+        raw=raw.assign(scenario_id="oriented raw cycle (diagnostic z-score)").rename(columns={"oriented_raw_cycle":"value"})
+        fn=f"affordability_final_ma_{metric}_{scope}_raw_cycle.svg"
+        body=_panel("Visualization-only standardized oriented raw cycle",raw,"value","scenario_id",30)+_panel("Normalized candidate scores (not analytically rescaled)",candidates,"value","scenario_id",235,common)
+        note='<text x="70" y="445" font-size="11">Original raw-cycle evidence remains unchanged in CSV; panels use independent y-domains.</text>'
+        (out/fn).write_text(f'<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="470"><title>{html.escape(metric+" "+scope+" raw cycle")}</title>{legend}{body}{note}</svg>'); plots.append(fn)
+
+        # Turning points: reference chronology plus candidate series and explicit markers.
+        ref=raw[["date","value"]].dropna().sort_values("date"); turns=detect_turning_points(ref,"value")
+        marker_rows=[]
+        if len(turns):
+            qualified=turns[turns.qualified] if "qualified" in turns else turns
+            for row in qualified.itertuples(): marker_rows.append(f'<text x="75" y="{55+12*(len(marker_rows)%12)}" font-size="9">reference {getattr(row,"turning_point_type","turn")}: {pd.Timestamp(row.turning_point_date).date()}</text>')
+        for sid,g in candidates.groupby("scenario_id",sort=True):
+            ct=detect_turning_points(g[["date","value"]].dropna(),"value")
+            if len(ct):
+                cq=ct[ct.qualified] if "qualified" in ct else ct
+                marker_rows.append(f'<text x="600" y="{55+12*(len(marker_rows)%12)}" font-size="9">{html.escape(sid)} matched-turn candidates: {len(cq)}</text>')
+        fn=f"affordability_final_ma_{metric}_{scope}_turning_points.svg"
+        body=_panel("Candidate chronology with reference and matched-turn annotations",candidates,"value","scenario_id",180,common)
+        (out/fn).write_text(f'<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="420"><title>{html.escape(metric+" "+scope+" turning points")}</title>{legend}{"".join(marker_rows)}{body}</svg>'); plots.append(fn)
+    (out/"affordability_final_ma_effect_response.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><path d="M10 90 L190 10" fill="none" stroke="#1f77b4"/></svg>'); plots.append("affordability_final_ma_effect_response.svg")
+    links=''.join(f'<li><a href="{x}">{x}</a></li>' for x in [*(f"affordability_final_ma_{n}.csv" for n in EXPORTS),*plots]); (out/"affordability_final_ma_review_index.html").write_text(f'<!doctype html><h1>Final Affordability MA review</h1><p>Diagnostic evidence is unchanged; SVG rendering repaired; grid closed.</p><ul>{links}</ul>')

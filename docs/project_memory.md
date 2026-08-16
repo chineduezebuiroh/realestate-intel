@@ -105,10 +105,11 @@ feature weights, existing positive expanding-percentile normalization, and the
 Capital Markets calibration is closed after promotion of the human-selected `MW-TEMPERED-C` production policy; no transform, feature-weight, or metric-weight calibration remains pending. Next is Affordability feature decisions and derivation-order confirmation.
 
 
-Affordability calibration is complete. Phase 4A's derive-first MA12/lag3/lag12
-contract remains frozen, and Phase 4B retained the incumbent 50/20/30 feature
-weights through the human-selected `AFF-FW-A` policy without promoting a
-challenger.
+Affordability calibration is closed at the human-approved shared MA12/P4 policy:
+35% Level, 20% Short, and 45% Long for `price_to_income` and `payment_burden`.
+The derive-first contract remains frozen; `AFF-FW-A` is superseded with history
+preserved. Supply is next. Capital Markets is intentionally deferred until native
+Supply metrics are calibrated because it is shared across Demand and Supply.
 
 Current development has shifted from infrastructure implementation toward county-level production calibration.
 

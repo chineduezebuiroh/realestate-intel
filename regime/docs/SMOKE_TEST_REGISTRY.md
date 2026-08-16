@@ -224,3 +224,11 @@ Based on the implemented MA6/MA9 Phase 1 scope, **no new numbered smoke test is 
 | Number | Script | Purpose | Command |
 |---:|---|---|---|
 | 133 | `scripts/smoke_tests/130_139/133_affordability_feature_anatomy.py` | Exact registry-resolved Affordability membership, calendar-faithful missingness, persisted metric and dimension reconstruction, actual SVG paths, registry immutability, diagnostic-only governance, and fail-closed authoritative loading through the canonical Price anatomy workflow. | `PYTHONPATH=. python scripts/smoke_tests/130_139/133_affordability_feature_anatomy.py` |
+
+## Affordability closure coverage
+
+| Number | Script | Purpose | Command |
+|---:|---|---|---|
+| 134 | `scripts/smoke_tests/130_139/134_affordability_feature_weight_calibration.py` | Bounded Phase-2 Affordability weights, orientation, P5 boundary, evidence governance. | `PYTHONPATH=. python scripts/smoke_tests/130_139/134_affordability_feature_weight_calibration.py` |
+| 135 | `scripts/smoke_tests/130_139/135_affordability_final_ma_calibration.py` | Closed MA grid plus truthful SVG paths, finite domains, missing-month gaps, independent raw-cycle panel, equal-footing aggregation, and row-order determinism. | `PYTHONPATH=. python scripts/smoke_tests/130_139/135_affordability_final_ma_calibration.py` |
+| 136 | `scripts/smoke_tests/130_139/136_affordability_ma12_p4_production_promotion.py` | Exact two-metric MA12/P4 production registry, derive-first promotion record, closure, and explicit non-change scope. | `PYTHONPATH=. python scripts/smoke_tests/130_139/136_affordability_ma12_p4_production_promotion.py` |

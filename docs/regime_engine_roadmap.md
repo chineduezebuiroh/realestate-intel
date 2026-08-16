@@ -96,6 +96,43 @@ Detailed implementation history is recorded in the corresponding Phase D decisio
 
 ---
 
+## Affordability closure and Supply sequence (2026-08-16)
+
+Affordability calibration is **CLOSED** at shared MA12/P4 (35/20/45) for
+`price_to_income` and `payment_burden`. Supply is next. Capital Markets is
+intentionally deferred until native Supply metrics are calibrated because Capital
+Markets is shared across Demand and Supply.
+
+After Supply feature anatomy and feature calibration, a future bounded Supply
+metric-weight experiment is planned but must not run before that evidence exists.
+Its provisional candidate grid is:
+
+| Policy | Inventory | Permit Activity | Permit Intensity |
+|---|---:|---:|---:|
+| S0 | 0.60 | 0.20 | 0.20 |
+| S1 | 0.60 | 0.25 | 0.15 |
+| S2 | 0.60 | 0.30 | 0.10 |
+| S3 | 0.55 | 0.30 | 0.15 |
+| S4 | 0.60 | 0.35 | 0.05 |
+| S5 | 0.55 | 0.35 | 0.10 |
+| S6 | 0.55 | 0.40 | 0.05 |
+| S7 | 0.50 | 0.45 | 0.05 |
+
+S6 relaxes Inventory while holding Permit Intensity at the 5% floor. S7 is the
+extreme boundary stress: it tests whether Inventory and Permit Activity can
+approach parity when Permit Intensity is nearly removed.
+
+The S0-S7 grid remains **PROVISIONAL** pending, in order:
+
+1. Supply Phase 1 feature anatomy;
+2. Supply feature-weight calibration; and
+3. detector health/calibration, if required.
+
+It is not authorization to execute or promote any scenario. Supply production
+weights and the existing Supply freeze/promotion record remain unchanged.
+
+---
+
 ## Phase E — Future Vision
 
 Planned future work includes:
