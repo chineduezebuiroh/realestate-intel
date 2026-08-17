@@ -72,6 +72,8 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 - Demand-dimension production engineering freeze covering Labor, GDP, ACS,
   contribution, cancellation, and weighting behavior
 
+Native Supply feature calibration is closed by the human-approved production promotion: Active Inventory is MA12/I4 (40/15/45), Permit Activity is MA12/A2 (75/10/15, retaining its governed lag-6 Short), and Permit Intensity is MA12/N4 (40/15/45). The decision was not an automated winner. Supply metric weights remain 60/20/20 and the bounded S0–S7 metric-weight calibration remains pending; therefore the Supply dimension is not fully frozen. Capital Markets is unchanged and remains deferred until native Supply calibration, including metric weighting, is complete.
+
 Price calibration is complete. The canonical production policy for both
 `median_sale_price` and `median_ppsf` is MA12/P6: 35% Level, 20% Short, and 45%
 Long. The bounded search converged without a structural MA9 advantage; prior
@@ -108,8 +110,7 @@ Capital Markets calibration is closed after promotion of the human-selected `MW-
 Affordability calibration is closed at the human-approved shared MA12/P4 policy:
 35% Level, 20% Short, and 45% Long for `price_to_income` and `payment_burden`.
 The derive-first contract remains frozen; `AFF-FW-A` is superseded with history
-preserved. Supply is next. Capital Markets is intentionally deferred until native
-Supply metrics are calibrated because it is shared across Demand and Supply.
+preserved. Native Supply feature calibration is now closed, while S0–S7 Supply metric-weight calibration remains pending. Capital Markets is unchanged and deferred until native Supply calibration, including metric weighting, is complete.
 
 Current development has shifted from infrastructure implementation toward county-level production calibration.
 

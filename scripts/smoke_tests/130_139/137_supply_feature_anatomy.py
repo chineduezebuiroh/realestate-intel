@@ -10,7 +10,7 @@ from scripts.build_supply_feature_anatomy_diagnostic import DEFAULT_RUN
 def fixture(reverse=False):
  dates=pd.date_range("2022-08-31",periods=48,freq="ME"); source=[]; features=[]; normalized=[]; native=[]; aligned=[]; dims=[]
  fkeys={"active_inventory":{"level":"redfin_inventory_level","short":"redfin_inventory_short","long":"redfin_inventory_long"},"permit_activity":{"level":"bps_total_units_level","short":"bps_total_units_short","long":"bps_total_units_long"},"permit_intensity":{"level":"permit_intensity_level","short":"permit_intensity_short","long":"permit_intensity_long"}}
- fw={"active_inventory":{"level":.5,"short":.25,"long":.25},"permit_activity":{"level":.8,"short":.1,"long":.1},"permit_intensity":{"level":.5,"short":.25,"long":.25}}
+ fw={"active_inventory":{"level":.4,"short":.15,"long":.45},"permit_activity":{"level":.75,"short":.1,"long":.15},"permit_intensity":{"level":.4,"short":.15,"long":.45}}
  for j,geo in enumerate(REVIEW_GEOS):
   bydate={}
   for mi,m in enumerate(EXPECTED_METRICS):
@@ -52,7 +52,7 @@ def main():
  registry=pd.read_csv("config/feature_registry.csv"); contract=tables["production_contract"]
  expected=registry.set_index("feature_key").feature_weight.astype(float); actual=contract.set_index("feature_key").configured_feature_weight.astype(float)
  assert np.allclose(actual,expected.reindex(actual.index))
- permit=contract[contract.metric.eq("permit_activity")]; assert permit.feature_policy_provenance.str.contains("BPS-FINAL-80").all() and permit.prior_explicit_calibration_or_promotion.all()
+ permit=contract[contract.metric.eq("permit_activity")]; assert permit.feature_policy_provenance.str.contains("MA12/A2").all() and permit.prior_explicit_calibration_or_promotion.all()
  assert len(tables["cross_metric_relationship"].query("period=='full_history'"))==21
  assert len(tables["permit_family_overlap"].query("period=='full_history'"))==7
  assert len(tables["dimension_contribution_structure"].query("period=='full_history'"))==7

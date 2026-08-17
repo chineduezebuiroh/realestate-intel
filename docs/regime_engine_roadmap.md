@@ -133,6 +133,12 @@ weights and the existing Supply freeze/promotion record remain unchanged.
 
 ---
 
+## Native Supply feature-policy closure (2026-08-17)
+
+The human-approved production policies are Active Inventory MA12/I4 (40/15/45), Permit Activity MA12/A2 (75/10/15 with the governed lag-6 Short preserved), and Permit Intensity MA12/N4 (40/15/45). Phase 1 anatomy and evidence repairs, Phase 2 feature-weight calibration and correlation hardening, and the final I4/N4 MA check form the closed evidence sequence. MA9/I4 and MA9/N4 did not establish a material structural advantage over MA12 sufficient to offset stability costs.
+
+This closes native Supply **feature-policy calibration**, not the Supply dimension. Production metric weights remain 60/20/20. The S0–S7 metric-weight grid remains pending adjudication, and Capital Markets remains unchanged and deferred until native Supply calibration, including metric weighting, is complete.
+
 ## Phase E — Future Vision
 
 Planned future work includes:
