@@ -174,9 +174,49 @@ def _cross_axis(axis: pd.DataFrame) -> pd.DataFrame:
     wide = axis.pivot(index=["geo_id", "date"], columns="axis", values=values)
     wide.columns = [f"{axis_name}_{value}" for value, axis_name in wide.columns]
     out = wide.reset_index()
-    out["amplifies_both_axes"] = (np.sign(out.demand_capital_markets_weighted_contribution) == np.sign(out.demand_other_dimension_contribution)) & (np.sign(out.supply_capital_markets_weighted_contribution) == np.sign(out.supply_other_dimension_contribution))
-    out["opposes_one_reinforces_other"] = out.demand_opposes_other_dimensions != out.supply_opposes_other_dimensions
-    out["dominates_one_axis_only"] = out.demand_capital_markets_dominates_axis != out.supply_capital_markets_dominates_axis
+
+    numeric_columns = [
+        "demand_capital_markets_weighted_contribution",
+        "supply_capital_markets_weighted_contribution",
+        "demand_other_dimension_contribution",
+        "supply_other_dimension_contribution",
+        "demand_axis_score",
+        "supply_axis_score",
+        "demand_capital_markets_contribution_share",
+        "supply_capital_markets_contribution_share",
+    ]
+
+    for column in numeric_columns:
+        out[column] = pd.to_numeric(
+            out[column],
+            errors="raise",
+        )
+
+    out["amplifies_both_axes"] = (
+        (
+            np.sign(out.demand_capital_markets_weighted_contribution)
+            ==
+            np.sign(out.demand_other_dimension_contribution)
+        )
+        &
+        (
+            np.sign(out.supply_capital_markets_weighted_contribution)
+            ==
+            np.sign(out.supply_other_dimension_contribution)
+        )
+    )
+
+    out["opposes_one_reinforces_other"] = (
+        out.demand_opposes_other_dimensions
+        !=
+        out.supply_opposes_other_dimensions
+    )
+
+    out["dominates_one_axis_only"] = (
+        out.demand_capital_markets_dominates_axis
+        !=
+        out.supply_capital_markets_dominates_axis
+    )
     return out.sort_values(["geo_id", "date"]).reset_index(drop=True)
 
 
