@@ -36,8 +36,15 @@ S4 remains the superseded Permit-responsive stability reference. S2 remains the
 superseded incremental-Intensity compromise. S9 continued improving stability
 but materially weakened Permit responsiveness, increased Inventory dominance,
 and produced larger Supply-axis changes without superior economic evidence.
-The practical upper boundary is therefore closed at 65%; no 75% test is
-warranted for the current architecture.
+
+S8 demonstrated that increasing Inventory to 65% improved chronology while 
+preserving meaningful permit sensitivity. S9 (70/25/5) produced no material 
+improvement sufficient to justify further concentration. S9 served as an explicit
+boundary stress test beyond the adopted policy. Its inclusion demonstrated that 
+additional Inventory concentration beyond 65% did not produce a material 
+structural improvement, allowing 65% to be accepted as the practical upper boundary.
+Therefore 65% is adopted as the practical upper bound. No 75% test is warranted for
+the current architecture.
 
 ## Consequences
 
