@@ -34,15 +34,15 @@ FEATURE_POLICIES = {
 
 METRIC_WEIGHTS = {
     "redfin_median_sale_price": .50, "redfin_median_ppsf": .50,
-    "redfin_inventory": .60, "redfin_homes_sold": .50,
+    "redfin_inventory": .65, "redfin_homes_sold": .50,
     "redfin_pending_sales": .50, "redfin_dom": .3333,
     "redfin_months_supply": .3333, "redfin_sale_to_list": .3334,
     "acs1_population": 1/3, "acs1_median_household_income": 1/3,
     "acs5_population": 1/3, "acs5_median_household_income": 1/3,
     "bea_annual_gdp": 1/3, "laus_labor_force": 1/3,
     "laus_employment": 1/3, "laus_unemployment_rate": 1/3,
-    "ces_total_nonfarm": 1/3, "bps_total_units": .20,
-    "derived_permit_intensity": .20, "derived_price_to_income": .50,
+    "ces_total_nonfarm": 1/3, "bps_total_units": .30,
+    "derived_permit_intensity": .05, "derived_price_to_income": .50,
     "derived_payment_burden": .50, "fred_mortgage_30y": .15,
     "fred_mortgage_15y": .15, "fred_10y": .15, "fred_fedfunds": .10,
     "fred_2y10y_spread": .225, "fred_10y_fedfunds_spread": .225,

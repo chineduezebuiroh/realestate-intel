@@ -1,0 +1,16 @@
+{
+  "contract_identity": "supply_dimension_frozen_s8_2026_08_17",
+  "status": "frozen",
+  "effective_decision_date": "2026-08-17",
+  "promotion_contract": "supply_metric_weight_s8_2026_08_17",
+  "metric_membership": ["active_inventory", "permit_activity", "permit_intensity"],
+  "metric_weights": {"active_inventory": 0.65, "permit_activity": 0.30, "permit_intensity": 0.05},
+  "native_feature_policies": {"active_inventory": "MA12/I4", "permit_activity": "MA12/A2", "permit_intensity": "MA12/N4"},
+  "permit_activity_short_lag_months": 6,
+  "native_supply_feature_calibration": "closed",
+  "supply_metric_weight_calibration": "closed",
+  "supply_calibration": "closed",
+  "historical_freeze_preserved": "supply_dimension_frozen_v1",
+  "downstream_policy": "Supply-axis configured weights remain unchanged",
+  "revisit_requires": ["governed trigger", "new bounded evidence", "explicit human approval", "new promotion contract"]
+}

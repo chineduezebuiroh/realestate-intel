@@ -70,7 +70,7 @@ def main():
  aligned_contrib=tables["aligned_metric_contributions"]; assert aligned_contrib.evaluation_date.dt.is_month_end.all()
  replay2=aligned_contrib.groupby(["geo_id","evaluation_date"]).weighted_metric_contribution.sum(); dim2=aligned_contrib.drop_duplicates(["geo_id","evaluation_date"]).set_index(["geo_id","evaluation_date"]).supply_dimension_score.reindex(replay2.index); assert np.allclose(replay2,dim2,atol=1e-12)
  unavailable=aligned_contrib[(aligned_contrib.geo_id==REVIEW_GEOS[1])&(aligned_contrib.evaluation_date==pd.Timestamp("2023-01-31"))]
- assert len(unavailable)==3 and (~unavailable.metric_available).sum()==1 and np.isclose(unavailable.effective_metric_weight.sum(),1) and np.isclose(unavailable.available_configured_weight_sum.unique(),.8)
+ assert len(unavailable)==3 and (~unavailable.metric_available).sum()==1 and np.isclose(unavailable.effective_metric_weight.sum(),1) and np.isclose(unavailable.available_configured_weight_sum.unique(),.95)
  assert tables["dimension_contribution_structure"].mean_cancellation_ratio.between(0,1).all() and tables["dimension_contribution_structure"].net_to_gross_contribution.between(0,1).all()
  pc=tables["permit_family_overlap"].query("geo_id==@REVIEW_GEOS[0]").set_index("period").contribution_correlation
  assert pc.round(8).nunique()>1

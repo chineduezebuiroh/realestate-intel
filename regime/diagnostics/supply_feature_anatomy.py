@@ -15,7 +15,7 @@ from regime.diagnostics import price_feature_anatomy as canonical
 
 DIMENSION = "supply"
 EXPECTED_METRICS = ("active_inventory", "permit_activity", "permit_intensity")
-EXPECTED_WEIGHTS = {"active_inventory": .60, "permit_activity": .20, "permit_intensity": .20}
+EXPECTED_WEIGHTS = {"active_inventory": .65, "permit_activity": .30, "permit_intensity": .05}
 REVIEW_GEOS = canonical.REVIEW_GEOS
 DC = canonical.DC
 OUTPUTS = (
@@ -35,7 +35,7 @@ def resolve_contract(root: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     if membership != tuple(sorted(EXPECTED_METRICS)):
         raise ValueError(f"unexpected governed Supply membership: {membership}")
     if any(not np.isclose(weights.get(k, np.nan), v) for k, v in EXPECTED_WEIGHTS.items()):
-        raise ValueError(f"frozen Supply weights differ from 60/20/20: {weights}")
+        raise ValueError(f"frozen Supply weights differ from promoted S8 65/30/5: {weights}")
     return contract, registry
 
 

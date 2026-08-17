@@ -1,6 +1,44 @@
 # Supply Dimension Weight Promotion and Freeze
 
-## Decision
+## Current production decision — S8 (2026-08-17)
+
+The human-approved current policy is **S8**: Active Inventory 0.65, Permit
+Activity 0.30, and Permit Intensity 0.05. The machine contract is
+`config/supply_metric_weight_s8_2026_08_17.json`, the frozen architecture is
+`config/supply_dimension_frozen_s8_2026_08_17.json`, and ADR-011 records the
+decision. This closes the S0-S9 bounded metric-weight campaign and completes
+Supply calibration. It was not an automated winner.
+
+Native policies remain Active Inventory MA12/I4 (40/15/45), Permit Activity
+MA12/A2 (75/10/15 with governed lag-6 Short), and Permit Intensity MA12/N4
+(40/15/45). S8 changes only the three governed Supply metric weights. Feature
+construction, normalization, membership, missingness renormalization,
+Supply-to-axis weights, Demand, Labor, Price, Affordability, and Capital Markets
+are unchanged.
+
+S4 remains the historical Permit-responsive stability reference, S2 the
+historical incremental-Intensity compromise, and S9 the rejected upper-bound
+stress. S9 weakened Permit responsiveness and made Inventory excessively
+dominant. The practical boundary is closed at 65%; a 75% test was neither run
+nor warranted.
+
+Generate the immutable production run with:
+
+```bash
+PYTHONPATH=. python -u scripts/run_regime_pipeline.py \
+  --run-id supply_s8_production_20260817 \
+  --experiment-id supply_s8_production \
+  --artifact-root artifacts/regime/runs \
+  --serving-db data/market_serving.duckdb \
+  --metadata-json '{"promotion_contract":"supply_metric_weight_s8_2026_08_17","active_inventory":"MA12/I4","permit_activity":"MA12/A2","permit_intensity":"MA12/N4","supply_metric_weights":{"active_inventory":0.65,"permit_activity":0.30,"permit_intensity":0.05},"human_decision":"supply_s8_metric_weight_approved","automated_winner":false,"supply_calibration":"closed","capital_markets":"unchanged"}'
+PYTHONPATH=. python scripts/validate_supply_s8_production_run.py
+```
+
+Generated runs remain immutable, ignored, and uncommitted.
+
+## Historical production decision — S0 (superseded)
+
+### Decision
 
 `Supply` is frozen under `supply_dimension_frozen_v1` following the
 human-approved promotion `supply_metric_weight_promotion_2026_08_06` on
