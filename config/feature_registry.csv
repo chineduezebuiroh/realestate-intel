@@ -5,9 +5,9 @@ redfin_median_sale_price_long,redfin_median_sale_price,long_term_change,ma_pct_c
 redfin_median_ppsf_level,redfin_median_ppsf,level,ma_level,0.35,12m,price,
 redfin_median_ppsf_short,redfin_median_ppsf,short_term_change,ma_pct_change,0.20,12m/lag3m,price,
 redfin_median_ppsf_long,redfin_median_ppsf,long_term_change,ma_pct_change,0.45,12m/lag12m,price,
-redfin_inventory_level,redfin_inventory,level,ma_level,0.50,12m,supply,
-redfin_inventory_short,redfin_inventory,short_term_change,ma_pct_change,0.25,12m/lag3m,supply,
-redfin_inventory_long,redfin_inventory,long_term_change,ma_pct_change,0.25,12m/lag12m,supply,
+redfin_inventory_level,redfin_inventory,level,ma_level,0.40,12m,supply,Promoted human-approved Supply MA12/I4 policy (2026-08-17).
+redfin_inventory_short,redfin_inventory,short_term_change,ma_pct_change,0.15,12m/lag3m,supply,Promoted human-approved Supply MA12/I4 policy (2026-08-17).
+redfin_inventory_long,redfin_inventory,long_term_change,ma_pct_change,0.45,12m/lag12m,supply,Promoted human-approved Supply MA12/I4 policy (2026-08-17).
 redfin_homes_sold_level,redfin_homes_sold,level,level_zscore,0.25,,transaction_activity,
 redfin_homes_sold_short,redfin_homes_sold,short_term_change,mom_zscore,0.35,1m,transaction_activity,
 redfin_homes_sold_long,redfin_homes_sold,long_term_change,yoy_zscore,0.40,12m,transaction_activity,
@@ -65,9 +65,9 @@ ces_construction_long,ces_construction,long_term_change,yoy_zscore,0.40,12m,supp
 ces_total_private_level,ces_total_private,level,level_zscore,0.25,,demand,
 ces_total_private_short,ces_total_private,short_term_change,mom_zscore,0.35,1m,demand,
 ces_total_private_long,ces_total_private,long_term_change,yoy_zscore,0.40,12m,demand,
-bps_total_units_level,bps_total_units,level,ma_level,0.80,12m,supply,Promoted BPS feature-weight policy BPS-FINAL-80 (2026-08-09).
-bps_total_units_short,bps_total_units,short_term_change,ma_pct_change,0.10,12m/lag6m,supply,Promoted BPS short-horizon policy BPS-H-LAG6 and BPS-FINAL-80 feature weights (2026-08-09).
-bps_total_units_long,bps_total_units,long_term_change,ma_pct_change,0.10,12m/lag12m,supply,Promoted BPS feature-weight policy BPS-FINAL-80 (2026-08-09).
+bps_total_units_level,bps_total_units,level,ma_level,0.75,12m,supply,Promoted Supply MA12/A2 (2026-08-17); supersedes BPS-FINAL-80 with history preserved.
+bps_total_units_short,bps_total_units,short_term_change,ma_pct_change,0.10,12m/lag6m,supply,Promoted Supply MA12/A2 (2026-08-17); governed BPS lag-6 Short semantics preserved.
+bps_total_units_long,bps_total_units,long_term_change,ma_pct_change,0.15,12m/lag12m,supply,Promoted Supply MA12/A2 (2026-08-17); supersedes BPS-FINAL-80 with history preserved.
 bps_total_buildings_level,bps_total_buildings,level,level_zscore,0.25,,supply,
 bps_total_buildings_short,bps_total_buildings,short_term_change,mom_zscore,0.35,1m,supply,
 bps_total_buildings_long,bps_total_buildings,long_term_change,yoy_zscore,0.40,12m,supply,
@@ -119,6 +119,6 @@ price_to_income_long,derived_price_to_income,long_term_change,ma_pct_change,0.45
 payment_burden_level,derived_payment_burden,level,ma_level,0.35,12m,affordability,Promoted human-approved Affordability MA12/P4 policy (2026-08-16); supersedes AFF-FW-A.
 payment_burden_short,derived_payment_burden,short_term_change,ma_pct_change,0.20,12m/lag3m,affordability,Promoted human-approved Affordability MA12/P4 policy (2026-08-16); supersedes AFF-FW-A.
 payment_burden_long,derived_payment_burden,long_term_change,ma_pct_change,0.45,12m/lag12m,affordability,Promoted human-approved Affordability MA12/P4 policy (2026-08-16); supersedes AFF-FW-A.
-permit_intensity_level,derived_permit_intensity,level,ma_level,0.50,12m,supply,
-permit_intensity_short,derived_permit_intensity,short_term_change,ma_pct_change,0.25,12m/lag3m,supply,
-permit_intensity_long,derived_permit_intensity,long_term_change,ma_pct_change,0.25,12m/lag12m,supply,
+permit_intensity_level,derived_permit_intensity,level,ma_level,0.40,12m,supply,Promoted human-approved Supply MA12/N4 policy (2026-08-17).
+permit_intensity_short,derived_permit_intensity,short_term_change,ma_pct_change,0.15,12m/lag3m,supply,Promoted human-approved Supply MA12/N4 policy (2026-08-17).
+permit_intensity_long,derived_permit_intensity,long_term_change,ma_pct_change,0.45,12m/lag12m,supply,Promoted human-approved Supply MA12/N4 policy (2026-08-17).

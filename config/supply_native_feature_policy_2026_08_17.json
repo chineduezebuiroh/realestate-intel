@@ -1,0 +1,19 @@
+{
+  "promotion_identity": "supply_native_feature_policy_2026_08_17",
+  "decision_date": "2026-08-17",
+  "human_decision": "supply_native_feature_policy_approved",
+  "automated_winner": false,
+  "production_feature_policy_promoted": true,
+  "native_supply_feature_calibration": "closed",
+  "metric_weight_calibration": "pending",
+  "metric_scope": ["active_inventory", "permit_activity", "permit_intensity"],
+  "policies": {
+    "active_inventory": {"identity": "MA12/I4", "registry_metric_key": "redfin_inventory", "level": {"transform": "ma_level", "window": "12m", "weight": 0.40}, "short": {"transform": "ma_pct_change", "window": "12m/lag3m", "weight": 0.15}, "long": {"transform": "ma_pct_change", "window": "12m/lag12m", "weight": 0.45}},
+    "permit_activity": {"identity": "MA12/A2", "registry_metric_key": "bps_total_units", "level": {"transform": "ma_level", "window": "12m", "weight": 0.75}, "short": {"transform": "ma_pct_change", "window": "12m/lag6m", "weight": 0.10}, "long": {"transform": "ma_pct_change", "window": "12m/lag12m", "weight": 0.15}, "governed_exception": "Short remains MA12 relative to lag 6 months"},
+    "permit_intensity": {"identity": "MA12/N4", "registry_metric_key": "derived_permit_intensity", "level": {"transform": "ma_level", "window": "12m", "weight": 0.40}, "short": {"transform": "ma_pct_change", "window": "12m/lag3m", "weight": 0.15}, "long": {"transform": "ma_pct_change", "window": "12m/lag12m", "weight": 0.45}}
+  },
+  "superseded_policies": {"active_inventory": "MA12 50/25/25", "permit_activity": "BPS-FINAL-80 (80/10/10; historical promotion preserved)", "permit_intensity": "MA12 50/25/25"},
+  "supply_metric_weights": {"active_inventory": 0.60, "permit_activity": 0.20, "permit_intensity": 0.20},
+  "pending_metric_weight_candidates": ["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7"],
+  "explicit_non_changes": ["Supply metric weights", "axis weights", "normalization", "Demand", "Price", "Affordability", "Labor", "Capital Markets"]
+}
