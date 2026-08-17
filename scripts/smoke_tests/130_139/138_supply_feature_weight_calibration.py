@@ -1,9 +1,10 @@
 """Smoke 138: Supply Phase-2 grids, independent isolation, propagation, and governance."""
 from __future__ import annotations
-import hashlib, importlib.util, tempfile
+import hashlib, importlib.util, tempfile, warnings
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from regime.diagnostics.correlation import safe_corr
 from regime.diagnostics.supply_feature_weight_calibration import (
     EXPERIMENTS, EXPORTS, POLICY_TARGET, PRODUCTION_FEATURE_WEIGHTS, build, write_review,
 )
@@ -23,7 +24,36 @@ def fixture():
     return frames
 
 
+def assert_safe_correlation_contract():
+    cases = [
+        ([1, 2, 3], [2, 4, 6], "ok"),
+        ([1, 1, 1], [1, 2, 3], "left_constant"),
+        ([1, 2, 3], [1, 1, 1], "right_constant"),
+        ([1, 1, 1], [2, 2, 2], "both_constant"),
+        ([1, 2], [3, 4], "insufficient_overlap"),
+        ([1, np.nan, 2, 3], [2, 99, 4, 6], "ok"),
+        ([1, np.inf, -np.inf], [1, 2, 3], "left_nonfinite"),
+        ([1, 2, 3], [1, np.inf, -np.inf], "right_nonfinite"),
+        ([1, np.inf, -np.inf], [1, np.nan, np.inf], "both_nonfinite"),
+    ]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        for left, right, status in cases:
+            result = safe_corr(left, right)
+            assert result.status == status
+            assert np.isnan(result.correlation) == (status != "ok")
+        left = np.array([3.5, -2.0, 8.0, 4.25, 1.0])
+        right = np.array([-1.0, 7.0, 2.5, 9.0, 3.0])
+        expected = float(np.corrcoef(left, right)[0, 1])
+        assert safe_corr(left, right).correlation == expected
+        order = np.array([3, 0, 4, 1, 2])
+        reordered = safe_corr(left[order], right[order])
+        assert reordered.status == "ok" and np.isclose(reordered.correlation, expected, rtol=0, atol=1e-15)
+
+
 def main():
+    warnings.simplefilter("error", RuntimeWarning)
+    assert_safe_correlation_contract()
     assert list(EXPERIMENTS["active_inventory"]) == [f"I{i}" for i in range(6)]
     assert list(EXPERIMENTS["permit_activity"]) == [f"A{i}" for i in range(5)]
     assert "A5" not in POLICY_TARGET
@@ -31,6 +61,10 @@ def main():
     protected=[Path("config/feature_registry.csv"),Path("config/metric_dimension_registry.csv"),Path("config/axis_registry.csv")]
     before={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in protected}
     tables=build(fixture(),Path(".")); assert set(EXPORTS).issubset(tables)
+    audit=tables["correlation_audit"]
+    assert list(audit.columns)==["comparison_type","scenario","metric","geography","period","correlation","correlation_status","overlap_count","finite_left_count","finite_right_count","left_std","right_std"]
+    assert set(audit.correlation_status).issubset({"ok","insufficient_overlap","left_nonfinite","right_nonfinite","both_nonfinite","left_constant","right_constant","both_constant"})
+    assert audit.loc[audit.correlation_status.ne("ok"),"correlation"].isna().all()
     registry=tables["scenario_registry"]
     assert len(registry)==17 and registry.groupby("experiment_metric").size().to_dict()=={"active_inventory":6,"permit_activity":5,"permit_intensity":6}
     contributions=tables["feature_contributions"]
