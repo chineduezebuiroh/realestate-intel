@@ -10,6 +10,7 @@ import html
 import numpy as np
 import pandas as pd
 from regime.diagnostics.capital_markets_ma import detect_turning_points, match_turning_points
+from regime.diagnostics.correlation import safe_corr
 
 from regime.diagnostics import price_feature_anatomy as canonical
 from regime.diagnostics.supply_feature_anatomy import load_run as _load_phase1, resolve_contract
@@ -56,7 +57,7 @@ EXPORTS = (
  "dimension_statistics","supply_axis_statistics","demand_axis_statistics","feature_reference_comparison",
  "raw_cycle_comparison","adjacent_comparisons","vs_p0","cross_metric_consistency",
  "by_county","period_sensitivity","evaluation_matrix","governance_status",
- "raw_cycle_chronology","turning_point_comparison",
+ "raw_cycle_chronology","turning_point_comparison","correlation_audit",
 )
 
 TURN_MATCH_WINDOW_MONTHS = 3
@@ -246,9 +247,13 @@ def _turn_evidence(score, ref, dates):
 
 def _comparison(score, ref, dates):
     q=pd.DataFrame({"date":pd.to_datetime(dates),"score":score,"ref":ref}).dropna().sort_values("date")
+    corr=safe_corr(q.score,q.ref)
     month_gap=(q.date.dt.year-q.date.shift().dt.year)*12+q.date.dt.month-q.date.shift().dt.month
     deltas=q[["score","ref"]].diff().where(month_gap.eq(1),axis=0).dropna()
-    out={"valid_observation_count":len(q),"correlation":q.score.corr(q.ref),
+    out={"valid_observation_count":len(q),"correlation":corr.correlation,
+      "correlation_status":corr.status,"overlap_count":corr.overlap_count,
+      "finite_left_count":corr.finite_left_count,"finite_right_count":corr.finite_right_count,
+      "left_std":corr.left_std,"right_std":corr.right_std,
       "sign_agreement":float((np.sign(q.score)==np.sign(q.ref)).mean()) if len(q) else np.nan,
       "direction_agreement":float((np.sign(deltas.score)==np.sign(deltas.ref)).mean()) if len(deltas) else np.nan}
     out.update(_turn_evidence(q.score,q.ref,q.date)); return out
@@ -312,12 +317,14 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
     supply_weight = float(supply_aff.dimension_weight.iloc[0])
     dw=wide.merge(p0,on=["experiment_metric","geo_id","date"],validate="many_to_one").merge(supply,on=["geo_id","date"],validate="many_to_one")
     dw["supply_axis_score"]=dw.p0_supply_dimension_axis+supply_weight*(dw.supply_dimension_score-dw.p0_supply_dimension)
-    dst=[]
+    dst=[]; correlation_audit=[]
     for (p,g),z in dw.groupby(["policy","geo_id"]):
       for period,q in _periods(z):
        row={"policy":p,"geo_id":g,"period":period,**_extra_stats(q.supply_axis_score,q.date)}
        p0_stats=_extra_stats(q.p0_supply_dimension_axis,q.date)
-       row["chronology_correlation_to_p0"]=q.supply_axis_score.corr(q.p0_supply_dimension_axis)
+       corr=safe_corr(q.supply_axis_score,q.p0_supply_dimension_axis)
+       row["chronology_correlation_to_p0"]=corr.correlation
+       correlation_audit.append({"comparison_type":"supply_axis_to_p0","scenario":p,"metric":"supply_axis","geography":g,"period":period,"correlation":corr.correlation,"correlation_status":corr.status,"overlap_count":corr.overlap_count,"finite_left_count":corr.finite_left_count,"finite_right_count":corr.finite_right_count,"left_std":corr.left_std,"right_std":corr.right_std})
        row["direction_changes_vs_p0"]=(np.sign(q.supply_axis_score.diff())!=np.sign(q.p0_supply_dimension_axis.diff())).sum()
        row["sign_changes_vs_p0"]=(np.sign(q.supply_axis_score)!=np.sign(q.p0_supply_dimension_axis)).sum()
        row["turning_point_count_change_vs_p0"]=row["turning_point_count"]-p0_stats["turning_point_count"]
@@ -349,6 +356,9 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
       dim.loc[i,"oriented_cycle_correlation"]=evidence["correlation"]
       dim.loc[i,"oriented_cycle_sign_agreement"]=evidence["sign_agreement"]
       dim.loc[i,"oriented_cycle_direction_agreement"]=evidence["direction_agreement"]
+      dim.loc[i,"oriented_cycle_correlation_status"]=evidence["correlation_status"]
+      dim.loc[i,"oriented_cycle_overlap_count"]=evidence["overlap_count"]
+      correlation_audit.append({"comparison_type":"supply_dimension_to_oriented_raw_cycle","scenario":row.policy,"metric":"supply_dimension","geography":row.geo_id,"period":row.period,**{k:evidence[k] for k in ("correlation","correlation_status","overlap_count","finite_left_count","finite_right_count","left_std","right_std")}})
     for (p,m,g),z in chron.groupby(["policy","metric","geo_id"]):
       for feature_type in FEATURES:
        feature = contrib[(contrib.policy.eq(p))&(contrib.metric.eq(m))&(contrib.geo_id.eq(g))&(contrib.feature_type.eq(feature_type))][["policy","geo_id","date","metric","normalized_feature_score"]]
@@ -356,6 +366,7 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
        for period,part in _periods(q):
         evidence=_comparison(part.metric_score,part.normalized_feature_score,part.date)
         refs.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":f"{feature_type}_feature_reference",**evidence})
+        correlation_audit.append({"comparison_type":f"candidate_to_{feature_type}_feature_reference","scenario":p,"metric":m,"geography":g,"period":period,**{k:evidence[k] for k in ("correlation","correlation_status","overlap_count","finite_left_count","finite_right_count","left_std","right_std")}})
       r=raw[(raw.metric.eq(m))&(raw.geo_id.eq(g))]; q=z.merge(r[["date","score_direction","orientation_multiplier","raw_12m_change","oriented_raw_cycle","oriented_raw_cycle_zscore"]],on="date")
       for period,part in _periods(q):
        if part.empty:
@@ -367,6 +378,7 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
        evidence["missed_raw_cycle_turns"]=evidence["missed_turn_count"]
        evidence["median_absolute_latency"]=evidence["median_turning_point_latency_months"]
        rawrefs.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":"oriented_raw_cycle_reference","score_direction":part.score_direction.iloc[0],"orientation_multiplier":part.orientation_multiplier.iloc[0],**evidence})
+       correlation_audit.append({"comparison_type":"candidate_to_oriented_raw_cycle","scenario":p,"metric":m,"geography":g,"period":period,**{k:evidence[k] for k in ("correlation","correlation_status","overlap_count","finite_left_count","finite_right_count","left_std","right_std")}})
        turnrows.append({"policy":p,"metric":m,"geo_id":g,"period":period,"reference_type":"oriented_raw_cycle_reference","score_direction":part.score_direction.iloc[0],"orientation_multiplier":part.orientation_multiplier.iloc[0],"matching_tolerance_months":TURN_MATCH_WINDOW_MONTHS,**{k:v for k,v in evidence.items() if "turn" in k or "latency" in k}})
     refs=pd.DataFrame(refs); rawrefs=pd.DataFrame(rawrefs)
     fc=[]
@@ -403,7 +415,7 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
     cross=fc.pivot(index="policy",columns="metric",values=["net_to_gross_ratio","cancellation"]).reset_index(); cross.columns=["_".join(x).strip("_") for x in cross.columns]
     governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"supply_feature_weight_review_pending","automated_winner":False,"production_policy_changed":False,"ma_window":"MA12_FIXED","candidate_grid_closed":True,"experiments_independent":True,"other_supply_metrics_fixed_at_production":True,"metric_weights_changed":False,"ma_calibration":False,"capital_markets_changed":False,"supply_long_weight_boundary_unresolved":"empirical_review_required","supply_long_weight_boundary_supported":"empirical_review_required","feature_reference_role":"diagnostic_only_not_optimization_target","normalization_changed":False,"raw_cycle_orientation":"registry_score_direction","raw_cycle_standardization":"within_county_metric_zscore_ddof0_diagnostic_only"}])
     evaluation=pd.DataFrame([{"question":i,"status":"empirical_review_required","evidence":"authoritative review tables and plots; no automated winner"} for i in range(1,25)])
-    return {"scenario_registry":registry,"metric_chronology":chron,"feature_contributions":contrib,"metric_statistics":stats,"dimension_statistics":dim,"supply_axis_statistics":dst,"demand_axis_statistics":demand_stats,"feature_reference_comparison":refs,"raw_cycle_comparison":rawrefs,"raw_cycle_chronology":raw,"turning_point_comparison":pd.DataFrame(turnrows),"adjacent_comparisons":comparisons,"vs_p0":pd.DataFrame(vp),"cross_metric_consistency":cross,"by_county":basefull,"period_sensitivity":stats,"evaluation_matrix":evaluation,"governance_status":governance,"_dimension_chronology":wide}
+    return {"scenario_registry":registry,"metric_chronology":chron,"feature_contributions":contrib,"metric_statistics":stats,"dimension_statistics":dim,"supply_axis_statistics":dst,"demand_axis_statistics":demand_stats,"feature_reference_comparison":refs,"raw_cycle_comparison":rawrefs,"raw_cycle_chronology":raw,"turning_point_comparison":pd.DataFrame(turnrows),"adjacent_comparisons":comparisons,"vs_p0":pd.DataFrame(vp),"cross_metric_consistency":cross,"by_county":basefull,"period_sensitivity":stats,"evaluation_matrix":evaluation,"governance_status":governance,"correlation_audit":pd.DataFrame(correlation_audit),"_dimension_chronology":wide}
 
 def _svg(path, series, title):
     width,height=1100,480; left,right,top,bottom=75,25,45,45; dates=pd.concat([pd.to_datetime(x.date).dropna() for _,x in series if len(x)]); lo,hi=dates.min(),dates.max(); span=max((hi-lo).total_seconds(),1)
