@@ -10,7 +10,7 @@ import pandas as pd
 
 from regime.diagnostics.capital_markets_feature_anatomy import (
     EXPECTED_AXIS_WEIGHTS, EXPECTED_WEIGHTS, OUTPUTS, POLICY, PROMOTION_IDENTITY,
-    REVIEW_GEOS, build, load_run, write_review,
+    NATIVE_GEO, REVIEW_GEOS, build, load_run, write_review,
 )
 from scripts.build_capital_markets_feature_anatomy_diagnostic import DEFAULT_RUN
 
@@ -28,8 +28,7 @@ def fixture(reverse: bool = False) -> dict[str, pd.DataFrame]:
             rows = registry[registry.metric_key.eq(key_for[metric])]
             for i, evaluation_date in enumerate(dates):
                 native_date = evaluation_date.to_period("M").to_timestamp()  # preserve native vs aligned
-                raw = 3 + metric_index * .4 + .02 * i + np.sin(i / 5 + metric_index) + geo_index * .01
-                source.append({"geo_id": geo, "date": native_date, "canonical_metric_key": metric, "value": raw})
+                raw = 3 + metric_index * .4 + .02 * i + np.sin(i / 5 + metric_index)
                 channels = {"level": np.tanh((i - 20) / 16),
                             "short_term_change": .65 * np.sin(i / 3 + metric_index),
                             "long_term_change": .75 * np.sin(i / 8 + metric_index / 2)}
@@ -37,10 +36,13 @@ def fixture(reverse: bool = False) -> dict[str, pd.DataFrame]:
                 scores_by_date.setdefault(evaluation_date, {})[metric] = score
                 for feature in rows.itertuples(index=False):
                     raw_feature = raw if feature.feature_type == "level" else channels[feature.feature_type]
-                    base = {"geo_id": geo, "date": native_date, "feature_key": feature.feature_key,
+                    base = {"geo_id": NATIVE_GEO, "date": native_date, "feature_key": feature.feature_key,
                             "canonical_metric_key": metric, "raw_feature_value": raw_feature}
-                    features.append(base); normalized.append({**base, "feature_score": channels[feature.feature_type]})
-                native.append({"geo_id": geo, "date": native_date, "canonical_metric_key": metric, "metric_score": score})
+                    if geo_index == 0:
+                        features.append(base); normalized.append({**base, "feature_score": channels[feature.feature_type]})
+                if geo_index == 0:
+                    source.append({"geo_id": NATIVE_GEO, "date": native_date, "canonical_metric_key": metric, "value": raw})
+                    native.append({"geo_id": NATIVE_GEO, "date": native_date, "canonical_metric_key": metric, "metric_score": score})
                 aligned.append({"geo_id": geo, "evaluation_date": evaluation_date, "metric_date": native_date,
                                 "canonical_metric_key": metric, "metric_score": score})
         for date, values in scores_by_date.items():
@@ -87,7 +89,12 @@ def main() -> None:
     assert set(contract.query("metric.str.startswith('mortgage_')", engine="python").ma_window) == {"12m"}
     assert set(contract.query("metric.str.startswith('spread_')", engine="python").score_direction) == {"positive"}
     assert set(contract.query("not metric.str.startswith('spread_')", engine="python").score_direction) == {"negative"}
+    assert set(contract.native_source_geo_id) == {NATIVE_GEO}
+    assert set(contract.aligned_evaluation_geo_count) == {len(REVIEW_GEOS)}
     feature = tables["feature_contributions"]
+    assert set(feature.geo_id) == {NATIVE_GEO}
+    assert set(tables["raw_chronology"].geo_id) == {NATIVE_GEO}
+    assert set(tables["aligned_metric_scores"].geo_id) == set(REVIEW_GEOS)
     replay = feature.groupby(["geo_id", "date", "metric"]).weighted_feature_contribution.sum()
     observed = feature.drop_duplicates(["geo_id", "date", "metric"]).set_index(["geo_id", "date", "metric"]).production_metric_score.reindex(replay.index)
     assert np.allclose(replay, observed)
@@ -108,6 +115,7 @@ def main() -> None:
     correlations = tables["raw_feature_relationship"].correlation_to_raw.replace([np.inf, -np.inf], np.nan)
     assert correlations.notna().any() and np.isfinite(correlations.dropna()).all()
     assert set(tables["turning_point_health"].health).issubset({"pass", "indeterminate"})
+    assert set(tables["turning_point_health"].geo_id) == {NATIVE_GEO}
     assert len(tables["historical_policy_audit"]) == 7
     governance = tables["governance_status"].iloc[0]
     assert governance.recommendation_state == "none" and governance.promotion_state == "current_production_unchanged"
@@ -115,6 +123,15 @@ def main() -> None:
     assert not governance.demand_changed and not governance.supply_changed and not governance.capital_markets_changed
     reverse = build(fixture(True), Path("."))
     pd.testing.assert_frame_equal(tables["axis_propagation"], reverse["axis_propagation"])
+    mixed = fixture()
+    mixed["source_metrics"] = pd.concat([mixed["source_metrics"], mixed["source_metrics"].iloc[[0]].assign(
+        geo_id=REVIEW_GEOS[0])], ignore_index=True)
+    try:
+        build(mixed, Path("."))
+    except ValueError as exc:
+        assert "exactly national native geography" in str(exc)
+    else:
+        raise AssertionError("mixed native geography did not fail closed")
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp); write_review(tables, out)
         assert all((out / f"capital_markets_phase1_{name}.csv").is_file() for name in OUTPUTS)

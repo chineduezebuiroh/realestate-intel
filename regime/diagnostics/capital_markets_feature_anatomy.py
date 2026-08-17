@@ -29,6 +29,7 @@ EXPECTED_WINDOWS = {
 EXPECTED_AXIS_WEIGHTS = {"demand": .10, "supply": .15}
 REVIEW_GEOS = canonical.REVIEW_GEOS
 DC = canonical.DC
+NATIVE_GEO = "united_states__nation"
 OUTPUTS = (
     "production_contract", "raw_chronology", "feature_anatomy",
     "normalized_features", "feature_contributions", "feature_statistics",
@@ -85,7 +86,7 @@ def _native_raw(artifacts: dict[str, pd.DataFrame], contract: pd.DataFrame) -> p
     ]).drop_duplicates()
     q = q.rename(columns={metric_col: "registry_metric_key", value_col: "raw_value"}).merge(
         identities, on="registry_metric_key", validate="many_to_one")
-    q = q[q.geo_id.isin(REVIEW_GEOS)][["geo_id", "date", "metric", "raw_value"]]
+    q = q[q.geo_id.eq(NATIVE_GEO)][["geo_id", "date", "registry_metric_key", "metric", "raw_value"]]
     missing = set(EXPECTED_WEIGHTS) - set(q.metric)
     if missing:
         raise ValueError(f"governed raw metrics missing after identity resolution: {sorted(missing)}")
@@ -95,9 +96,11 @@ def _native_raw(artifacts: dict[str, pd.DataFrame], contract: pd.DataFrame) -> p
     q["frequency"] = "monthly"
     q["calendar_month"] = q.native_date.dt.to_period("M").astype(str)
     q["missing"] = q.raw_value.isna()
+    q["native_geo_id"] = q["geo_id"]
     q["source_age_days"] = pd.NA
     grouped = q.groupby(["geo_id", "metric"], sort=False)
     q["month_gap"] = grouped.native_date.diff().dt.days.gt(35)
+    q["discontinuity"] = q["month_gap"]
     q["monthly_movement"] = grouped.raw_value.diff()
     q["structural_trend_12m"] = grouped.raw_value.transform(lambda values: values.rolling(12, min_periods=6).mean())
     q["cyclical_movement"] = q.raw_value - q.structural_trend_12m
@@ -133,7 +136,8 @@ def _axis_propagation(artifacts: dict[str, pd.DataFrame], root: Path) -> pd.Data
     if weights != EXPECTED_AXIS_WEIGHTS:
         raise ValueError(f"Capital Markets shared-axis contract mismatch: {weights}")
     dims = canonical._dates(artifacts["dimension_scores"])
-    dims = dims[dims.geo_id.isin(REVIEW_GEOS)]
+    capital_geos = set(dims.loc[dims.dimension.eq(DIMENSION), "geo_id"])
+    dims = dims[dims.geo_id.isin(capital_geos)]
     axes = canonical._dates(artifacts["axis_scores"])
     axis_col = next((c for c in ("axis", "axis_name") if c in axes), None)
     score_col = canonical._value_col(axes, ("axis_score", "score"))
@@ -195,7 +199,7 @@ def _native_feature_anatomy(artifacts: dict[str, pd.DataFrame], contract: pd.Dat
     """Join native observations by explicit month identity without changing dates."""
     features = canonical._dates(artifacts["features"])
     fmap = contract.set_index("feature_key")[["metric", "feature_type"]]
-    features = features[features.feature_key.isin(fmap.index) & features.geo_id.isin(REVIEW_GEOS)].merge(
+    features = features[features.feature_key.isin(fmap.index) & features.geo_id.eq(NATIVE_GEO)].merge(
         fmap, left_on="feature_key", right_index=True, validate="many_to_one")
     features = features.rename(columns={"date": "native_feature_date"})
     features["calendar_month"] = features.native_feature_date.dt.to_period("M").astype(str)
@@ -233,7 +237,46 @@ def _policy_audit() -> pd.DataFrame:
 
 def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFrame]:
     contract, _ = resolve_contract(root)
-    tables = canonical.build(artifacts, root, DIMENSION)
+    target = set(EXPECTED_WEIGHTS)
+
+    def governed_geos(frame: pd.DataFrame) -> set[str]:
+        metric_col = canonical._metric_col(frame)
+        return set(frame.loc[frame[metric_col].isin(target), "geo_id"].dropna())
+
+    raw_geos = governed_geos(artifacts["source_metrics"])
+    metric_geos = governed_geos(artifacts["metric_scores"])
+    aligned_geos = governed_geos(artifacts["aligned_metric_scores"])
+    dimension_geos = set(artifacts["dimension_scores"].loc[
+        artifacts["dimension_scores"].dimension.eq(DIMENSION), "geo_id"].dropna())
+    if raw_geos != {NATIVE_GEO}:
+        raise ValueError(f"Capital Markets raw metrics require exactly national native geography: {sorted(raw_geos)}")
+    if metric_geos != {NATIVE_GEO}:
+        raise ValueError(f"Capital Markets metric scores require exactly national native geography: {sorted(metric_geos)}")
+    for label, frame in (("raw", artifacts["source_metrics"]), ("metric score", artifacts["metric_scores"])):
+        metric_col = canonical._metric_col(frame)
+        geography_by_metric = frame[frame[metric_col].isin(target)].groupby(metric_col).geo_id.agg(
+            lambda values: set(values.dropna()))
+        missing = target - set(geography_by_metric.index)
+        invalid = {metric: sorted(geos) for metric, geos in geography_by_metric.items()
+                   if geos != {NATIVE_GEO}}
+        if missing or invalid:
+            raise ValueError(f"Capital Markets {label} native geography invalid; missing={sorted(missing)}, mixed={invalid}")
+    if len(aligned_geos) <= 1:
+        raise ValueError("Capital Markets aligned metric scores require multiple evaluation geographies")
+    if len(dimension_geos) <= 1:
+        raise ValueError("Capital Markets dimension requires multiple production geographies")
+    evaluation_geos = tuple(sorted(aligned_geos & dimension_geos))
+    if len(evaluation_geos) <= 1:
+        raise ValueError("Capital Markets aligned and dimension geography contracts do not overlap")
+    tables = canonical.build(
+        artifacts, root, DIMENSION, native_geographies=(NATIVE_GEO,),
+        evaluation_geographies=evaluation_geos)
+    contract = contract.assign(
+        native_source_geo_scope="national", native_source_geo_id=NATIVE_GEO,
+        native_metric_geo_scope="national",
+        aligned_evaluation_geo_scope="production_multi_geo",
+        aligned_evaluation_geo_count=len(evaluation_geos),
+        propagation_mode="national_macro_to_aligned_geographies")
     tables["production_contract"] = contract
     tables["raw_chronology"] = _native_raw(artifacts, contract)
     tables["feature_anatomy"], tables["raw_feature_relationship"] = _native_feature_anatomy(
@@ -270,19 +313,42 @@ def write_review(tables: dict[str, pd.DataFrame], out: Path) -> None:
     for name in OUTPUTS:
         tables[name].to_csv(out / f"{prefix}_{name}.csv", index=False)
     plots = []
-    # Reuse the canonical renderer for required metric and dimension anatomy.
-    canonical.write_review({**tables, "capital_markets_dimension_statistics": tables["dimension_statistics"]}, out, DIMENSION)
+    # Native anatomy is rendered once, at its actual national source identity.
     for metric in EXPECTED_WEIGHTS:
-        scores = tables["feature_contributions"].query("metric == @metric")[["geo_id", "date", "production_metric_score"]].drop_duplicates()
+        raw = tables["raw_chronology"].query("metric == @metric")
+        anatomy = tables["feature_anatomy"].query("metric == @metric")
+        normalized = tables["normalized_features"].query("metric == @metric")
+        feature = tables["feature_contributions"].query("metric == @metric")
+        native_families = (
+            ("raw_features", [("Raw", raw.rename(columns={"raw_value": "value"}))] +
+             [(kind.title(), anatomy[anatomy.feature_type.eq(kind)].rename(columns={"raw_feature_value": "value"}))
+              for kind in ("level", "short", "long")], None),
+            ("normalized", [(kind.title(), normalized[normalized.feature_type.eq(kind)].rename(
+                columns={"normalized_feature_score": "value"})) for kind in ("level", "short", "long")], (-1, 1)),
+            ("feature_contributions", [(kind.title(), feature[feature.feature_type.eq(kind)].rename(
+                columns={"weighted_feature_contribution": "value"})) for kind in ("level", "short", "long")], (-1, 1)),
+            ("metric_chronology", [("Native metric score", feature[["date", "production_metric_score"]]
+                .drop_duplicates().rename(columns={"production_metric_score": "value"}))], (-1, 1)),
+        )
+        for kind, panels, ylim in native_families:
+            filename = f"{prefix}_{metric}_national_native_{kind}.svg"
+            canonical._plot(out / filename, panels,
+                f"{metric} — United States national native chronology — {kind.replace('_', ' ')}", ylim)
+            plots.append(filename)
+
+        scores = tables["aligned_metric_scores"].query("metric == @metric").rename(
+            columns={"evaluation_date": "date", "aligned_metric_score": "value"})
         for scope in ("dc", "seven_county_standardized"):
-            q = scores[scores.geo_id.eq(DC)].rename(columns={"production_metric_score": "value"}) if scope == "dc" else canonical._pool(scores, "production_metric_score", ["geo_id"]).rename(columns={"production_metric_score": "value"})
-            filename = f"{prefix}_{metric}_{scope}_metric_chronology.svg"
-            canonical._plot(out / filename, [("Metric score", q)], f"{metric} — {scope} — metric chronology", (-1, 1)); plots.append(filename)
+            review = scores[scores.geo_id.isin(REVIEW_GEOS)]
+            q = review[review.geo_id.eq(DC)] if scope == "dc" else canonical._pool(review, "value", ["geo_id"])
+            filename = f"{prefix}_{metric}_{scope}_aligned_metric_chronology.svg"
+            canonical._plot(out / filename, [("Aligned metric score", q)],
+                f"{metric} — {scope} — aligned downstream chronology", (-1, 1)); plots.append(filename)
     contributions = tables["dimension_contributions"]
     for scope in ("dc", "seven_county_standardized"):
         panels = []
         for metric in EXPECTED_WEIGHTS:
-            q = contributions.query("metric == @metric")[["geo_id", "evaluation_date", "weighted_metric_contribution"]].rename(columns={"evaluation_date": "date"})
+            q = contributions.query("metric == @metric and geo_id in @REVIEW_GEOS")[["geo_id", "evaluation_date", "weighted_metric_contribution"]].rename(columns={"evaluation_date": "date"})
             q = q[q.geo_id.eq(DC)].rename(columns={"weighted_metric_contribution": "value"}) if scope == "dc" else canonical._pool(q, "weighted_metric_contribution", ["geo_id"]).rename(columns={"weighted_metric_contribution": "value"})
             panels.append((metric, q))
         filename = f"{prefix}_dimension_contribution_decomposition_{scope}.svg"
@@ -293,7 +359,7 @@ def write_review(tables: dict[str, pd.DataFrame], out: Path) -> None:
             panels = []
             for label, column in (("Capital Markets contribution", "capital_markets_weighted_contribution"),
                                   ("Other dimensions", "other_dimension_contribution"), ("Final axis", "axis_score")):
-                q = group[["geo_id", "date", column]].dropna()
+                q = group[group.geo_id.isin(REVIEW_GEOS)][["geo_id", "date", column]].dropna()
                 q = q[q.geo_id.eq(DC)].rename(columns={column: "value"}) if scope == "dc" else canonical._pool(q, column, ["geo_id"]).rename(columns={column: "value"})
                 panels.append((label, q))
             filename = f"{prefix}_{name}_axis_propagation_{scope}.svg"
@@ -302,7 +368,8 @@ def write_review(tables: dict[str, pd.DataFrame], out: Path) -> None:
     panels = []
     for axis_name in ("demand", "supply"):
         col = f"{axis_name}_capital_markets_weighted_contribution"
-        panels.append((axis_name.title(), canonical._pool(cross[["geo_id", "date", col]], col, ["geo_id"]).rename(columns={col: "value"})))
+        review = cross[cross.geo_id.isin(REVIEW_GEOS)][["geo_id", "date", col]]
+        panels.append((axis_name.title(), canonical._pool(review, col, ["geo_id"]).rename(columns={col: "value"})))
     filename = f"{prefix}_cross_axis_comparison.svg"
     canonical._plot(out / filename, panels, "Same Capital Markets chronology across axes", (-1, 1)); plots.append(filename)
     index = out / f"{prefix}_review_index.html"
@@ -310,5 +377,7 @@ def write_review(tables: dict[str, pd.DataFrame], out: Path) -> None:
     links += [f'<li><a href="{html.escape(name)}">{html.escape(name)}</a></li>' for name in plots]
     index.write_text("<!doctype html><meta charset=utf-8><title>Capital Markets Phase 1</title>"
         "<h1>Capital Markets Phase 1 — MW-TEMPERED-C anatomy</h1>"
+        "<p>Capital Markets raw data, features, and native metric scores are national macro series. Production subsequently aligns those national metric scores onto the multi-geography evaluation calendar. County and metro variation arises downstream through interaction with other dimension inputs and axis composition, not from county-specific Capital Markets source data.</p>"
+        "<p>Native anatomy plots are labeled United States national native chronology; DC and seven-county plots begin at the aligned/downstream layer.</p>"
         "<p>Diagnostic only. Demand and Supply remain separate frozen downstream contexts. No challenger or recommendation.</p><ul>"
         + "".join(links) + "</ul>", encoding="utf-8")

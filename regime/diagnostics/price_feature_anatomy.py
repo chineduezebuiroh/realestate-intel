@@ -121,7 +121,16 @@ def _periods(g):
     end=g.date.max()
     return (("full_history",g),("2022_plus",g[g.date.ge("2022-01-01")]),("latest_36_months",g[g.date.ge(end-pd.DateOffset(months=35))]))
 
-def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price") -> dict[str,pd.DataFrame]:
+def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price",
+          native_geographies: tuple[str, ...] | None = None,
+          evaluation_geographies: tuple[str, ...] | None = None) -> dict[str,pd.DataFrame]:
+    """Build anatomy at explicit native and evaluation geography boundaries.
+
+    Defaults preserve the original seven-county contract. National-source
+    dimensions must opt in explicitly, so county safeguards remain unchanged.
+    """
+    native_geographies = native_geographies or REVIEW_GEOS
+    evaluation_geographies = evaluation_geographies or REVIEW_GEOS
     contract,mreg=resolve_contract(root, dimension); target_metrics=tuple(sorted(contract.metric.unique())); fmap=contract.set_index("feature_key")[["metric","feature_type","configured_feature_weight"]]
     raw=_dates(artifacts["source_metrics"]); mc=_metric_col(raw); val=_value_col(raw,("value","metric_value","raw_value"))
     # Persisted source artifacts may identify the same governed observation by
@@ -138,15 +147,15 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price
         raise ValueError(f"ambiguous raw source metric identities: {sorted(ambiguous.index)}")
     raw=(raw.rename(columns={mc:"registry_metric_key",val:"raw_value"})
         .merge(identities,on="registry_metric_key",how="inner",validate="many_to_one"))
-    raw=raw[raw.geo_id.isin(REVIEW_GEOS)][["geo_id","date","metric","raw_value"]]
+    raw=raw[raw.geo_id.isin(native_geographies)][["geo_id","date","metric","raw_value"]]
     missing=set(target_metrics).difference(raw.metric.unique())
     if missing: raise ValueError(f"governed raw metrics missing after identity resolution: {sorted(missing)}")
     if raw.duplicated(["geo_id","date","metric"]).any(): raise ValueError("duplicate raw monthly chronology")
     raw=_calendar(raw,["geo_id","metric"]).sort_values(["metric","geo_id","date"])
-    features=_dates(artifacts["features"]); features=features[features.feature_key.isin(fmap.index)&features.geo_id.isin(REVIEW_GEOS)]
+    features=_dates(artifacts["features"]); features=features[features.feature_key.isin(fmap.index)&features.geo_id.isin(native_geographies)]
     features=features.merge(fmap,left_on="feature_key",right_index=True,validate="many_to_one")
     norm=_dates(artifacts["normalized_features"]); score=_value_col(norm,("feature_score","normalized_feature_score","normalized_value"))
-    norm=norm[norm.feature_key.isin(fmap.index)&norm.geo_id.isin(REVIEW_GEOS)].rename(columns={score:"normalized_feature_score"})
+    norm=norm[norm.feature_key.isin(fmap.index)&norm.geo_id.isin(native_geographies)].rename(columns={score:"normalized_feature_score"})
     norm=norm.merge(fmap,left_on="feature_key",right_index=True,validate="many_to_one")
     lineage=set(norm.feature_key.unique())
     if lineage!=set(contract.feature_key): raise ValueError("registry and persisted feature lineage disagree")
@@ -158,7 +167,7 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price
     # Feature arithmetic lives at the native scoring identity.  It must be
     # reconciled to metric_scores, not to the later as-of alignment surface.
     metric=_dates(artifacts["metric_scores"]); mc=_metric_col(metric); sv=_value_col(metric,("metric_score","score"))
-    metric=metric.rename(columns={mc:"metric",sv:"production_metric_score"}); metric=metric[metric.metric.isin(target_metrics)&metric.geo_id.isin(REVIEW_GEOS)]
+    metric=metric.rename(columns={mc:"metric",sv:"production_metric_score"}); metric=metric[metric.metric.isin(target_metrics)&metric.geo_id.isin(native_geographies)]
     panel=panel.merge(metric[["geo_id","date","metric","production_metric_score"]],on=["geo_id","date","metric"],how="left",validate="many_to_one")
     panel["native_metric_date"]=panel["date"]
     panel["native_metric_score"]=panel["production_metric_score"]
@@ -173,9 +182,9 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price
     aligned["date"]=pd.to_datetime(aligned["date"],errors="raise")
     if "metric_date" not in aligned: aligned["metric_date"]=aligned["date"]
     aligned["metric_date"]=pd.to_datetime(aligned["metric_date"],errors="raise")
-    aligned=aligned[aligned.metric.isin(target_metrics)&aligned.geo_id.isin(REVIEW_GEOS)]
+    aligned=aligned[aligned.metric.isin(target_metrics)&aligned.geo_id.isin(evaluation_geographies)]
     dimension_score=f"{dimension}_dimension_score"
-    dims=_dates(artifacts["dimension_scores"]); dims=dims[dims.dimension.eq(dimension)&dims.geo_id.isin(REVIEW_GEOS)].rename(columns={"dimension_score":dimension_score})
+    dims=_dates(artifacts["dimension_scores"]); dims=dims[dims.dimension.eq(dimension)&dims.geo_id.isin(evaluation_geographies)].rename(columns={"dimension_score":dimension_score})
     wide=aligned.pivot(index=["geo_id","date"],columns="metric",values="aligned_metric_score")
     weights=mreg.set_index("canonical_metric_key").metric_weight
     valid=wide.notna(); denom=valid.mul(weights).sum(axis=1); reconstructed=wide.mul(weights).sum(axis=1,min_count=1).div(denom)
@@ -217,7 +226,7 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price
       q=g.sort_values("date"); stats=_series_stats(q.normalized_feature_score,q.date); bymonth=q.assign(month=q.date.dt.month).groupby("month").normalized_feature_score.mean()
       season.append({"metric":m,"feature_type":ft,"geo_id":geo,"reversal_frequency":1-stats["persistence"],"whipsaw_2m_rate":stats["whipsaw_2m"],"whipsaw_3m_rate":stats["whipsaw_3m"],
        "calendar_month_effect_range":bymonth.max()-bymonth.min(),"strongest_calendar_month":bymonth.abs().idxmax() if len(bymonth) else np.nan})
-    coverage=raw.groupby(["metric","date"]).raw_value.agg(available_count=lambda x:x.notna().sum(),total_count="size").reset_index(); coverage["coverage_rate"]=coverage.available_count/len(REVIEW_GEOS)
+    coverage=raw.groupby(["metric","date"]).raw_value.agg(available_count=lambda x:x.notna().sum(),total_count="size").reset_index(); coverage["coverage_rate"]=coverage.available_count/len(native_geographies)
     evaluation=pd.DataFrame([{"question":i,"status":"empirical_review_required","evidence":"review linked plots and tables; no automated recommendation"} for i in range(1,13)])
     governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":f"{dimension}_feature_anatomy_review_pending","automated_winner":False,"production_policy_changed":False}])
     return {"production_contract":contract,"raw_chronology":raw,"feature_anatomy":anatomy,"normalized_features":panel[["geo_id","date","metric","feature_type","feature_key","normalized_feature_score"]],
