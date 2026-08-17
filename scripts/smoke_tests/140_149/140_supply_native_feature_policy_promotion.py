@@ -12,7 +12,7 @@ POLICIES={
  "bps_total_units":{"level":("ma_level","12m",.75),"short_term_change":("ma_pct_change","12m/lag6m",.10),"long_term_change":("ma_pct_change","12m/lag12m",.15)},
  "derived_permit_intensity":{"level":("ma_level","12m",.40),"short_term_change":("ma_pct_change","12m/lag3m",.15),"long_term_change":("ma_pct_change","12m/lag12m",.45)},
 }
-WEIGHTS={"redfin_inventory":.60,"bps_total_units":.20,"derived_permit_intensity":.20}
+WEIGHTS={"redfin_inventory":.65,"bps_total_units":.30,"derived_permit_intensity":.05}
 
 def main():
  c=load_regime_config(); validate_regime_config(c)
@@ -37,5 +37,6 @@ def main():
  assert c.axes.equals(__import__('pandas').read_csv(ROOT/'config/axis_registry.csv',dtype=str).fillna(''))
  tracked_artifacts=__import__('subprocess').run(['git','ls-files','artifacts/regime/runs'],cwd=ROOT,text=True,capture_output=True,check=True).stdout
  assert not tracked_artifacts.strip()
- print('Smoke 140 passed: exact 3-metric/9-row policies, lag semantics, 60/20/20, axes and unrelated-domain isolation, closure/pending governance, no generated run artifacts tracked')
+ assert record['supply_metric_weights']=={'active_inventory':.60,'permit_activity':.20,'permit_intensity':.20}, 'native-feature promotion must preserve its historical S0 context'
+ print('Smoke 140 passed: exact native feature policies and lag semantics, historical S0 context preserved, current S8 weights, axes and unrelated-domain isolation, no generated runs tracked')
 if __name__=='__main__': main()

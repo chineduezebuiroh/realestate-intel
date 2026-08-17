@@ -137,7 +137,11 @@ weights and the existing Supply freeze/promotion record remain unchanged.
 
 The human-approved production policies are Active Inventory MA12/I4 (40/15/45), Permit Activity MA12/A2 (75/10/15 with the governed lag-6 Short preserved), and Permit Intensity MA12/N4 (40/15/45). Phase 1 anatomy and evidence repairs, Phase 2 feature-weight calibration and correlation hardening, and the final I4/N4 MA check form the closed evidence sequence. MA9/I4 and MA9/N4 did not establish a material structural advantage over MA12 sufficient to offset stability costs.
 
-This closes native Supply **feature-policy calibration**, not the Supply dimension. Production metric weights remain 60/20/20. The S0–S7 metric-weight grid remains pending adjudication, and Capital Markets remains unchanged and deferred until native Supply calibration, including metric weighting, is complete.
+ADR-011 subsequently closed Supply metric-weight calibration and the Supply dimension. Human-selected S8 is production at 65/30/5; Active Inventory remains MA12/I4, Permit Activity MA12/A2 with governed lag-6 Short, and Permit Intensity MA12/N4. The bounded S0–S9 evidence is preserved, no automated winner was used, and Supply is frozen unless a governed revisit trigger occurs. Capital Markets was unchanged and becomes the next active workstream, beginning with an inventory of its existing production policy to determine confirmation/revalidation versus bounded recalibration.
+
+## Supply calibration closure (2026-08-17)
+
+The bounded S0-S9 metric-weight campaign is closed by ADR-011. The human-selected production policy is S8: Active Inventory 65%, Permit Activity 30%, and Permit Intensity 5%. Together with MA12/I4 (40/15/45), MA12/A2 (75/10/15, governed lag-6 Short), and MA12/N4 (40/15/45), this fully calibrates and freezes Supply. S0, S2, S4, S9, and the full evidence sequence remain preserved as superseded history. No 75% Inventory scenario was tested or warranted. Capital Markets was unchanged and is next for a production-policy inventory followed by a decision between confirmation/revalidation and bounded recalibration.
 
 ## Phase E — Future Vision
 

@@ -22,7 +22,7 @@ SCENARIOS = (
     ("MA9__N4", "permit_intensity", 9, .40, .15, .45),
 )
 FIXED_WEIGHTS = {"active_inventory":(.40,.15,.45), "permit_activity":(.75,.10,.15), "permit_intensity":(.40,.15,.45)}
-METRIC_WEIGHTS = {"active_inventory":.60, "permit_activity":.20, "permit_intensity":.20}
+METRIC_WEIGHTS = {"active_inventory":.65, "permit_activity":.30, "permit_intensity":.05}
 EXPORTS = ("scenario_registry","metric_chronology","metric_statistics","raw_cycle_comparison",
  "effective_delay","controlled_ma_comparisons","by_county","period_sensitivity",
  "dimension_statistics","supply_axis_statistics","demand_isolation","evaluation_matrix","governance_status")

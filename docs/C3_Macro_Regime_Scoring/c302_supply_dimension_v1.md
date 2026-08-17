@@ -131,31 +131,28 @@ No cross-market normalization is performed.
 
 # Frozen Production Weighting
 
-As of 2026-08-06, the frozen production policy is:
+As of 2026-08-17, the frozen production policy is human-selected S8:
 
 | Subcomponent | Configured weight |
 | --- | ---: |
-| Active Inventory | 60% |
-| Permit Activity | 20% |
-| Permit Intensity | 20% |
+| Active Inventory | 65% |
+| Permit Activity | 30% |
+| Permit Intensity | 5% |
 
-Permit activity and permit intensity are highly correlated, so equal weighting
-allowed the combined permit family to dominate Supply. Challenger A materially
-improved stability and reduced that dominance while preserving responsiveness in
-the governed diagnostic. It was selected as the minimum effective correction
-over the stronger Challenger B. This was a human policy decision informed by
-`supply_metric_weight_diagnostic_v1`; the diagnostic did not automatically select
+The historical 2026-08-06 S0 policy (60/20/20) remains preserved in its promotion
+and freeze records. The S0-S9 campaign established S8 as the preferred balance
+between Inventory dominance, reduced duplicate Permit-family voting, stability,
+and Permit Activity responsiveness. S9 exposed excessive Inventory dominance.
+This was an explicit human decision; the diagnostic did not automatically select
 or promote a policy.
 
 # Frozen Feature Contract Within Subcomponents
 
-For Active Inventory, Permit Activity, and Permit Intensity alike:
-
-| Feature Type | Definition | Weight |
-| --- | --- | ---: |
-| Level | `MA12(raw)` | 50% |
-| Short-Term Change | `MA12(raw) / lag3(MA12(raw)) - 1` | 25% |
-| Long-Term Change | `MA12(raw) / lag12(MA12(raw)) - 1` | 25% |
+| Metric | Policy | Level | Short | Long |
+| --- | --- | ---: | ---: | ---: |
+| Active Inventory | MA12/I4 | 40% | 15% (`lag3`) | 45% (`lag12`) |
+| Permit Activity | MA12/A2 | 75% | 10% (**governed `lag6`**) | 15% (`lag12`) |
+| Permit Intensity | MA12/N4 | 40% | 15% (`lag3`) | 45% (`lag12`) |
 
 Permit intensity is derived as a raw permit-activity/population ratio using the
 carried-forward population first, and that derived raw series is then smoothed
@@ -163,7 +160,9 @@ once. It is never derived from smoothed permit activity and is never double
 smoothed.
 
 The membership, metric weights, feature definitions, feature weights, and
-permit-intensity lineage are frozen together as `supply_dimension_frozen_v1`.
+permit-intensity lineage are frozen together as
+`supply_dimension_frozen_s8_2026_08_17`. The historical
+`supply_dimension_frozen_v1` record is preserved.
 Supply-axis configured weights remain unchanged. A future change requires a new
 diagnostic identity, explicit human approval, a new promotion contract, and a
 new frozen Supply version. Capital Markets is the next diagnostic workstream;

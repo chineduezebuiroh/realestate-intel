@@ -1,0 +1,26 @@
+{
+  "promotion_identity": "supply_metric_weight_s8_2026_08_17",
+  "decision_date": "2026-08-17",
+  "status": "human_approved",
+  "human_decision": "supply_s8_metric_weight_approved",
+  "automated_winner": false,
+  "production_policy_changed": true,
+  "production_metric_weight_policy": "S8",
+  "promoted_weights": {"active_inventory": 0.65, "permit_activity": 0.30, "permit_intensity": 0.05},
+  "superseded_policy": {"identity": "S0", "weights": {"active_inventory": 0.60, "permit_activity": 0.20, "permit_intensity": 0.20}, "promotion_record": "supply_metric_weight_promotion_2026_08_06"},
+  "native_feature_policies": {
+    "active_inventory": {"identity": "MA12/I4", "level": 0.40, "short": 0.15, "long": 0.45, "short_lag_months": 3, "long_lag_months": 12},
+    "permit_activity": {"identity": "MA12/A2", "level": 0.75, "short": 0.10, "long": 0.15, "short_lag_months": 6, "long_lag_months": 12},
+    "permit_intensity": {"identity": "MA12/N4", "level": 0.40, "short": 0.15, "long": 0.45, "short_lag_months": 3, "long_lag_months": 12}
+  },
+  "native_supply_feature_calibration": "closed",
+  "supply_metric_weight_calibration": "closed",
+  "supply_calibration": "closed",
+  "bounded_calibration": "S0-S9",
+  "upper_inventory_boundary_percent": 65,
+  "upper_inventory_tested_through_percent": 70,
+  "inventory_75_tested": false,
+  "inventory_75_warranted": false,
+  "capital_markets": "unchanged",
+  "explicit_non_changes": ["feature weights", "feature windows", "transforms", "normalization", "Supply metric membership", "Supply-to-axis weights", "Demand", "Labor", "Price", "Affordability", "Capital Markets"]
+}

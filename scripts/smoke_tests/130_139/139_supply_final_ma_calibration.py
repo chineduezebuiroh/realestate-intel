@@ -16,7 +16,7 @@ def fixture():
 warnings.simplefilter("error",RuntimeWarning)
 assert [(x[0],x[1],x[2],tuple(x[3:])) for x in SCENARIOS]==[("MA12__I4","active_inventory",12,(.4,.15,.45)),("MA9__I4","active_inventory",9,(.4,.15,.45)),("MA12__N4","permit_intensity",12,(.4,.15,.45)),("MA9__N4","permit_intensity",9,(.4,.15,.45))]
 assert not any(x[1]=="permit_activity" or x[2] in (6,10,11) or "I5" in x[0] or "N5" in x[0] for x in SCENARIOS)
-assert FIXED_WEIGHTS["permit_activity"]==(.75,.10,.15) and METRIC_WEIGHTS=={"active_inventory":.6,"permit_activity":.2,"permit_intensity":.2}
+assert FIXED_WEIGHTS["permit_activity"]==(.75,.10,.15) and METRIC_WEIGHTS=={"active_inventory":.65,"permit_activity":.30,"permit_intensity":.05}
 protected=[Path("config/feature_registry.csv"),Path("config/normalization_registry.csv"),Path("config/metric_dimension_registry.csv"),Path("config/axis_registry.csv")]; before={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in protected}
 t=build(fixture(),Path(".")); assert set(EXPORTS).issubset(t) and len(t["scenario_registry"])==4
 assert set(t["controlled_ma_comparisons"].comparison_type)=={"I4_fixed","N4_fixed"}
