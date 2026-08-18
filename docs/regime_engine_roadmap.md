@@ -367,3 +367,12 @@ normalized permit-activity score. No BPS implementation is part of this pass.
 ## Capital Markets native feature closure (2026-08-18)
 
 Capital Markets feature calibration is closed and its metric-specific production feature policies are frozen pending material evidence. The next Capital Markets workstream is separate family metric-weight calibration. The existing long-term-rates/Fed-Funds/spreads allocation remains 45/10/45; no family-weight candidate grid has been promoted. Until that work closes, Capital Markets is not fully frozen.
+
+## Capital Markets spread-polarity repair (2026-08-18)
+
+The canonical `spread_10y_2y` source boundary is being repaired after exact
+evidence showed that physical `fred_spread_2y_10y` (`2Y - 10Y`) was mapped
+without inversion. P7 is retained only as a revalidation baseline; P4, P2, P1,
+P5, and P9 remain provisionally valid. Existing F0-F9 evidence is preserved but
+invalidated pending corrected spread-only feature calibration and a later local
+family-weight rerun. No family-weight production policy has been selected.
