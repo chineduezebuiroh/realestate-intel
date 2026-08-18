@@ -34,6 +34,39 @@ def main():
     assert set(tables["demand_axis_statistics"].experiment_metric)==set(EXPECTED_WEIGHTS)
     assert set(tables["supply_axis_statistics"].experiment_metric)==set(EXPECTED_WEIGHTS)
     assert set(tables["responsiveness"].policy)>={"P6","P7"}
+    raw=tables["raw_cycle_comparison"]
+    assert set(raw.reference_type)=={"incumbent_chronology_reference"}
+    assert set(raw.legacy_reference_type)=={"legacy_raw_movement_reference"}
+    assert np.allclose(raw.query("policy=='P0'").correlation,1.0)
+    assert raw.legacy_correlation.notna().any()
+    assert raw.query("policy!='P0'").correlation.lt(1).any()
+    assert raw.query("policy!='P0' and correlation < 1").correlation_status.eq("ok").all()
+    audit=tables["correlation_audit"].query("comparison_type=='incumbent_chronology_reference'")
+    assert audit.overlap_count.gt(0).all() and audit.aligned_start_date.notna().all()
+    turns=tables["turning_point_audit"]
+    required={"metric","policy","period","reference_turn_date","reference_turn_type","reference_qualified","reference_rejection_reason","candidate_turn_date","candidate_turn_type","candidate_qualified","candidate_rejection_reason","matched","signed_delay_months","absolute_delay_months","match_window_months"}
+    assert required.issubset(turns)
+    delay=tables["effective_delay"]; assert set(delay.delay_status).issubset({"ok","no_reference_turns","no_candidate_turns","no_matches","insufficient_evidence"})
+    assert delay.loc[delay.delay_status.eq("ok"),"absolute_delay"].notna().all()
+    decision=tables["policy_decision_table"]
+    assert len(decision)==len(POLICIES)*len(EXPECTED_WEIGHTS)*3
+    assert np.allclose(decision.query("policy=='P0'").delta_standard_deviation,0)
+    assert not any("cycle" in c for c in decision.columns)
+    assert {"incumbent_chronology_correlation","incumbent_turning_preservation","incumbent_absolute_delay","similarity_to_level","similarity_to_short","similarity_to_long"}.issubset(decision)
+    source_stats=tables["metric_statistics"].set_index(["metric","period","policy"])
+    source_response=tables["responsiveness"].set_index(["metric","period","policy"])
+    for row in decision.itertuples(index=False):
+        key=(row.metric,row.period,row.policy)
+        assert np.isclose(row.standard_deviation,source_stats.loc[key].standard_deviation)
+        assert np.isclose(row.muted_material_move_share,source_response.loc[key].muted_material_move_share)
+    marginal=tables["policy_marginal_deltas"]
+    assert len(marginal)==len(ADJACENT)*len(EXPECTED_WEIGHTS)*3
+    sample=marginal.iloc[0]; idx=decision.set_index(["metric","period","policy"])
+    assert np.isclose(sample.delta_standard_deviation,idx.loc[(sample.metric,sample.period,sample.to_policy)].standard_deviation-idx.loc[(sample.metric,sample.period,sample.from_policy)].standard_deviation)
+    assert np.isclose(sample.delta_direction_agreement_during_material_moves,idx.loc[(sample.metric,sample.period,sample.to_policy)].direction_agreement_during_material_moves-idx.loc[(sample.metric,sample.period,sample.from_policy)].direction_agreement_during_material_moves)
+    plateau=tables["family_plateau_summary"]
+    assert set(plateau.plateau_result)=={"indeterminate"} and plateau.plateau_basis.str.contains("incumbent similarity is secondary").all()
+    assert set(tables["performance_audit"].stage)>={"load","turning-point analysis","Demand propagation","Supply propagation","visualization","total"}
     assert set(tables["family_consistency"].family)=={"long_term_rates","policy_rate","spreads"}
     assert set(tables["correlation_audit"].correlation_status).issubset({"ok","insufficient_overlap","left_nonfinite","right_nonfinite","both_nonfinite","left_constant","right_constant","both_constant"})
     gov=tables["governance_status"].iloc[0]; assert gov.candidate_grid=="P0-P7" and gov.family_metric_weight_calibration=="not_started"
