@@ -51,7 +51,14 @@ def main():
  assert contract["spread_10y_2y_feature_policy"]=="P7" and contract["spread_10y_2y_feature_policy_status"]=="revalidation_required"
  assert contract["family_weight_evidence_status"]=="invalidated_pending_rerun"
  governance=Path("regime/diagnostics/capital_markets_family_weight_calibration.py").read_text(); assert "invalidated_by_spread_polarity_defect" in governance
- assert not Path("artifacts/regime/runs/capital_markets_feature_policy_production_20260818").exists()
+ # Historical defective production artifacts are intentionally preserved
+ # as immutable evidence. Smoke 147 must not require their absence.
+ # The corrected-source repair candidate should not exist before explicit
+ # local materialization.
+ assert not Path(
+     "artifacts/regime/runs/"
+     "capital_markets_spread_polarity_repair_20260818"
+ ).exists()
  protected=[Path("config/feature_registry.csv"),Path("config/metric_dimension_registry.csv"),Path("config/normalization_registry.csv"),Path("config/axis_registry.csv")]
  before={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in protected}; canonicalize_source_polarity(resolved); assert before=={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in protected}
  with tempfile.TemporaryDirectory() as tmp:
