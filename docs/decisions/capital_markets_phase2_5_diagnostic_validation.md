@@ -2,10 +2,29 @@
 
 ## Scope and governance
 
-This change hardens the diagnostic implementation only. The closed P0–P7 grid,
+This change hardens the diagnostic implementation only. The closed P0–P9 grid,
 settled transforms, MA windows, metric weights, and Demand/Supply axis weights
 are unchanged. No winner is selected and Capital Markets metric-weight
 calibration remains `not_started`.
+
+## Long-weight boundary extension
+
+P8 and P9 were added because P7 confounded Long-majority weighting with a large
+reduction in Level. P8 (45/10/45) closes the Level/Long parity boundary, P9
+(40/10/50) closes the moderate Long-majority boundary, and P7 (35/10/55)
+remains the aggressive Long-majority stress. The final controlled Long ladder,
+with Short fixed at 10%, is:
+
+```text
+P4  55/10/35
+ -> P5  50/10/40
+ -> P8  45/10/45
+ -> P9  40/10/50
+ -> P7  35/10/55
+```
+
+The grid is closed at exactly P0–P9. No production feature-weight policy has
+yet been selected by this diagnostic extension.
 
 ## Cycle-reference finding
 
@@ -62,7 +81,8 @@ stability, responsiveness, contribution structure, feature similarity, and
 secondary incumbent-chronology distance evidence. Policy selection is governed
 primarily by absolute and marginal stability, responsiveness, and contribution
 evidence; incumbent similarity is a tradeoff diagnostic, not an objective.
-The marginal table contains only the seven controlled comparisons and uses
+The marginal table contains only the nine controlled comparisons (P0→P1,
+P1→P2, P2→P6, P1→P3, P2→P4, P4→P5, P5→P8, P8→P9, and P9→P7) and uses
 arithmetically exact deltas. Because no governed diagnostic thresholds exist,
 `marginal_improvement_status` is `human_review_required`. Family plateau status
 is likewise `indeterminate`; no composite score, rank, recommendation, or

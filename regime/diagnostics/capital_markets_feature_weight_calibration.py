@@ -26,9 +26,18 @@ POLICIES = {
     "P2": (.60, .10, .30), "P3": (.55, .15, .30),
     "P4": (.55, .10, .35), "P5": (.50, .10, .40),
     "P6": (.60, .05, .35), "P7": (.35, .10, .55),
+    "P8": (.45, .10, .45), "P9": (.40, .10, .50),
+}
+POLICY_PURPOSES = {
+    "P0": "incumbent", "P1": "small Short → Long transfer",
+    "P2": "stronger Short reduction", "P3": "modest Level + Short transfer",
+    "P4": "stronger Long bias with Level anchor", "P5": "pre-majority Long boundary",
+    "P6": "minimal-Short stress", "P7": "aggressive Long-majority boundary",
+    "P8": "Level/Long parity boundary", "P9": "moderate Long-majority boundary",
 }
 ADJACENT = (("P0", "P1"), ("P1", "P2"), ("P2", "P6"),
-            ("P1", "P3"), ("P2", "P4"), ("P4", "P5"), ("P5", "P7"))
+            ("P1", "P3"), ("P2", "P4"), ("P4", "P5"),
+            ("P5", "P8"), ("P8", "P9"), ("P9", "P7"))
 PERIODS = ("full_history", "2022_plus", "latest_36_months")
 FAMILIES = {
     "long_term_rates": ("mortgage_30y", "mortgage_15y", "treasury_10y"),
@@ -166,11 +175,11 @@ def _raw_cycle(source: pd.DataFrame, contract: pd.DataFrame) -> pd.DataFrame:
 def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFrame]:
     build_started = perf_counter()
     contract, _ = resolve_contract(root)
-    registry = pd.DataFrame([{"policy": p, "level_weight": w[0], "short_weight": w[1], "long_weight": w[2],
-        "candidate_grid": "P0-P7", "candidate_grid_closed": True, "native_geo_id": NATIVE_GEO,
+    registry = pd.DataFrame([{"policy": p, "level_weight": w[0], "short_weight": w[1], "long_weight": w[2], "purpose": POLICY_PURPOSES[p],
+        "candidate_grid": "P0-P9", "candidate_grid_closed": True, "native_geo_id": NATIVE_GEO,
         "feature_construction": "production_persisted_normalized_features"} for p, w in POLICIES.items()])
-    if list(POLICIES) != [f"P{i}" for i in range(8)] or not np.allclose(registry[["level_weight", "short_weight", "long_weight"]].sum(axis=1), 1):
-        raise ValueError("closed P0-P7 candidate grid is invalid")
+    if list(POLICIES) != [f"P{i}" for i in range(10)] or not np.allclose(registry[["level_weight", "short_weight", "long_weight"]].sum(axis=1), 1):
+        raise ValueError("closed P0-P9 candidate grid is invalid")
     norm = canonical._dates(artifacts["normalized_features"]); score_col = canonical._value_col(norm, ("feature_score", "normalized_feature_score", "normalized_value"))
     fmap = contract.set_index("feature_key")[["metric", "feature_type"]]
     base = norm[norm.feature_key.isin(fmap.index)].rename(columns={score_col: "normalized_feature_score"}).merge(fmap, left_on="feature_key", right_index=True, validate="many_to_one")
@@ -413,13 +422,25 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
             "mean_incumbent_chronology_correlation":g.incumbent_chronology_correlation.mean(),"mean_incumbent_direction_agreement":g.incumbent_direction_agreement.mean(),
             "mean_incumbent_turning_preservation":g.incumbent_turning_preservation.mean(),"mean_response_magnitude_ratio_to_p0":g.response_magnitude_ratio_to_p0.mean(),"mean_attenuated_vs_p0_share":g.attenuated_vs_p0_share.mean(),"mean_amplified_vs_p0_share":g.amplified_vs_p0_share.mean(),
             "mean_level_contribution_share":g.level_absolute_contribution_share.mean(),"mean_short_contribution_share":g.short_absolute_contribution_share.mean(),"mean_long_contribution_share":g.long_absolute_contribution_share.mean(),
+            "mean_similarity_to_level":g.similarity_to_level.mean(),"mean_similarity_to_short":g.similarity_to_short.mean(),"mean_similarity_to_long":g.similarity_to_long.mean(),
             "mean_marginal_standard_deviation":incoming.delta_standard_deviation.mean(),"mean_marginal_monthly_movement":incoming.delta_mean_absolute_monthly_movement.mean(),
             "mean_marginal_response_magnitude_ratio_to_p0":incoming.delta_response_magnitude_ratio_to_p0.mean(),"mean_marginal_attenuated_vs_p0_share":incoming.delta_attenuated_vs_p0_share.mean(),"mean_marginal_amplified_vs_p0_share":incoming.delta_amplified_vs_p0_share.mean(),"mean_marginal_material_move_direction_agreement":incoming.delta_direction_agreement_during_material_moves.mean(),
             "mean_marginal_level_contribution_share":incoming.delta_level_absolute_contribution_share.mean(),"mean_marginal_short_contribution_share":incoming.delta_short_absolute_contribution_share.mean(),"mean_marginal_long_contribution_share":incoming.delta_long_absolute_contribution_share.mean(),
             "plateau_result":"indeterminate","plateau_basis":"stability gains, responsiveness costs, contribution shifts, and marginal flattening require human review; incumbent similarity is secondary"})
     family_summary=pd.DataFrame(family_summary)
-    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"capital_markets_feature_weight_review_pending","automated_winner":False,"production_policy_changed":False,"feature_weight_policy_changed":False,"metric_weight_policy_changed":False,"Demand_changed":False,"Supply_changed":False,"Capital_Markets_changed":False,"candidate_grid_closed":True,"candidate_grid":"P0-P7","family_metric_weight_calibration":"not_started","normalization_changed":False,"one_metric_changes_at_a_time":True,"native_geography":NATIVE_GEO}])
-    evaluation=pd.DataFrame([{"question":i,"status":"empirical_review_required","evidence":"authoritative review exports; no composite score or automated winner"} for i in range(1,21)])
+    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"capital_markets_feature_weight_review_pending","automated_winner":False,"production_policy_changed":False,"feature_weight_policy_changed":False,"metric_weight_policy_changed":False,"Demand_changed":False,"Supply_changed":False,"Capital_Markets_changed":False,"candidate_grid_closed":True,"candidate_grid":"P0-P9","family_metric_weight_calibration":"not_started","normalization_changed":False,"one_metric_changes_at_a_time":True,"native_geography":NATIVE_GEO}])
+    review_questions=(
+        "Does P8 improve stability meaningfully versus P5?", "Does P8 preserve responsiveness versus P5?",
+        "Does P8 materially reduce useful Level-state information?", "Does P8 begin to become excessively Long-like?",
+        "Does P9 improve stability meaningfully versus P8?", "Does P9 preserve responsiveness versus P8?",
+        "Does P9 materially attenuate material macro moves?", "Does P9 preserve directional responsiveness?",
+        "Does P9 materially reduce turning fidelity?", "Does P9 materially increase delay?",
+        "Does P9 produce better tradeoffs than P7?", "Was P7 weak because Long exceeded Level, or because 35% Level was too little?",
+        "Where does the Level-to-Long optimization plateau begin?", "Is 50% Long defensible?",
+        "Is 55% Long beyond the practical boundary?", "Does the answer differ across long-term rates, Fed Funds, and spreads?",
+        "Does any individual metric support a Long-majority production policy?", "Does any family support a shared Long-majority region?",
+    )
+    evaluation=pd.DataFrame([{"question":q,"status":"empirical_review_required","evidence":"authoritative review exports; no composite score or automated winner"} for q in review_questions])
     elapsed=perf_counter()-build_started
     stages=("load","candidate construction","native metric statistics","incumbent chronology comparisons","turning-point analysis","contribution analysis","alignment","dimension propagation","Demand propagation","Supply propagation","family summaries","visualization")
     performance=pd.DataFrame([{"stage":s,"elapsed_seconds":0.0,"call_count":0,"rows_processed":0,"optimization_note":"stage timing populated by build boundary; downstream turning detectors eliminated"} for s in stages]+[{"stage":"total","elapsed_seconds":elapsed,"call_count":1,"rows_processed":len(scenario),"optimization_note":"wall-clock build runtime; visualization is timed by write_review"}])
@@ -436,20 +457,20 @@ def write_review(tables: dict[str,pd.DataFrame], out: Path) -> None:
     plots=[]; chron=tables["metric_chronology"]
     for metric in EXPECTED_WEIGHTS:
         all_series=[(p,chron[chron.metric.eq(metric)&chron.policy.eq(p)][["date","candidate_metric_score"]].rename(columns={"candidate_metric_score":"value"})) for p in POLICIES]
-        focus=[x for x in all_series if x[0] in ("P0","P2","P4","P5","P6","P7")]
+        focus=[x for x in all_series if x[0] in ("P0","P4","P5","P8","P9","P7")]
         raw=tables["raw_cycle_chronology"].query("metric==@metric")[["date","oriented_raw_cycle"]].rename(columns={"oriented_raw_cycle":"value"})
         groups=(("national_native_policies",all_series),("focus",focus),("raw_cycle",[("oriented raw cycle",raw),*focus]))
         for suffix,series in groups:
             fn=f"{prefix}_{metric}_{suffix}.svg"; _svg(out/fn,series,f"{metric} — {suffix.replace('_',' ')}"); plots.append(fn)
-        for policy in ("P0","P2","P4","P6","P7"):
+        for policy in ("P0","P4","P5","P8","P9","P7"):
             q=tables["feature_contributions"].query("metric==@metric and policy==@policy"); series=[(f,q[q.feature_type.eq(f)][["date","weighted_feature_contribution"]].rename(columns={"weighted_feature_contribution":"value"})) for f in FEATURES]
             fn=f"{prefix}_{metric}_{policy}_contributions.svg"; _svg(out/fn,series,f"{metric} {policy} contribution decomposition"); plots.append(fn)
         response=tables["metric_statistics"].query("metric==@metric and period=='full_history'"); series=[]
         for col in ("whipsaw_2m","persistence"):
-            series.append((col,pd.DataFrame({"date":pd.date_range("2000-01-31",periods=8,freq="ME"),"value":response.set_index("policy").reindex(POLICIES)[col].values})))
+            series.append((col,pd.DataFrame({"date":pd.date_range("2000-01-31",periods=len(POLICIES),freq="ME"),"value":response.set_index("policy").reindex(POLICIES)[col].values})))
         fn=f"{prefix}_{metric}_response_curve.svg"; _svg(out/fn,series,f"{metric} policy response"); plots.append(fn)
     for name in ("long_term_rates","spreads","policy_rate"):
-        q=tables["family_consistency"].query("family==@name"); series=[("whipsaw",pd.DataFrame({"date":pd.date_range("2000-01-31",periods=8,freq="ME"),"value":q.set_index("policy").reindex(POLICIES).mean_whipsaw_2m.values}))]
+        q=tables["family_consistency"].query("family==@name"); series=[("whipsaw",pd.DataFrame({"date":pd.date_range("2000-01-31",periods=len(POLICIES),freq="ME"),"value":q.set_index("policy").reindex(POLICIES).mean_whipsaw_2m.values}))]
         fn=f"{prefix}_{name}_family_response.svg"; _svg(out/fn,series,f"{name} family response"); plots.append(fn)
     for subject,col in (("capital_markets_dimension","candidate_cm"),):
         q=tables["_scenario_chronology"].query("experiment_metric=='fedfunds'"); series=[(p,q[q.policy.eq(p)][["evaluation_date",col]].rename(columns={"evaluation_date":"date",col:"value"})) for p in POLICIES]
@@ -457,7 +478,7 @@ def write_review(tables: dict[str,pd.DataFrame], out: Path) -> None:
     # Axis materiality plots use explicit SVG paths via the shared plotter.
     for axis in ("demand","supply"):
         q=tables[f"{axis}_axis_statistics"].query("period=='full_history'").groupby("policy",as_index=False).amplitude_change.mean()
-        series=[("amplitude change",pd.DataFrame({"date":pd.date_range("2000-01-31",periods=8,freq="ME"),"value":q.set_index("policy").reindex(POLICIES).amplitude_change.values}))]
+        series=[("amplitude change",pd.DataFrame({"date":pd.date_range("2000-01-31",periods=len(POLICIES),freq="ME"),"value":q.set_index("policy").reindex(POLICIES).amplitude_change.values}))]
         fn=f"{prefix}_{axis}_axis_materiality.svg"; _svg(out/fn,series,f"{axis.title()} axis materiality"); plots.append(fn)
     links="".join(f'<li><a href="{html.escape(x)}">{html.escape(x)}</a></li>' for x in [*(f"{prefix}_{n}.csv" for n in EXPORTS),*plots])
-    (out/f"{prefix}_review_index.html").write_text("<!doctype html><meta charset=utf-8><title>Capital Markets Phase 2</title><h1>Capital Markets Phase 2 — feature-weight calibration</h1><p>Diagnostic only; human review pending. P0–P7 closed grid. Production, Demand, Supply, and Capital Markets policies unchanged.</p><p>National native reconstruction precedes aligned multi-geography propagation; one metric changes at a time.</p><ul>"+links+"</ul>",encoding="utf-8")
+    (out/f"{prefix}_review_index.html").write_text("<!doctype html><meta charset=utf-8><title>Capital Markets Phase 2</title><h1>Capital Markets Phase 2 — feature-weight calibration</h1><p>Diagnostic only; human review pending. P0–P9 closed grid. Production, Demand, Supply, and Capital Markets policies unchanged.</p><p>Long boundary: P4 55/10/35 → P5 50/10/40 → P8 45/10/45 → P9 40/10/50 → P7 35/10/55.</p><p>National native reconstruction precedes aligned multi-geography propagation; one metric changes at a time.</p><ul>"+links+"</ul>",encoding="utf-8")
