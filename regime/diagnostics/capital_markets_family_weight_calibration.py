@@ -18,7 +18,7 @@ from regime.diagnostics.capital_markets_feature_anatomy import (
 from regime.diagnostics.capital_markets_feature_weight_calibration import _comparison, _stats
 from regime.diagnostics.correlation import safe_corr
 
-AUTHORITATIVE_RUN = Path("artifacts/regime/runs/capital_markets_feature_policy_production_20260818")
+AUTHORITATIVE_RUN = Path("artifacts/regime/runs/capital_markets_feature_policy_corrected_production_20260818")
 FAMILIES = {
     "long_term_rates": ("mortgage_30y", "mortgage_15y", "treasury_10y"),
     "fedfunds": ("fedfunds",),
@@ -41,7 +41,7 @@ PURPOSES = {
 RATES_SPREADS_LADDER = ("F3", "F1", "F0", "F2", "F4")
 FEDFUNDS_LADDER = ("F5", "F0", "F6", "F7", "F8")
 CONTROLLED = tuple(zip(RATES_SPREADS_LADDER, RATES_SPREADS_LADDER[1:])) + tuple(zip(FEDFUNDS_LADDER, FEDFUNDS_LADDER[1:])) + (("F5", "F9"),)
-NATIVE_POLICIES = {"mortgage_30y":"P4", "mortgage_15y":"P2", "treasury_10y":"P1", "fedfunds":"P5", "spread_10y_2y":"P7", "spread_10y_fedfunds":"P9"}
+NATIVE_POLICIES = {"mortgage_30y":"P4", "mortgage_15y":"P2", "treasury_10y":"P1", "fedfunds":"P5", "spread_10y_2y":"P6", "spread_10y_fedfunds":"P9"}
 PERIODS = ("full_history", "2022_plus", "latest_36_months")
 EXPORTS = (
     "scenario_registry", "metric_weights", "contributions", "family_contributions",
@@ -89,8 +89,13 @@ def _axis(candidate, artifacts, root, axis):
     other=contributions.drop(columns="capital_markets").sum(axis=1,min_count=1)
     return pd.DataFrame({"geo_id":score.index.get_level_values(0),"date":score.index.get_level_values(1),"candidate_axis_score":score.values,"capital_markets_contribution":contributions.capital_markets.values,"other_contribution":other.values,"contribution_share":contributions.capital_markets.abs().div(gross).values,"cancellation":(1-score.abs().div(gross.replace(0,np.nan))).values,"net_to_gross":score.abs().div(gross.replace(0,np.nan)).values})
 
-def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFrame]:
-    started=perf_counter(); weights=metric_weights()
+def build(artifacts: dict[str,pd.DataFrame], root: Path, *, load_elapsed_seconds: float = 0.) -> dict[str,pd.DataFrame]:
+    started=perf_counter(); stage_started=started; timings=[]
+    def timed(stage: str, architecture: str) -> None:
+        nonlocal stage_started
+        now=perf_counter(); timings.append({"stage":stage,"elapsed_seconds":now-stage_started,"architecture":architecture}); stage_started=now
+    timings.append({"stage":"artifact load","elapsed_seconds":load_elapsed_seconds,"architecture":"corrected persisted aligned scores; no fallback or feature construction"})
+    weights=metric_weights()
     registry=pd.DataFrame([{"policy":p,"long_rate_family_weight":w[0],"fedfunds_family_weight":w[1],"spread_family_weight":w[2],"purpose":PURPOSES[p],"candidate_grid":"F0-F9","candidate_grid_closed":True} for p,w in POLICIES.items()])
     aligned=canonical._dates(artifacts["aligned_metric_scores"]); mc=canonical._metric_col(aligned); vc=canonical._value_col(aligned,("aligned_metric_score","metric_score","score"))
     aligned=aligned.rename(columns={mc:"metric",vc:"aligned_metric_score","evaluation_date":"date"})
@@ -109,11 +114,13 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
     dims=canonical._dates(artifacts["dimension_scores"]); production=dims[dims.dimension.eq("capital_markets")][["geo_id","date","dimension_score"]]
     control=chronology[chronology.policy.eq("F0")].merge(production,on=["geo_id","date"],validate="one_to_one")
     if len(control)!=len(chronology[chronology.policy.eq("F0")]) or not np.allclose(control.candidate_capital_markets,control.dimension_score,equal_nan=True,atol=1e-12,rtol=0): raise ValueError("F0 does not reconstruct production within 1e-12")
+    timed("candidate construction","closed F0-F9 panels and exact F0 reconstruction")
     # Family surfaces and monthly contribution anatomy.
     fam=contrib.groupby(["policy","geo_id","date","family"],as_index=False).agg(configured_family_weight=("configured_metric_weight","sum"),effective_family_weight=("effective_metric_weight","sum"),weighted_family_contribution=("weighted_metric_contribution","sum"))
     gross=fam.groupby(["policy","geo_id","date"]).weighted_family_contribution.transform(lambda x:x.abs().sum()); net=fam.groupby(["policy","geo_id","date"]).weighted_family_contribution.transform("sum")
     fam["family_absolute_contribution_share"]=fam.weighted_family_contribution.abs().div(gross.replace(0,np.nan)); fam["opposes_net"]=np.sign(fam.weighted_family_contribution).ne(np.sign(net))
     contrib["absolute_contribution_share"]=contrib.weighted_metric_contribution.abs().div(contrib.groupby(["policy","geo_id","date"]).weighted_metric_contribution.transform(lambda x:x.abs().sum()).replace(0,np.nan))
+    timed("contribution calculations","metric and family anatomy, cancellation, concentration, and net-to-gross inputs")
     structures=[]; stats=[]; comps=[]
     p0=chronology[chronology.policy.eq("F0")][["geo_id","date","candidate_capital_markets"]].rename(columns={"candidate_capital_markets":"f0"})
     for (policy,geo),g in chronology.groupby(["policy","geo_id"]):
@@ -126,6 +133,7 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
             row={"policy":policy,"geo_id":geo,"period":period,"contribution_concentration":float(((shares/total)**2).sum()) if total else np.nan,"cancellation":float((1-nt.div(gr.replace(0,np.nan))).mean()),"net_to_gross":float(nt.div(gr.replace(0,np.nan)).mean())}
             for f in FAMILIES: row[f"{f}_contribution_share"]=shares.get(f,0)/total if total else np.nan; row[f"{f}_dominant_frequency"]=dom.get(f,0)
             structures.append(row)
+    timed("stability statistics","period and county stability, incumbent comparison, and contribution structure")
     stats=pd.DataFrame(stats); comps=pd.DataFrame(comps); structure=pd.DataFrame(structures)
     # Invariant family chronology, overlap, and within-family evidence use F0 surfaces.
     base=contrib[contrib.policy.eq("F0")]; family_score=base.groupby(["geo_id","date","family"],as_index=False).aligned_metric_score.mean()
@@ -144,6 +152,7 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
                 for right in metrics[i+1:]:
                     z=wide[[left,right]].dropna(); d=z.diff().dropna(); c=safe_corr(z[left],z[right]); dc=safe_corr(d[left],d[right]); threshold=z.abs().median()
                     within.append({"geo_id":geo,"family":family,"left_metric":left,"right_metric":right,"chronology_correlation":c.correlation,"chronology_correlation_status":c.status,"contribution_correlation":dc.correlation,"sign_agreement":np.sign(z[left]).eq(np.sign(z[right])).mean(),"direction_agreement":np.sign(d[left]).eq(np.sign(d[right])).mean(),"opposition_frequency":np.sign(z[left]).ne(np.sign(z[right])).mean(),"left_absolute_share":z[left].abs().sum()/z.abs().sum().sum(),"right_absolute_share":z[right].abs().sum()/z.abs().sum().sum(),"left_unique_material_months":int((z[left].abs().ge(threshold[left])&z[right].abs().lt(threshold[right])).sum()),"right_unique_material_months":int((z[right].abs().ge(threshold[right])&z[left].abs().lt(threshold[left])).sum())})
+    timed("overlap/consistency","corrected-baseline family overlap and equal-weight within-family consistency")
     # Absolute responsiveness: fixed family-move thresholds from invariant surfaces.
     response=[]
     for geo,gg in family_score.groupby("geo_id"):
@@ -154,6 +163,7 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
                 material=moves[family].abs().ge(thresholds[family]); others=[x for x in FAMILIES if x!=family]; unique=material & moves[others].abs().lt(thresholds[others]).all(axis=1); joined=pd.concat([cand,moves[family]],axis=1).dropna(); mat=material.reindex(joined.index,fill_value=False); uni=unique.reindex(joined.index,fill_value=False)
                 response.append({"policy":policy,"geo_id":geo,"family":family,"fixed_materiality_threshold":thresholds[family],"threshold_provenance":"invariant family monthly-move median","material_move_count":int(mat.sum()),"material_move_direction_agreement":np.sign(joined.loc[mat,"candidate_capital_markets"]).eq(np.sign(joined.loc[mat,family])).mean(),"material_move_magnitude":joined.loc[mat,"candidate_capital_markets"].abs().mean(),"unique_family_move_count":int(uni.sum()),"unique_family_direction_agreement":np.sign(joined.loc[uni,"candidate_capital_markets"]).eq(np.sign(joined.loc[uni,family])).mean(),"unique_family_response_magnitude":joined.loc[uni,"candidate_capital_markets"].abs().mean()})
     response=pd.DataFrame(response)
+    timed("responsiveness","fixed invariant family-move thresholds across candidates")
     # Frozen Demand/Supply propagation.
     axis_tables={};
     for axis in ("demand","supply"):
@@ -167,6 +177,7 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
                     rows.append({"policy":policy,"geo_id":geo,"period":period,"configured_capital_markets_weight":EXPECTED_AXIS_WEIGHTS[axis],"chronology_correlation":co["correlation"],"sign_changes":int((np.sign(z.candidate_axis_score)!=np.sign(z.f0_axis)).sum()),"direction_changes":int((np.sign(z.candidate_axis_score.diff())!=np.sign(z.f0_axis.diff())).sum()),"amplitude_change":z.candidate_axis_score.abs().mean()-z.f0_axis.abs().mean(),"contribution_share":z.contribution_share.mean(),"cancellation":z.cancellation.mean(),"net_to_gross":z.net_to_gross.mean(),**{k:st[k] for k in ("reversals","whipsaw_2m","whipsaw_3m","persistence")}})
         axis_tables[axis]=pd.DataFrame(rows)
     cross=axis_tables["demand"].merge(axis_tables["supply"],on=["policy","geo_id","period"],suffixes=("_demand","_supply")); cross["materiality_classification"]=np.select([(cross.amplitude_change_demand.abs()<1e-12)&(cross.amplitude_change_supply.abs()<1e-12),cross.amplitude_change_demand.abs()>2*cross.amplitude_change_supply.abs(),cross.amplitude_change_supply.abs()>2*cross.amplitude_change_demand.abs(),np.sign(cross.amplitude_change_demand)!=np.sign(cross.amplitude_change_supply)],["changes_neither_axis","primarily_changes_demand","primarily_changes_supply","changes_both_differently"],default="changes_both_similarly")
+    timed("downstream propagation","frozen Demand/Supply propagation and cross-axis materiality")
     controlled=[]; decision=stats.merge(structure,on=["policy","geo_id","period"]).merge(comps,on=["policy","geo_id","period"],suffixes=("","_incumbent"))
     resp=response.groupby(["policy","geo_id"],as_index=False).agg(material_move_direction_agreement=("material_move_direction_agreement","mean"),material_move_magnitude=("material_move_magnitude","mean"),unique_family_response_evidence=("unique_family_response_magnitude","mean"))
     decision=decision.merge(resp,on=["policy","geo_id"],how="left").merge(axis_tables["demand"][["policy","geo_id","period","amplitude_change","chronology_correlation"]].rename(columns={"amplitude_change":"demand_amplitude_delta","chronology_correlation":"demand_chronology_correlation"}),on=["policy","geo_id","period"]).merge(axis_tables["supply"][["policy","geo_id","period","amplitude_change","chronology_correlation"]].rename(columns={"amplitude_change":"supply_amplitude_delta","chronology_correlation":"supply_chronology_correlation"}),on=["policy","geo_id","period"]).merge(registry,on="policy")
@@ -174,15 +185,15 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path) -> dict[str,pd.DataFram
         a=decision[decision.policy.eq(left)].set_index(["geo_id","period"]); b=decision[decision.policy.eq(right)].set_index(["geo_id","period"])
         for idx in a.index:
             controlled.append({"comparison_group":"low_fed_interaction" if (left,right)==("F5","F9") else "fedfunds_ladder" if left in FEDFUNDS_LADDER and right in FEDFUNDS_LADDER else "rates_spreads_ladder","from_policy":left,"to_policy":right,"geo_id":idx[0],"period":idx[1],"delta_standard_deviation":b.loc[idx].standard_deviation-a.loc[idx].standard_deviation,"delta_concentration":b.loc[idx].contribution_concentration-a.loc[idx].contribution_concentration,"delta_cancellation":b.loc[idx].cancellation-a.loc[idx].cancellation,"plateau_assessment":"human_review_required"})
-    questions=["Does F0 remain defensible?","Where does the Rates-versus-Spreads plateau begin?","Where does the Fed Funds plateau begin?","Does equal intra-family weighting remain defensible?","What tradeoff remains for human judgment?"]
+    questions=["Does F0 = 45/10/45 remain defensible after the spread polarity repair?","Has the realized influence of the spread family increased materially?","Does the previous apparent spread-family cancellation disappear?","Does 10% Fed Funds remain appropriate?","Does the Rates-versus-Spreads plateau shift?","Are F1/F2 or F3/F4 now more credible?","Does reducing Fed Funds to 5% remain credible?","Does increasing Fed Funds to 15-25% still add value?","Are the two corrected spread metrics internally coherent enough for equal weighting?","Does evidence justify a future intra-spread weighting experiment?","Do Demand and Supply prefer materially different family balances?","What are the corrected 2-3 credible finalists?","Where does the practical optimization plateau begin?"]
     evaluation=pd.DataFrame({"question":questions,"status":"empirical_review_required","automated_ranking":False})
-    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"blocked_pending_corrected_rerun","human_decision":"invalidated_by_spread_polarity_defect","automated_winner":False,"production_policy_changed":False,"feature_weight_policy_changed":False,"metric_weight_policy_changed":False,"Demand_changed":False,"Supply_changed":False,"Capital_Markets_changed":False,"native_feature_calibration":"spread_10y_2y_revalidation_required","family_metric_weight_calibration":"invalidated_pending_rerun","candidate_grid_closed":True,"candidate_grid":"F0-F9","intra_family_metric_weight_calibration":"not_started","supply_s8_changed":False}])
-    performance=pd.DataFrame([{"stage":"cached authoritative load","elapsed_seconds":0.,"architecture":"persisted aligned scores; no feature construction"},{"stage":"vectorized candidate construction","elapsed_seconds":perf_counter()-started,"architecture":"one panel per policy; cached baselines and slices"},{"stage":"total","elapsed_seconds":perf_counter()-started,"architecture":"diagnostic wall clock"}])
+    governance=pd.DataFrame([{"corrected_baseline_identity":AUTHORITATIVE_RUN.name,"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"capital_markets_family_weight_review_pending","automated_winner":False,"production_policy_changed":False,"feature_weight_policy_changed":False,"metric_weight_policy_changed":False,"Demand_changed":False,"Supply_changed":False,"Capital_Markets_changed":False,"native_feature_calibration":"closed","spread_polarity_repair":"closed","family_metric_weight_calibration":"in_review","candidate_grid_closed":True,"candidate_grid":"F0-F9","intra_family_metric_weight_calibration":"not_started","prior_invalidated_evidence_reused":False,"supply_s8_changed":False}])
+    timings.append({"stage":"total analytical build","elapsed_seconds":perf_counter()-started,"architecture":"diagnostic wall clock excluding artifact load and review rendering"})
+    performance=pd.DataFrame(timings)
     return {"scenario_registry":registry,"metric_weights":weights,"contributions":contrib,"family_contributions":fam,"dimension_chronology":chronology,"dimension_statistics":stats,"incumbent_comparison":comps,"controlled_comparisons":pd.DataFrame(controlled),"period_sensitivity":stats,"by_county":decision[decision.geo_id.isin(REVIEW_GEOS)],"family_overlap":pd.DataFrame(overlap),"within_family_consistency":pd.DataFrame(within),"responsiveness":response,"contribution_structure":structure,"demand_axis_statistics":axis_tables["demand"],"supply_axis_statistics":axis_tables["supply"],"cross_axis_materiality":cross,"decision_table":decision,"evaluation_matrix":evaluation,"governance_status":governance,"performance_audit":performance}
 
 def write_review(tables: dict[str,pd.DataFrame], out: Path) -> None:
-    out.mkdir(parents=True,exist_ok=True); prefix="capital_markets_family_weight"
-    for name in EXPORTS: tables[name].to_csv(out/f"{prefix}_{name}.csv",index=False)
+    out.mkdir(parents=True,exist_ok=True); prefix="capital_markets_family_weight"; visual_started=perf_counter()
     chron=tables["dimension_chronology"]; plots=[]
     def plot(name, policies, title):
         q=chron[chron.policy.isin(policies)]; geo="11001" if "11001" in set(q.geo_id.astype(str)) else str(q.geo_id.iloc[0]); q=q[q.geo_id.astype(str).eq(geo)]
@@ -191,6 +202,12 @@ def write_review(tables: dict[str,pd.DataFrame], out: Path) -> None:
     plot("rates_spreads_ladder",RATES_SPREADS_LADDER,"Rates-versus-Spreads ladder"); plot("fedfunds_ladder",FEDFUNDS_LADDER,"Fed Funds ladder")
     for p in ("F0","F3","F4","F5","F7","F8"): plot(f"{p}_contribution_decomposition",(p,),f"{p} contribution decomposition")
     for metric in ("whipsaw","persistence","concentration","cancellation","responsiveness","demand_materiality","supply_materiality"): plot(f"response_{metric}",tuple(POLICIES),f"Policy response: {metric}")
+    tables["performance_audit"] = pd.concat([tables["performance_audit"],pd.DataFrame([{"stage":"visualization","elapsed_seconds":perf_counter()-visual_started,"architecture":"deterministic SVG review package"}])],ignore_index=True)
+    export_started=perf_counter()
+    for name in EXPORTS:
+        if name != "performance_audit": tables[name].to_csv(out/f"{prefix}_{name}.csv",index=False)
     files=[*(f"{prefix}_{n}.csv" for n in EXPORTS),*plots]
     links="".join(f'<li><a href="{html.escape(x)}">{html.escape(x)}</a></li>' for x in files)
     (out/f"{prefix}_review_index.html").write_text("<!doctype html><meta charset=utf-8><title>Capital Markets family weights</title><h1>Diagnostic-only family-weight review</h1><p>F0-F9 closed grid; no winner, promotion, feature rebuild, or production change.</p><ul>"+links+"</ul>",encoding="utf-8")
+    tables["performance_audit"] = pd.concat([tables["performance_audit"],pd.DataFrame([{"stage":"export/write","elapsed_seconds":perf_counter()-export_started,"architecture":"CSV exports and self-contained HTML index"}])],ignore_index=True)
+    tables["performance_audit"].to_csv(out/f"{prefix}_performance_audit.csv",index=False)

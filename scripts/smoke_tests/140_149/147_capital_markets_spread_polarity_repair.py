@@ -50,7 +50,9 @@ def main():
  contract=json.loads(Path("config/capital_markets_spread_polarity_repair_2026_08_18.json").read_text())
  assert contract["spread_10y_2y_feature_policy"]=="P7" and contract["spread_10y_2y_feature_policy_status"]=="revalidation_required"
  assert contract["family_weight_evidence_status"]=="invalidated_pending_rerun"
- governance=Path("regime/diagnostics/capital_markets_family_weight_calibration.py").read_text(); assert "invalidated_by_spread_polarity_defect" in governance
+ governance=Path("regime/diagnostics/capital_markets_family_weight_calibration.py").read_text()
+ assert "capital_markets_feature_policy_corrected_production_20260818" in governance
+ assert '"prior_invalidated_evidence_reused":False' in governance
  # Historical and corrected production artifacts may exist locally as
  # ignored immutable evidence. Smoke 147 only requires that generated
  # run artifacts are not tracked by Git.
