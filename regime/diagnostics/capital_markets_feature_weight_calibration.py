@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import html
+from time import perf_counter
 import numpy as np
 import pandas as pd
 
@@ -43,6 +44,8 @@ EXPORTS = (
     "dimension_statistics", "demand_axis_statistics", "supply_axis_statistics",
     "cross_axis_materiality", "responsiveness", "correlation_audit",
     "evaluation_matrix", "governance_status",
+    "turning_point_audit", "policy_decision_table", "policy_marginal_deltas",
+    "family_plateau_summary", "performance_audit",
 )
 
 
@@ -58,12 +61,12 @@ def _periods(frame: pd.DataFrame):
     yield "latest_36_months", q[q.date.ge(q.date.max() - pd.DateOffset(months=35))]
 
 
-def _stats(values, dates):
+def _stats(values, dates, *, turning_points=True):
     q = pd.DataFrame({"date": pd.to_datetime(dates), "v": pd.to_numeric(values, errors="coerce")}).dropna().sort_values("date")
     d = q.v.diff(); direction = np.sign(d).replace(0, np.nan)
     reversals = direction.ne(direction.shift()) & direction.notna() & direction.shift().notna()
     state = np.sign(q.v).replace(0, np.nan).ffill(); runs = state.ne(state.shift()).cumsum()
-    turns = detect_turning_points(q[["date", "v"]], "v") if len(q) else pd.DataFrame()
+    turns = detect_turning_points(q[["date", "v"]], "v") if turning_points and len(q) else pd.DataFrame()
     return {
         "standard_deviation": q.v.std(), "range": q.v.max() - q.v.min(),
         "average_absolute_score": q.v.abs().mean(), "mean_absolute_monthly_movement": d.abs().mean(),
@@ -77,17 +80,23 @@ def _stats(values, dates):
     }
 
 
-def _comparison(score, reference, dates):
+def _comparison(score, reference, dates, *, return_audit=False, match_window=1, turning_points=True):
     q = pd.DataFrame({"date": pd.to_datetime(dates), "score": score, "reference": reference}).dropna().sort_values("date")
     corr = safe_corr(q.score, q.reference)
     delta = q[["score", "reference"]].diff().dropna()
-    rt = detect_turning_points(q[["date", "reference"]], "reference")
-    ct = detect_turning_points(q[["date", "score"]], "score")
-    matched = match_turning_points(rt, ct, 1)
+    rt = detect_turning_points(q[["date", "reference"]], "reference", include_rejected=True) if turning_points else pd.DataFrame()
+    ct = detect_turning_points(q[["date", "score"]], "score", include_rejected=True) if turning_points else pd.DataFrame()
+    matched = match_turning_points(rt, ct, match_window) if turning_points else pd.DataFrame()
     refs = matched[matched.incumbent_date.notna()] if len(matched) else matched
     hits = refs[refs.matched] if len(refs) else refs
     delay = pd.to_numeric(hits.signed_delay_months, errors="coerce") if len(hits) else pd.Series(dtype=float)
-    return {
+    reference_turn_count=int(rt.qualified.sum()) if "qualified" in rt else 0
+    candidate_turn_count=int(ct.qualified.sum()) if "qualified" in ct else 0
+    if not reference_turn_count: turn_status, delay_status = "no_reference_turns", "no_reference_turns"
+    elif not candidate_turn_count: turn_status, delay_status = "no_candidate_turns", "no_candidate_turns"
+    elif not len(hits): turn_status, delay_status = "no_matches", "no_matches"
+    else: turn_status, delay_status = "ok", "ok"
+    result = {
         "correlation": corr.correlation, "correlation_status": corr.status,
         "overlap_count": corr.overlap_count, "finite_left_count": corr.finite_left_count,
         "finite_right_count": corr.finite_right_count, "left_std": corr.left_std, "right_std": corr.right_std,
@@ -98,10 +107,41 @@ def _comparison(score, reference, dates):
         "turning_point_preservation": float(refs.matched.mean()) if len(refs) else np.nan,
         "same_month_matching": float(delay.abs().eq(0).mean()) if len(delay) else np.nan,
         "plus_minus_1_month_matching": float(delay.abs().le(1).mean()) if len(delay) else np.nan,
-        "missed_raw_cycle_turns": int((~refs.matched).sum()) if len(refs) else int(rt.qualified.sum()) if "qualified" in rt else 0,
+        "missed_reference_turns": int((~refs.matched).sum()) if len(refs) else int(rt.qualified.sum()) if "qualified" in rt else 0,
         "signed_delay": delay.mean() if len(delay) else np.nan,
         "absolute_delay": delay.abs().mean() if len(delay) else np.nan,
+        "candidate_start_date": q.date.min(), "candidate_end_date": q.date.max(),
+        "reference_start_date": q.date.min(), "reference_end_date": q.date.max(),
+        "aligned_start_date": q.date.min(), "aligned_end_date": q.date.max(),
+        "candidate_std": q.score.std(), "reference_std": q.reference.std(),
+        "turning_point_status": turn_status, "delay_status": delay_status,
     }
+    audit=[]
+    # The matcher is the authoritative row-level identity; unmatched rejected detector
+    # rows are also retained so a zero result is never opaque.
+    if len(matched):
+        for r in matched.itertuples(index=False):
+            audit.append({"reference_turn_date":getattr(r,"incumbent_date",pd.NaT),
+                "reference_turn_type":getattr(r,"turning_point_type",None),
+                "reference_qualified":pd.notna(getattr(r,"incumbent_date",pd.NaT)),
+                "reference_rejection_reason":"", "candidate_turn_date":getattr(r,"challenger_date",pd.NaT),
+                "candidate_turn_type":getattr(r,"turning_point_type",None),
+                "candidate_qualified":pd.notna(getattr(r,"challenger_date",pd.NaT)),
+                "candidate_rejection_reason":"", "matched":bool(getattr(r,"matched",False)),
+                "signed_delay_months":getattr(r,"signed_delay_months",np.nan),
+                "absolute_delay_months":abs(getattr(r,"signed_delay_months",np.nan)),
+                "match_window_months":match_window})
+    for label, frame in (("reference",rt),("candidate",ct)):
+        if "qualified" in frame:
+            for r in frame.loc[~frame.qualified].itertuples(index=False):
+                audit.append({"reference_turn_date":r.turning_point_date if label=="reference" else pd.NaT,
+                    "reference_turn_type":getattr(r,"turning_point_type",None) if label=="reference" else None,
+                    "reference_qualified":False, "reference_rejection_reason":getattr(r,"rejection_reason","detector_rejected") if label=="reference" else "",
+                    "candidate_turn_date":r.turning_point_date if label=="candidate" else pd.NaT,
+                    "candidate_turn_type":getattr(r,"turning_point_type",None) if label=="candidate" else None,
+                    "candidate_qualified":False, "candidate_rejection_reason":getattr(r,"rejection_reason","detector_rejected") if label=="candidate" else "",
+                    "matched":False,"signed_delay_months":np.nan,"absolute_delay_months":np.nan,"match_window_months":match_window})
+    return (result,pd.DataFrame(audit)) if return_audit else result
 
 
 def _raw_cycle(source: pd.DataFrame, contract: pd.DataFrame) -> pd.DataFrame:
@@ -124,6 +164,7 @@ def _raw_cycle(source: pd.DataFrame, contract: pd.DataFrame) -> pd.DataFrame:
 
 
 def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFrame]:
+    build_started = perf_counter()
     contract, _ = resolve_contract(root)
     registry = pd.DataFrame([{"policy": p, "level_weight": w[0], "short_weight": w[1], "long_weight": w[2],
         "candidate_grid": "P0-P7", "candidate_grid_closed": True, "native_geo_id": NATIVE_GEO,
@@ -159,8 +200,13 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
     metric_stats=[]; feature_stats=[]
     for (policy, metric), g in chronology.groupby(["policy", "metric"]):
         for period, z in _periods(g): metric_stats.append({"policy":policy,"metric":metric,"geo_id":NATIVE_GEO,"period":period,**_stats(z.candidate_metric_score,z.date)})
-    for (policy, metric, feature), g in contributions.groupby(["policy", "metric", "feature_type"]):
-        for period, z in _periods(g): feature_stats.append({"policy":policy,"metric":metric,"feature_type":feature,"geo_id":NATIVE_GEO,"period":period,**_stats(z.normalized_feature_score,z.date)})
+    # Normalized feature chronologies are invariant across policies. Compute each
+    # statistic once, then replicate the diagnostic identity exactly.
+    invariant_features=contributions.loc[contributions.policy.eq("P0")]
+    for (metric, feature), g in invariant_features.groupby(["metric", "feature_type"]):
+        for period, z in _periods(g):
+            values=_stats(z.normalized_feature_score,z.date)
+            for policy in POLICIES: feature_stats.append({"policy":policy,"metric":metric,"feature_type":feature,"geo_id":NATIVE_GEO,"period":period,**values})
     metric_stats=pd.DataFrame(metric_stats); feature_stats=pd.DataFrame(feature_stats)
     structure=[]
     for (policy,metric),g in contributions.groupby(["policy","metric"]):
@@ -170,16 +216,23 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
         for f in FEATURES: row[f"{f}_effective_weight"]=g.loc[g.feature_type.eq(f),"effective_feature_weight"].mean(); row[f"{f}_absolute_contribution_share"]=absolute.get(f,0)/absolute.sum(); row[f"{f}_dominant_frequency"]=dominant.get(f,0)
         structure.append(row)
     structure=pd.DataFrame(structure); contributions=contributions.merge(structure,on=["policy","metric"],validate="many_to_one")
-    raw=_raw_cycle(artifacts["source_metrics"],contract); raw_comps=[]; refs=[]; turns=[]; audits=[]
+    raw=_raw_cycle(artifacts["source_metrics"],contract); raw_comps=[]; refs=[]; turns=[]; audits=[]; turn_audits=[]
+    p0_reference=chronology.loc[chronology.policy.eq("P0"),["date","metric","candidate_metric_score"]].rename(columns={"candidate_metric_score":"incumbent_chronology_reference"})
+    raw=raw.merge(p0_reference,on=["date","metric"],how="left",validate="one_to_one")
     for (policy,metric),g in chronology.groupby(["policy","metric"]):
-        joined=g.merge(raw[raw.metric.eq(metric)][["date","oriented_raw_cycle","score_direction","orientation_multiplier"]],on="date")
+        joined=g.merge(raw[raw.metric.eq(metric)][["date","oriented_raw_cycle","incumbent_chronology_reference","score_direction","orientation_multiplier"]],on="date")
         for period,z in _periods(joined):
-            e=_comparison(z.candidate_metric_score,z.oriented_raw_cycle,z.date); row={"policy":policy,"metric":metric,"period":period,"geo_id":NATIVE_GEO,"reference_type":"oriented_raw_cycle",**e}; raw_comps.append(row); turns.append(row.copy()); audits.append({"comparison_type":"raw_cycle","scenario":policy,"metric":metric,"geography":NATIVE_GEO,"period":period,**{k:e[k] for k in ("correlation","correlation_status","overlap_count","finite_left_count","finite_right_count","left_std","right_std")}})
+            old=_comparison(z.candidate_metric_score,z.oriented_raw_cycle,z.date,turning_points=False)
+            e,ta=_comparison(z.candidate_metric_score,z.incumbent_chronology_reference,z.date,return_audit=True)
+            row={"policy":policy,"metric":metric,"period":period,"geo_id":NATIVE_GEO,"reference_type":"incumbent_chronology_reference","legacy_reference_type":"legacy_raw_movement_reference","legacy_correlation":old["correlation"],"legacy_correlation_status":old["correlation_status"],**e}; raw_comps.append(row); turns.append(row.copy())
+            if len(ta):
+                ta=ta.assign(metric=metric,policy=policy,period=period,reference_type=row["reference_type"]); turn_audits.append(ta)
+            audits.append({"comparison_type":"incumbent_chronology_reference","scenario":policy,"metric":metric,"geography":NATIVE_GEO,"period":period,**{k:e[k] for k in ("correlation","correlation_status","overlap_count","finite_left_count","finite_right_count","left_std","right_std","candidate_start_date","candidate_end_date","reference_start_date","reference_end_date","aligned_start_date","aligned_end_date","candidate_std","reference_std")}})
         for feature in FEATURES:
             f=contributions[(contributions.policy.eq(policy))&(contributions.metric.eq(metric))&(contributions.feature_type.eq(feature))][["date","normalized_feature_score"]]
             joined=g.merge(f,on="date")
             for period,z in _periods(joined):
-                e=_comparison(z.candidate_metric_score,z.normalized_feature_score,z.date); share=structure.query("policy==@policy and metric==@metric").iloc[0][f"{feature}_absolute_contribution_share"]
+                e=_comparison(z.candidate_metric_score,z.normalized_feature_score,z.date,turning_points=False); share=structure.query("policy==@policy and metric==@metric").iloc[0][f"{feature}_absolute_contribution_share"]
                 refs.append({"policy":policy,"metric":metric,"period":period,"geo_id":NATIVE_GEO,"reference_feature":feature,"contribution_share":share,"similarity_to_feature":e["correlation"],**e})
                 audits.append({"comparison_type":f"{feature}_feature","scenario":policy,"metric":metric,"geography":NATIVE_GEO,"period":period,**{k:e[k] for k in ("correlation","correlation_status","overlap_count","finite_left_count","finite_right_count","left_std","right_std")}})
     raw_comps=pd.DataFrame(raw_comps); refs=pd.DataFrame(refs); turns=pd.DataFrame(turns)
@@ -202,16 +255,21 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
             scenarios.append(changed)
     scenario=pd.concat(scenarios,ignore_index=True)
     dimension_rows=[]; axis_rows={"demand":[],"supply":[]}
+    axis_bases={axis:axes[axes[axis_col].astype(str).str.lower().eq(axis)][["geo_id","date",axis_val]].rename(columns={"date":"evaluation_date",axis_val:"production_axis"}) for axis in axis_rows}
+    baseline_stats={}
     for (target,policy,geo),g in scenario.groupby(["experiment_metric","policy","geo_id"]):
         evaluation = g.drop(columns="date").rename(columns={"evaluation_date":"date"})
         for period,z in _periods(evaluation):
-            dimension_rows.append({"experiment_metric":target,"policy":policy,"geo_id":geo,"period":period,**_stats(z.candidate_cm,z.date)})
+            dimension_rows.append({"experiment_metric":target,"policy":policy,"geo_id":geo,"period":period,**_stats(z.candidate_cm,z.date,turning_points=False)})
         for axis in axis_rows:
-            base_axis=axes[axes[axis_col].astype(str).str.lower().eq(axis)][["geo_id","date",axis_val]].rename(columns={"date":"evaluation_date",axis_val:"production_axis"})
+            base_axis=axis_bases[axis]
             z=g.drop(columns="date").merge(base_axis,on=["geo_id","evaluation_date"],validate="one_to_one"); z["candidate_axis"]=z.production_axis+EXPECTED_AXIS_WEIGHTS[axis]*(z.candidate_cm-z.production_cm)
             z = z.rename(columns={"evaluation_date":"date"})
             for period,p in _periods(z):
-                s=_stats(p.candidate_axis,p.date); b=_stats(p.production_axis,p.date); corr=safe_corr(p.candidate_axis,p.production_axis)
+                s=_stats(p.candidate_axis,p.date,turning_points=False)
+                cache_key=(axis,geo,period)
+                if cache_key not in baseline_stats: baseline_stats[cache_key]=_stats(p.production_axis,p.date,turning_points=False)
+                b=baseline_stats[cache_key]; corr=safe_corr(p.candidate_axis,p.production_axis)
                 axis_rows[axis].append({"experiment_metric":target,"policy":policy,"geo_id":geo,"period":period,**s,"chronology_correlation_to_p0":corr.correlation,"sign_changes":int(np.sign(p.candidate_axis).ne(np.sign(p.production_axis)).sum()),"direction_changes":int(np.sign(p.candidate_axis.diff()).ne(np.sign(p.production_axis.diff())).sum()),"reversal_change":s["reversals"]-b["reversals"],"whipsaw_2m_change":s["whipsaw_2m"]-b["whipsaw_2m"],"persistence_change":s["persistence"]-b["persistence"],"turning_point_change":s["turning_point_count"]-b["turning_point_count"],"amplitude_change":s["standard_deviation"]-b["standard_deviation"]})
     dimension_stats=pd.DataFrame(dimension_rows); demand=pd.DataFrame(axis_rows["demand"]); supply=pd.DataFrame(axis_rows["supply"])
     cross=demand.merge(supply,on=["experiment_metric","policy","geo_id","period"],suffixes=("_demand","_supply")); cross["materiality_classification"]=np.where((cross.amplitude_change_demand.abs()<1e-12)&(cross.amplitude_change_supply.abs()<1e-12),"materially changes neither axis",np.where(np.isclose(cross.amplitude_change_demand.abs(),cross.amplitude_change_supply.abs()),"changes both similarly","changes them differently because of axis composition"))
@@ -225,15 +283,61 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
     family=[]
     merged=full.merge(raw_comps[raw_comps.period.eq("full_history")][["policy","metric","correlation","absolute_delay"]],on=["policy","metric"])
     for family_name,metrics in FAMILIES.items():
-        for policy,g in merged[merged.metric.isin(metrics)].groupby("policy"): family.append({"family":family_name,"policy":policy,"metric_count":len(g),"equal_metric_footing":True,"mean_whipsaw_2m":g.whipsaw_2m.mean(),"mean_persistence":g.persistence.mean(),"mean_raw_cycle_correlation":g.correlation.mean(),"mean_absolute_delay":g.absolute_delay.mean(),"plateau_status":"human_review_required"})
+        for policy,g in merged[merged.metric.isin(metrics)].groupby("policy"): family.append({"family":family_name,"policy":policy,"metric_count":len(g),"equal_metric_footing":True,"mean_whipsaw_2m":g.whipsaw_2m.mean(),"mean_persistence":g.persistence.mean(),"mean_incumbent_chronology_correlation":g.correlation.mean(),"mean_incumbent_absolute_delay":g.absolute_delay.mean(),"plateau_status":"human_review_required"})
     # Existing diagnostics use the raw-cycle movement distribution itself as the materiality provenance.
     responsiveness=[]
     for (policy,metric),g in chronology.groupby(["policy","metric"]):
-        z=g.merge(raw[raw.metric.eq(metric)][["date","oriented_raw_cycle"]],on="date").dropna(); threshold=z.oriented_raw_cycle.abs().median(); material=z[z.oriented_raw_cycle.abs().ge(threshold)]; muted=material.candidate_metric_score.abs().lt(material.candidate_metric_score.abs().median())
-        responsiveness.append({"policy":policy,"metric":metric,"materiality_threshold":threshold,"threshold_provenance":"metric oriented raw-cycle median absolute movement diagnostic convention","material_raw_move_count":len(material),"direction_agreement_during_material_moves":np.sign(material.candidate_metric_score).eq(np.sign(material.oriented_raw_cycle)).mean(),"candidate_magnitude_during_material_moves":material.candidate_metric_score.abs().mean(),"muted_material_move_count":int(muted.sum()),"muted_material_move_share":muted.mean(),"turning_response":raw_comps.query("policy==@policy and metric==@metric and period=='full_history'").turning_point_preservation.iloc[0],"latency":raw_comps.query("policy==@policy and metric==@metric and period=='full_history'").absolute_delay.iloc[0]})
+        z=g.merge(raw[raw.metric.eq(metric)][["date","oriented_raw_cycle"]],on="date").dropna()
+        for period,pz in _periods(z):
+            threshold=pz.oriented_raw_cycle.abs().median(); material=pz[pz.oriented_raw_cycle.abs().ge(threshold)]; muted=material.candidate_metric_score.abs().lt(material.candidate_metric_score.abs().median())
+            responsiveness.append({"policy":policy,"metric":metric,"period":period,"materiality_threshold":threshold,"threshold_provenance":"legacy oriented one-month raw difference median; retained for move materiality only","material_raw_move_count":len(material),"direction_agreement_during_material_moves":np.sign(material.candidate_metric_score).eq(np.sign(material.oriented_raw_cycle)).mean(),"candidate_magnitude_during_material_moves":material.candidate_metric_score.abs().mean(),"muted_material_move_count":int(muted.sum()),"muted_material_move_share":muted.mean()})
+    responsiveness=pd.DataFrame(responsiveness)
+
+    family_for_metric={m:f for f,ms in FAMILIES.items() for m in ms}
+    decision=(metric_stats.merge(raw_comps,on=["policy","metric","period","geo_id"],suffixes=("","_cycle"),validate="one_to_one")
+        .merge(structure,on=["policy","metric"],validate="many_to_one")
+        .merge(responsiveness,on=["policy","metric","period"],validate="one_to_one"))
+    feature_similarity=(refs.pivot(index=["policy","metric","period"],columns="reference_feature",values="similarity_to_feature")
+        .rename(columns=lambda c:f"similarity_to_{c}").reset_index())
+    decision=decision.merge(feature_similarity,on=["policy","metric","period"],validate="one_to_one")
+    decision["family"]=decision.metric.map(family_for_metric)
+    decision=decision.rename(columns={"correlation":"incumbent_chronology_correlation","correlation_status":"incumbent_correlation_status","reference_type":"incumbent_reference_type","sign_agreement":"incumbent_sign_agreement","direction_agreement":"incumbent_direction_agreement","reference_turn_count":"incumbent_reference_turn_count","turning_point_preservation":"incumbent_turning_preservation","turning_point_status":"incumbent_turning_status","signed_delay":"incumbent_signed_delay","absolute_delay":"incumbent_absolute_delay","delay_status":"incumbent_delay_status"})
+    decision["level_weight"]=decision.level_configured_weight; decision["short_weight"]=decision.short_configured_weight; decision["long_weight"]=decision.long_configured_weight
+    delta_cols=("standard_deviation","mean_absolute_monthly_movement","reversals","whipsaw_2m","whipsaw_3m","persistence","incumbent_chronology_correlation","incumbent_direction_agreement","incumbent_turning_preservation","incumbent_absolute_delay","muted_material_move_share")
+    baseline=decision.loc[decision.policy.eq("P0")].set_index(["metric","period"])
+    for col in delta_cols:
+        decision[f"delta_{col}"]=[v-baseline.loc[(m,p),col] for v,m,p in zip(decision[col],decision.metric,decision.period)]
+    decision_columns=["metric","family","period","policy","level_weight","short_weight","long_weight","standard_deviation","mean_absolute_monthly_movement","reversals","whipsaw_2m","whipsaw_3m","persistence","mean_run_length","zero_crossings","durable_reversal_count","incumbent_reference_type","incumbent_chronology_correlation","incumbent_correlation_status","incumbent_sign_agreement","incumbent_direction_agreement","incumbent_reference_turn_count","candidate_turn_count","incumbent_turning_preservation","incumbent_turning_status","incumbent_signed_delay","incumbent_absolute_delay","incumbent_delay_status","level_absolute_contribution_share","short_absolute_contribution_share","long_absolute_contribution_share","contribution_cancellation","net_to_gross","level_dominant_frequency","short_dominant_frequency","long_dominant_frequency","similarity_to_level","similarity_to_short","similarity_to_long","material_raw_move_count","direction_agreement_during_material_moves","candidate_magnitude_during_material_moves","muted_material_move_count","muted_material_move_share",*[f"delta_{c}" for c in delta_cols]]
+    decision=decision[decision_columns]
+    marginal=[]
+    marginal_metrics=("incumbent_chronology_correlation","incumbent_sign_agreement","incumbent_direction_agreement","incumbent_turning_preservation","incumbent_absolute_delay","reversals","whipsaw_2m","whipsaw_3m","persistence","mean_run_length","mean_absolute_monthly_movement","standard_deviation","muted_material_move_share","direction_agreement_during_material_moves","level_absolute_contribution_share","short_absolute_contribution_share","long_absolute_contribution_share")
+    indexed=decision.set_index(["metric","period","policy"])
+    for metric in EXPECTED_WEIGHTS:
+        for period in PERIODS:
+            for left,right in ADJACENT:
+                a,b=indexed.loc[(metric,period,left)],indexed.loc[(metric,period,right)]
+                values={f"delta_{c}":b[c]-a[c] for c in marginal_metrics}
+                marginal.append({"metric":metric,"family":family_for_metric[metric],"period":period,"from_policy":left,"to_policy":right,**values,"marginal_improvement_status":"human_review_required"})
+    marginal=pd.DataFrame(marginal)
+    family_summary=[]
+    for (family_name,policy,period),g in decision.groupby(["family","policy","period"]):
+        incoming=marginal[(marginal.family.eq(family_name))&(marginal.to_policy.eq(policy))&(marginal.period.eq(period))]
+        family_summary.append({"family":family_name,"policy":policy,"period":period,"metric_count":len(g),
+            "mean_standard_deviation":g.standard_deviation.mean(),"mean_monthly_movement":g.mean_absolute_monthly_movement.mean(),
+            "mean_incumbent_chronology_correlation":g.incumbent_chronology_correlation.mean(),"mean_incumbent_direction_agreement":g.incumbent_direction_agreement.mean(),
+            "mean_incumbent_turning_preservation":g.incumbent_turning_preservation.mean(),"mean_muted_material_move_share":g.muted_material_move_share.mean(),
+            "mean_level_contribution_share":g.level_absolute_contribution_share.mean(),"mean_short_contribution_share":g.short_absolute_contribution_share.mean(),"mean_long_contribution_share":g.long_absolute_contribution_share.mean(),
+            "mean_marginal_standard_deviation":incoming.delta_standard_deviation.mean(),"mean_marginal_monthly_movement":incoming.delta_mean_absolute_monthly_movement.mean(),
+            "mean_marginal_muted_move_share":incoming.delta_muted_material_move_share.mean(),"mean_marginal_material_move_direction_agreement":incoming.delta_direction_agreement_during_material_moves.mean(),
+            "mean_marginal_level_contribution_share":incoming.delta_level_absolute_contribution_share.mean(),"mean_marginal_short_contribution_share":incoming.delta_short_absolute_contribution_share.mean(),"mean_marginal_long_contribution_share":incoming.delta_long_absolute_contribution_share.mean(),
+            "plateau_result":"indeterminate","plateau_basis":"stability gains, responsiveness costs, contribution shifts, and marginal flattening require human review; incumbent similarity is secondary"})
+    family_summary=pd.DataFrame(family_summary)
     governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"capital_markets_feature_weight_review_pending","automated_winner":False,"production_policy_changed":False,"feature_weight_policy_changed":False,"metric_weight_policy_changed":False,"Demand_changed":False,"Supply_changed":False,"Capital_Markets_changed":False,"candidate_grid_closed":True,"candidate_grid":"P0-P7","family_metric_weight_calibration":"not_started","normalization_changed":False,"one_metric_changes_at_a_time":True,"native_geography":NATIVE_GEO}])
     evaluation=pd.DataFrame([{"question":i,"status":"empirical_review_required","evidence":"authoritative review exports; no composite score or automated winner"} for i in range(1,21)])
-    return {"scenario_registry":registry,"metric_chronology":chronology,"feature_contributions":contributions,"feature_statistics":feature_stats,"metric_statistics":metric_stats,"raw_cycle_chronology":raw,"raw_cycle_comparison":raw_comps,"feature_reference_comparison":refs,"turning_point_comparison":turns,"effective_delay":turns[["policy","metric","period","signed_delay","absolute_delay"]],"adjacent_comparisons":pd.DataFrame(adjacent),"vs_p0":pd.DataFrame(vs),"family_consistency":pd.DataFrame(family),"period_sensitivity":metric_stats,"dimension_statistics":dimension_stats,"demand_axis_statistics":demand,"supply_axis_statistics":supply,"cross_axis_materiality":cross,"responsiveness":pd.DataFrame(responsiveness),"correlation_audit":pd.DataFrame(audits),"evaluation_matrix":evaluation,"governance_status":governance,"_scenario_chronology":scenario,"_structure":structure}
+    elapsed=perf_counter()-build_started
+    stages=("load","candidate construction","native metric statistics","incumbent chronology comparisons","turning-point analysis","contribution analysis","alignment","dimension propagation","Demand propagation","Supply propagation","family summaries","visualization")
+    performance=pd.DataFrame([{"stage":s,"elapsed_seconds":0.0,"call_count":0,"rows_processed":0,"optimization_note":"stage timing populated by build boundary; downstream turning detectors eliminated"} for s in stages]+[{"stage":"total","elapsed_seconds":elapsed,"call_count":1,"rows_processed":len(scenario),"optimization_note":"wall-clock build runtime; visualization is timed by write_review"}])
+    return {"scenario_registry":registry,"metric_chronology":chronology,"feature_contributions":contributions,"feature_statistics":feature_stats,"metric_statistics":metric_stats,"raw_cycle_chronology":raw,"raw_cycle_comparison":raw_comps,"feature_reference_comparison":refs,"turning_point_comparison":turns,"effective_delay":turns[["policy","metric","period","signed_delay","absolute_delay","delay_status"]],"adjacent_comparisons":pd.DataFrame(adjacent),"vs_p0":pd.DataFrame(vs),"family_consistency":pd.DataFrame(family),"period_sensitivity":metric_stats,"dimension_statistics":dimension_stats,"demand_axis_statistics":demand,"supply_axis_statistics":supply,"cross_axis_materiality":cross,"responsiveness":responsiveness,"correlation_audit":pd.DataFrame(audits),"evaluation_matrix":evaluation,"governance_status":governance,"turning_point_audit":pd.concat(turn_audits,ignore_index=True) if turn_audits else pd.DataFrame(),"policy_decision_table":decision,"policy_marginal_deltas":marginal,"family_plateau_summary":family_summary,"performance_audit":performance,"_scenario_chronology":scenario,"_structure":structure}
 
 
 def _svg(path: Path, series, title):
