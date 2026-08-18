@@ -75,7 +75,11 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
         "long_weight":w[2], "scope_metric":METRIC, "candidate_grid":"P0-P9",
         "candidate_grid_closed":True, "policy_status":
         "revalidation_required" if p == "P7" else "challenger",
-        "p0_semantics":"incumbent_chronology_reference" if p == "P0" else "challenger",
+        "policy_semantics":(
+            "historical_60_20_20_reference" if p == "P0" else
+            "corrected_persisted_run_arithmetic_baseline" if p == "P7" else
+            "challenger"
+        ),
         "feature_construction":"MA9; MA9-lag3(MA9); MA9-lag12(MA9)",
         "normalization_direction":"positive"} for p,w in POLICIES.items()])
 
@@ -99,10 +103,10 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
     contributions=pd.concat(panels,ignore_index=True)
     chronology=contributions.drop_duplicates(["policy","date"])[["policy","geo_id","date","candidate_metric_score"]]
     prod=canonical._dates(artifacts["metric_scores"]); mc=canonical._metric_col(prod); vc=_value(prod,("metric_score","score"))
-    prod=prod[(prod[mc].eq(METRIC)) & prod.geo_id.eq(NATIVE_GEO)][["date",vc]].rename(columns={vc:"corrected_p0_score"})
-    check=chronology.query("policy=='P0'").merge(prod,on="date",validate="one_to_one")
-    if len(check)!=len(prod) or not np.allclose(check.candidate_metric_score,check.corrected_p0_score,equal_nan=True,atol=1e-12):
-        raise ValueError("P0 does not reconstruct corrected 60/20/20 baseline")
+    prod=prod[(prod[mc].eq(METRIC)) & prod.geo_id.eq(NATIVE_GEO)][["date",vc]].rename(columns={vc:"persisted_corrected_metric_score"})
+    check=chronology.query("policy=='P7'").merge(prod,on="date",validate="one_to_one")
+    if len(check)!=len(prod) or not np.allclose(check.candidate_metric_score,check.persisted_corrected_metric_score,equal_nan=True,atol=1e-12,rtol=0):
+        raise ValueError("P7 does not reconstruct persisted corrected metric score")
 
     # The source artifact must already be canonical 10Y-2Y. Where constituent
     # rows are available, enforce formula parity rather than trusting a label.
@@ -165,15 +169,17 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
     aligned=aligned[aligned[amc].eq(METRIC)].copy(); aligned["native_month"]=pd.to_datetime(aligned.metric_date).dt.to_period("M")
     native=chronology.copy(); native["native_month"]=native.date.dt.to_period("M")
     scenario=aligned[["geo_id","date","native_month"]].merge(native[["policy","native_month","candidate_metric_score"]],on="native_month")
-    p0=scenario.query("policy=='P0'")[["geo_id","date","candidate_metric_score"]].rename(columns={"candidate_metric_score":"p0_metric_score"})
-    scenario=scenario.merge(p0,on=["geo_id","date"],validate="many_to_one")
-    dims=canonical._dates(artifacts["dimension_scores"]); cm=dims[dims.dimension.eq("capital_markets")][["geo_id","date","dimension_score"]].rename(columns={"dimension_score":"baseline_score"})
-    cmout=scenario.merge(cm,on=["geo_id","date"],validate="many_to_one"); cmout["candidate_score"]=cmout.baseline_score+EXPECTED_WEIGHTS[METRIC]*(cmout.candidate_metric_score-cmout.p0_metric_score)
+    p7=scenario.query("policy=='P7'")[["geo_id","date","candidate_metric_score"]].rename(columns={"candidate_metric_score":"persisted_p7_corrected_baseline_metric_score"})
+    scenario=scenario.merge(p7,on=["geo_id","date"],validate="many_to_one")
+    scenario["metric_score_delta_from_persisted_p7"]=(scenario.candidate_metric_score-scenario.persisted_p7_corrected_baseline_metric_score).where(
+        scenario.candidate_metric_score.notna() | scenario.persisted_p7_corrected_baseline_metric_score.notna(), 0.0)
+    dims=canonical._dates(artifacts["dimension_scores"]); cm=dims[dims.dimension.eq("capital_markets")][["geo_id","date","dimension_score"]].rename(columns={"dimension_score":"persisted_baseline_score"})
+    cmout=scenario.merge(cm,on=["geo_id","date"],validate="many_to_one"); cmout["candidate_score"]=cmout.persisted_baseline_score+EXPECTED_WEIGHTS[METRIC]*cmout.metric_score_delta_from_persisted_p7
     axes=canonical._dates(artifacts["axis_scores"]); axis_col=next(c for c in ("axis","axis_name") if c in axes); av=_value(axes,("axis_score","score"))
     axis_tables={}
     for axis in ("demand","supply"):
-        base=axes[axes[axis_col].astype(str).str.lower().eq(axis)][["geo_id","date",av]].rename(columns={av:"baseline_score"})
-        q=scenario.merge(base,on=["geo_id","date"],validate="many_to_one"); q["candidate_score"]=q.baseline_score+EXPECTED_AXIS_WEIGHTS[axis]*EXPECTED_WEIGHTS[METRIC]*(q.candidate_metric_score-q.p0_metric_score); axis_tables[axis]=q
+        base=axes[axes[axis_col].astype(str).str.lower().eq(axis)][["geo_id","date",av]].rename(columns={av:"persisted_baseline_score"})
+        q=scenario.merge(base,on=["geo_id","date"],validate="many_to_one"); q["candidate_score"]=q.persisted_baseline_score+EXPECTED_AXIS_WEIGHTS[axis]*EXPECTED_WEIGHTS[METRIC]*q.metric_score_delta_from_persisted_p7; axis_tables[axis]=q
 
     marginal=[]; indexed=decision.set_index(["period","policy"])
     fields=("reversals","whipsaw_2m","whipsaw_3m","persistence","mean_run_length","mean_absolute_monthly_movement","standard_deviation","direction_agreement_during_material_moves","candidate_magnitude_during_material_moves","turning_preservation","absolute_delay","level_absolute_contribution_share","short_absolute_contribution_share","long_absolute_contribution_share","similarity_to_long")
@@ -197,7 +203,7 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
             "direction_agreement":np.sign(q.candidate_metric_score.diff()).eq(np.sign(q.other_score.diff())).mean()})
 
     questions=["Does corrected polarity materially change the supported P7 conclusion?","Does P7 still improve stability versus P9?","Does P9 now dominate P7 on the stability/responsiveness tradeoff?","Does P8 become the practical plateau?","Does P5 become sufficient after polarity correction?","Where does the corrected Long ladder plateau begin?","Does Long-majority weighting remain supported?","Is 50% Long defensible?","Is 55% Long still defensible?","Does P7 retain material raw-move responsiveness?","Does P7 materially attenuate or delay corrected spread turns?","Does P7 become excessively Long-like?","Does P6’s 5% Short boundary gain credibility under corrected chronology?","Are results robust across full history, 2022+, and latest 36 months?","Are downstream Capital Markets effects material?","Are downstream Demand effects material?","Are downstream Supply effects material?","Is one policy clearly at the beginning of the practical optimization plateau?","Does P7 survive revalidation?","If not, which policy replaces it?"]
-    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"spread_10y_2y_feature_policy_revalidation_pending","automated_winner":False,"production_policy_changed":False,"feature_weight_policy_changed":False,"metric_weight_policy_changed":False,"Demand_changed":False,"Supply_changed":False,"Capital_Markets_changed":False,"spread_polarity_repair":"validated","spread_10y_2y_feature_policy_status":"revalidation_required","other_five_capital_markets_feature_policies":"provisionally_valid","family_metric_weight_calibration":"invalidated_pending_rerun","candidate_grid_closed":True,"candidate_grid":"P0-P9"}])
+    governance=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged","human_decision":"spread_10y_2y_feature_policy_revalidation_pending","automated_winner":False,"production_policy_changed":False,"feature_weight_policy_changed":False,"metric_weight_policy_changed":False,"Demand_changed":False,"Supply_changed":False,"Capital_Markets_changed":False,"spread_polarity_repair":"validated","spread_10y_2y_feature_policy_status":"revalidation_required","persisted_reconstruction_anchor":"P7_corrected_persisted_run","historical_feature_policy_reference":"P0_60_20_20","other_five_capital_markets_feature_policies":"provisionally_valid","family_metric_weight_calibration":"invalidated_pending_rerun","candidate_grid_closed":True,"candidate_grid":"P0-P9"}])
     elapsed=perf_counter()-started
     performance=pd.DataFrame([{"stage":"targeted one-metric build","elapsed_seconds":elapsed,"call_count":1,"optimization_note":"persisted features and cached aligned production surfaces reused"},{"stage":"all-six-family rebuild","elapsed_seconds":0.0,"call_count":0,"optimization_note":"intentionally not performed"}])
     return {"scenario_registry":registry,"metric_chronology":chronology,"metric_statistics":stats,
