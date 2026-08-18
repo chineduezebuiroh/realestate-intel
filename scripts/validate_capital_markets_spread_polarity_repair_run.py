@@ -57,7 +57,9 @@ def main():
  cfg=load_regime_config(validate=True)
  norm_cfg=pd.read_csv("config/normalization_registry.csv"); spread_features=cfg.features[cfg.features.metric_key.eq("fred_2y10y_spread")]
  assert set(norm_cfg[norm_cfg.policy_key.isin(spread_features.feature_key)].score_direction)=={"positive"}
- assert set(spread_features.transform)=={"ma_level","ma_difference"} and set(spread_features.feature_window)=={"9m","9m/lag3m","9m/lag12m"}
+ assert set(spread_features["transform"]) == {"ma_level", "ma_difference"} and set(
+        spread_features["feature_window"]
+    ) == {"9m", "9m/lag3m", "9m/lag12m"}
  assert spread_features.set_index("feature_type").feature_weight.astype(float).to_dict()=={"level":.35,"short_term_change":.10,"long_term_change":.55}
  weights=cfg.metric_dimensions[cfg.metric_dimensions.canonical_metric_key.isin(CM)].set_index("canonical_metric_key").metric_weight.astype(float).to_dict()
  assert weights=={"mortgage_30y":.15,"mortgage_15y":.15,"treasury_10y":.15,"fedfunds":.10,"spread_10y_2y":.225,"spread_10y_fedfunds":.225}
