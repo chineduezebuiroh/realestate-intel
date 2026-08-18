@@ -284,13 +284,99 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
     merged=full.merge(raw_comps[raw_comps.period.eq("full_history")][["policy","metric","correlation","absolute_delay"]],on=["policy","metric"])
     for family_name,metrics in FAMILIES.items():
         for policy,g in merged[merged.metric.isin(metrics)].groupby("policy"): family.append({"family":family_name,"policy":policy,"metric_count":len(g),"equal_metric_footing":True,"mean_whipsaw_2m":g.whipsaw_2m.mean(),"mean_persistence":g.persistence.mean(),"mean_incumbent_chronology_correlation":g.correlation.mean(),"mean_incumbent_absolute_delay":g.absolute_delay.mean(),"plateau_status":"human_review_required"})
-    # Existing diagnostics use the raw-cycle movement distribution itself as the materiality provenance.
+    # Material-move dates are defined independently from candidate policy using
+    # the retained legacy raw-movement chronology. Responsiveness itself is
+    # measured absolutely, while attenuation/amplification is measured against
+    # the fixed P0 incumbent response on those exact same dates.
     responsiveness=[]
-    for (policy,metric),g in chronology.groupby(["policy","metric"]):
-        z=g.merge(raw[raw.metric.eq(metric)][["date","oriented_raw_cycle"]],on="date").dropna()
-        for period,pz in _periods(z):
-            threshold=pz.oriented_raw_cycle.abs().median(); material=pz[pz.oriented_raw_cycle.abs().ge(threshold)]; muted=material.candidate_metric_score.abs().lt(material.candidate_metric_score.abs().median())
-            responsiveness.append({"policy":policy,"metric":metric,"period":period,"materiality_threshold":threshold,"threshold_provenance":"legacy oriented one-month raw difference median; retained for move materiality only","material_raw_move_count":len(material),"direction_agreement_during_material_moves":np.sign(material.candidate_metric_score).eq(np.sign(material.oriented_raw_cycle)).mean(),"candidate_magnitude_during_material_moves":material.candidate_metric_score.abs().mean(),"muted_material_move_count":int(muted.sum()),"muted_material_move_share":muted.mean()})
+    p0_chronology=(
+        chronology.loc[
+            chronology.policy.eq("P0"),
+            ["metric","date","candidate_metric_score"],
+        ]
+        .rename(columns={"candidate_metric_score":"p0_metric_score"})
+    )
+    response_tol=1e-12
+
+    for metric,g in chronology.groupby("metric"):
+        metric_raw=raw.loc[
+            raw.metric.eq(metric),
+            ["date","oriented_raw_cycle"],
+        ]
+
+        for period,p0_period in _periods(
+            p0_chronology.loc[p0_chronology.metric.eq(metric)]
+            .merge(metric_raw,on="date",validate="one_to_one")
+            .dropna()
+        ):
+            threshold=p0_period.oriented_raw_cycle.abs().median()
+            material_dates=p0_period.loc[
+                p0_period.oriented_raw_cycle.abs().ge(threshold),
+                ["date","oriented_raw_cycle","p0_metric_score"],
+            ].copy()
+
+            p0_mean_magnitude=material_dates.p0_metric_score.abs().mean()
+
+            for policy in POLICIES:
+                candidate=(
+                    g.loc[
+                        g.policy.eq(policy),
+                        ["date","candidate_metric_score"],
+                    ]
+                    .merge(
+                        material_dates,
+                        on="date",
+                        validate="one_to_one",
+                    )
+                    .dropna()
+                )
+
+                candidate_abs=candidate.candidate_metric_score.abs()
+                p0_abs=candidate.p0_metric_score.abs()
+
+                attenuated=candidate_abs.lt(p0_abs-response_tol)
+                amplified=candidate_abs.gt(p0_abs+response_tol)
+                unchanged=~(attenuated|amplified)
+
+                candidate_mean_magnitude=candidate_abs.mean()
+
+                if (
+                    pd.notna(p0_mean_magnitude)
+                    and p0_mean_magnitude > response_tol
+                ):
+                    magnitude_ratio=(
+                        candidate_mean_magnitude
+                        / p0_mean_magnitude
+                    )
+                    magnitude_status="ok"
+                else:
+                    magnitude_ratio=np.nan
+                    magnitude_status="p0_zero_or_undefined"
+
+                responsiveness.append({
+                    "policy":policy,
+                    "metric":metric,
+                    "period":period,
+                    "materiality_threshold":threshold,
+                    "threshold_provenance":"legacy oriented one-month raw difference median; retained for move materiality only",
+                    "material_raw_move_count":len(candidate),
+                    "direction_agreement_during_material_moves":(
+                        np.sign(candidate.candidate_metric_score)
+                        .eq(np.sign(candidate.oriented_raw_cycle))
+                        .mean()
+                    ),
+                    "candidate_magnitude_during_material_moves":candidate_mean_magnitude,
+                    "p0_magnitude_during_material_moves":p0_mean_magnitude,
+                    "response_magnitude_ratio_to_p0":magnitude_ratio,
+                    "response_magnitude_status":magnitude_status,
+                    "attenuated_vs_p0_count":int(attenuated.sum()),
+                    "attenuated_vs_p0_share":attenuated.mean(),
+                    "amplified_vs_p0_count":int(amplified.sum()),
+                    "amplified_vs_p0_share":amplified.mean(),
+                    "unchanged_vs_p0_count":int(unchanged.sum()),
+                    "unchanged_vs_p0_share":unchanged.mean(),
+                })
+
     responsiveness=pd.DataFrame(responsiveness)
 
     family_for_metric={m:f for f,ms in FAMILIES.items() for m in ms}
@@ -303,14 +389,14 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
     decision["family"]=decision.metric.map(family_for_metric)
     decision=decision.rename(columns={"correlation":"incumbent_chronology_correlation","correlation_status":"incumbent_correlation_status","reference_type":"incumbent_reference_type","sign_agreement":"incumbent_sign_agreement","direction_agreement":"incumbent_direction_agreement","reference_turn_count":"incumbent_reference_turn_count","turning_point_preservation":"incumbent_turning_preservation","turning_point_status":"incumbent_turning_status","signed_delay":"incumbent_signed_delay","absolute_delay":"incumbent_absolute_delay","delay_status":"incumbent_delay_status"})
     decision["level_weight"]=decision.level_configured_weight; decision["short_weight"]=decision.short_configured_weight; decision["long_weight"]=decision.long_configured_weight
-    delta_cols=("standard_deviation","mean_absolute_monthly_movement","reversals","whipsaw_2m","whipsaw_3m","persistence","incumbent_chronology_correlation","incumbent_direction_agreement","incumbent_turning_preservation","incumbent_absolute_delay","muted_material_move_share")
+    delta_cols=("standard_deviation","mean_absolute_monthly_movement","reversals","whipsaw_2m","whipsaw_3m","persistence","incumbent_chronology_correlation","incumbent_direction_agreement","incumbent_turning_preservation","incumbent_absolute_delay","candidate_magnitude_during_material_moves","response_magnitude_ratio_to_p0","attenuated_vs_p0_share","amplified_vs_p0_share")
     baseline=decision.loc[decision.policy.eq("P0")].set_index(["metric","period"])
     for col in delta_cols:
         decision[f"delta_{col}"]=[v-baseline.loc[(m,p),col] for v,m,p in zip(decision[col],decision.metric,decision.period)]
-    decision_columns=["metric","family","period","policy","level_weight","short_weight","long_weight","standard_deviation","mean_absolute_monthly_movement","reversals","whipsaw_2m","whipsaw_3m","persistence","mean_run_length","zero_crossings","durable_reversal_count","incumbent_reference_type","incumbent_chronology_correlation","incumbent_correlation_status","incumbent_sign_agreement","incumbent_direction_agreement","incumbent_reference_turn_count","candidate_turn_count","incumbent_turning_preservation","incumbent_turning_status","incumbent_signed_delay","incumbent_absolute_delay","incumbent_delay_status","level_absolute_contribution_share","short_absolute_contribution_share","long_absolute_contribution_share","contribution_cancellation","net_to_gross","level_dominant_frequency","short_dominant_frequency","long_dominant_frequency","similarity_to_level","similarity_to_short","similarity_to_long","material_raw_move_count","direction_agreement_during_material_moves","candidate_magnitude_during_material_moves","muted_material_move_count","muted_material_move_share",*[f"delta_{c}" for c in delta_cols]]
+    decision_columns=["metric","family","period","policy","level_weight","short_weight","long_weight","standard_deviation","mean_absolute_monthly_movement","reversals","whipsaw_2m","whipsaw_3m","persistence","mean_run_length","zero_crossings","durable_reversal_count","incumbent_reference_type","incumbent_chronology_correlation","incumbent_correlation_status","incumbent_sign_agreement","incumbent_direction_agreement","incumbent_reference_turn_count","candidate_turn_count","incumbent_turning_preservation","incumbent_turning_status","incumbent_signed_delay","incumbent_absolute_delay","incumbent_delay_status","level_absolute_contribution_share","short_absolute_contribution_share","long_absolute_contribution_share","contribution_cancellation","net_to_gross","level_dominant_frequency","short_dominant_frequency","long_dominant_frequency","similarity_to_level","similarity_to_short","similarity_to_long","material_raw_move_count","direction_agreement_during_material_moves","candidate_magnitude_during_material_moves","p0_magnitude_during_material_moves","response_magnitude_ratio_to_p0","response_magnitude_status","attenuated_vs_p0_count","attenuated_vs_p0_share","amplified_vs_p0_count","amplified_vs_p0_share","unchanged_vs_p0_count","unchanged_vs_p0_share",*[f"delta_{c}" for c in delta_cols]]
     decision=decision[decision_columns]
     marginal=[]
-    marginal_metrics=("incumbent_chronology_correlation","incumbent_sign_agreement","incumbent_direction_agreement","incumbent_turning_preservation","incumbent_absolute_delay","reversals","whipsaw_2m","whipsaw_3m","persistence","mean_run_length","mean_absolute_monthly_movement","standard_deviation","muted_material_move_share","direction_agreement_during_material_moves","level_absolute_contribution_share","short_absolute_contribution_share","long_absolute_contribution_share")
+    marginal_metrics=("incumbent_chronology_correlation","incumbent_sign_agreement","incumbent_direction_agreement","incumbent_turning_preservation","incumbent_absolute_delay","reversals","whipsaw_2m","whipsaw_3m","persistence","mean_run_length","mean_absolute_monthly_movement","standard_deviation","candidate_magnitude_during_material_moves","response_magnitude_ratio_to_p0","attenuated_vs_p0_share","amplified_vs_p0_share","direction_agreement_during_material_moves","level_absolute_contribution_share","short_absolute_contribution_share","long_absolute_contribution_share")
     indexed=decision.set_index(["metric","period","policy"])
     for metric in EXPECTED_WEIGHTS:
         for period in PERIODS:
@@ -325,10 +411,10 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
         family_summary.append({"family":family_name,"policy":policy,"period":period,"metric_count":len(g),
             "mean_standard_deviation":g.standard_deviation.mean(),"mean_monthly_movement":g.mean_absolute_monthly_movement.mean(),
             "mean_incumbent_chronology_correlation":g.incumbent_chronology_correlation.mean(),"mean_incumbent_direction_agreement":g.incumbent_direction_agreement.mean(),
-            "mean_incumbent_turning_preservation":g.incumbent_turning_preservation.mean(),"mean_muted_material_move_share":g.muted_material_move_share.mean(),
+            "mean_incumbent_turning_preservation":g.incumbent_turning_preservation.mean(),"mean_response_magnitude_ratio_to_p0":g.response_magnitude_ratio_to_p0.mean(),"mean_attenuated_vs_p0_share":g.attenuated_vs_p0_share.mean(),"mean_amplified_vs_p0_share":g.amplified_vs_p0_share.mean(),
             "mean_level_contribution_share":g.level_absolute_contribution_share.mean(),"mean_short_contribution_share":g.short_absolute_contribution_share.mean(),"mean_long_contribution_share":g.long_absolute_contribution_share.mean(),
             "mean_marginal_standard_deviation":incoming.delta_standard_deviation.mean(),"mean_marginal_monthly_movement":incoming.delta_mean_absolute_monthly_movement.mean(),
-            "mean_marginal_muted_move_share":incoming.delta_muted_material_move_share.mean(),"mean_marginal_material_move_direction_agreement":incoming.delta_direction_agreement_during_material_moves.mean(),
+            "mean_marginal_response_magnitude_ratio_to_p0":incoming.delta_response_magnitude_ratio_to_p0.mean(),"mean_marginal_attenuated_vs_p0_share":incoming.delta_attenuated_vs_p0_share.mean(),"mean_marginal_amplified_vs_p0_share":incoming.delta_amplified_vs_p0_share.mean(),"mean_marginal_material_move_direction_agreement":incoming.delta_direction_agreement_during_material_moves.mean(),
             "mean_marginal_level_contribution_share":incoming.delta_level_absolute_contribution_share.mean(),"mean_marginal_short_contribution_share":incoming.delta_short_absolute_contribution_share.mean(),"mean_marginal_long_contribution_share":incoming.delta_long_absolute_contribution_share.mean(),
             "plateau_result":"indeterminate","plateau_basis":"stability gains, responsiveness costs, contribution shifts, and marginal flattening require human review; incumbent similarity is secondary"})
     family_summary=pd.DataFrame(family_summary)

@@ -58,7 +58,43 @@ def main():
     for row in decision.itertuples(index=False):
         key=(row.metric,row.period,row.policy)
         assert np.isclose(row.standard_deviation,source_stats.loc[key].standard_deviation)
-        assert np.isclose(row.muted_material_move_share,source_response.loc[key].muted_material_move_share)
+        assert np.isclose(row.response_magnitude_ratio_to_p0,source_response.loc[key].response_magnitude_ratio_to_p0,equal_nan=True)
+        assert np.isclose(row.attenuated_vs_p0_share,source_response.loc[key].attenuated_vs_p0_share,equal_nan=True)
+        assert np.isclose(row.amplified_vs_p0_share,source_response.loc[key].amplified_vs_p0_share,equal_nan=True)
+    response=tables["responsiveness"]
+    p0_response=response.query("policy=='P0'")
+    assert np.allclose(
+        p0_response.response_magnitude_ratio_to_p0,
+        1.0,
+        equal_nan=False,
+    )
+    assert np.allclose(
+        p0_response.attenuated_vs_p0_share,
+        0.0,
+    )
+    assert np.allclose(
+        p0_response.amplified_vs_p0_share,
+        0.0,
+    )
+    assert np.allclose(
+        p0_response.unchanged_vs_p0_share,
+        1.0,
+    )
+    assert np.allclose(
+        response.attenuated_vs_p0_share
+        + response.amplified_vs_p0_share
+        + response.unchanged_vs_p0_share,
+        1.0,
+    )
+    assert (
+        response.query("policy!='P0'")
+        .response_magnitude_ratio_to_p0
+        .sub(1.0)
+        .abs()
+        .gt(1e-12)
+        .any()
+    )
+
     marginal=tables["policy_marginal_deltas"]
     assert len(marginal)==len(ADJACENT)*len(EXPECTED_WEIGHTS)*3
     sample=marginal.iloc[0]; idx=decision.set_index(["metric","period","policy"])
