@@ -36,7 +36,7 @@ Pulls (US-level only):
      -> fred_cpi_urban_sa_index
 
 3) Yield spreads – derived monthly series (US)
-   - fred_spread_2y_10y        = fred_gs10 - fred_gs2
+   - fred_spread_2y_10y        = fred_gs2 - fred_gs10 (physical provider order)
    - fred_spread_10y_30y       = fred_gs10 - fred_gs30
    - fred_spread_2y_30y        = fred_gs2 - fred_gs30
    - fred_spread_2y_fedfunds   = fred_gs2 - fred_fedfunds
@@ -444,10 +444,9 @@ def main():
         sub = ts[ts["geo_id"] == geo_id]
         wide = sub.pivot(index="date", columns="metric_id", values="value")
 
-        # Governed curve convention: longer maturity minus shorter maturity.
-        # The physical key is retained for backwards compatibility; despite its
-        # legacy ambiguous name it is explicitly the 10Y-minus-2Y spread.
-        add_spread(wide, geo_id, "fred_spread_2y_10y", "fred_gs10", "fred_gs2")
+        # Preserve physical/provider order here. Canonical resolution owns the
+        # governed 10Y-minus-2Y sign inversion; ingest must not silently relabel it.
+        add_spread(wide, geo_id, "fred_spread_2y_10y", "fred_gs2", "fred_gs10")
         add_spread(wide, geo_id, "fred_spread_10y_30y", "fred_gs10", "fred_gs30")
         add_spread(wide, geo_id, "fred_spread_2y_30y", "fred_gs2", "fred_gs30")
         add_spread(wide, geo_id, "fred_spread_2y_fedfunds", "fred_gs2", "fred_fedfunds")

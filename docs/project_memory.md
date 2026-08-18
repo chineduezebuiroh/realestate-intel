@@ -109,7 +109,13 @@ then-current 0.20 Supply metric weight was subsequently superseded by S8's 0.30
 Permit Activity weight. The prior transform, lag, five-policy, and 70-versus-80
 finalist reviews remain the historical calibration trail.
 
-Capital Markets calibration is closed after promotion of the human-selected `MW-TEMPERED-C` production policy; no transform, feature-weight, or metric-weight calibration remains pending. Next is Affordability feature decisions and derivation-order confirmation.
+Capital Markets source review confirmed that physical `fred_spread_2y_10y`
+(`2Y - 10Y`) had been passed through as canonical `spread_10y_2y`. Canonical
+resolution now repairs that boundary to the governed `10Y - 2Y` chronology.
+The existing P7 spread feature policy requires isolated revalidation; the other
+five promoted Capital Markets feature policies remain provisionally intact.
+F0-F9 family-weight evidence is invalidated pending a corrected local rerun, and
+no family-weight production decision has been made.
 
 
 Affordability calibration is closed at the human-approved shared MA12/P4 policy:

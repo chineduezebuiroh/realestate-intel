@@ -40,7 +40,8 @@ def main():
     assert tables["demand_axis_statistics"].configured_capital_markets_weight.eq(.10).all()
     assert tables["supply_axis_statistics"].configured_capital_markets_weight.eq(.15).all()
     assert tables["responsiveness"].threshold_provenance.eq("invariant family monthly-move median").all()
-    gov=tables["governance_status"].iloc[0]; assert gov.candidate_grid=="F0-F9" and gov.native_feature_calibration=="closed" and gov.intra_family_metric_weight_calibration=="not_started"
+    gov=tables["governance_status"].iloc[0]; assert gov.candidate_grid=="F0-F9" and gov.native_feature_calibration=="spread_10y_2y_revalidation_required" and gov.intra_family_metric_weight_calibration=="not_started"
+    assert gov.human_decision=="invalidated_by_spread_polarity_defect" and gov.family_metric_weight_calibration=="invalidated_pending_rerun"
     assert not gov.production_policy_changed and not gov.metric_weight_policy_changed and not gov.supply_s8_changed
     with tempfile.TemporaryDirectory() as tmp:
         out=Path(tmp); write_review(tables,out)

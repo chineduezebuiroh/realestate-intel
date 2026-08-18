@@ -71,7 +71,7 @@ def main() -> None:
     canonical_scores=legacy_scores.assign(canonical_metric_key="spread_10y_2y")
     pd.testing.assert_frame_equal(score_metrics(canonicalize_legacy_artifact_metric_keys(legacy_scores)),
         score_metrics(canonical_scores),check_exact=True)
-    assert "add_spread(wide, geo_id, \"fred_spread_2y_10y\", \"fred_gs10\", \"fred_gs2\")" in Path("sources/fred_macro/ingest.py").read_text()
+    assert "add_spread(wide, geo_id, \"fred_spread_2y_10y\", \"fred_gs2\", \"fred_gs10\")" in Path("sources/fred_macro/ingest.py").read_text()
     families=governed_families(registry)
     assert families=={"mortgage_family":("mortgage_30y","mortgage_15y"),"policy_yield_family":("fedfunds","treasury_10y"),"spread_family":("spread_10y_2y","spread_10y_fedfunds")}
     assert len({m for members in families.values() for m in members})==6
@@ -84,7 +84,14 @@ def main() -> None:
     assert MA_WINDOWS == (3,6,9,12)
     assert set(VISUALIZATION_REGRESSION_TABLES) == {"capital_markets_transform_policy_scorecard", "capital_markets_transform_decision_matrix", "capital_markets_ratio_vs_difference_pairwise", "capital_markets_ratio_denominator_diagnostics", "capital_markets_transform_directional_agreement", "capital_markets_transform_turning_point_matches", "capital_markets_transform_warmup_coverage", "common_ma_state_cache_audit", "transformed_feature_cache_audit"}
     family_policies=family_challenger_registry(registry); assert len(family_policies)==12 and set(family_policies.ma_window)=={6,9,12}
-    assert registry.groupby("canonical_metric_key").feature_weight.apply(tuple).map(sum).eq(1).all()
+    # Decimal policy weights such as P7 (0.35/0.10/0.55) are governed with
+    # numeric tolerance, not binary floating-point identity.
+    assert np.allclose(
+        registry.groupby("canonical_metric_key").feature_weight.sum(),
+        1.0,
+        rtol=0,
+        atol=1e-12,
+    )
     for window in MA_WINDOWS:
         assert structural_policy(window) == {"level":("ma_level",f"{window}m"),"short_term_change":("ma_pct_change",f"{window}m/lag3m"),"long_term_change":("ma_pct_change",f"{window}m/lag12m")}
     try: reject_forbidden_formula("ma3_vs_ma12_pct", "3m/12m")

@@ -7,6 +7,7 @@ from regime._00_config_loader import load_regime_config
 
 ROOT=Path(__file__).resolve().parents[3]
 CONTRACT=ROOT/"config/capital_markets_native_feature_policy_2026_08_18.json"
+REPAIR=ROOT/"config/capital_markets_spread_polarity_repair_2026_08_18.json"
 EXPECTED={"mortgage_30y":("P4",.55,.10,.35),"mortgage_15y":("P2",.60,.10,.30),"treasury_10y":("P1",.60,.15,.25),"fedfunds":("P5",.50,.10,.40),"spread_10y_2y":("P7",.35,.10,.55),"spread_10y_fedfunds":("P9",.40,.10,.50)}
 METRIC_WEIGHTS={"mortgage_30y":.15,"mortgage_15y":.15,"treasury_10y":.15,"fedfunds":.10,"spread_10y_2y":.225,"spread_10y_fedfunds":.225}
 def main():
@@ -20,6 +21,7 @@ def main():
  types=(("level","level"),("short","short_term_change"),("long","long_term_change"))
  for metric,(policy,*weights) in EXPECTED.items():
   p=policies[metric]; assert p["policy"]==policy
+  assert "policy_status" not in p
   rows=cfg.features[cfg.features.metric_key.eq(p["registry_metric_key"])].set_index("feature_type")
   for (name,ft),weight in zip(types,weights):
    assert (p[name]["transform"],p[name]["window"],p[name]["weight"])==(rows.loc[ft,"transform"],rows.loc[ft,"feature_window"],float(rows.loc[ft,"feature_weight"]))
@@ -28,6 +30,9 @@ def main():
  assert governed.metric_weight.astype(float).to_dict()==METRIC_WEIGHTS
  assert cfg.axes.query("dimension=='capital_markets'").set_index("axis").dimension_weight.astype(float).to_dict()=={"demand":.10,"supply":.15}
  assert set(c["explicit_non_changes"])>={"normalization","Supply","Price","Affordability","Labor"}
+ repair=json.loads(REPAIR.read_text()); assert repair["defect_confirmed"] is True
+ assert repair["spread_10y_2y_feature_policy"]=="P7" and repair["spread_10y_2y_feature_policy_status"]=="revalidation_required"
+ assert repair["family_weight_evidence_status"]=="invalidated_pending_rerun" and repair["family_weight_production_decision"]=="none"
  tracked=subprocess.run(["git","ls-files","artifacts/regime/runs/capital_markets_feature_policy_production_20260818"],cwd=ROOT,text=True,capture_output=True,check=True); assert not tracked.stdout.strip()
  with tempfile.TemporaryDirectory() as tmp:
   result=subprocess.run([sys.executable,str(ROOT/"scripts/validate_capital_markets_feature_policy_run.py"),"--artifact-root",tmp],cwd=ROOT,text=True,capture_output=True)
