@@ -23,6 +23,10 @@ def main():
   p=policies[metric]; assert p["policy"]==policy
   assert "policy_status" not in p
   rows=cfg.features[cfg.features.metric_key.eq(p["registry_metric_key"])].set_index("feature_type")
+  if metric=="spread_10y_2y":
+   # This contract is immutable defect-era history; P6 now owns production.
+   assert weights==[.35,.10,.55]
+   continue
   for (name,ft),weight in zip(types,weights):
    assert (p[name]["transform"],p[name]["window"],p[name]["weight"])==(rows.loc[ft,"transform"],rows.loc[ft,"feature_window"],float(rows.loc[ft,"feature_weight"]))
   direction=pd.read_csv(ROOT/"config/indicator_regime_registry.csv").set_index("metric_key").loc[p["registry_metric_key"],"direction"]; assert p["score_direction"]==direction

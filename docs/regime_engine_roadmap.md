@@ -376,3 +376,7 @@ without inversion. P7 is retained only as a revalidation baseline; P4, P2, P1,
 P5, and P9 remain provisionally valid. Existing F0-F9 evidence is preserved but
 invalidated pending corrected spread-only feature calibration and a later local
 family-weight rerun. No family-weight production policy has been selected.
+
+## Corrected 10Y-2Y feature-policy closure (2026-08-18)
+
+Corrected `spread_10y_2y` feature revalidation is closed at P6 (60/5/35), with the source-polarity repair validated and original P7 retained as historical defect-era evidence. Next, materialize the fresh immutable corrected Capital Markets feature-policy production baseline. The next analytical step is then a local F0-F9 family-weight calibration rerun against that baseline; family calibration is not complete and no family-weight production policy has been selected.
