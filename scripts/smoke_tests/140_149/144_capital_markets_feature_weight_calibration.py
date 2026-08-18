@@ -18,10 +18,11 @@ def fixture():
 def main():
     warnings.simplefilter("error",RuntimeWarning)
     assert DEFAULT_RUN == Path("artifacts/regime/runs/supply_s8_production_20260817")
-    assert list(POLICIES)==[f"P{i}" for i in range(8)] and "P8" not in POLICIES
+    assert list(POLICIES)==[f"P{i}" for i in range(10)] and "P10" not in POLICIES
     assert POLICIES["P6"]==(.60,.05,.35) and POLICIES["P7"]==(.35,.10,.55)
+    assert POLICIES["P8"]==(.45,.10,.45) and POLICIES["P9"]==(.40,.10,.50)
     assert all(np.isclose(sum(w),1) for w in POLICIES.values())
-    assert ("P2","P6") in ADJACENT and ("P5","P7") in ADJACENT
+    assert ADJACENT == (("P0","P1"),("P1","P2"),("P2","P6"),("P1","P3"),("P2","P4"),("P4","P5"),("P5","P8"),("P8","P9"),("P9","P7"))
     protected=[Path("config/feature_registry.csv"),Path("config/metric_dimension_registry.csv"),Path("config/normalization_registry.csv"),Path("config/axis_registry.csv")]
     before={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in protected}
     tables=build(fixture(),Path(".")); assert set(EXPORTS).issubset(tables)
@@ -33,7 +34,7 @@ def main():
     assert set(tables["dimension_statistics"].experiment_metric)==set(EXPECTED_WEIGHTS)
     assert set(tables["demand_axis_statistics"].experiment_metric)==set(EXPECTED_WEIGHTS)
     assert set(tables["supply_axis_statistics"].experiment_metric)==set(EXPECTED_WEIGHTS)
-    assert set(tables["responsiveness"].policy)>={"P6","P7"}
+    assert set(tables["responsiveness"].policy)==set(POLICIES)
     raw=tables["raw_cycle_comparison"]
     assert set(raw.reference_type)=={"incumbent_chronology_reference"}
     assert set(raw.legacy_reference_type)=={"legacy_raw_movement_reference"}
@@ -94,6 +95,9 @@ def main():
         .gt(1e-12)
         .any()
     )
+    p8_p9=response.query("policy in ['P8','P9']")
+    finite_columns=("response_magnitude_ratio_to_p0","attenuated_vs_p0_share","amplified_vs_p0_share")
+    assert np.isfinite(p8_p9[list(finite_columns)].to_numpy()).all()
 
     marginal=tables["policy_marginal_deltas"]
     assert len(marginal)==len(ADJACENT)*len(EXPECTED_WEIGHTS)*3
@@ -102,10 +106,12 @@ def main():
     assert np.isclose(sample.delta_direction_agreement_during_material_moves,idx.loc[(sample.metric,sample.period,sample.to_policy)].direction_agreement_during_material_moves-idx.loc[(sample.metric,sample.period,sample.from_policy)].direction_agreement_during_material_moves)
     plateau=tables["family_plateau_summary"]
     assert set(plateau.plateau_result)=={"indeterminate"} and plateau.plateau_basis.str.contains("incumbent similarity is secondary").all()
+    assert set(plateau.policy)==set(POLICIES)
+    assert {"mean_similarity_to_level","mean_similarity_to_short","mean_similarity_to_long"}.issubset(plateau)
     assert set(tables["performance_audit"].stage)>={"load","turning-point analysis","Demand propagation","Supply propagation","visualization","total"}
     assert set(tables["family_consistency"].family)=={"long_term_rates","policy_rate","spreads"}
     assert set(tables["correlation_audit"].correlation_status).issubset({"ok","insufficient_overlap","left_nonfinite","right_nonfinite","both_nonfinite","left_constant","right_constant","both_constant"})
-    gov=tables["governance_status"].iloc[0]; assert gov.candidate_grid=="P0-P7" and gov.family_metric_weight_calibration=="not_started"
+    gov=tables["governance_status"].iloc[0]; assert gov.candidate_grid=="P0-P9" and gov.candidate_grid_closed and gov.family_metric_weight_calibration=="not_started"
     assert not gov.production_policy_changed and not gov.feature_weight_policy_changed and not gov.metric_weight_policy_changed
     assert not gov.Demand_changed and not gov.Supply_changed and not gov.Capital_Markets_changed
     with tempfile.TemporaryDirectory() as tmp:
@@ -118,6 +124,6 @@ def main():
     try: load_run(Path("/absent/supply_s8_production_20260817"))
     except FileNotFoundError as exc: assert "no substitution" in str(exc)
     else: raise AssertionError("authoritative input absence did not fail closed")
-    print("Smoke 144 passed: exact P0-P7 grid, national reconstruction, isolated axes, responsiveness, SVGs, immutability, fail closed")
+    print("Smoke 144 passed: exact P0-P9 grid, national reconstruction, isolated axes, responsiveness, SVGs, immutability, fail closed")
 
 if __name__=="__main__": main()
