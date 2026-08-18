@@ -1,0 +1,23 @@
+{
+  "promotion_contract": "capital_markets_native_feature_policy_2026_08_18",
+  "decision_date": "2026-08-18",
+  "human_decision": "capital_markets_native_feature_policy_approved",
+  "automated_winner": false,
+  "production_feature_policy_promoted": true,
+  "feature_calibration": "closed",
+  "family_metric_weight_calibration": "pending",
+  "metric_scope": ["mortgage_30y", "mortgage_15y", "treasury_10y", "fedfunds", "spread_10y_2y", "spread_10y_fedfunds"],
+  "policies": {
+    "mortgage_30y": {"policy": "P4", "registry_metric_key": "fred_mortgage_30y", "level": {"transform": "ma_level", "window": "12m", "weight": 0.55}, "short": {"transform": "ma_pct_change", "window": "12m/lag3m", "weight": 0.10}, "long": {"transform": "ma_pct_change", "window": "12m/lag12m", "weight": 0.35}, "score_direction": "negative"},
+    "mortgage_15y": {"policy": "P2", "registry_metric_key": "fred_mortgage_15y", "level": {"transform": "ma_level", "window": "12m", "weight": 0.60}, "short": {"transform": "ma_pct_change", "window": "12m/lag3m", "weight": 0.10}, "long": {"transform": "ma_pct_change", "window": "12m/lag12m", "weight": 0.30}, "score_direction": "negative"},
+    "treasury_10y": {"policy": "P1", "registry_metric_key": "fred_10y", "level": {"transform": "ma_level", "window": "12m", "weight": 0.60}, "short": {"transform": "ma_pct_change", "window": "12m/lag3m", "weight": 0.15}, "long": {"transform": "ma_pct_change", "window": "12m/lag12m", "weight": 0.25}, "score_direction": "negative"},
+    "fedfunds": {"policy": "P5", "registry_metric_key": "fred_fedfunds", "level": {"transform": "ma_level", "window": "3m", "weight": 0.50}, "short": {"transform": "ma_pct_change", "window": "3m/lag3m", "weight": 0.10}, "long": {"transform": "ma_pct_change", "window": "3m/lag12m", "weight": 0.40}, "score_direction": "negative"},
+    "spread_10y_2y": {"policy": "P7", "registry_metric_key": "fred_2y10y_spread", "level": {"transform": "ma_level", "window": "9m", "weight": 0.35}, "short": {"transform": "ma_difference", "window": "9m/lag3m", "weight": 0.10}, "long": {"transform": "ma_difference", "window": "9m/lag12m", "weight": 0.55}, "score_direction": "positive"},
+    "spread_10y_fedfunds": {"policy": "P9", "registry_metric_key": "fred_10y_fedfunds_spread", "level": {"transform": "ma_level", "window": "9m", "weight": 0.40}, "short": {"transform": "ma_difference", "window": "9m/lag3m", "weight": 0.10}, "long": {"transform": "ma_difference", "window": "9m/lag12m", "weight": 0.50}, "score_direction": "positive"}
+  },
+  "capital_markets_metric_weights": {"mortgage_30y": 0.15, "mortgage_15y": 0.15, "treasury_10y": 0.15, "fedfunds": 0.10, "spread_10y_2y": 0.225, "spread_10y_fedfunds": 0.225},
+  "family_allocation": {"long_term_rates": 0.45, "fedfunds": 0.10, "spreads": 0.45},
+  "axis_weights_unchanged": {"demand_capital_markets": 0.10, "supply_capital_markets": 0.15},
+  "explicit_non_changes": ["Capital Markets metric weights", "Demand axis weights", "Supply axis weights", "normalization", "Supply", "Price", "Affordability", "Labor", "all unrelated production policy"],
+  "no_unrelated_production_mutation": true
+}

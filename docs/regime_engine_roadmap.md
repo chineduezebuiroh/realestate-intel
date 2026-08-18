@@ -363,3 +363,7 @@ A later BPS visual review remains deferred for DC, Essex, Montgomery, Prince
 George's, Fairfax, San Francisco, and Los Angeles. Its future plots are raw
 monthly permit units, the incumbent transform, MA12 structural level, and the
 normalized permit-activity score. No BPS implementation is part of this pass.
+
+## Capital Markets native feature closure (2026-08-18)
+
+Capital Markets feature calibration is closed and its metric-specific production feature policies are frozen pending material evidence. The next Capital Markets workstream is separate family metric-weight calibration. The existing long-term-rates/Fed-Funds/spreads allocation remains 45/10/45; no family-weight candidate grid has been promoted. Until that work closes, Capital Markets is not fully frozen.

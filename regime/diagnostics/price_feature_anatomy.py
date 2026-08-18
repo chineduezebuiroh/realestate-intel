@@ -123,7 +123,8 @@ def _periods(g):
 
 def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price",
           native_geographies: tuple[str, ...] | None = None,
-          evaluation_geographies: tuple[str, ...] | None = None) -> dict[str,pd.DataFrame]:
+          evaluation_geographies: tuple[str, ...] | None = None,
+          contract_override: tuple[pd.DataFrame, pd.DataFrame] | None = None) -> dict[str,pd.DataFrame]:
     """Build anatomy at explicit native and evaluation geography boundaries.
 
     Defaults preserve the original seven-county contract. National-source
@@ -131,7 +132,7 @@ def build(artifacts: dict[str,pd.DataFrame], root: Path, dimension: str = "price
     """
     native_geographies = native_geographies or REVIEW_GEOS
     evaluation_geographies = evaluation_geographies or REVIEW_GEOS
-    contract,mreg=resolve_contract(root, dimension); target_metrics=tuple(sorted(contract.metric.unique())); fmap=contract.set_index("feature_key")[["metric","feature_type","configured_feature_weight"]]
+    contract,mreg=contract_override or resolve_contract(root, dimension); target_metrics=tuple(sorted(contract.metric.unique())); fmap=contract.set_index("feature_key")[["metric","feature_type","configured_feature_weight"]]
     raw=_dates(artifacts["source_metrics"]); mc=_metric_col(raw); val=_value_col(raw,("value","metric_value","raw_value"))
     # Persisted source artifacts may identify the same governed observation by
     # either its registry key or its canonical metric.  Resolve both forms at
