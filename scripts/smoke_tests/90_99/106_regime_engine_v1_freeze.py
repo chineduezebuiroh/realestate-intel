@@ -25,7 +25,7 @@ FEATURE_POLICIES = {
     "fred_mortgage_15y": ("ma_level", "12m", .60, "ma_pct_change", "12m/lag3m", .10, "ma_pct_change", "12m/lag12m", .30),
     "fred_10y": ("ma_level", "12m", .60, "ma_pct_change", "12m/lag3m", .15, "ma_pct_change", "12m/lag12m", .25),
     "fred_fedfunds": ("ma_level", "3m", .50, "ma_pct_change", "3m/lag3m", .10, "ma_pct_change", "3m/lag12m", .40),
-    "fred_2y10y_spread": ("ma_level", "9m", .35, "ma_difference", "9m/lag3m", .10, "ma_difference", "9m/lag12m", .55),
+    "fred_2y10y_spread": ("ma_level", "9m", .60, "ma_difference", "9m/lag3m", .05, "ma_difference", "9m/lag12m", .35),
     "fred_10y_fedfunds_spread": ("ma_level", "9m", .40, "ma_difference", "9m/lag3m", .10, "ma_difference", "9m/lag12m", .50),
     "laus_labor_force": ("ma_level", "9m", .40, "ma_pct_change", "9m/lag3m", .15, "ma_pct_change", "9m/lag12m", .45),
     "laus_employment": ("ma_level", "9m", .40, "ma_pct_change", "9m/lag3m", .15, "ma_pct_change", "9m/lag12m", .45),

@@ -104,9 +104,9 @@ fred_fedfunds_long,fred_fedfunds,long_term_change,ma_pct_change,0.40,3m/lag12m,c
 fred_10y_level,fred_10y,level,ma_level,0.60,12m,capital_markets,Human-approved Capital Markets feature policy P1 (2026-08-18).
 fred_10y_short,fred_10y,short_term_change,ma_pct_change,0.15,12m/lag3m,capital_markets,Human-approved Capital Markets feature policy P1 (2026-08-18).
 fred_10y_long,fred_10y,long_term_change,ma_pct_change,0.25,12m/lag12m,capital_markets,Human-approved Capital Markets feature policy P1 (2026-08-18).
-fred_2y10y_spread_level,fred_2y10y_spread,level,ma_level,0.35,9m,capital_markets,Human-approved Capital Markets feature policy P7 (2026-08-18).
-fred_2y10y_spread_short,fred_2y10y_spread,short_term_change,ma_difference,0.10,9m/lag3m,capital_markets,Human-approved Capital Markets feature policy P7 (2026-08-18).
-fred_2y10y_spread_long,fred_2y10y_spread,long_term_change,ma_difference,0.55,9m/lag12m,capital_markets,Human-approved Capital Markets feature policy P7 (2026-08-18).
+fred_2y10y_spread_level,fred_2y10y_spread,level,ma_level,0.60,9m,capital_markets,Human-approved corrected-polarity Capital Markets feature policy P6 (2026-08-18).
+fred_2y10y_spread_short,fred_2y10y_spread,short_term_change,ma_difference,0.05,9m/lag3m,capital_markets,Human-approved corrected-polarity Capital Markets feature policy P6 (2026-08-18).
+fred_2y10y_spread_long,fred_2y10y_spread,long_term_change,ma_difference,0.35,9m/lag12m,capital_markets,Human-approved corrected-polarity Capital Markets feature policy P6 (2026-08-18).
 fred_cpi_level,fred_cpi,level,level_zscore,0.50,,affordability,
 fred_cpi_short,fred_cpi,short_term_change,mom_zscore,0.20,1m,affordability,
 fred_cpi_long,fred_cpi,long_term_change,yoy_zscore,0.30,12m,affordability,
