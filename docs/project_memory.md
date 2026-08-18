@@ -309,3 +309,7 @@ Detailed implementation history belongs in phase decision documents rather than 
 > after which county-only scope is applied before challengers. ZIP remains
 > reserved for future local work; city is outside both current macro and
 > planned local regimes; all other non-county levels are excluded.
+
+## Capital Markets native feature-policy promotion (2026-08-18)
+
+Capital Markets native feature calibration is now closed at human-approved, metric-specific P4/P2/P1/P5/P7/P9 policies; no automated winner was used. Family metric-weight calibration remains pending at the unchanged 45/10/45 long-rate/Fed-Funds/spread allocation, so Capital Markets is not fully frozen. Supply remains frozen at S8. Demand architecture, Price, Affordability, Labor, normalization, metric weights, and Demand/Supply axis weights remain unchanged.

@@ -46,9 +46,13 @@ def resolve_contract(root: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     if set(weights) != set(EXPECTED_WEIGHTS) or any(
             not np.isclose(weights[key], value) for key, value in EXPECTED_WEIGHTS.items()):
         raise ValueError(f"MW-TEMPERED-C membership/weights disagree with governance: {weights}")
-    if not np.allclose(contract.configured_feature_weight, contract.feature_type.map(
-            {"level": .60, "short": .20, "long": .20})):
-        raise ValueError("MW-TEMPERED-C feature weights are not governed 60/20/20")
+    # Phase 1/2 remain historical MW-TEMPERED-C diagnostics after promotion.
+    # Feature construction is read from production, while the historical incumbent
+    # weights are restored explicitly so old evidence can still be reproduced.
+    contract = contract.copy()
+    contract["configured_feature_weight"] = contract.feature_type.map(
+        {"level": .60, "short": .20, "long": .20}
+    )
     for metric, window in EXPECTED_WINDOWS.items():
         rows = contract[contract.metric.eq(metric)]
         if not rows.window_lag_definition.fillna("").str.startswith(window).all():
@@ -310,7 +314,7 @@ def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFr
         raise ValueError("Capital Markets aligned and dimension geography contracts do not overlap")
     tables = canonical.build(
         artifacts, root, DIMENSION, native_geographies=(NATIVE_GEO,),
-        evaluation_geographies=evaluation_geos)
+        evaluation_geographies=evaluation_geos, contract_override=(contract, _))
     contract = contract.assign(
         native_source_geo_scope="national", native_source_geo_id=NATIVE_GEO,
         native_metric_geo_scope="national",
