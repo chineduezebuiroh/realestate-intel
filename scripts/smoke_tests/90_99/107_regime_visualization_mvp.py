@@ -1,4 +1,4 @@
-"""Deterministic smoke test for Visualization MVP v0.1.2."""
+"""Deterministic smoke test for Visualization MVP v0.2.0."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ from regime.pandas_compat import MONTH_END
 from regime._08_geometry_engine import _major_regime
 from visualization.regime_snapshot import (
     MAJOR_BOUNDARY_DEGREES, MAJOR_REGIMES, PLANE_EXTENT, RADIAL_REFERENCES,
-    REQUIRED_ARTIFACTS, _metric_drivers, _plane, load_metric_memberships, render_snapshot,
+    REQUIRED_ARTIFACTS, SCHEMA_VERSION, VISUALIZATION_VERSION, _metric_drivers, _plane,
+    load_county_manifest, load_metric_memberships, render_county_site, render_snapshot,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -25,7 +26,7 @@ def _hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _fixture(run_dir: Path, axis_registry: Path, metric_registry: Path) -> None:
+def _fixture(run_dir: Path, axis_registry: Path, metric_registry: Path, source_registry: Path) -> None:
     dates = pd.date_range("2020-01-31", periods=79, freq=MONTH_END)
     demand = np.linspace(-.2, .15, len(dates))
     supply = np.linspace(.1, -.12, len(dates))
@@ -47,7 +48,11 @@ def _fixture(run_dir: Path, axis_registry: Path, metric_registry: Path) -> None:
                    ("gdp_annual", .1667, 0), ("labor_force", .1667, .8),
                    ("employment", .1667, .4), ("laus_unemployment_rate", .1667, 0)),
         "price": (("median_sale_price", .5, -.5), ("median_ppsf", .5, .1)),
-        "capital_markets": (("mortgage_30y", .5, -.8), ("spread_10y_2y", .5, .2)),
+        "capital_markets": (("mortgage_30y", .11666666666666667, -.3),
+                            ("mortgage_15y", .11666666666666667, -.3),
+                            ("treasury_10y", .11666666666666667, -.3),
+                            ("fedfunds", .10, -.3), ("spread_10y_2y", .275, -.3),
+                            ("spread_10y_fedfunds", .275, -.3)),
         "affordability": (("payment_burden", .25, .1),),  # second governed metric is missing; effective weight is 1.
         "supply": (("active_inventory", .6, -.2), ("permit_activity", .4, .1)),
     }
@@ -71,6 +76,12 @@ def _fixture(run_dir: Path, axis_registry: Path, metric_registry: Path) -> None:
     lines.append("price_to_income,affordability,0.75,,,true,false,true")
     lines.append("non_member,liquidity,1.0,,,true,false,true")
     metric_registry.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    source_lines = ["metric_key,frequency"]
+    for dimension, specs in metric_specs.items():
+        for key, _, _ in specs:
+            frequency = "annual" if key in {"population", "median_household_income", "gdp_annual"} else "monthly"
+            source_lines.append(f"{key},{frequency}")
+    source_registry.write_text("\n".join(source_lines) + "\n", encoding="utf-8")
 
 
 def main() -> int:
@@ -85,9 +96,10 @@ def main() -> int:
         run_dir, output_dir = root / "fixture_run", root / "output"
         run_dir.mkdir()
         axis_registry, metric_registry = root / "axis_registry.csv", root / "metric_dimension_registry.csv"
-        _fixture(run_dir, axis_registry, metric_registry)
+        source_registry = root / "source_metric_registry.csv"
+        _fixture(run_dir, axis_registry, metric_registry, source_registry)
         html_path, json_path, snapshot = render_snapshot(
-            run_dir, GEO_ID, "Washington, DC", output_dir, axis_registry, metric_registry)
+            run_dir, GEO_ID, "Washington, DC", output_dir, axis_registry, metric_registry, source_registry)
         assert html_path.is_file() and html_path.stat().st_size > 1_000_000  # inline Plotly runtime
         assert json_path.is_file() and json.loads(json_path.read_text())["geo_id"] == GEO_ID
         assert snapshot.current["as_of_date"] == pd.Timestamp("2026-07-31")
@@ -142,12 +154,20 @@ def main() -> int:
         regime_at_render = snapshot.path.iloc[-1].major_regime
         assert snapshot.current["major_regime"] == regime_at_render  # reference overlays never classify points
         html = html_path.read_text(encoding="utf-8")
-        for anchor in ("current-state", "regime-plane", "why-this-regime", "dimension-drivers", "historical-chronology", "major-regime-chronology"):
+        for anchor in ("market-regime", "market-interpretation", "regime-drivers", "market-trajectory", "evidence-detail", "data-methodology"):
             assert f'id="{anchor}"' in html
         assert html.count("<details ") == 6  # Capital Markets appears under both axes.
-        assert "Visualization MVP v0.1.2" in html and "plotly" in html.lower()
+        assert VISUALIZATION_VERSION == "v0.2.0" and "plotly" in html.lower()
         assert 'data-demand-block="structural"' in html and 'data-demand-block="cyclical"' in html
         payload = json.loads(json_path.read_text())
+        assert payload["schema_version"] == SCHEMA_VERSION == "2.0"
+        assert payload["visualization_version"] == VISUALIZATION_VERSION
+        assert set(payload["cadence_freshness"]) >= {"monthly_cyclical", "structural_annual", "unknown"}
+        assert payload["cadence_freshness"]["structural_annual"]["latest_vintage"] == 2026
+        assert set(payload["interpretation"]) >= {"current_condition", "primary_drivers", "recent_movement"}
+        assert payload["provenance"]["axis_registry_sha256"]
+        assert "class=\"sticky-nav\"" in html and "@media(max-width:820px)" in html
+        assert all(" open" not in tag for tag in html.split("<details")[1:7])
         assert {"demand_block", "metric_weight", "effective_metric_weight", "block_weight",
                 "effective_block_weight", "weighted_metric_contribution"}.issubset(payload["metric_drivers"]["demand"][0])
 
@@ -174,6 +194,29 @@ def main() -> int:
         assert set(missing_cyclical.query("demand_block == 'cyclical'").effective_metric_weight) == {.5}
         cyclical_only = check_missing({"population", "median_household_income", "gdp_annual"}, .4, {"cyclical": 1})
         assert cyclical_only.demand_block.eq("cyclical").all()
+        county_manifest = root / "counties.csv"
+        county_manifest.write_text("geo_id,market_name,level\n" + GEO_ID + ",Washington DC,county\n", encoding="utf-8")
+        counties = load_county_manifest(county_manifest)
+        site = root / "site"
+        index_path, manifest_path = render_county_site(run_dir, counties, site, axis_registry, metric_registry, source_registry)
+        assert index_path.is_file() and f"counties/{GEO_ID}.html" in index_path.read_text()
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["generated_counties"] == [{"geo_id": GEO_ID, "market_name": "Washington DC"}]
+        assert [row["path"] for row in manifest["outputs"]] == sorted(row["path"] for row in manifest["outputs"])
+        for row in manifest["outputs"]:
+            assert _hash(site / row["path"]) == row["sha256"]
+        first_manifest = manifest_path.read_text()
+        render_county_site(run_dir, counties, site, axis_registry, metric_registry, source_registry)
+        assert manifest_path.read_text() == first_manifest
+        bad_manifest = root / "bad_counties.csv"
+        bad_manifest.write_text("geo_id,market_name,level\nmetro,Metro,cbsa_metro\n", encoding="utf-8")
+        try:
+            load_county_manifest(bad_manifest)
+        except ValueError as error:
+            assert "county" in str(error).lower()
+        else:
+            raise AssertionError("Non-county publication did not fail closed")
+
         missing_dir = root / "missing"
         missing_dir.mkdir()
         try:
