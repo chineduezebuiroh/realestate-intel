@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from dataclasses import dataclass
@@ -26,6 +27,8 @@ MAJOR_BOUNDARY_DEGREES = (45.0, 135.0, 225.0, 315.0)
 RADIAL_REFERENCES = (.25, .50)
 PLANE_EXTENT = .60
 NATIONAL_GEO_ID = "united_states__nation"
+VISUALIZATION_VERSION = "v0.2.0"
+SCHEMA_VERSION = "2.0"
 DEMAND_BLOCK_WEIGHTS = {"structural": 0.25, "cyclical": 0.75}
 
 
@@ -38,6 +41,8 @@ class Snapshot:
     history: pd.DataFrame
     transitions: pd.DataFrame
     explanation: str
+    interpretation: dict[str, str]
+    freshness: dict[str, dict]
 
 
 def _truthy(values: pd.Series) -> pd.Series:
@@ -182,7 +187,82 @@ def _metric_drivers(metrics: pd.DataFrame, memberships: pd.DataFrame, geo_id: st
     return result
 
 
-def resolve_snapshot(run_dir: Path, geo_id: str, axis_registry_path: Path, metric_registry_path: Path) -> Snapshot:
+def _cadences_from_registries(metric_registry_path: Path, source_registry_path: Path | None,
+                              memberships: pd.DataFrame) -> pd.DataFrame:
+    result = memberships[["canonical_metric_key"]].drop_duplicates().copy()
+    result["frequency"] = "unknown"
+    if source_registry_path is None or not source_registry_path.is_file():
+        return result
+    source = pd.read_csv(source_registry_path)
+    if not {"metric_key", "frequency"}.issubset(source):
+        raise ValueError("Source metric registry is missing metric_key/frequency")
+    governed = pd.read_csv(metric_registry_path)
+    aliases = governed[["metric_key", "canonical_metric_key"]].drop_duplicates()
+    frequencies = aliases.merge(source[["metric_key", "frequency"]], on="metric_key", how="left")
+    conflicts = frequencies.dropna(subset=["frequency"]).groupby("canonical_metric_key").frequency.nunique()
+    if (conflicts > 1).any():
+        raise ValueError("Governed canonical metrics have conflicting cadence metadata")
+    frequency_map = frequencies.dropna(subset=["frequency"]).drop_duplicates("canonical_metric_key")
+    result = result.drop(columns="frequency").merge(
+        frequency_map[["canonical_metric_key", "frequency"]], on="canonical_metric_key", how="left")
+    result["frequency"] = result.frequency.fillna("unknown").astype(str).str.strip().str.lower()
+    return result
+
+
+def _freshness(metric_drivers: dict[str, pd.DataFrame], latest: pd.Timestamp) -> dict[str, dict]:
+    evidence = pd.concat(metric_drivers.values(), ignore_index=True).drop_duplicates("canonical_metric_key")
+    monthly = evidence[evidence.frequency.isin({"monthly", "month"})]
+    annual = evidence[evidence.frequency.isin({"annual", "yearly", "year"})]
+    known = {"monthly", "month", "annual", "yearly", "year", "quarterly", "quarter"}
+    unknown = evidence[~evidence.frequency.isin(known)]
+    def item(rows: pd.DataFrame, cadence: str) -> dict:
+        if rows.empty:
+            return {"status": "unknown", "cadence": cadence, "latest_evidence_date": None,
+                    "latest_vintage": None, "max_age_days": None, "metric_count": 0}
+        date = pd.to_datetime(rows.evidence_date).max()
+        return {"status": "available", "cadence": cadence, "latest_evidence_date": date.date().isoformat(),
+                "latest_vintage": int(date.year) if cadence == "structural_annual" else None,
+                "max_age_days": int(rows.metric_age_days.max()), "metric_count": int(len(rows))}
+    output = {"monthly_cyclical": item(monthly, "monthly_cyclical"),
+              "structural_annual": item(annual, "structural_annual")}
+    output["unknown"] = {"status": "not_classified" if len(unknown) else "none", "metric_count": int(len(unknown)),
+                         "metrics": sorted(unknown.canonical_metric_key.astype(str).tolist())}
+    output["latest_evaluation_month"] = latest.date().isoformat()
+    return output
+
+
+def _axis_phrase(value: float, noun: str) -> str:
+    direction = "positive" if value > 0 else "negative" if value < 0 else "neutral"
+    return f"{noun} is {direction} ({value:+.2f})"
+
+
+def _interpretation(current: dict, drivers: dict[str, pd.DataFrame], path: pd.DataFrame) -> dict[str, str]:
+    condition = (f"{_axis_phrase(current['demand_score'], 'Demand')} while "
+                 f"{_axis_phrase(current['supply_score'], 'Supply').lower()}, placing the market in "
+                 f"{str(current['minor_regime']).replace('_', ' ').title()}.")
+    all_rows = pd.concat([rows.assign(axis=axis) for axis, rows in drivers.items()], ignore_index=True)
+    support = all_rows[all_rows.weighted_contribution > 0].sort_values("weighted_contribution", ascending=False)
+    drag = all_rows[all_rows.weighted_contribution < 0].sort_values("weighted_contribution")
+    parts = []
+    if not support.empty:
+        row = support.iloc[0]; parts.append(f"The largest positive contribution is {row.display_name} ({row.weighted_contribution:+.3f})")
+    if not drag.empty:
+        row = drag.iloc[0]; parts.append(f"the largest offset is {row.display_name} ({row.weighted_contribution:+.3f})")
+    primary = (", while ".join(parts) + ".") if parts else "Dimension contributions are balanced at the current evaluation month."
+    if len(path) < 2:
+        movement = "Recent movement is unavailable from the persisted trajectory."
+    else:
+        first, last = path.iloc[0], path.iloc[-1]
+        dd = float(last.demand_strength_score - first.demand_strength_score)
+        ds = float(last.supply_pressure_score - first.supply_pressure_score)
+        demand = "strengthened" if dd > 0 else "weakened" if dd < 0 else "was unchanged"
+        supply = "increased" if ds > 0 else "eased" if ds < 0 else "was unchanged"
+        movement = f"Across the displayed 12-month path, Demand {demand} ({dd:+.3f}) and Supply pressure {supply} ({ds:+.3f})."
+    return {"current_condition": condition, "primary_drivers": primary, "recent_movement": movement,
+            "materiality_note": "Contributions are reported with magnitude; 'largest' is relative and is not a production materiality classification."}
+
+
+def resolve_snapshot(run_dir: Path, geo_id: str, axis_registry_path: Path, metric_registry_path: Path, source_registry_path: Path | None = None) -> Snapshot:
     tables = _read_artifacts(run_dir)
     memberships = load_axis_memberships(axis_registry_path)
     metric_memberships = load_metric_memberships(metric_registry_path, set(memberships.dimension))
@@ -214,6 +294,10 @@ def resolve_snapshot(run_dir: Path, geo_id: str, axis_registry_path: Path, metri
         rows["display_name"] = rows.dimension.str.replace("_", " ").str.title()
         drivers[axis] = rows
     metrics = _metric_drivers(tables["metric_scores"], metric_memberships, geo_id, latest, active)
+    cadences = _cadences_from_registries(metric_registry_path, source_registry_path, metric_memberships)
+    for dimension, rows in metrics.items():
+        rows["evidence_date"] = latest - pd.to_timedelta(rows.metric_age_days, unit="D")
+        metrics[dimension] = rows.merge(cadences, on="canonical_metric_key", how="left", validate="many_to_one")
     regime, coordinate = regime_rows.iloc[0], coordinate_rows.iloc[0]
     scores = latest_axes.set_index("axis").axis_score
     current = {"as_of_date": latest, "major_regime": regime.major_regime, "minor_regime": regime.minor_regime,
@@ -224,7 +308,10 @@ def resolve_snapshot(run_dir: Path, geo_id: str, axis_registry_path: Path, metri
     history = chronology.query("date >= @cutoff").copy()
     transitions = history[history.major_regime.ne(history.major_regime.shift())].copy()
     explanation = " ".join(_sentence(axis, drivers[axis]) for axis in ("demand", "supply"))
-    return Snapshot(current, drivers, metrics, chronology.tail(12).copy(), history, transitions, explanation)
+    path = chronology.tail(12).copy()
+    interpretation = _interpretation(current, drivers, path)
+    freshness = _freshness(metrics, latest)
+    return Snapshot(current, drivers, metrics, path, history, transitions, explanation, interpretation, freshness)
 
 
 def _plane(snapshot: Snapshot) -> go.Figure:
@@ -247,7 +334,7 @@ def _plane(snapshot: Snapshot) -> go.Figure:
     for text_value, x, y in (("HYPERSUPPLY", .42, 0), ("EXPANSION", 0, .42), ("RECOVERY", -.42, 0), ("RECESSION", 0, -.42)):
         fig.add_annotation(x=x, y=y, text=text_value, showarrow=False, font={"size": 11, "color": "#667085"})
     fig.add_trace(go.Scatter(x=path.supply_pressure_score, y=path.demand_strength_score, mode="lines+markers",
-        marker={"size": 7, "color": list(range(len(path))), "colorscale": "Blues", "showscale": False},
+        marker={"size": [5 + 5 * i / max(1, len(path)-1) for i in range(len(path))], "color": list(range(len(path))), "colorscale": "Blues", "showscale": False},
         customdata=path[["date", "major_regime", "minor_regime"]],
         hovertemplate="%{customdata[0]|%b %Y}<br>Supply %{x:+.3f}<br>Demand %{y:+.3f}<br>%{customdata[1]} · %{customdata[2]}<extra></extra>"))
     fig.add_trace(go.Scatter(x=[snapshot.current["supply_score"]], y=[snapshot.current["demand_score"]], mode="markers+text",
@@ -279,7 +366,7 @@ def _metric_chart(rows: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def _demand_metric_drilldown(rows: pd.DataFrame, config: dict) -> str:
+def _demand_metric_drilldown(rows: pd.DataFrame, config: dict, id_prefix: str = "demand") -> str:
     blocks = []
     for block in ("structural", "cyclical"):
         members = rows[rows.demand_block.eq(block)]
@@ -287,7 +374,7 @@ def _demand_metric_drilldown(rows: pd.DataFrame, config: dict) -> str:
             continue
         configured = float(members.block_weight.iloc[0])
         effective = float(members.effective_block_weight.iloc[0])
-        chart = pio.to_html(_metric_chart(members), full_html=False, include_plotlyjs=False, config=config)
+        chart = pio.to_html(_metric_chart(members), full_html=False, include_plotlyjs=False, config=config, div_id=f"{id_prefix}-{block}-metrics")
         blocks.append(
             f'<div class="demand-block" data-demand-block="{block}"><h4>{block.title()} — '
             f'{configured:.0%} governed <span class="eyebrow">({effective:.0%} effective)</span></h4>{chart}</div>')
@@ -322,47 +409,123 @@ def _regime_strip(snapshot: Snapshot) -> go.Figure:
     return fig
 
 
+def _freshness_text(freshness: dict[str, dict]) -> tuple[str, str]:
+    monthly, annual = freshness["monthly_cyclical"], freshness["structural_annual"]
+    monthly_text = (f"Monthly indicators: current through {pd.Timestamp(monthly['latest_evidence_date']):%b %Y}"
+                    if monthly["status"] == "available" else "Monthly indicators: cadence unavailable")
+    annual_text = (f"Structural evidence: latest governed vintage {annual['latest_vintage']}"
+                   if annual["status"] == "available" else "Structural evidence: cadence unavailable")
+    return monthly_text, annual_text
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def render_snapshot(run_dir: Path, geo_id: str, market_name: str, output_dir: Path,
-                    axis_registry_path: Path, metric_registry_path: Path) -> tuple[Path, Path, Snapshot]:
-    snapshot = resolve_snapshot(run_dir, geo_id, axis_registry_path, metric_registry_path)
+                    axis_registry_path: Path, metric_registry_path: Path,
+                    source_registry_path: Path | None = None, *, county_href: str | None = None) -> tuple[Path, Path, Snapshot]:
+    if output_dir.resolve() == run_dir.resolve() or run_dir.resolve() in output_dir.resolve().parents:
+        raise ValueError("Visualization outputs must not be written into an immutable production run")
+    snapshot = resolve_snapshot(run_dir, geo_id, axis_registry_path, metric_registry_path, source_registry_path)
     output_dir.mkdir(parents=True, exist_ok=True)
-    config = {"displayModeBar": False}
-    plane = pio.to_html(_plane(snapshot), full_html=False, include_plotlyjs="inline", config=config)
-    dimensions = [pio.to_html(_drivers(snapshot.drivers[a], f"{a.title()} drivers"), full_html=False, include_plotlyjs=False, config=config) for a in ("demand", "supply")]
+    config = {"displayModeBar": False, "responsive": True}
+    plane = pio.to_html(_plane(snapshot), full_html=False, include_plotlyjs="inline", config=config, div_id=f"{geo_id}-regime-plane-chart")
+    dimensions = [pio.to_html(_drivers(snapshot.drivers[a], f"{a.title()} drivers"), full_html=False,
+                              include_plotlyjs=False, config=config, div_id=f"{geo_id}-{a}-dimension-chart") for a in ("demand", "supply")]
+    summaries = [_sentence(a, snapshot.drivers[a]) for a in ("demand", "supply")]
     drilldowns = []
     for axis in ("demand", "supply"):
         blocks = []
-        for dimension in snapshot.drivers[axis].dimension:
+        ordered = snapshot.drivers[axis].sort_values("weighted_contribution", key=lambda x: x.abs(), ascending=False)
+        for dimension in ordered.dimension:
             rows = snapshot.metric_drivers[dimension]
-            chart = (_demand_metric_drilldown(rows, config) if dimension == "demand" else
-                     pio.to_html(_metric_chart(rows), full_html=False, include_plotlyjs=False, config=config))
-            blocks.append(f'<details data-axis="{axis}" data-dimension="{dimension}"><summary>{escape(dimension.replace("_", " ").title())} metric drivers</summary>{chart}</details>')
-        drilldowns.append(f'<div><h3>{axis.title()} metric drilldowns</h3>{"".join(blocks)}</div>')
-    history = pio.to_html(_history(snapshot), full_html=False, include_plotlyjs=False, config=config)
-    strip = pio.to_html(_regime_strip(snapshot), full_html=False, include_plotlyjs=False, config=config)
-    current = snapshot.current
-    html = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{escape(market_name)} County Macro Regime</title>
-<style>body{{font-family:Arial,sans-serif;color:#101828;background:#f9fafb;margin:0}}main{{max-width:980px;margin:auto;padding:32px}}section{{background:white;border:1px solid #eaecf0;padding:24px;margin:16px 0}}h1,h2,p{{margin-top:0}}.eyebrow,.fresh{{color:#667085}}.state{{font-size:26px;font-weight:700}}.scores{{display:flex;gap:32px;font-size:18px}}.drivers,.drilldowns{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}details{{border:1px solid #eaecf0;border-radius:6px;margin:8px 0;padding:10px}}summary{{cursor:pointer;font-weight:600}}footer{{font-size:11px;color:#98a2b3}}@media(max-width:700px){{.drivers,.drilldowns{{grid-template-columns:1fr}}.scores{{gap:14px;flex-wrap:wrap}}main{{padding:12px}}}}</style></head><body><main>
-<section id="current-state"><p class="eyebrow">County Macro Regime</p><h1>{escape(market_name)}</h1><p>As of {current['as_of_date']:%B %Y}</p><p class="state">{escape(str(current['minor_regime']).replace('_', ' ').upper())}</p><div class="scores"><span>Demand <b>{current['demand_score']:+.2f}</b></span><span>Supply <b>{current['supply_score']:+.2f}</b></span><span>Strength <b>{current['regime_strength']:.2f}</b></span></div><p class="fresh">Oldest contributing axis input: {current['max_axis_age_days']} days</p></section>
-<section id="regime-plane"><h2>Regime plane</h2><p class="eyebrow">Governed major-regime sectors, fixed ±{PLANE_EXTENT:.2f} scale, and trailing 12-month trajectory.</p>{plane}</section>
-<section id="why-this-regime"><h2>Why this regime?</h2><p>{escape(snapshot.explanation)}</p></section>
-<section id="dimension-drivers"><h2>Dimension drivers</h2><div class="drivers">{''.join(dimensions)}</div><div class="drilldowns">{''.join(drilldowns)}</div></section>
-<section id="historical-chronology"><h2>Historical chronology</h2><p class="eyebrow">Latest five years of monthly production axis scores and assignments.</p>{history}</section>
-<section id="major-regime-chronology"><h2>Major regime chronology</h2><p class="eyebrow">Persisted monthly assignments; dark markers indicate a major-regime transition.</p>{strip}</section>
-<footer>Visualization MVP v0.1.2 · Published run: {escape(run_dir.name)}</footer></main></body></html>'''
+            chart = (_demand_metric_drilldown(rows, config, f"{geo_id}-{axis}-demand") if dimension == "demand" else
+                     pio.to_html(_metric_chart(rows), full_html=False, include_plotlyjs=False, config=config, div_id=f"{geo_id}-{axis}-{dimension}-metric-chart"))
+            label = escape(dimension.replace("_", " ").title())
+            blocks.append(f'<details data-axis="{axis}" data-dimension="{dimension}"><summary>{label} metric evidence</summary>{chart}</details>')
+        drilldowns.append(f'<div class="axis-evidence"><h3>{axis.title()} axis</h3>{"".join(blocks)}</div>')
+    history = pio.to_html(_history(snapshot), full_html=False, include_plotlyjs=False, config=config, div_id=f"{geo_id}-history-chart")
+    strip = pio.to_html(_regime_strip(snapshot), full_html=False, include_plotlyjs=False, config=config, div_id=f"{geo_id}-regime-history-chart")
+    current, interpretation = snapshot.current, snapshot.interpretation
+    monthly_text, annual_text = _freshness_text(snapshot.freshness)
+    index_link = f'<a class="county-link" href="{escape(county_href)}">← All counties</a>' if county_href else ""
+    html = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(market_name)} County Macro Regime</title>
+<style>:root{{--ink:#101828;--muted:#667085;--line:#eaecf0;--canvas:#f8fafc}}*{{box-sizing:border-box}}html{{scroll-behavior:smooth;scroll-padding-top:64px}}body{{font-family:Inter,Arial,sans-serif;color:var(--ink);background:var(--canvas);margin:0;line-height:1.5}}main{{max-width:1120px;margin:auto;padding:24px 32px 64px}}.sticky-nav{{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);padding:10px max(16px,calc((100vw - 1120px)/2));display:flex;gap:20px;overflow:auto;white-space:nowrap}}.sticky-nav a{{color:#344054;text-decoration:none;font-size:14px;font-weight:650}}.county-link{{margin-left:auto}}section{{margin:56px 0}}.hero{{background:#fff;border:1px solid var(--line);border-radius:14px;padding:28px;margin-top:24px}}.hero-head{{display:flex;justify-content:space-between;gap:20px;align-items:start}}.eyebrow,.meta{{color:var(--muted);font-size:14px}}h1{{font-size:26px;margin:2px 0}}h2{{font-size:26px;margin:0 0 8px}}h3{{font-size:18px}}.hero-grid{{display:grid;grid-template-columns:minmax(280px,.75fr) minmax(480px,1.4fr);gap:24px;align-items:center}}.regime-label{{font-size:42px;line-height:1.05;font-weight:780;letter-spacing:-.02em;margin:22px 0}}.kpis{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}.kpi{{border-left:3px solid #d0d5dd;padding-left:12px}}.kpi b{{display:block;font-size:23px}}.freshness-summary{{margin-top:24px;padding:14px;background:#f2f4f7;border-radius:8px}}.freshness-summary span{{display:block}}.interpretation-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}}.interpretation-item{{padding:6px 18px;border-left:3px solid #98a2b3}}.interpretation-item h3{{margin:0 0 8px}}.drivers{{display:grid;grid-template-columns:1fr 1fr;gap:20px}}.driver-card{{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px}}.driver-summary{{color:#475467;margin:0 0 4px}}.trajectory-card{{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:16px}}.evidence-grid{{display:grid;grid-template-columns:1fr 1fr;gap:20px}}details{{background:#fff;border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:12px}}summary{{cursor:pointer;font-weight:650}}details[open] summary{{margin-bottom:12px}}.methodology{{margin-top:44px}}.method-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 24px;font-size:14px}}.method-grid dt{{color:var(--muted)}}.method-grid dd{{margin:0 0 8px;overflow-wrap:anywhere}}.section-intro{{color:var(--muted);max-width:740px}}.legacy-anchor{{position:absolute;visibility:hidden}}@media(max-width:820px){{main{{padding:16px}}.hero-grid,.drivers,.evidence-grid,.interpretation-grid{{grid-template-columns:1fr}}.hero-grid{{gap:8px}}.hero-head{{display:block}}.regime-label{{font-size:34px}}.county-link{{margin-left:0}}.sticky-nav{{gap:14px}}.kpis{{grid-template-columns:repeat(3,1fr)}}}}@media(max-width:480px){{.kpis{{grid-template-columns:1fr}}.hero{{padding:18px}}h2{{font-size:23px}}}}</style></head><body>
+<nav class="sticky-nav" aria-label="Dashboard sections"><a href="#market-regime">Overview</a><a href="#regime-drivers">Drivers</a><a href="#market-trajectory">History</a><a href="#evidence-detail">Evidence</a><a href="#data-methodology">Data</a>{index_link}</nav><main>
+<section id="market-regime" class="hero"><span id="current-state" class="legacy-anchor"></span><span id="regime-plane" class="legacy-anchor"></span><div class="hero-head"><div><p class="eyebrow">County Macro Regime</p><h1>{escape(market_name)}</h1></div><p class="meta">As of {current['as_of_date']:%B %Y}</p></div><div class="hero-grid"><div><p class="regime-label">{escape(str(current['minor_regime']).replace('_', ' ').upper())}</p><div class="kpis"><div class="kpi">Demand<b>{current['demand_score']:+.2f}</b></div><div class="kpi">Supply<b>{current['supply_score']:+.2f}</b></div><div class="kpi">Regime strength<b>{current['regime_strength']:.2f}</b></div></div><div class="freshness-summary"><span>{escape(monthly_text)}</span><span>{escape(annual_text)}</span></div></div><div aria-label="Twelve-month governed regime plane">{plane}</div></div></section>
+<section id="market-interpretation"><span id="why-this-regime" class="legacy-anchor"></span><h2>Market Interpretation</h2><div class="interpretation-grid"><article class="interpretation-item"><h3>Current condition</h3><p>{escape(interpretation['current_condition'])}</p></article><article class="interpretation-item"><h3>Primary drivers</h3><p>{escape(interpretation['primary_drivers'])}</p></article><article class="interpretation-item"><h3>Recent movement</h3><p>{escape(interpretation['recent_movement'])}</p></article></div><p class="meta">{escape(interpretation['materiality_note'])}</p></section>
+<section id="regime-drivers"><span id="dimension-drivers" class="legacy-anchor"></span><h2>What's Driving the Regime?</h2><p class="section-intro">Dimension contributions explain the persisted Demand and Supply axis scores; positive and negative signs remain explicit in hover detail.</p><div class="drivers"><article class="driver-card"><p class="driver-summary">{escape(summaries[0])}</p>{dimensions[0]}</article><article class="driver-card"><p class="driver-summary">{escape(summaries[1])}</p>{dimensions[1]}</article></div></section>
+<section id="market-trajectory"><span id="historical-chronology" class="legacy-anchor"></span><span id="major-regime-chronology" class="legacy-anchor"></span><h2>Market Trajectory</h2><p class="section-intro">How the persisted axes moved, followed by the regimes those movements produced.</p><article class="trajectory-card"><h3>Demand &amp; Supply — 5 Years</h3>{history}<h3>Regime History</h3>{strip}</article></section>
+<section id="evidence-detail"><h2>Evidence &amp; Metric Detail</h2><p class="section-intro">Audit detail is collapsed by default and remains one interaction away. Metric scores and weights reconcile to the persisted dimension state.</p><div class="evidence-grid">{''.join(drilldowns)}</div></section>
+<section id="data-methodology" class="methodology"><details><summary>Data, freshness &amp; methodology</summary><dl class="method-grid"><div><dt>Run ID</dt><dd>{escape(run_dir.name)}</dd><dt>Geography ID</dt><dd>{escape(geo_id)}</dd><dt>Market label</dt><dd>{escape(market_name)}</dd></div><div><dt>Evaluation month</dt><dd>{current['as_of_date']:%Y-%m-%d}</dd><dt>Visualization / schema</dt><dd>{VISUALIZATION_VERSION} / {SCHEMA_VERSION}</dd><dt>Registries</dt><dd>{escape(str(axis_registry_path))}; {escape(str(metric_registry_path))}</dd></div></dl><p>{escape(monthly_text)}. {escape(annual_text)}. Unclassified cadence metrics: {snapshot.freshness['unknown']['metric_count']}.</p><p class="meta">Artifact-only rendering. Persisted assignments are authoritative; display geometry does not reclassify points.</p></details></section>
+</main></body></html>'''
     html_path, json_path = output_dir / f"{geo_id}.html", output_dir / f"{geo_id}_snapshot.json"
-    html_path.write_text(html, encoding="utf-8")
-    base_metric_fields = ["canonical_metric_key", "metric_score", "metric_weight", "effective_metric_weight",
-                          "weighted_metric_contribution", "metric_age_days"]
-    demand_metric_fields = base_metric_fields[:4] + ["demand_block", "block_weight", "effective_block_weight"] + base_metric_fields[4:]
-    compact_metrics = {
-        dimension: rows[demand_metric_fields if dimension == "demand" else base_metric_fields].to_dict("records")
-        for dimension, rows in snapshot.metric_drivers.items()
-    }
-    payload = {"run_id": run_dir.name, "geo_id": geo_id, "market_name": market_name,
-               **{key: (value.date().isoformat() if isinstance(value, pd.Timestamp) else value) for key, value in current.items()},
+    html_path.write_text(html, encoding="utf-8", newline="\n")
+    base = ["canonical_metric_key", "metric_score", "metric_weight", "effective_metric_weight",
+            "weighted_metric_contribution", "metric_age_days", "evidence_date", "frequency"]
+    demand_fields = base[:4] + ["demand_block", "block_weight", "effective_block_weight"] + base[4:]
+    compact = {d: rows[demand_fields if d == "demand" else base].to_dict("records") for d, rows in snapshot.metric_drivers.items()}
+    legacy = {k: (v.date().isoformat() if isinstance(v, pd.Timestamp) else v) for k, v in current.items()}
+    payload = {"schema_version": SCHEMA_VERSION, "visualization_version": VISUALIZATION_VERSION,
+               "run_id": run_dir.name, "geo_id": geo_id, "market_name": market_name, **legacy, "latest_state": legacy,
                "demand_drivers": snapshot.drivers["demand"][["dimension", "dimension_score", "dimension_weight", "weighted_contribution"]].to_dict("records"),
                "supply_drivers": snapshot.drivers["supply"][["dimension", "dimension_score", "dimension_weight", "weighted_contribution"]].to_dict("records"),
-               "metric_drivers": compact_metrics, "explanation": snapshot.explanation}
-    json_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+               "metric_drivers": compact, "explanation": snapshot.explanation, "interpretation": interpretation,
+               "cadence_freshness": snapshot.freshness,
+               "trajectory": {"plane_months": len(snapshot.path), "history_months": len(snapshot.history),
+                              "history_start": snapshot.history.date.min().date().isoformat(), "history_end": snapshot.history.date.max().date().isoformat()},
+               "provenance": {"source_run_id": run_dir.name, "source_run_path": str(run_dir),
+                              "axis_registry": str(axis_registry_path), "axis_registry_sha256": _sha256(axis_registry_path),
+                              "metric_registry": str(metric_registry_path), "metric_registry_sha256": _sha256(metric_registry_path),
+                              "source_registry": str(source_registry_path) if source_registry_path else None,
+                              "source_registry_sha256": _sha256(source_registry_path) if source_registry_path and source_registry_path.is_file() else None}}
+    json_path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8", newline="\n")
     return html_path, json_path, snapshot
+
+
+def load_county_manifest(path: Path) -> list[dict[str, str]]:
+    rows = pd.read_csv(path, dtype=str).fillna("")
+    if {"geo_slug", "geo_name", "level"}.issubset(rows):
+        rows = rows.rename(columns={"geo_slug": "geo_id", "geo_name": "market_name"})
+    elif not {"geo_id", "market_name", "level"}.issubset(rows):
+        raise ValueError("County manifest requires geo_slug/geo_name/level or geo_id/market_name/level")
+    if not rows.level.str.strip().str.lower().eq("county").all():
+        raise ValueError("County publication manifest must contain county rows only")
+    if rows.geo_id.str.strip().eq("").any() or rows.geo_id.duplicated().any():
+        raise ValueError("County publication manifest has empty or duplicate geography IDs")
+    return rows[["geo_id", "market_name"]].sort_values(["market_name", "geo_id"], kind="mergesort").to_dict("records")
+
+
+def render_county_site(run_dir: Path, counties: list[dict[str, str]], output_dir: Path,
+                       axis_registry_path: Path, metric_registry_path: Path,
+                       source_registry_path: Path | None = None) -> tuple[Path, Path]:
+    if not counties:
+        raise ValueError("County publication requires at least one governed county")
+    output_dir.mkdir(parents=True, exist_ok=True); county_dir = output_dir / "counties"; county_dir.mkdir(exist_ok=True)
+    summaries, files = [], []
+    for county in sorted(counties, key=lambda row: (row["market_name"], row["geo_id"])):
+        html_path, json_path, snapshot = render_snapshot(run_dir, county["geo_id"], county["market_name"], county_dir,
+            axis_registry_path, metric_registry_path, source_registry_path, county_href="../index.html")
+        monthly_text, annual_text = _freshness_text(snapshot.freshness)
+        summaries.append({"geo_id": county["geo_id"], "market_name": county["market_name"], **snapshot.current,
+                          "freshness": f"{monthly_text}; {annual_text}", "href": f"counties/{county['geo_id']}.html"})
+        files.extend([html_path, json_path])
+    cards = "".join(f'<tr><td><a href="{escape(r["href"])}">{escape(r["market_name"])}</a></td><td>{escape(str(r["minor_regime"]).replace("_", " ").title())}</td><td>{r["demand_score"]:+.2f}</td><td>{r["supply_score"]:+.2f}</td><td>{r["regime_strength"]:.2f}</td><td>{r["as_of_date"]:%b %Y}</td><td>{escape(r["freshness"])}</td></tr>' for r in summaries)
+    index_path = output_dir / "index.html"
+    index_path.write_text(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>County Macro Regimes</title><style>body{{font-family:Arial,sans-serif;max-width:1200px;margin:auto;padding:32px;color:#101828}}table{{width:100%;border-collapse:collapse}}th,td{{padding:12px;text-align:left;border-bottom:1px solid #eaecf0}}th{{color:#667085}}a{{color:#175cd3}}@media(max-width:760px){{body{{padding:14px}}.table{{overflow:auto}}table{{min-width:900px}}}}</style></head><body><h1>County Macro Regimes</h1><p>Published from immutable run {escape(run_dir.name)} · {VISUALIZATION_VERSION}</p><div class="table"><table><thead><tr><th>County</th><th>Regime</th><th>Demand</th><th>Supply</th><th>Strength</th><th>As of</th><th>Freshness</th></tr></thead><tbody>{cards}</tbody></table></div></body></html>''', encoding="utf-8", newline="\n")
+    files.append(index_path)
+    outputs = [{"path": p.relative_to(output_dir).as_posix(), "sha256": _sha256(p), "size_bytes": p.stat().st_size} for p in sorted(files, key=lambda x: x.relative_to(output_dir).as_posix())]
+    manifest = {"schema_version": SCHEMA_VERSION, "visualization_version": VISUALIZATION_VERSION,
+                "source_run_id": run_dir.name, "source_run_path": str(run_dir),
+                "generated_counties": [{"geo_id": x["geo_id"], "market_name": x["market_name"]} for x in summaries],
+                "registry_identities": {"axis_registry": {"path": str(axis_registry_path), "sha256": _sha256(axis_registry_path)},
+                  "metric_registry": {"path": str(metric_registry_path), "sha256": _sha256(metric_registry_path)},
+                  "source_registry": {"path": str(source_registry_path), "sha256": _sha256(source_registry_path)} if source_registry_path else None}, "outputs": outputs}
+    manifest_path = output_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
+    return index_path, manifest_path
