@@ -380,3 +380,25 @@ family-weight rerun. No family-weight production policy has been selected.
 ## Corrected 10Y-2Y feature-policy closure (2026-08-18)
 
 Corrected `spread_10y_2y` feature revalidation is closed at P6 (60/5/35), with the source-polarity repair validated and original P7 retained as historical defect-era evidence. Next, materialize the fresh immutable corrected Capital Markets feature-policy production baseline. The next analytical step is then a local F0-F9 family-weight calibration rerun against that baseline; family calibration is not complete and no family-weight production policy has been selected.
+
+## Capital Markets final closure (2026-08-18)
+
+Capital Markets is complete under ADR-014 and the F4 freeze contract:
+
+- native feature calibration = `closed`;
+- polarity repair = `closed`;
+- corrected spread feature revalidation = `closed`;
+- family metric-weight calibration = `closed`;
+- intra-family calibration = `not_required`;
+- Capital Markets = **fully frozen**.
+
+Human-approved F4 assigns 35% to Long-Term Rates, 10% to Fed Funds, and 55% to Spreads, with equal within-family metric weighting and no automated winner. The corrected F0-F9 rerun—not invalid defect-era evidence—is the decision basis. Preference-driven retuning cannot reopen the freeze.
+
+The active sequence is now:
+
+1. Macro Regime Visualization MVP;
+2. CBSA/metro expansion;
+3. local-regime layer;
+4. regime-informed forecasting integration;
+
+subject to existing roadmap governance. No additional Capital Markets calibration campaign is planned.

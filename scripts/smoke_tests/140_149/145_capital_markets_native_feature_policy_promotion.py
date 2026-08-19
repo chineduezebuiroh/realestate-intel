@@ -10,6 +10,7 @@ CONTRACT=ROOT/"config/capital_markets_native_feature_policy_2026_08_18.json"
 REPAIR=ROOT/"config/capital_markets_spread_polarity_repair_2026_08_18.json"
 EXPECTED={"mortgage_30y":("P4",.55,.10,.35),"mortgage_15y":("P2",.60,.10,.30),"treasury_10y":("P1",.60,.15,.25),"fedfunds":("P5",.50,.10,.40),"spread_10y_2y":("P7",.35,.10,.55),"spread_10y_fedfunds":("P9",.40,.10,.50)}
 METRIC_WEIGHTS={"mortgage_30y":.15,"mortgage_15y":.15,"treasury_10y":.15,"fedfunds":.10,"spread_10y_2y":.225,"spread_10y_fedfunds":.225}
+CURRENT_WEIGHTS={"mortgage_30y":.11666666666666667,"mortgage_15y":.11666666666666667,"treasury_10y":.11666666666666667,"fedfunds":.10,"spread_10y_2y":.275,"spread_10y_fedfunds":.275}
 def main():
  c=json.loads(CONTRACT.read_text()); assert c["promotion_contract"]=="capital_markets_native_feature_policy_2026_08_18"
  assert c["metric_scope"]==list(EXPECTED) and c["feature_calibration"]=="closed" and c["family_metric_weight_calibration"]=="pending"
@@ -31,7 +32,7 @@ def main():
    assert (p[name]["transform"],p[name]["window"],p[name]["weight"])==(rows.loc[ft,"transform"],rows.loc[ft,"feature_window"],float(rows.loc[ft,"feature_weight"]))
   direction=pd.read_csv(ROOT/"config/indicator_regime_registry.csv").set_index("metric_key").loc[p["registry_metric_key"],"direction"]; assert p["score_direction"]==direction
  governed=cfg.metric_dimensions[cfg.metric_dimensions.canonical_metric_key.isin(METRIC_WEIGHTS)].set_index("canonical_metric_key")
- assert governed.metric_weight.astype(float).to_dict()==METRIC_WEIGHTS
+ assert governed.metric_weight.astype(float).to_dict()==CURRENT_WEIGHTS
  assert cfg.axes.query("dimension=='capital_markets'").set_index("axis").dimension_weight.astype(float).to_dict()=={"demand":.10,"supply":.15}
  assert set(c["explicit_non_changes"])>={"normalization","Supply","Price","Affordability","Labor"}
  repair=json.loads(REPAIR.read_text()); assert repair["defect_confirmed"] is True

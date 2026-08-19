@@ -1,0 +1,25 @@
+{
+  "freeze_contract": "capital_markets_frozen_f4_2026_08_18",
+  "decision_date": "2026-08-18",
+  "promotion_contract": "capital_markets_family_weight_f4_2026_08_18",
+  "production_family_policy": "F4",
+  "native_feature_calibration": "closed",
+  "spread_polarity_repair": "closed",
+  "corrected_spread_feature_revalidation": "closed",
+  "family_metric_weight_calibration": "closed",
+  "intra_family_metric_weight_calibration": "not_required",
+  "capital_markets_calibration": "closed",
+  "capital_markets_fully_frozen": true,
+  "automated_winner": false,
+  "reopen_only_for": [
+    "source_definition_defect",
+    "incorrect_polarity",
+    "source_behavior_change",
+    "degraded_out_of_sample_stability",
+    "detector_or_chronology_defect",
+    "production_validation_failure",
+    "materially_new_data_evidence"
+  ],
+  "preference_driven_retuning_sufficient": false,
+  "next_active_workstream": "Macro Regime Visualization MVP"
+}

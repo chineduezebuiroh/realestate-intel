@@ -43,9 +43,9 @@ METRIC_WEIGHTS = {
     "laus_employment": 1/3, "laus_unemployment_rate": 1/3,
     "ces_total_nonfarm": 1/3, "bps_total_units": .30,
     "derived_permit_intensity": .05, "derived_price_to_income": .50,
-    "derived_payment_burden": .50, "fred_mortgage_30y": .15,
-    "fred_mortgage_15y": .15, "fred_10y": .15, "fred_fedfunds": .10,
-    "fred_2y10y_spread": .225, "fred_10y_fedfunds_spread": .225,
+    "derived_payment_burden": .50, "fred_mortgage_30y": .11666666666666667,
+    "fred_mortgage_15y": .11666666666666667, "fred_10y": .11666666666666667, "fred_fedfunds": .10,
+    "fred_2y10y_spread": .275, "fred_10y_fedfunds_spread": .275,
 }
 AXIS_WEIGHTS = {
     ("demand", "demand"): .65, ("demand", "price"): .175,
