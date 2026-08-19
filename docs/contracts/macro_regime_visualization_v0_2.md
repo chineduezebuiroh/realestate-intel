@@ -47,9 +47,15 @@ boundaries, and radial references do not classify points. The display uses the
 latest 12 persisted months and visually emphasizes later observations.
 
 Demand and Supply membership remains registry driven. Capital Markets appears
-under both axes. Demand metric evidence preserves 25% Structural and 75%
-Cyclical governed blocks, availability renormalization, and effective weights.
-Feature-level decomposition is outside v0.2.
+under both axes. Demand is an ordinary governed dimension whose current active
+members are `labor_force`, `employment`, and `laus_unemployment_rate` at equal
+configured weights. Available metrics are renormalized across their ordinary
+metric weights, matching production dimension scoring. The former 25%
+Structural / 75% Cyclical hierarchy is superseded; active block metadata is an
+error and is never reconstructed or presented. `market_context` remains a
+separate, non-axis dimension and its structural metrics are not Demand evidence.
+Current production membership takes precedence over historical architecture
+documents. Feature-level decomposition is outside v0.2.
 
 ## Interpretation
 
@@ -61,9 +67,10 @@ axis differences and makes no predictive claim.
 
 ## Cadence-aware freshness
 
-Monthly/cyclical evidence reports the latest actual persisted metric evidence
-date among metrics governed as monthly. Structural/annual evidence reports the
-year of the latest actual persisted metric evidence governed as annual. Annual
+Monthly evidence reports the latest actual persisted metric evidence date among
+active axis metrics governed as monthly. Annual/structural axis evidence reports
+the year of the latest actual persisted evidence only when an active axis metric
+is governed as annual; otherwise it explicitly reports that none is active. Annual
 as-of carry is never relabeled as a monthly update. Unmapped frequency remains
 in an explicit `unknown` category. Raw maximum evidence age and metric counts
 remain available in JSON and methodology detail.
@@ -93,8 +100,11 @@ duplicate the Regime Engine manifest.
 The JSON retains useful v0.1 fields and adds `schema_version`,
 `visualization_version`, `latest_state`, `cadence_freshness`, `interpretation`,
 `trajectory`, and `provenance`. Driver and metric collections retain configured
-and effective weights, contributions, age, and Demand block metadata. Metric
-records add actual evidence date and governed frequency.
+and effective metric weights, contributions, and age. Schema 2.0 no longer emits
+`demand_block`, `block_weight`, or `effective_block_weight`; their removal is the
+explicit migration from the superseded v0.1.2 hierarchy. Metric records add
+actual evidence date and governed frequency. Cadence keys are
+`monthly_indicators`, `annual_structural_axis_evidence`, and `unknown`.
 
 ## Navigation, responsiveness, and accessibility
 
@@ -107,7 +117,7 @@ signed values so meaning does not rely exclusively on color.
 
 ## Validation and human acceptance
 
-Smoke 107 owns numerical reconciliation, hierarchy, semantic sections,
+Smoke 107 owns numerical reconciliation, governed membership, semantic sections,
 collapsed evidence, cadence categories, JSON identity, county-only batch
 publication, output hashes, and deterministic rerendering. Python compilation
 and `git diff --check` remain required.

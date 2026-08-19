@@ -44,9 +44,10 @@ def _fixture(run_dir: Path, axis_registry: Path, metric_registry: Path, source_r
     dimensions = pd.DataFrame([{"geo_id": GEO_ID, "date": date, "dimension": dimension, "dimension_score": score}
                                for date in dates for dimension, score in scores.items()])
     metric_specs = {
-        "demand": (("population", .1667, .8), ("median_household_income", .1667, .4),
-                   ("gdp_annual", .1667, 0), ("labor_force", .1667, .8),
-                   ("employment", .1667, .4), ("laus_unemployment_rate", .1667, 0)),
+        "demand": (("labor_force", 1 / 3, .8), ("employment", 1 / 3, .4),
+                   ("laus_unemployment_rate", 1 / 3, 0)),
+        "market_context": (("population", 1 / 3, .8), ("median_household_income", 1 / 3, .4),
+                           ("gdp_annual", 1 / 3, 0)),
         "price": (("median_sale_price", .5, -.5), ("median_ppsf", .5, .1)),
         "capital_markets": (("mortgage_30y", .11666666666666667, -.3),
                             ("mortgage_15y", .11666666666666667, -.3),
@@ -69,10 +70,7 @@ def _fixture(run_dir: Path, axis_registry: Path, metric_registry: Path, source_r
     lines = ["metric_key,canonical_metric_key,dimension,metric_weight,demand_block,block_weight,enabled,diagnostic_only,macro_enabled"]
     for dimension, specs in metric_specs.items():
         for key, weight, _ in specs:
-            block = "structural" if key in {"population", "median_household_income", "gdp_annual"} else "cyclical"
-            block_weight = .25 if block == "structural" else .75
-            hierarchy = f"{block},{block_weight}" if dimension == "demand" else ","
-            lines.append(f"{key},{key},{dimension},{weight},{hierarchy},true,false,true")
+            lines.append(f"{key},{key},{dimension},{weight},,,true,false,true")
     lines.append("price_to_income,price_to_income,affordability,0.75,,,true,false,true")
     lines.append("non_member,non_member,liquidity,1.0,,,true,false,true")
     metric_registry.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -121,10 +119,13 @@ def main() -> int:
         assert affordability.metric_weight == .25 and affordability.effective_metric_weight == 1
         assert np.isclose(affordability.weighted_metric_contribution, .1)
         demand_rows = snapshot.metric_drivers["demand"]
-        assert set(demand_rows.demand_block) == {"structural", "cyclical"}
+        assert set(demand_rows.canonical_metric_key) == {"labor_force", "employment", "laus_unemployment_rate"}
         assert np.isclose(demand_rows.weighted_metric_contribution.sum(), .4)
-        assert np.isclose(demand_rows.query("demand_block == 'structural'").weighted_metric_contribution.sum(), .1)
-        assert np.isclose(demand_rows.query("demand_block == 'cyclical'").weighted_metric_contribution.sum(), .3)
+        assert np.allclose(demand_rows.effective_metric_weight, 1 / 3)
+        assert "market_context" not in snapshot.metric_drivers
+        governed = pd.read_csv(metric_registry)
+        active_demand = governed.query("dimension == 'demand'")
+        assert active_demand.demand_block.isna().all() and active_demand.block_weight.isna().all()
         expected_dimension_scores = (
             pd.concat(snapshot.drivers.values(), ignore_index=True)
             .drop_duplicates("dimension")
@@ -158,24 +159,28 @@ def main() -> int:
             assert f'id="{anchor}"' in html
         assert html.count("<details ") == 6  # Capital Markets appears under both axes.
         assert VISUALIZATION_VERSION == "v0.2.0" and "plotly" in html.lower()
-        assert 'data-demand-block="structural"' in html and 'data-demand-block="cyclical"' in html
+        assert "data-demand-block" not in html
+        assert "Structural —" not in html and "Cyclical —" not in html
+        assert "Market Context metric evidence" not in html
         payload = json.loads(json_path.read_text())
         assert payload["schema_version"] == SCHEMA_VERSION == "2.0"
         assert payload["visualization_version"] == VISUALIZATION_VERSION
-        assert set(payload["cadence_freshness"]) >= {"monthly_cyclical", "structural_annual", "unknown"}
-        assert payload["cadence_freshness"]["structural_annual"]["latest_vintage"] == 2026
+        assert set(payload["cadence_freshness"]) >= {"monthly_indicators", "annual_structural_axis_evidence", "unknown"}
+        assert payload["cadence_freshness"]["monthly_indicators"]["metric_count"] > 0
+        assert payload["cadence_freshness"]["annual_structural_axis_evidence"]["status"] == "not_applicable"
+        assert payload["cadence_freshness"]["annual_structural_axis_evidence"]["metric_count"] == 0
         assert set(payload["interpretation"]) >= {"current_condition", "primary_drivers", "recent_movement"}
         assert payload["provenance"]["axis_registry_sha256"]
         assert "class=\"sticky-nav\"" in html and "@media(max-width:820px)" in html
         assert all(" open" not in tag for tag in html.split("<details")[1:7])
-        assert {"demand_block", "metric_weight", "effective_metric_weight", "block_weight",
-                "effective_block_weight", "weighted_metric_contribution"}.issubset(payload["metric_drivers"]["demand"][0])
+        assert {"metric_weight", "effective_metric_weight", "weighted_metric_contribution"}.issubset(payload["metric_drivers"]["demand"][0])
+        assert {"demand_block", "block_weight", "effective_block_weight"}.isdisjoint(payload["metric_drivers"]["demand"][0])
 
         memberships = load_metric_memberships(metric_registry, {"demand", "price", "affordability", "capital_markets", "supply"})
         latest = pd.Timestamp("2026-07-31")
-        governed_scores = {"population": .8, "median_household_income": .4, "gdp_annual": 0,
-                           "labor_force": .8, "employment": .4, "laus_unemployment_rate": 0}
-        def check_missing(missing: set[str], expected: float, block_weights: dict[str, float]) -> pd.DataFrame:
+        governed_scores = {"labor_force": .8, "employment": .4, "laus_unemployment_rate": 0}
+
+        def check_missing(missing: set[str], expected: float) -> pd.DataFrame:
             evidence = pd.DataFrame([{"geo_id": GEO_ID, "date": latest, "canonical_metric_key": key,
                                       "metric_score": score}
                                      for key, score in governed_scores.items() if key not in missing])
@@ -183,17 +188,21 @@ def main() -> int:
             rows = _metric_drivers(evidence, memberships[memberships.dimension.eq("demand")], GEO_ID,
                                    latest, expected_frame)["demand"]
             assert np.isclose(rows.weighted_metric_contribution.sum(), expected)
-            for block, weight in block_weights.items():
-                assert np.isclose(rows.query("demand_block == @block").effective_block_weight.iloc[0], weight)
-                assert np.isclose(rows.query("demand_block == @block").effective_metric_weight.sum(), 1)
+            assert np.isclose(rows.effective_metric_weight.sum(), 1)
             return rows
 
-        missing_structural = check_missing({"gdp_annual"}, .45, {"structural": .25, "cyclical": .75})
-        assert set(missing_structural.query("demand_block == 'structural'").effective_metric_weight) == {.5}
-        missing_cyclical = check_missing({"labor_force"}, .25, {"structural": .25, "cyclical": .75})
-        assert set(missing_cyclical.query("demand_block == 'cyclical'").effective_metric_weight) == {.5}
-        cyclical_only = check_missing({"population", "median_household_income", "gdp_annual"}, .4, {"cyclical": 1})
-        assert cyclical_only.demand_block.eq("cyclical").all()
+        missing_demand = check_missing({"laus_unemployment_rate"}, .6)
+        assert np.allclose(missing_demand.effective_metric_weight, .5)
+        stale_registry = root / "stale_metric_registry.csv"
+        stale = pd.read_csv(metric_registry)
+        stale.loc[stale.canonical_metric_key.eq("labor_force"), ["demand_block", "block_weight"]] = ["cyclical", .75]
+        stale.to_csv(stale_registry, index=False)
+        try:
+            load_metric_memberships(stale_registry, {"demand", "price", "affordability", "capital_markets", "supply"})
+        except ValueError as error:
+            assert "superseded demand block metadata" in str(error).lower()
+        else:
+            raise AssertionError("Stale active Demand block metadata did not fail closed")
         county_manifest = root / "counties.csv"
         county_manifest.write_text("geo_id,market_name,level\n" + GEO_ID + ",Washington DC,county\n", encoding="utf-8")
         counties = load_county_manifest(county_manifest)

@@ -12,7 +12,7 @@
 
 The MVP is not a Streamlit page. It is a standalone, artifact-only Python/Plotly renderer that reads five tables from one immutable production run and emits one self-contained county HTML snapshot plus one compact JSON snapshot. The current page already has a complete vertical narrative—current state, regime plane, explanation, dimension and metric drivers, five-year axis chronology, and major-regime chronology—but is still visually closer to a diagnostic report than to a finished decision dashboard.
 
-Work stopped after v0.1.2 added the governed Demand hierarchy and metric drilldowns. The next intended iteration is the documented v0.2 layout and information-hierarchy refinement: make the top-level drivers decision-oriented, subordinate forensic detail, and split freshness by governed cadence. Capital Markets calibration subsequently changed the values supplied by new production runs, but did not change the visualization implementation or its contracts.
+Work stopped after v0.1.2 added a then-assumed Demand hierarchy and metric drilldowns. That visualization assumption is now superseded by the frozen production scorer: Demand uses ordinary governed metric weights and active block metadata must be blank. The next intended iteration is the documented v0.2 layout and information-hierarchy refinement: make the top-level drivers decision-oriented, subordinate forensic detail, and split freshness by governed cadence. Capital Markets calibration subsequently changed the values supplied by new production runs, but did not change the visualization implementation or its contracts.
 
 ---
 
@@ -49,7 +49,7 @@ The CLI requires an explicit run directory, geography ID, market name, and outpu
 
 The renderer fails closed when a required artifact is absent, when latest regime/coordinate/axis state is not unique and complete, or when active registry membership cannot reconstruct persisted dimension scores. The latest display month is the latest common date across assignments, coordinates, and axis scores for the requested county.
 
-Axis drivers are reconstructed as persisted dimension score × configured axis weight. Metric drivers use persisted metric scores and governed metric membership. County evidence wins; national metric evidence is allowed to supply governed Capital Markets inputs. Missing available components are explicitly renormalized, and every dimension's metric contributions must reconcile to the persisted dimension score within tolerance. Demand is treated hierarchically: structural and cyclical metric groups are first normalized within block, then weighted at the governed 25%/75% block weights; if a whole block is unavailable, the available block is renormalized rather than silently imputed.
+Axis drivers are reconstructed as persisted dimension score × configured axis weight. Metric drivers use persisted metric scores and governed metric membership. County evidence wins; national metric evidence is allowed to supply governed Capital Markets inputs. Missing available components are explicitly renormalized, and every dimension's metric contributions must reconcile to the persisted dimension score within tolerance. Demand follows the production dimension scorer: available active Demand metrics are normalized directly by ordinary `metric_weight`. The former Structural/Cyclical blend is superseded, and Market Context is not an axis dimension.
 
 ### 1.3 Rendering stack
 
@@ -60,7 +60,6 @@ The plotting helpers are private functions in the same module:
 - `_plane`: governed Demand/Supply coordinate plane and trailing path;
 - `_drivers`: dimension-contribution horizontal bars;
 - `_metric_chart`: metric-contribution horizontal bars;
-- `_demand_metric_drilldown`: structural/cyclical Demand grouping;
 - `_history`: five-year Demand and Supply axis time series;
 - `_regime_strip`: five-year major-regime band and transition markers.
 
@@ -91,12 +90,12 @@ Those facilities are evidence/review tooling. They are not imported by the MVP r
 4. **Plain-language explanation.** Produces one deterministic sentence per axis describing net direction and strongest positive/negative dimension contribution.
 5. **Axis → dimension contribution views.** Separate Demand and Supply horizontal bars show weighted dimension contributions. Hover exposes raw dimension score, configured weight, and contribution. Capital Markets correctly appears in both axes.
 6. **Dimension → metric drilldowns.** Collapsible details exist for all active dimensions: Demand, Price, Affordability, Capital Markets under Demand, plus Supply and Capital Markets under Supply. Bars are sorted by absolute contribution and expose metric score, configured/effective metric weight, weighted contribution, and evidence age.
-7. **Demand structural/cyclical drilldown.** Demand metrics are split into Structural and Cyclical panels, showing governed and effective block weights. Available-component renormalization is reflected in the displayed effective weights.
+7. **Demand metric drilldown.** Demand presents the active governed labor-family metrics directly, using ordinary availability-normalized metric weights. No Structural/Cyclical grouping is active.
 8. **Five-year axis timeline.** Interactive monthly Demand and Supply lines cover the latest five-year window (inclusive month-end behavior yields 61 points in the test fixture), with unified hover and persisted major/minor regime context.
 9. **Five-year major-regime chronology.** A colored monthly strip displays Expansion, Hypersupply, Recession, and Recovery, with dark vertical markers at changes in major regime and hover for minor assignment.
 10. **Responsive single-page composition.** Two-column driver/drilldown sections collapse to one column below 700 px. Plotly mode bars are disabled for a cleaner review surface.
 11. **Self-contained HTML.** The county report has inline Plotly runtime and requires no application server or network fetch.
-12. **Machine-readable snapshot JSON.** The companion JSON contains run/geography/market identity, current state, Demand and Supply dimension drivers, all metric drivers, Demand block metadata, weights, contributions, ages, and explanation.
+12. **Machine-readable snapshot JSON.** The companion JSON contains run/geography/market identity, current state, Demand and Supply dimension drivers, all metric drivers, ordinary configured/effective metric weights, contributions, ages, and explanation; retired Demand block fields are omitted.
 13. **Deterministic contract smoke test.** Smoke 107 constructs a fixed artifact fixture; validates hierarchy, geometry, chronology windows, reconciliation, missing-component behavior, anchors, and output payload; verifies fail-closed missing artifacts; and confirms production registries are not mutated.
 
 ### 2.2 Capabilities that exist elsewhere but are not integrated into the MVP
@@ -118,7 +117,7 @@ There is no standalone visualization TODO file. The authoritative explicit follo
 1. **Resume the paused panel-layout/information-hierarchy pass.** The current page is a vertical diagnostic report. Refine section grouping, spacing, headings, and the relationship between current state, plane, explanation, driver summary, forensic drilldowns, and history.
 2. **Make top-level drivers decision-oriented.** Replace the current generic two-sentence explanation and equally prominent diagnostic bars with a clearer answer to “what is driving the current state?” while retaining auditable numeric detail.
 3. **Keep forensic metric drilldowns secondary.** They are already collapsible, but the surrounding composition still gives the whole driver area diagnostic-report weight. Establish progressive disclosure and clearer hierarchy.
-4. **Implement governed-cadence freshness.** Replace the single “oldest contributing axis input” headline with at least separate monthly/cyclical freshness and annual/structural vintage. Do this only from persisted evidence and membership metadata; do not infer unsupported cadences or recompute engine state.
+4. **Implement governed-cadence freshness.** Replace the single “oldest contributing axis input” headline with separate monthly indicator freshness and annual/structural active-axis evidence status. Do this only from persisted evidence and membership metadata; do not infer unsupported cadences or recompute engine state.
 5. **Validate v0.2 against the final frozen engine.** Generate a disposable review output from an accepted post-freeze county run and verify Capital Markets contributions on both axes, national-to-county as-of behavior, current assignments, hierarchy, missingness, and deterministic rerendering.
 6. **Define the user-facing entry/publishing path.** Decide whether v0.2 remains a static artifact, gains a deterministic county index, or is exposed by an application shell. Do not silently couple it to the legacy mutable-DuckDB Streamlit app.
 7. **Add multi-county navigation/selection appropriate to county-only production.** The current CLI and output are one county at a time, with no index or next/previous navigation. A usable visualization MVP needs a bounded way to reach generated county snapshots without introducing non-county scope.
@@ -159,7 +158,7 @@ The MVP has one generated page per county and no site-level navigation. Its vert
 1. **Current state** (`#current-state`): eyebrow, county name, as-of month, prominent minor regime, three score KPIs, and one freshness line.
 2. **Regime plane** (`#regime-plane`): explanatory caption plus the 12-month coordinate trajectory.
 3. **Why this regime?** (`#why-this-regime`): deterministic Demand/Supply explanation text.
-4. **Dimension drivers** (`#dimension-drivers`): a two-column Demand/Supply dimension row followed by a two-column Demand/Supply metric-drilldown row. Six `<details>` panels are present because Capital Markets is shown under both axes. Demand expands internally into separate structural and cyclical charts.
+4. **Dimension drivers** (`#dimension-drivers`): a two-column Demand/Supply dimension row followed by a two-column Demand/Supply metric-drilldown row. Six `<details>` panels are present because Capital Markets is shown under both axes. Demand expands directly into its active metric-contribution chart.
 5. **Historical chronology** (`#historical-chronology`): five-year Demand/Supply line chart.
 6. **Major regime chronology** (`#major-regime-chronology`): five-year colored assignment strip.
 7. **Footer:** visualization version and published run directory name.
@@ -229,7 +228,7 @@ Generated regime runs, comparison/review exports, CSV/Parquet evidence, PNG/SVG 
 4. **No manifest or lineage envelope for visualization outputs.** The JSON records the run directory name but not source artifact hashes, config hashes, generator commit, output hashes, or validation status.
 5. **Single-geography invocation.** County enumeration, friendly names, index creation, batch rendering, and partial-failure reporting are absent.
 6. **Presentation and audit priorities compete.** All metric drilldowns are generated into the page even when collapsed, producing a large HTML payload (the smoke threshold expects more than 1 MB) and a diagnostic-report feel.
-7. **Freshness is oversimplified.** A single maximum-axis-age number conflates monthly/cyclical freshness with annual/structural vintage.
+7. **Freshness is oversimplified.** A single maximum-axis-age number conflates monthly freshness with any annual/structural active-axis evidence.
 8. **Limited narrative.** The explanation selects only strongest positive/negative dimensions and does not describe trajectory, transition proximity, cancellation, missingness, or materiality.
 9. **Hard-coded presentation policy.** Colors, extents, horizons, regime labels/sector specs, chart sizes, and breakpoint are module constants rather than a presentation contract. Geometry boundaries are correctly governed, but presentation policy is not separated from it.
 10. **No visual/accessibility test.** The smoke is strong on numerical/structural contracts but does not render in a browser, detect overlap/clipping, inspect mobile layout, or audit keyboard/color/alternative-text accessibility.
@@ -252,7 +251,7 @@ Implementation must preserve all of the following:
 6. **Registry-driven hierarchy.** Active dimensions and metric membership/weights come from governed registries. Liquidity and Transaction Activity may not be represented as Macro Regime axis drivers.
 7. **Coordinate contract.** Supply is x; Demand is y. Major-regime sectors and boundaries must match the geometry engine. Display aids must not classify or alter points.
 8. **Capital Markets is shared.** It contributes independently at its governed weight to both Demand and Supply axes; national evidence may support county rendering only under the production as-of behavior already encoded in persisted evidence.
-9. **Demand hierarchy contract.** Preserve Axis → Dimension → Metric today, including 25% Structural/75% Cyclical blocks and availability renormalization. Preserve a clean path to later Feature drilldown.
+9. **Demand membership contract.** Preserve Axis → Dimension → Metric using current production membership and ordinary availability-normalized metric weights. The retired Structural/Cyclical blocks must not be restored; Market Context stays non-axis. Preserve a clean path to later Feature drilldown.
 10. **Freshness/lineage semantics.** Source date and age are evidence attributes. Annual observations carried as-of are not monthly source updates. Future cadence presentation must use persisted membership/lineage metadata.
 11. **Production/review separation.** Never write a visualization into an immutable production-run directory. Review/presentation exports reference source runs and have their own lifecycle.
 12. **Generated artifact discipline.** Do not commit generated snapshots, review exports, plots, or production runs unless explicitly governed as small decision evidence.
@@ -266,7 +265,7 @@ Implementation must preserve all of the following:
 1. **Lock a representative accepted source run and county review set.** Include Washington, DC and a small governed range of regimes, transitions, freshness mixes, and missing-component cases. This prevents layout decisions from being optimized against one synthetic or stale state.
 2. **Write a short v0.2 presentation/output contract before changing panels.** Specify primary user questions, section order, freshness categories, county navigation, provenance, required JSON fields, responsive expectations, and what remains forensic. This minimizes churn in HTML and tests.
 3. **Separate resolved view data from presentation.** Preserve `resolve_snapshot` reconciliation behavior, but introduce explicit presentation models/schema version before decomposing the renderer. This reduces the risk that layout work accidentally alters numerical contracts.
-4. **Implement governed-cadence freshness at the data boundary.** Establish the persisted metadata needed for monthly/cyclical versus annual/structural freshness, validate it, and add it to the JSON before designing the card. Freshness cannot be safely solved as CSS or label logic.
+4. **Implement governed-cadence freshness at the data boundary.** Establish the persisted metadata needed for monthly versus annual/structural active-axis freshness, validate it, and add it to the JSON before designing the card. Freshness cannot be safely solved as CSS or label logic.
 5. **Refine the top narrative and primary panel composition.** Rework current state, plane, latest movement, and driver summary together so the dashboard answers state/why/change before exposing audit detail.
 6. **Move metric detail into clear progressive disclosure.** Retain complete Axis → Dimension → Metric reconciliation, but reduce initial page density and payload where practical. Do not begin feature drilldown in this pass.
 7. **Add deterministic batch rendering and a county-only index/navigation layer.** Build from the governed geography identity and explicit source run. Do not bind to legacy Streamlit or a mutable DB merely to obtain selection UI.
