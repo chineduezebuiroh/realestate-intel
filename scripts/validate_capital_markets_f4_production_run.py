@@ -77,7 +77,11 @@ def main():
  unchanged_metrics=same(metrics,base_metrics,["geo_id","date","canonical_metric_key"])
  unchanged_non_cm=same(metrics[~metrics.canonical_metric_key.isin(CM)],base_metrics[~base_metrics.canonical_metric_key.isin(CM)],["geo_id","date","canonical_metric_key"])
  aligned=store.read_dataframe(RUN,"aligned_metric_scores"); base_aligned=store.read_dataframe(BASELINE,"aligned_metric_scores")
- unchanged_aligned=same(aligned,base_aligned,["geo_id","date","canonical_metric_key"])
+ unchanged_aligned=same(
+    aligned,
+    base_aligned,
+    ["geo_id", "evaluation_date", "metric_date", "canonical_metric_key"],
+)
  dims=store.read_dataframe(RUN,"dimension_scores"); base_dims=store.read_dataframe(BASELINE,"dimension_scores")
  unchanged_non_cm_dims=same(dims[~dims.dimension.eq("capital_markets")],base_dims[~base_dims.dimension.eq("capital_markets")],["geo_id","date","dimension"])
  assert not dims[dims.dimension.eq("capital_markets")].equals(base_dims[base_dims.dimension.eq("capital_markets")])
