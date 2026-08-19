@@ -66,15 +66,15 @@ def _fixture(run_dir: Path, axis_registry: Path, metric_registry: Path, source_r
                         "demand,demand,0.65,true\ndemand,price,0.175,true\ndemand,affordability,0.075,true\n"
                         "demand,capital_markets,0.10,true\nsupply,supply,0.85,true\nsupply,capital_markets,0.15,true\n"
                         "demand,liquidity,1.0,false\n", encoding="utf-8")
-    lines = ["canonical_metric_key,dimension,metric_weight,demand_block,block_weight,enabled,diagnostic_only,macro_enabled"]
+    lines = ["metric_key,canonical_metric_key,dimension,metric_weight,demand_block,block_weight,enabled,diagnostic_only,macro_enabled"]
     for dimension, specs in metric_specs.items():
         for key, weight, _ in specs:
             block = "structural" if key in {"population", "median_household_income", "gdp_annual"} else "cyclical"
             block_weight = .25 if block == "structural" else .75
             hierarchy = f"{block},{block_weight}" if dimension == "demand" else ","
-            lines.append(f"{key},{dimension},{weight},{hierarchy},true,false,true")
-    lines.append("price_to_income,affordability,0.75,,,true,false,true")
-    lines.append("non_member,liquidity,1.0,,,true,false,true")
+            lines.append(f"{key},{key},{dimension},{weight},{hierarchy},true,false,true")
+    lines.append("price_to_income,price_to_income,affordability,0.75,,,true,false,true")
+    lines.append("non_member,non_member,liquidity,1.0,,,true,false,true")
     metric_registry.write_text("\n".join(lines) + "\n", encoding="utf-8")
     source_lines = ["metric_key,frequency"]
     for dimension, specs in metric_specs.items():
