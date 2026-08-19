@@ -42,7 +42,7 @@ def main():
  norm=pd.read_csv("config/normalization_registry.csv"); assert set(norm[norm.policy_key.isin(features.feature_key)].score_direction)=={"positive"}
  indicators=pd.read_csv("config/indicator_regime_registry.csv"); assert indicators.set_index("metric_key").loc["fred_2y10y_spread","direction"]=="positive"
  metric=cfg.metric_dimensions; weights=metric[metric.canonical_metric_key.isin(CM)].set_index("canonical_metric_key").metric_weight.astype(float).to_dict()
- assert weights=={"mortgage_30y":.15,"mortgage_15y":.15,"treasury_10y":.15,"fedfunds":.10,"spread_10y_2y":.225,"spread_10y_fedfunds":.225}
+ assert weights=={"mortgage_30y":.11666666666666667,"mortgage_15y":.11666666666666667,"treasury_10y":.11666666666666667,"fedfunds":.10,"spread_10y_2y":.275,"spread_10y_fedfunds":.275}
  assert cfg.axes.query("dimension=='capital_markets'").set_index("axis").dimension_weight.astype(float).to_dict()=={"demand":.10,"supply":.15}
  promotion=json.loads(Path("config/capital_markets_native_feature_policy_2026_08_18.json").read_text())
  assert promotion["policies"]["spread_10y_2y"]["policy"]=="P7" and promotion["feature_calibration"]=="closed"

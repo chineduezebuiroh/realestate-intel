@@ -31,13 +31,13 @@ bps_1_unit,single_family_permit_activity,supply,permit_activity,0.0,,,1,diagnost
 bps_5plus_units,multifamily_permit_activity,supply,permit_activity,0.0,,,1,diagnostic_only,false,true,false,false,false,Diagnostic only in v1; total units is the scoring signal.
 nrc_housing_starts,housing_starts,supply,construction_activity,0.0,,,1,diagnostic_only,false,true,false,false,false,Diagnostic only until C3.02 Supply Dimension is updated to include starts.
 nrc_housing_completions,housing_completions,supply,construction_activity,0.0,,,1,diagnostic_only,false,true,false,false,false,Diagnostic only until C3.02 Supply Dimension is updated to include completions.
-fred_mortgage_30y,mortgage_30y,capital_markets,cost_of_capital,0.15,,,1,direct,true,false,true,true,false,Promoted policy MW-TEMPERED-C (2026-08-07).
-fred_mortgage_15y,mortgage_15y,capital_markets,cost_of_capital,0.15,,,1,direct,true,false,false,true,false,Secondary cost-of-capital signal. Promoted policy MW-TEMPERED-C (2026-08-07).
-fred_fedfunds,fedfunds,capital_markets,cost_of_capital,0.10,,,1,direct,true,false,true,true,false,Promoted policy MW-TEMPERED-C (2026-08-07).
-fred_10y,treasury_10y,capital_markets,cost_of_capital,0.15,,,1,direct,true,false,true,true,false,Promoted policy MW-TEMPERED-C (2026-08-07).
+fred_mortgage_30y,mortgage_30y,capital_markets,cost_of_capital,0.11666666666666667,,,1,direct,true,false,true,true,false,Promoted family policy F4 (2026-08-18).
+fred_mortgage_15y,mortgage_15y,capital_markets,cost_of_capital,0.11666666666666667,,,1,direct,true,false,false,true,false,Secondary cost-of-capital signal. Promoted family policy F4 (2026-08-18).
+fred_fedfunds,fedfunds,capital_markets,cost_of_capital,0.10,,,1,direct,true,false,true,true,false,Promoted family policy F4 (2026-08-18).
+fred_10y,treasury_10y,capital_markets,cost_of_capital,0.11666666666666667,,,1,direct,true,false,true,true,false,Promoted family policy F4 (2026-08-18).
 fred_2y,treasury_2y,capital_markets,cost_of_capital,0.0,,,1,diagnostic_only,false,true,false,false,false,Diagnostic only; contributes through 2Y-10Y spread in v1.
-fred_2y10y_spread,spread_10y_2y,capital_markets,yield_curve_conditions,0.225,,,1,direct,true,false,true,true,false,Explicit canonical order; spread_10y_2y = treasury_10y - treasury_2y. Promoted policy MW-TEMPERED-C (2026-08-07).
-fred_10y_fedfunds_spread,spread_10y_fedfunds,capital_markets,yield_curve_conditions,0.225,,,1,direct,true,false,false,true,false,Secondary yield-curve signal. Promoted policy MW-TEMPERED-C (2026-08-07).
+fred_2y10y_spread,spread_10y_2y,capital_markets,yield_curve_conditions,0.275,,,1,direct,true,false,true,true,false,Explicit canonical order; spread_10y_2y = treasury_10y - treasury_2y. Promoted family policy F4 (2026-08-18).
+fred_10y_fedfunds_spread,spread_10y_fedfunds,capital_markets,yield_curve_conditions,0.275,,,1,direct,true,false,false,true,false,Secondary yield-curve signal. Promoted family policy F4 (2026-08-18).
 fred_cpi,cpi,affordability,inflation_pressure,0.0,,,1,diagnostic_only,false,true,false,false,false,Diagnostic only; affordability v1 should use derived price-to-income and payment-burden metrics.
 derived_price_to_income,price_to_income,affordability,price_to_income,0.50,,,1,direct,true,false,true,true,true,Derived affordability metric
 derived_payment_burden,payment_burden,affordability,payment_burden,0.50,,,1,direct,true,false,true,true,true,Derived affordability metric
