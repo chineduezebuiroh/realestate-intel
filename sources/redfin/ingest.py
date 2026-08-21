@@ -1,487 +1,116 @@
-# sources/redfin/ingest.py
+from __future__ import annotations
 
+import re
+from datetime import datetime, timezone
 from pathlib import Path
+
 import pandas as pd
-import os
 
-# -------------------------------------------------------------------
-# Config
-# -------------------------------------------------------------------
-RAW_REDFIN_DIR = Path("data/redfin/raw")
-RAW_CURRENT_DIR = RAW_REDFIN_DIR / "current"
-RAW_ARCHIVE_DIR = RAW_REDFIN_DIR / "archive"
+from .governance import BASELINE_ID, FAMILY_FILENAME_TOKENS, FAMILY_LEVELS, FAMILIES, METRICS, RAW_ROOT, GovernanceError, bootstrap, load_baseline_manifest
+from .storage import atomic_json, current, raw_files, read_json, sha256
+from .validate import governed_geographies, read_raw, validate_baseline, validate_drop
+
+
+def infer_family(name: str) -> str:
+    lowered = name.lower()
+    matches = [family for family, tokens in FAMILY_FILENAME_TOKENS.items() if any(token in lowered for token in tokens)]
+    if len(matches) != 1: raise GovernanceError(f"expected exactly one geography-family filename token in {name}; matched {matches}")
+    return matches[0]
+
+
+def register_drop(drop_id: str, root: Path = RAW_ROOT) -> dict:
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", drop_id): raise GovernanceError("drop ID must be YYYY-MM")
+    bootstrap(root); folder = root / "drops" / drop_id; files = raw_files(folder) if folder.is_dir() else []
+    if not files: raise GovernanceError(f"no untouched raw files in {folder}")
+    records = [{"filename": p.name, "sha256": sha256(p), "size_bytes": p.stat().st_size, "geography_family": infer_family(p.name)} for p in files]
+    if len(records) != 7 or {r["geography_family"] for r in records} != set(FAMILIES): raise GovernanceError("registration requires exactly one file for each of seven geography families")
+    path = folder / "metadata.json"
+    if path.exists():
+        existing = read_json(path)
+        if existing["files"] != records: raise GovernanceError(f"conflicting hashes for registered month {drop_id}")
+        return existing
+    payload = {"drop_id":drop_id,"registered_at":datetime.now(timezone.utc).isoformat(),"files":records,"status":"registered","validation_status":"pending","promotion_status":"not_promoted","publication_status":"not_published"}
+    atomic_json(path,payload); return payload
+
+
+def active_family_mappings(geo_manifest: Path) -> dict[str, pd.DataFrame]:
+    governed = governed_geographies(geo_manifest); mappings = {}
+    for family, levels in FAMILY_LEVELS.items():
+        scoped = governed[governed.level.str.strip().str.lower().isin(levels)].copy()
+        if not scoped.empty: mappings[family] = scoped[["geo_id", "redfin_code", "level"]]
+    return mappings
+
+
+def resolve_sources(drop_id: str | None, root: Path = RAW_ROOT, manifest_path: Path = Path("config/redfin_baseline_manifest.json")) -> list[tuple[Path,int,str]]:
+    validate_baseline(root, manifest_path); manifest = load_baseline_manifest(manifest_path)
+    paths=[(root/"baseline"/BASELINE_ID/item["filename"],1,item["geography_family"]) for item in manifest["files"]]
+    if drop_id and drop_id != BASELINE_ID:
+        meta=read_json(root/"drops"/drop_id/"metadata.json")
+        if meta.get("status") not in {"validated","candidate_built","candidate_validated","serving_refreshed","published","promoted"}: raise GovernanceError("drop is not validated")
+        paths += [(root/"drops"/drop_id/item["filename"],2,item["geography_family"]) for item in meta["files"]]
+    return paths
+
+
+def merge_precedence(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    keys=["geo_id","metric_id","date","property_type_id"]
+    combined=pd.concat(frames,ignore_index=True)
+    return combined.sort_values(keys+["_priority"]).drop_duplicates(keys,keep="last").sort_values(keys).reset_index(drop=True)
+
+
+def _source_to_long(path: Path, priority: int, family: str, mapping: pd.DataFrame) -> pd.DataFrame:
+    frame=read_raw(path)
+    date_col="period_end" if "period_end" in frame else "period_begin" if "period_begin" in frame else None
+    if not date_col: raise GovernanceError(f"missing period column: {path.name}")
+    frame["date"]=pd.to_datetime(frame[date_col],errors="raise").dt.to_period("M").dt.to_timestamp("M")
+    if "region_id" in frame and "table_id" in frame: frame["join_id"]=frame.region_id.where(frame.region_id.notna(),frame.table_id)
+    elif "region_id" in frame: frame["join_id"]=frame.region_id
+    elif "table_id" in frame: frame["join_id"]=frame.table_id
+    else: raise GovernanceError(f"missing canonical geography identifier: {path.name}")
+    frame["join_id"]=frame.join_id.astype(str).str.replace(r"\.0$","",regex=True); mapping=mapping.copy(); mapping["redfin_code"]=mapping.redfin_code.astype(str).str.replace(r"\.0$","",regex=True)
+    frame=frame.merge(mapping,left_on="join_id",right_on="redfin_code",how="inner",validate="many_to_one")
+    if "is_seasonally_adjusted" in frame:
+        flag=frame.is_seasonally_adjusted.astype(str).str.lower().str.strip(); frame=frame[flag.isin({"false","0","no","n","nan","none",""})]
+    if "property_type_id" in frame:
+        prop=frame.property_type_id.astype(str).str.lower().str.strip(); frame=frame[prop.isin({"all","-1","-1.0","nan","none",""})]
+    elif "property_type" in frame:
+        prop=frame.property_type.astype(str).str.lower().str.strip(); frame=frame[prop.isin({"all","all residential","nan","none",""})]
+    if "inventory" not in frame:
+        if "active_listings" not in frame: raise GovernanceError(f"missing inventory fallback in {path.name}")
+        frame["inventory"]=frame.active_listings
+    missing=METRICS-set(frame.columns)
+    if missing: raise GovernanceError(f"missing governed candidate metrics in {path.name}: {sorted(missing)}")
+    long=frame.melt(id_vars=["geo_id","date"],value_vars=sorted(METRICS),var_name="metric_id",value_name="value")
+    long["value"]=pd.to_numeric(long.value,errors="raise"); long=long.dropna(subset=["value"])
+    long["property_type_id"]=long["property_type"]="all"; long["geography_family"]=family; long["_priority"]=priority
+    return long
+
+
+def build_candidate(drop_id: str, output: Path, root: Path = RAW_ROOT, geo_manifest: Path = Path("config/geo_manifest.generated.csv"), manifest_path: Path = Path("config/redfin_baseline_manifest.json")) -> dict:
+    if drop_id == BASELINE_ID: validate_baseline(root,manifest_path)
+    else: validate_drop(drop_id,root)
+    mappings=active_family_mappings(geo_manifest)
+    if not mappings: raise GovernanceError("no governed Redfin geographies")
+    frames=[]; loaded=[]; skipped=[]
+    for path,priority,family in resolve_sources(drop_id,root,manifest_path):
+        if family not in mappings: skipped.append({"filename":path.name,"family":family}); continue
+        frames.append(_source_to_long(path,priority,family,mappings[family])); loaded.append(path.name)
+    if not frames: raise GovernanceError("no governed Redfin source family loaded")
+    candidate=merge_precedence(frames); keys=["geo_id","metric_id","date","property_type_id"]
+    if candidate.duplicated(keys).any(): raise GovernanceError("duplicate canonical keys")
+    output.parent.mkdir(parents=True,exist_ok=True); candidate.drop(columns="_priority").to_parquet(output,index=False)
+    meta_path=root/"drops"/drop_id/"metadata.json" if drop_id != BASELINE_ID else root/"baseline"/BASELINE_ID/"candidate_metadata.json"
+    meta=read_json(meta_path) if meta_path.exists() else {"baseline_id":BASELINE_ID}
+    meta.update(status="candidate_built",candidate_path=str(output),candidate_rows=len(candidate),governed_geographies=sorted(candidate.geo_id.unique()),loaded_files=loaded,skipped_ungoverned_files=skipped,latest_month=drop_id)
+    atomic_json(meta_path,meta); return meta
+
+
+def monthly_gate(drop_id: str, root: Path = RAW_ROOT) -> str:
+    return "registered" if (root/"drops"/drop_id/"metadata.json").exists() else "waiting_for_manual_redfin"
 
-LEVEL_TO_FILE_HINTS = {
-    "nation": ["country", "national", "us_national"],
-    "state": ["state", "states"],
-    "cbsa_metro": ["metro"],
-    "metro_area": ["metro"],
-    "county": ["county", "counties"],
-    "city": ["city", "cities"],
-    "place": ["city", "cities"],
-    "neighborhood": ["neighborhood", "neighborhoods"],
-    "zip": ["zip", "zips", "zip_code"],
-    "zip_code": ["zip", "zips", "zip_code"],
-}
-
-
-def get_needed_redfin_levels() -> set[str]:
-    if not Path(GEO_MANIFEST_PATH).exists():
-        raise FileNotFoundError(f"geo_manifest not found at: {GEO_MANIFEST_PATH}")
-
-    manifest = pd.read_csv(GEO_MANIFEST_PATH)
-
-    if "include_redfin" in manifest.columns:
-        manifest = manifest[manifest["include_redfin"].fillna(0).astype(int) == 1]
-
-    if "level" not in manifest.columns:
-        raise ValueError("geo_manifest must contain 'level'")
-
-    levels = {
-        str(x).strip().lower()
-        for x in manifest["level"].dropna().unique()
-    }
-
-    if not levels:
-        raise ValueError("[redfin] no include_redfin geos found in geo_manifest")
-
-    return levels
-
-
-def should_load_redfin_file(path: Path, needed_levels: set[str]) -> bool:
-    name = path.name.lower()
-
-    needed_hints = set()
-    for level in needed_levels:
-        needed_hints.update(LEVEL_TO_FILE_HINTS.get(level, []))
-
-    if not needed_hints:
-        return True
-
-    return any(hint in name for hint in needed_hints)
-
-
-def discover_redfin_files() -> list[tuple[Path, int, str]]:
-    needed_levels = get_needed_redfin_levels()
-
-    print(f"[redfin] needed manifest levels: {sorted(needed_levels)}")
-
-    files: list[tuple[Path, int, str]] = []
-    skipped: list[str] = []
-
-    for label, priority, folder in [
-        ("archive", 1, RAW_ARCHIVE_DIR),
-        ("current", 2, RAW_CURRENT_DIR),
-    ]:
-        if not folder.exists():
-            continue
-
-        paths = sorted(
-            list(folder.glob("*.csv")) +
-            list(folder.glob("*.tsv")) +
-            list(folder.glob("*.tsv.gz")) +
-            list(folder.glob("*.tsv000"))
-        )
-
-        for path in paths:
-            if should_load_redfin_file(path, needed_levels):
-                files.append((path, priority, label))
-            else:
-                skipped.append(f"{label}: {path.name}")
-
-    if skipped:
-        print("[redfin] skipped raw files not requested by geo_manifest:")
-        for item in skipped:
-            print(f"  - {item}")
-
-    return files
-
-
-GEO_MANIFEST_PATH = "config/geo_manifest.generated.csv"
-OUTPUT_PATH = "data/redfin/redfin_timeseries.csv"
-
-ACCEPTED_METRICS = {
-    "homes_sold",
-    "median_sale_price_nsa",
-    "median_days_on_market_days",
-    "average_sale_to_list_ratio",
-    "share_sold_above_original_list",
-    "new_listings",
-    "active_listings",
-    "inventory",
-    "pending_sales",
-    "median_sale_price_per_sqft",
-    "months_of_supply",
-    "percent_off_market_in_two_weeks",
-}
-
-# -------------------------------------------------------------------
-# Main
-# -------------------------------------------------------------------
-def main():
-    raw_files = discover_redfin_files()
-    if not raw_files:
-        raise FileNotFoundError(
-            f"No Redfin raw files found under {RAW_CURRENT_DIR} or {RAW_ARCHIVE_DIR}"
-        )
-
-    # --- 1) Load ALL Redfin TSVs and normalize columns ---------------------------
-    frames = []
-    
-    for path, raw_priority, raw_bucket in raw_files:
-        print(f"[redfin] loading {raw_bucket} priority={raw_priority}: {path}")
-        sep = "\t" if path.suffix.startswith(".tsv") or ".tsv" in path.name else ","
-        tmp = pd.read_csv(path, sep=sep, low_memory=False)
-        tmp.columns = (
-            tmp.columns
-            .str.strip()
-            .str.lower()
-            .str.replace(r"\s+", "_", regex=True)
-            .str.replace(r"[^a-z0-9_]+", "", regex=True)
-            .str.strip("_")
-        )
-    
-        # Choose date column: prefer period_end, else period_begin
-        if "period_end" in tmp.columns:
-            date_col = "period_end"
-        elif "period_begin" in tmp.columns:
-            date_col = "period_begin"
-        else:
-            raise ValueError(
-                f"[redfin] Expected 'period_end' or 'period_begin' in file {path}.\n"
-                f"Available columns: {tmp.columns.tolist()}"
-            )
-    
-        # Standardize to a single 'date' column
-        tmp["date"] = pd.to_datetime(tmp[date_col]).dt.to_period("M").dt.to_timestamp("M")
-        tmp["_raw_priority"] = raw_priority
-        tmp["_raw_bucket"] = raw_bucket
-        tmp["_raw_file"] = path.name
-
-        # Optional: drop original period_* columns now that we have 'date'
-        for c in ["period_begin", "period_end"]:
-            if c in tmp.columns:
-                tmp.drop(columns=c, inplace=True)
-
-        frames.append(tmp)
-    
-    if not frames:
-        raise ValueError("[redfin] No Redfin files loaded. Check RAW_REDFIN_PATHS / glob pattern.")
-    
-    df = pd.concat(frames, ignore_index=True)
-    
-    # Optional: dedupe if multiple files contain overlapping rows
-    df = df.drop_duplicates()
-    
-
-    # --- 2) Load geo_manifest with redfin_code ------------------------------------
-    geo = pd.read_csv(GEO_MANIFEST_PATH)
-    geo_col = "geo_slug" if "geo_slug" in geo.columns else "geo_id"
-
-    if "redfin_code" not in geo.columns:
-        raise ValueError(
-            "geo_manifest.csv must contain a 'redfin_code' column "
-            "to join with Redfin's 'table_id'."
-        )
-
-    if geo_col not in geo.columns:
-        raise ValueError("geo_manifest must contain 'geo_slug' or 'geo_id'.")
-
-    # Optional include flag, if you've added one
-    if "include_redfin" in geo.columns:
-        geo = geo[geo["include_redfin"].fillna(0).astype(int) == 1]
-
-    # Only rows with a non-null redfin_code
-    geo = geo[geo["redfin_code"].notna()]
-    
-
-    # --- 3) Join Redfin rows to geo_manifest on (table_id, region_type) ↔ (redfin_code, level)
-    required_geo_cols = {geo_col, "redfin_code", "level"}
-    missing_geo = required_geo_cols - set(geo.columns)
-    if missing_geo:
-        raise ValueError(f"geo_manifest is missing columns: {sorted(missing_geo)}")
-
-    if "table_id" in df.columns and "region_id" in df.columns:
-        df["redfin_join_id"] = df["region_id"].where(df["region_id"].notna(), df["table_id"])
-    elif "region_id" in df.columns:
-        df["redfin_join_id"] = df["region_id"]
-    elif "table_id" in df.columns:
-        df["redfin_join_id"] = df["table_id"]
-    else:
-        raise ValueError("Redfin data missing both region_id and table_id")
-    
-    redfin_id_col = "redfin_join_id"
-    required_df_cols = {"redfin_join_id", "region_type"}
-    
-    missing_df = required_df_cols - set(df.columns)
-    if missing_df:
-        raise ValueError(
-            "Redfin data is missing expected columns.\n"
-            f"Missing: {sorted(missing_df)}\n"
-            f"Available: {df.columns.tolist()}"
-        )
-
-    # Normalize region_type in the Redfin data
-    df["region_type_norm"] = (
-        df["region_type"]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-        .replace({
-            "zip code": "zip",
-            "zipcode": "zip",
-            "postal code": "zip",
-            "national": "national",
-            "country": "national",
-            "metro area": "metro",
-            "metro_area": "metro",
-        })
-    )
-
-    # Map geo.level -> expected Redfin region_type
-    LEVEL_TO_REGION_TYPE = {
-        "nation": "national",
-        "state": "state",
-        "metro_area": "metro",
-        "cbsa_metro": "metro",
-        "county": "county",
-        "city": "place",
-        "place": "place",
-        "neighborhood": "neighborhood",
-        "zip_code": "zip",
-        "zip": "zip",
-    }
-
-    # Normalize levels and map to region_type
-    geo = geo.copy()
-    geo["level_norm"] = (
-        geo["level"]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
-    geo["region_type_norm"] = geo["level_norm"].map(LEVEL_TO_REGION_TYPE)
-
-    # Drop any geo rows that don't have a mapped region_type
-    before_geo = len(geo)
-    geo = geo[geo["region_type_norm"].notna()]
-    after_geo = len(geo)
-    if after_geo == 0:
-        raise ValueError(
-            "After mapping geo.level to Redfin region_type, no rows remain.\n"
-            "Check LEVEL_TO_REGION_TYPE mapping vs geo_manifest.level values."
-        )
-    if after_geo < before_geo:
-        print(f"[redfin] warning: dropped {before_geo - after_geo} geo_manifest rows with unmapped level.")
-
-    # Now join on (table_id, region_type_norm) ↔ (redfin_code, region_type_norm)
-    merged = df.merge(
-        geo[[geo_col, "redfin_code", "region_type_norm"]].rename(columns={geo_col: "geo_id"}),
-        left_on=[redfin_id_col, "region_type_norm"],
-        right_on=["redfin_code", "region_type_norm"],
-        how="inner",
-    )
-
-    if merged.empty:
-        raise ValueError(
-            "No rows matched between Redfin data and geo_manifest on "
-            "(table_id, region_type) ↔ (redfin_code, level).\n"
-            "Check that:\n"
-            "  • geo_manifest.redfin_code matches Redfin table_id\n"
-            "  • geo_manifest.level values map correctly via LEVEL_TO_REGION_TYPE\n"
-            "  • Redfin region_type values look like: "
-            "'state', 'metro', 'county', 'place', 'neighborhood', 'zip code'."
-        )
-
-    print(f"[redfin] matched {merged['geo_id'].nunique()} geos from geo_manifest.")
-    print("[redfin] example matches:")
-    cols_to_show = [c for c in ["geo_id", "region", "state", "region_type", redfin_id_col] if c in merged.columns]
-    print(
-        merged[cols_to_show]
-        .drop_duplicates()
-        .head(10)
-    )
-
-    # --- 4) Optional: filter to non-seasonally adjusted -----
-    if "is_seasonally_adjusted" in merged.columns:
-        before = len(merged)
-    
-        col = merged["is_seasonally_adjusted"]
-    
-        # Normalize to a boolean-ish flag:
-        # handle bool, numeric, and string representations
-        if col.dtype == bool:
-            mask_nsa = col.isna() | (~col)
-        elif pd.api.types.is_numeric_dtype(col):
-            mask_nsa = col.isna() | (col == 0)
-        else:
-            # string-like: "true"/"false", "1"/"0", etc.
-            col_norm = col.astype(str).str.strip().str.lower()
-            mask_nsa = col.isna() | col_norm.isin(["false", "0", "no", "n", "nan", "none", ""])
-    
-        merged = merged[mask_nsa]
-        
-        after = len(merged)
-        print(f"[redfin] filtered to is_seasonally_adjusted = false/0: {before} → {after} rows")
-    
-    if merged.empty:
-        raise ValueError("No rows remain after seasonality filter.")
-
-    # --- canonicalize production Redfin to all-residential only ---
-    # Current production pipeline uses only the all-residential market.
-    # Property-type-specific Redfin series are intentionally excluded
-    # until the local engine is introduced.
-    if "property_type_id" in merged.columns:
-        ptid = merged["property_type_id"].astype(str).str.strip().str.lower()
-        keep_all = ptid.isin(["all", "-1", "-1.0"]) | merged["property_type_id"].isna()
-
-        before = len(merged)
-        merged = merged.loc[keep_all].copy()
-        print(f"[redfin] filtered to all-residential property type: {before:,} → {len(merged):,}")
-
-    merged["property_type"] = "all"
-    merged["property_type_id"] = "all"
-    
-    # --- add inventory fallback normalization ---
-    if "inventory" not in merged.columns:
-        if "active_listings" in merged.columns:
-            print("[redfin] inventory missing; using active_listings as canonical inventory.")
-            merged["inventory"] = merged["active_listings"]
-        else:
-            raise SystemExit("[redfin] missing both inventory and active_listings")
-    
-    # --- 5) Prepare for melt: id_vars vs value columns ----------------------------
-    # Core identifiers we want to keep (NOT melted)
-    # IMPORTANT: use the normalized 'date' column, not the original period_* column
-    if "date" not in merged.columns:
-        raise ValueError("[redfin] Expected a normalized 'date' column before melt.")
-
-    if "property_type" not in merged.columns:
-        merged["property_type"] = "all"
-    
-    if "property_type_id" not in merged.columns:
-        merged["property_type_id"] = "all"
-    
-    id_vars = ["geo_id", "date", "property_type", "property_type_id", "_raw_priority", "_raw_bucket", "_raw_file"]
-
-    # Optionally keep some descriptive columns around in the long_df phase
-    for col in ["region", "city", "state", "state_code"]:
-        if col in merged.columns and col not in id_vars:
-            id_vars.append(col)
-
-    print("[redfin] id_vars:", id_vars)
-
-    # Columns that are NOT metrics (to exclude from melt)
-    exclude_cols = set(
-        id_vars
-        + [
-            #"table_id",
-            redfin_id_col,
-            "redfin_code",
-            "period_duration",
-            "is_seasonally_adjusted",
-            "region_type",
-            "region_type_id",
-            "region_type_norm",
-            "parent_metro_region",
-            "parent_metro_region_metro_code",
-            "last_updated",
-        ]
-    )
-
-    RENAME_METRICS = {
-        "median_sale_price": "median_sale_price_nsa",
-        "median_ppsf": "median_sale_price_per_sqft",
-        "median_dom": "median_days_on_market_days",
-        "avg_sale_to_list": "average_sale_to_list_ratio",
-        "sold_above_list": "share_sold_above_original_list",
-        "off_market_in_two_weeks": "percent_off_market_in_two_weeks",
-    }
-    
-    value_cols = [c for c in merged.columns if c not in exclude_cols]
-
-    if not value_cols:
-        raise ValueError(
-            "No metric columns detected to melt. "
-            "Check Redfin schema and exclude_cols list."
-        )
-
-    unknown_metric_cols = sorted(set(value_cols) - ACCEPTED_METRICS)
-    if unknown_metric_cols:
-        print(f"[redfin] ignoring non-whitelisted metric columns: {unknown_metric_cols[:50]}")
-    
-    value_cols = [c for c in value_cols if c in ACCEPTED_METRICS]
-
-    if "inventory" in merged.columns and "active_listings" in value_cols:
-        value_cols = [c for c in value_cols if c != "active_listings"]
-        
-    if not value_cols:
-        raise ValueError("[redfin] no accepted Redfin metric columns found after whitelist filter")
-
-    print(f"[redfin] metric columns (sample): {value_cols[:15]}")
-
-    for old, new in RENAME_METRICS.items():
-        if old in merged.columns:
-            if new not in merged.columns:
-                merged[new] = merged[old]
-            else:
-                merged[new] = merged[new].where(merged[new].notna(), merged[old])
-
-    # --- 6) Melt to long format ---------------------------------------------------
-    print(
-        merged["median_new_listing_price"]
-            .describe()
-    )
-    long_df = merged[id_vars + value_cols].melt(
-        id_vars=id_vars,
-        value_vars=value_cols,
-        var_name="metric_id",
-        value_name="value",
-    )
-
-    # Drop rows with no value
-    long_df = long_df.dropna(subset=["value"])
-
-
-    # Normalize date to a standard 'date' column (just ensure it's date type)
-    long_df["date"] = pd.to_datetime(long_df["date"]).dt.date
-
-
-    print("[redfin] long_df columns:", long_df.columns.tolist())
-
-    # Final tidy frame — KEEP property_type + property_type_id
-    ts = long_df[
-        ["geo_id", "date", "property_type", "property_type_id", "metric_id", "value", "_raw_priority", "_raw_bucket", "_raw_file"]
-    ].copy()
-
-
-    before = len(ts)
-    ts = (
-        ts.sort_values(
-            ["geo_id", "property_type_id", "metric_id", "date", "_raw_priority", "_raw_file"],
-            ascending=[True, True, True, True, False, False],
-        )
-        .drop_duplicates(
-            subset=["geo_id", "date", "property_type_id", "metric_id"],
-            keep="first",
-        )
-    )
-    dropped = before - len(ts)
-    if dropped:
-        print(f"[redfin] archive/current dedupe dropped {dropped:,} lower-priority duplicate rows")
-
-    # --- 7) Write to CSV ----------------------------------------------------------
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    ts = ts.drop(columns=["_raw_priority", "_raw_bucket", "_raw_file"])
-    ts.to_csv(OUTPUT_PATH, index=False)
-
-    # --- 8) Log summary -----------------------------------------------------------
-    print(f"[redfin] wrote {len(ts)} rows → {OUTPUT_PATH}")
-    print("[redfin] sample:")
-    print(ts.head(10))
-    print("[redfin] metrics (first 30):")
-    print(sorted(ts["metric_id"].unique())[:30])
-
-
-if __name__ == "__main__":
-    main()
+
+def main() -> int:
+    state=current() or {}; drop=state.get("promoted_drop")
+    if not drop: print("waiting_for_manual_redfin"); return 0
+    build_candidate(drop,Path("data/redfin/redfin_candidate.parquet")); return 0
+
+if __name__ == "__main__": raise SystemExit(main())

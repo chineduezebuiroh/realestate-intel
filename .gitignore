@@ -1,4 +1,7 @@
 data/market.duckdb
+data/redfin/raw/
+data/redfin/*.parquet
+data/redfin/*.csv
 data/*.DS_Store
 .env
 
