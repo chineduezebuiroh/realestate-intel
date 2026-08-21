@@ -30,6 +30,7 @@ artifacts/review/
 
 # Generated static product dashboards
 artifacts/product_mvp/
+site/
 
 # macOS metadata
 .DS_Store

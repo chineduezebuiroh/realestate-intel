@@ -195,6 +195,11 @@ Visualization MVP**. Subsequent direction remains:
 3. Develop the local-regime layer.
 4. Continue toward regime-informed forecasting integration.
 
+Visualization Phase 2 establishes the static publication boundary: an explicit
+immutable production run is rendered into a transient `site/` Pages artifact,
+with a checksum-verified governed release bundle as the clean-checkout handoff.
+It does not refresh data, rerun production, or change visualization semantics.
+
 The v0.2 visualization refinement should replace the single maximum-age
 headline with governed-cadence freshness: monthly/cyclical evidence freshness
 separate from annual/structural evidence vintage (and other materially distinct

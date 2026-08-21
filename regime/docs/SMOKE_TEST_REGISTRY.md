@@ -232,3 +232,9 @@ Based on the implemented MA6/MA9 Phase 1 scope, **no new numbered smoke test is 
 | 134 | `scripts/smoke_tests/130_139/134_affordability_feature_weight_calibration.py` | Bounded Phase-2 Affordability weights, orientation, P5 boundary, evidence governance. | `PYTHONPATH=. python scripts/smoke_tests/130_139/134_affordability_feature_weight_calibration.py` |
 | 135 | `scripts/smoke_tests/130_139/135_affordability_final_ma_calibration.py` | Closed MA grid plus truthful SVG paths, finite domains, missing-month gaps, independent raw-cycle panel, equal-footing aggregation, and row-order determinism. | `PYTHONPATH=. python scripts/smoke_tests/130_139/135_affordability_final_ma_calibration.py` |
 | 136 | `scripts/smoke_tests/130_139/136_affordability_ma12_p4_production_promotion.py` | Exact two-metric MA12/P4 production registry, derive-first promotion record, closure, and explicit non-change scope. | `PYTHONPATH=. python scripts/smoke_tests/130_139/136_affordability_ma12_p4_production_promotion.py` |
+
+## Static deployment coverage
+
+| Number | Script | Purpose | Command |
+|---:|---|---|---|
+| 108 | `scripts/smoke_tests/100_109/108_macro_regime_static_deployment.py` | Explicit-run static build, deterministic bytes, Pages-relative routing, manifest hashes and identities, embedded Plotly, county-only scope, and browser-safe path packaging. | `PYTHONPATH=. python scripts/smoke_tests/100_109/108_macro_regime_static_deployment.py --run artifacts/regime/runs/capital_markets_f4_production_20260818` |
