@@ -1,4 +1,4 @@
-"""Deterministic smoke test for Visualization MVP v0.2.0."""
+"""Deterministic smoke test for Visualization MVP v0.3."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from regime.pandas_compat import MONTH_END
 from regime._08_geometry_engine import _major_regime
 from visualization.regime_snapshot import (
     MAJOR_BOUNDARY_DEGREES, MAJOR_REGIMES, PLANE_EXTENT, RADIAL_REFERENCES,
-    REQUIRED_ARTIFACTS, SCHEMA_VERSION, VISUALIZATION_VERSION, _metric_drivers, _plane,
+    REQUIRED_ARTIFACTS, SCHEMA_VERSION, VISUALIZATION_VERSION, _metric_drivers, _plane, _regime_strip,
     load_county_manifest, load_metric_memberships, render_county_site, render_snapshot,
 )
 
@@ -157,8 +157,18 @@ def main() -> int:
         html = html_path.read_text(encoding="utf-8")
         for anchor in ("market-regime", "market-interpretation", "regime-drivers", "market-trajectory", "evidence-detail", "data-methodology"):
             assert f'id="{anchor}"' in html
-        assert html.count("<details ") == 6  # Capital Markets appears under both axes.
-        assert VISUALIZATION_VERSION == "v0.2.0" and "plotly" in html.lower()
+        assert html.count("data-axis=") == 6  # Capital Markets appears under both axes.
+        assert html.count("<details") == 8  # Six evidence panels plus two audit disclosures.
+        assert VISUALIZATION_VERSION == "v0.3.0" and "plotly" in html.lower()
+        assert len([trace for trace in plane.data if str(trace.name).endswith("-shade")]) == 12
+        assert plane.layout.xaxis.zerolinecolor == "rgba(152,162,179,.42)"
+        assert plane.layout.xaxis.zerolinewidth == .75
+        current_marker = next(trace for trace in plane.data if trace.name == "current-state-marker")
+        assert current_marker.mode == "markers" and current_marker.text is None
+        assert "max-width:1400px" in html
+        assert "Oldest contributing active-axis input:</strong> 30 days" in html
+        strip = _regime_strip(snapshot)
+        assert strip.layout.margin.t == 48 and strip.layout.legend.yanchor == "bottom"
         assert "data-demand-block" not in html
         assert "Structural —" not in html and "Cyclical —" not in html
         assert "Market Context metric evidence" not in html
@@ -170,6 +180,21 @@ def main() -> int:
         assert payload["cadence_freshness"]["annual_structural_axis_evidence"]["status"] == "not_applicable"
         assert payload["cadence_freshness"]["annual_structural_axis_evidence"]["metric_count"] == 0
         assert set(payload["interpretation"]) >= {"current_condition", "primary_drivers", "recent_movement"}
+        assert set(payload["executive_summary"]) >= {
+            "interpretation", "demand_direction", "supply_direction", "largest_change",
+            "support", "headwind", "capital_markets_demand", "affordability",
+        }
+        assert payload["executive_summary"]["demand_direction"] == "Strengthened"
+        assert payload["executive_summary"]["supply_direction"] == "Eased"
+        for section in ("executive-brief", "current-position", "market-drivers",
+                        "market-trajectory", "supporting-evidence", "audit"):
+            assert f'id="{section}"' in html
+        assert "What is the market doing today?" in html
+        assert "What's driving the market?" in html
+        assert "What changed?" in html
+        assert "What supports this conclusion?" in html
+        assert "How was this determined?" in html
+        assert "@media(max-width:1080px)" in html and "@media(max-width:560px)" in html
         assert payload["provenance"]["axis_registry_sha256"]
         assert "class=\"sticky-nav\"" in html and "@media(max-width:820px)" in html
         assert all(" open" not in tag for tag in html.split("<details")[1:7])

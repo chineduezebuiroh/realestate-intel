@@ -20,14 +20,15 @@ REQUIRED_ARTIFACTS = (
 REQUIRED_AXES = {"demand", "supply"}
 MAJOR_REGIMES = ("expansion", "hypersupply", "recession", "recovery")
 REGIME_COLORS = {"expansion": "#12b76a", "hypersupply": "#f79009", "recession": "#d92d20", "recovery": "#2e90fa"}
-REGIME_FILLS = {"expansion": "rgba(18,183,106,.09)", "hypersupply": "rgba(247,144,9,.09)",
-                "recession": "rgba(217,45,32,.09)", "recovery": "rgba(46,144,250,.09)"}
+REGIME_RGB = {"expansion": "18,183,106", "hypersupply": "247,144,9",
+              "recession": "217,45,32", "recovery": "46,144,250"}
+MICRO_REGIME_OPACITY = {"early": .18, "mid": .115, "late": .065}
 # Exact major-sector boundaries governed by regime/_08_geometry_engine.py.
 MAJOR_BOUNDARY_DEGREES = (45.0, 135.0, 225.0, 315.0)
 RADIAL_REFERENCES = (.25, .50)
 PLANE_EXTENT = .60
 NATIONAL_GEO_ID = "united_states__nation"
-VISUALIZATION_VERSION = "v0.2.0"
+VISUALIZATION_VERSION = "v0.3.0"
 SCHEMA_VERSION = "2.0"
 
 
@@ -295,12 +296,22 @@ def resolve_snapshot(run_dir: Path, geo_id: str, axis_registry_path: Path, metri
 def _plane(snapshot: Snapshot) -> go.Figure:
     path = snapshot.path
     fig = go.Figure()
-    sector_specs = ((-45, 45, "hypersupply"), (45, 135, "expansion"), (135, 225, "recovery"), (225, 315, "recession"))
-    for start, end, regime in sector_specs:
+    # These angular bands mirror the governed minor-regime geometry. Persisted
+    # labels remain authoritative for every plotted observation.
+    sector_specs = (
+        (-45, -15, "hypersupply", "late"), (-15, 15, "hypersupply", "mid"),
+        (15, 45, "hypersupply", "early"), (45, 75, "expansion", "late"),
+        (75, 105, "expansion", "mid"), (105, 135, "expansion", "early"),
+        (135, 165, "recovery", "late"), (165, 195, "recovery", "mid"),
+        (195, 225, "recovery", "early"), (225, 255, "recession", "late"),
+        (255, 285, "recession", "mid"), (285, 315, "recession", "early"),
+    )
+    for start, end, regime, phase in sector_specs:
         angles = [math.radians(start + (end - start) * i / 24) for i in range(25)]
         fig.add_trace(go.Scatter(x=[0] + [PLANE_EXTENT * math.cos(a) for a in angles] + [0],
             y=[0] + [PLANE_EXTENT * math.sin(a) for a in angles] + [0], fill="toself", mode="lines",
-            line={"width": 0}, fillcolor=REGIME_FILLS[regime], hoverinfo="skip", showlegend=False))
+            line={"width": 0}, fillcolor=f"rgba({REGIME_RGB[regime]},{MICRO_REGIME_OPACITY[phase]})",
+            hoverinfo="skip", showlegend=False, name=f"{phase}-{regime}-shade"))
     for angle in MAJOR_BOUNDARY_DEGREES:
         rad = math.radians(angle)
         fig.add_shape(type="line", x0=-PLANE_EXTENT * math.cos(rad), y0=-PLANE_EXTENT * math.sin(rad),
@@ -315,11 +326,16 @@ def _plane(snapshot: Snapshot) -> go.Figure:
         marker={"size": [5 + 5 * i / max(1, len(path)-1) for i in range(len(path))], "color": list(range(len(path))), "colorscale": "Blues", "showscale": False},
         customdata=path[["date", "major_regime", "minor_regime"]],
         hovertemplate="%{customdata[0]|%b %Y}<br>Supply %{x:+.3f}<br>Demand %{y:+.3f}<br>%{customdata[1]} · %{customdata[2]}<extra></extra>"))
-    fig.add_trace(go.Scatter(x=[snapshot.current["supply_score"]], y=[snapshot.current["demand_score"]], mode="markers+text",
-        marker={"size": 15, "color": "#b42318"}, text=[str(snapshot.current["major_regime"]).upper()], textposition="top center", hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=[snapshot.current["supply_score"]], y=[snapshot.current["demand_score"]], mode="markers",
+        marker={"size": 15, "color": "#b42318", "line": {"color": "#ffffff", "width": 2}},
+        customdata=[[snapshot.current["as_of_date"], snapshot.current["major_regime"], snapshot.current["minor_regime"]]],
+        hovertemplate="%{customdata[0]|%b %Y}<br>Supply %{x:+.3f}<br>Demand %{y:+.3f}<br>%{customdata[1]} · %{customdata[2]}<extra></extra>",
+        name="current-state-marker"))
     fig.update_layout(template="plotly_white", height=500, margin={"l": 55, "r": 25, "t": 20, "b": 50}, showlegend=False,
-        xaxis={"title": "Supply pressure", "range": [-PLANE_EXTENT, PLANE_EXTENT], "zeroline": True, "zerolinecolor": "#667085", "constrain": "domain"},
-        yaxis={"title": "Demand strength", "range": [-PLANE_EXTENT, PLANE_EXTENT], "zeroline": True, "zerolinecolor": "#667085", "scaleanchor": "x", "scaleratio": 1})
+        xaxis={"title": "Supply pressure", "range": [-PLANE_EXTENT, PLANE_EXTENT], "zeroline": True,
+               "zerolinecolor": "rgba(152,162,179,.42)", "zerolinewidth": .75, "constrain": "domain"},
+        yaxis={"title": "Demand strength", "range": [-PLANE_EXTENT, PLANE_EXTENT], "zeroline": True,
+               "zerolinecolor": "rgba(152,162,179,.42)", "zerolinewidth": .75, "scaleanchor": "x", "scaleratio": 1})
     return fig
 
 
@@ -366,9 +382,10 @@ def _regime_strip(snapshot: Snapshot) -> go.Figure:
             hovertemplate="%{x|%b %Y}<br>%{customdata[0]} · %{customdata[1]}<extra></extra>"))
     for date in snapshot.transitions.date.iloc[1:]:
         fig.add_vline(x=date.timestamp() * 1000, line_color="#344054", line_width=1)
-    fig.update_layout(template="plotly_white", barmode="overlay", height=155, margin={"l": 55, "r": 25, "t": 10, "b": 40},
+    fig.update_layout(template="plotly_white", barmode="overlay", height=180, margin={"l": 55, "r": 25, "t": 48, "b": 40},
         xaxis={"range": [history.date.min(), history.date.max()]}, yaxis={"visible": False, "range": [0, 1]},
-        legend={"orientation": "h", "y": 1.25}, bargap=0, showlegend=True)
+        legend={"orientation": "h", "y": 1.18, "yanchor": "bottom", "x": 0, "xanchor": "left"},
+        bargap=0, showlegend=True)
     return fig
 
 
@@ -380,6 +397,70 @@ def _freshness_text(freshness: dict[str, dict]) -> tuple[str, str]:
     annual_text = (f"Annual/structural axis evidence: latest governed vintage {annual['latest_vintage']}"
                    if annual["status"] == "available" else "Annual/structural axis evidence: none active")
     return monthly_text, annual_text
+
+
+def _presentation_summary(snapshot: Snapshot) -> dict[str, str | float]:
+    """Resolve deterministic, presentation-only executive copy."""
+    current = snapshot.current
+    all_drivers = pd.concat(
+        [rows.assign(axis=axis) for axis, rows in snapshot.drivers.items()],
+        ignore_index=True,
+    )
+    # Capital Markets intentionally belongs to both axes; keep axis context
+    # rather than collapsing its two governed contributions.
+    positive = all_drivers.sort_values(
+        ["weighted_contribution", "display_name"], ascending=[False, True], kind="mergesort"
+    )
+    negative = all_drivers.sort_values(
+        ["weighted_contribution", "display_name"], ascending=[True, True], kind="mergesort"
+    )
+    support = positive[positive.weighted_contribution > 0].head(2)
+    headwind = negative[negative.weighted_contribution < 0].head(1)
+
+    first, last = snapshot.path.iloc[0], snapshot.path.iloc[-1]
+    demand_change = float(last.demand_strength_score - first.demand_strength_score)
+    supply_change = float(last.supply_pressure_score - first.supply_pressure_score)
+
+    def direction(value: float, positive_word: str, negative_word: str) -> str:
+        return positive_word if value > 0 else negative_word if value < 0 else "Unchanged"
+
+    support_text = "; ".join(
+        f"{row.display_name} ({row.weighted_contribution:+.3f}, {row.axis.title()})"
+        for row in support.itertuples()
+    ) or "No positive dimension contribution"
+    headwind_text = (
+        f"{headwind.iloc[0].display_name} ({headwind.iloc[0].weighted_contribution:+.3f}, "
+        f"{headwind.iloc[0].axis.title()})"
+        if not headwind.empty else "No negative dimension contribution"
+    )
+    largest_axis = "Demand" if abs(demand_change) >= abs(supply_change) else "Supply"
+    largest_change = demand_change if largest_axis == "Demand" else supply_change
+    regime = str(current["minor_regime"]).replace("_", " ").title()
+    interpretation = (
+        f"{regime}, with Demand at {current['demand_score']:+.2f} and Supply pressure at "
+        f"{current['supply_score']:+.2f}. Over the displayed year, {largest_axis} had the larger "
+        f"absolute movement ({largest_change:+.3f})."
+    )
+
+    def contribution(dimension: str, axis: str) -> str:
+        rows = snapshot.drivers[axis]
+        match = rows[rows.dimension.eq(dimension)]
+        return (f"{float(match.iloc[0].weighted_contribution):+.3f} on {axis.title()}"
+                if not match.empty else "Not an active member")
+
+    return {
+        "interpretation": interpretation,
+        "demand_change": demand_change,
+        "supply_change": supply_change,
+        "demand_direction": direction(demand_change, "Strengthened", "Weakened"),
+        "supply_direction": direction(supply_change, "Increased", "Eased"),
+        "largest_change": f"{largest_axis} {largest_change:+.3f}",
+        "support": support_text,
+        "headwind": headwind_text,
+        "capital_markets_demand": contribution("capital_markets", "demand"),
+        "capital_markets_supply": contribution("capital_markets", "supply"),
+        "affordability": contribution("affordability", "demand"),
+    }
 
 
 def _sha256(path: Path) -> str:
@@ -416,17 +497,27 @@ def render_snapshot(run_dir: Path, geo_id: str, market_name: str, output_dir: Pa
     history = pio.to_html(_history(snapshot), full_html=False, include_plotlyjs=False, config=config, div_id=f"{geo_id}-history-chart")
     strip = pio.to_html(_regime_strip(snapshot), full_html=False, include_plotlyjs=False, config=config, div_id=f"{geo_id}-regime-history-chart")
     current, interpretation = snapshot.current, snapshot.interpretation
+    executive = _presentation_summary(snapshot)
     monthly_text, annual_text = _freshness_text(snapshot.freshness)
     index_link = f'<a class="county-link" href="{escape(county_href)}">← All counties</a>' if county_href else ""
+    axis_hash = _sha256(axis_registry_path)
+    metric_hash = _sha256(metric_registry_path)
+    source_hash = (_sha256(source_registry_path)
+                   if source_registry_path and source_registry_path.is_file() else None)
     html = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(market_name)} County Macro Regime</title>
-<style>:root{{--ink:#101828;--muted:#667085;--line:#eaecf0;--canvas:#f8fafc}}*{{box-sizing:border-box}}html{{scroll-behavior:smooth;scroll-padding-top:64px}}body{{font-family:Inter,Arial,sans-serif;color:var(--ink);background:var(--canvas);margin:0;line-height:1.5}}main{{max-width:1120px;margin:auto;padding:24px 32px 64px}}.sticky-nav{{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);padding:10px max(16px,calc((100vw - 1120px)/2));display:flex;gap:20px;overflow:auto;white-space:nowrap}}.sticky-nav a{{color:#344054;text-decoration:none;font-size:14px;font-weight:650}}.county-link{{margin-left:auto}}section{{margin:56px 0}}.hero{{background:#fff;border:1px solid var(--line);border-radius:14px;padding:28px;margin-top:24px}}.hero-head{{display:flex;justify-content:space-between;gap:20px;align-items:start}}.eyebrow,.meta{{color:var(--muted);font-size:14px}}h1{{font-size:26px;margin:2px 0}}h2{{font-size:26px;margin:0 0 8px}}h3{{font-size:18px}}.hero-grid{{display:grid;grid-template-columns:minmax(280px,.75fr) minmax(480px,1.4fr);gap:24px;align-items:center}}.regime-label{{font-size:42px;line-height:1.05;font-weight:780;letter-spacing:-.02em;margin:22px 0}}.kpis{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}.kpi{{border-left:3px solid #d0d5dd;padding-left:12px}}.kpi b{{display:block;font-size:23px}}.freshness-summary{{margin-top:24px;padding:14px;background:#f2f4f7;border-radius:8px}}.freshness-summary span{{display:block}}.interpretation-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}}.interpretation-item{{padding:6px 18px;border-left:3px solid #98a2b3}}.interpretation-item h3{{margin:0 0 8px}}.drivers{{display:grid;grid-template-columns:1fr 1fr;gap:20px}}.driver-card{{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px}}.driver-summary{{color:#475467;margin:0 0 4px}}.trajectory-card{{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:16px}}.evidence-grid{{display:grid;grid-template-columns:1fr 1fr;gap:20px}}details{{background:#fff;border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:12px}}summary{{cursor:pointer;font-weight:650}}details[open] summary{{margin-bottom:12px}}.methodology{{margin-top:44px}}.method-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 24px;font-size:14px}}.method-grid dt{{color:var(--muted)}}.method-grid dd{{margin:0 0 8px;overflow-wrap:anywhere}}.section-intro{{color:var(--muted);max-width:740px}}.legacy-anchor{{position:absolute;visibility:hidden}}@media(max-width:820px){{main{{padding:16px}}.hero-grid,.drivers,.evidence-grid,.interpretation-grid{{grid-template-columns:1fr}}.hero-grid{{gap:8px}}.hero-head{{display:block}}.regime-label{{font-size:34px}}.county-link{{margin-left:0}}.sticky-nav{{gap:14px}}.kpis{{grid-template-columns:repeat(3,1fr)}}}}@media(max-width:480px){{.kpis{{grid-template-columns:1fr}}.hero{{padding:18px}}h2{{font-size:23px}}}}</style></head><body>
-<nav class="sticky-nav" aria-label="Dashboard sections"><a href="#market-regime">Overview</a><a href="#regime-drivers">Drivers</a><a href="#market-trajectory">History</a><a href="#evidence-detail">Evidence</a><a href="#data-methodology">Data</a>{index_link}</nav><main>
-<section id="market-regime" class="hero"><span id="current-state" class="legacy-anchor"></span><span id="regime-plane" class="legacy-anchor"></span><div class="hero-head"><div><p class="eyebrow">County Macro Regime</p><h1>{escape(market_name)}</h1></div><p class="meta">As of {current['as_of_date']:%B %Y}</p></div><div class="hero-grid"><div><p class="regime-label">{escape(str(current['minor_regime']).replace('_', ' ').upper())}</p><div class="kpis"><div class="kpi">Demand<b>{current['demand_score']:+.2f}</b></div><div class="kpi">Supply<b>{current['supply_score']:+.2f}</b></div><div class="kpi">Regime strength<b>{current['regime_strength']:.2f}</b></div></div><div class="freshness-summary"><span>{escape(monthly_text)}</span><span>{escape(annual_text)}</span></div></div><div aria-label="Twelve-month governed regime plane">{plane}</div></div></section>
-<section id="market-interpretation"><span id="why-this-regime" class="legacy-anchor"></span><h2>Market Interpretation</h2><div class="interpretation-grid"><article class="interpretation-item"><h3>Current condition</h3><p>{escape(interpretation['current_condition'])}</p></article><article class="interpretation-item"><h3>Primary drivers</h3><p>{escape(interpretation['primary_drivers'])}</p></article><article class="interpretation-item"><h3>Recent movement</h3><p>{escape(interpretation['recent_movement'])}</p></article></div><p class="meta">{escape(interpretation['materiality_note'])}</p></section>
-<section id="regime-drivers"><span id="dimension-drivers" class="legacy-anchor"></span><h2>What's Driving the Regime?</h2><p class="section-intro">Dimension contributions explain the persisted Demand and Supply axis scores; positive and negative signs remain explicit in hover detail.</p><div class="drivers"><article class="driver-card"><p class="driver-summary">{escape(summaries[0])}</p>{dimensions[0]}</article><article class="driver-card"><p class="driver-summary">{escape(summaries[1])}</p>{dimensions[1]}</article></div></section>
-<section id="market-trajectory"><span id="historical-chronology" class="legacy-anchor"></span><span id="major-regime-chronology" class="legacy-anchor"></span><h2>Market Trajectory</h2><p class="section-intro">How the persisted axes moved, followed by the regimes those movements produced.</p><article class="trajectory-card"><h3>Demand &amp; Supply — 5 Years</h3>{history}<h3>Regime History</h3>{strip}</article></section>
-<section id="evidence-detail"><h2>Evidence &amp; Metric Detail</h2><p class="section-intro">Audit detail is collapsed by default and remains one interaction away. Metric scores and weights reconcile to the persisted dimension state.</p><div class="evidence-grid">{''.join(drilldowns)}</div></section>
-<section id="data-methodology" class="methodology"><details><summary>Data, freshness &amp; methodology</summary><dl class="method-grid"><div><dt>Run ID</dt><dd>{escape(run_dir.name)}</dd><dt>Geography ID</dt><dd>{escape(geo_id)}</dd><dt>Market label</dt><dd>{escape(market_name)}</dd></div><div><dt>Evaluation month</dt><dd>{current['as_of_date']:%Y-%m-%d}</dd><dt>Visualization / schema</dt><dd>{VISUALIZATION_VERSION} / {SCHEMA_VERSION}</dd><dt>Registries</dt><dd>{escape(str(axis_registry_path))}; {escape(str(metric_registry_path))}</dd></div></dl><p>{escape(monthly_text)}. {escape(annual_text)}. Unclassified cadence metrics: {snapshot.freshness['unknown']['metric_count']}.</p><p class="meta">Artifact-only rendering. Persisted assignments are authoritative; display geometry does not reclassify points.</p></details></section>
+<style>
+:root{{--ink:#101828;--muted:#667085;--soft:#f2f4f7;--line:#eaecf0;--canvas:#f8fafc;--blue:#175cd3;--red:#b42318;--green:#067647}}*{{box-sizing:border-box}}html{{scroll-behavior:smooth;scroll-padding-top:72px}}body{{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:var(--canvas);margin:0;line-height:1.55}}main{{max-width:1400px;margin:auto;padding:32px 32px 80px}}.sticky-nav{{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.97);border-bottom:1px solid var(--line);padding:11px max(20px,calc((100vw - 1400px)/2));display:flex;gap:24px;overflow-x:auto;white-space:nowrap}}.sticky-nav a{{color:#344054;text-decoration:none;font-size:13px;font-weight:680;letter-spacing:.01em}}.sticky-nav a:hover{{color:var(--blue)}}.county-link{{margin-left:auto}}section{{margin:72px 0}}.hero{{background:#fff;border:1px solid var(--line);border-radius:16px;padding:34px;margin-top:16px;box-shadow:0 1px 2px rgba(16,24,40,.04)}}.hero-head,.section-head{{display:flex;justify-content:space-between;gap:24px;align-items:start}}.eyebrow{{color:var(--blue);font-size:12px;font-weight:750;letter-spacing:.09em;text-transform:uppercase;margin:0 0 6px}}.meta,.section-intro{{color:var(--muted)}}h1{{font-size:30px;line-height:1.2;letter-spacing:-.02em;margin:0}}h2{{font-size:28px;line-height:1.25;letter-spacing:-.02em;margin:0 0 8px}}h3{{font-size:17px;margin:0 0 8px}}p{{margin:8px 0}}.section-intro{{max-width:720px;margin:0}}.brief-grid{{display:grid;grid-template-columns:minmax(280px,.8fr) minmax(0,1.5fr);gap:36px;margin-top:30px}}.regime-label{{font-size:44px;line-height:1.02;font-weight:780;letter-spacing:-.035em;margin:10px 0 16px}}.brief-copy{{font-size:18px;max-width:760px;margin:0 0 22px}}.signal-grid{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}}.signal{{background:var(--soft);border-radius:10px;padding:14px 16px;min-height:92px}}.signal span{{display:block;color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}}.signal strong{{display:block;font-size:18px;margin-top:4px}}.signal small{{color:#475467}}.brief-factors{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}}.factor{{border:1px solid var(--line);border-radius:10px;padding:14px 16px}}.factor b{{display:block;font-size:13px;margin-bottom:3px}}.freshness-summary{{border-top:1px solid var(--line);margin-top:18px;padding-top:14px;color:#475467;font-size:14px}}.freshness-summary span+span{{margin-left:14px}}.position-grid{{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.75fr);gap:24px;align-items:center;margin-top:24px}}.surface{{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}}.coordinate-grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:18px 0}}.coordinate{{border-left:3px solid #d0d5dd;padding-left:12px}}.coordinate span{{display:block;color:var(--muted);font-size:13px}}.coordinate b{{font-size:24px}}.drivers{{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px}}.driver-card{{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px}}.driver-summary{{color:#475467;min-height:48px}}.callout-grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0}}.callout{{border-top:3px solid #98a2b3;background:#fff;padding:14px;border-radius:0 0 8px 8px}}.callout span{{display:block;color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase}}.trajectory-card{{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;margin-top:18px}}.chart-title{{margin:18px 0 0}}.evidence-grid{{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:22px}}details{{background:#fff;border:1px solid var(--line);border-radius:9px;margin:10px 0;padding:13px 15px}}summary{{cursor:pointer;font-weight:680;color:#344054}}details[open] summary{{margin-bottom:14px}}.audit-grid{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:22px}}.method-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 24px;font-size:14px}}.method-grid dt{{color:var(--muted)}}.method-grid dd{{margin:0 0 8px;overflow-wrap:anywhere}}code.hash{{display:block;overflow-wrap:anywhere;font-size:11px;color:#475467}}.legacy-anchor{{position:absolute;visibility:hidden}}
+@media(max-width:1080px){{.brief-grid,.position-grid{{grid-template-columns:1fr}}.signal-grid{{grid-template-columns:repeat(3,1fr)}}.callout-grid{{grid-template-columns:repeat(2,1fr)}}}}
+@media(max-width:820px){{html{{scroll-padding-top:58px}}main{{padding:20px 16px 60px}}section{{margin:52px 0}}.hero{{padding:24px}}.hero-head,.section-head{{display:block}}.hero-head .meta{{margin-top:8px}}.drivers,.evidence-grid,.audit-grid{{grid-template-columns:1fr}}.regime-label{{font-size:36px}}.county-link{{margin-left:0}}.sticky-nav{{gap:16px}}}}
+@media(max-width:560px){{.signal-grid,.brief-factors,.callout-grid,.coordinate-grid,.method-grid{{grid-template-columns:1fr}}.signal{{min-height:0}}.freshness-summary span{{display:block}}.freshness-summary span+span{{margin:3px 0 0}}h1{{font-size:26px}}h2{{font-size:24px}}.hero{{padding:20px}}}}
+</style></head><body>
+<nav class="sticky-nav" aria-label="Dashboard sections"><a href="#executive-brief">Brief</a><a href="#current-position">Position</a><a href="#market-drivers">Drivers</a><a href="#market-trajectory">Trajectory</a><a href="#supporting-evidence">Evidence</a><a href="#audit">Audit</a>{index_link}</nav><main>
+<section id="executive-brief" class="hero"><div class="hero-head"><div><p class="eyebrow">Executive Brief</p><h1>{escape(market_name)}</h1></div><p class="meta">Evidence through {current['as_of_date']:%B %Y}</p></div><div class="brief-grid"><div><p class="meta">Current market regime</p><p class="regime-label">{escape(str(current['minor_regime']).replace('_', ' ').upper())}</p><div class="coordinate-grid"><div class="coordinate"><span>Demand</span><b>{current['demand_score']:+.2f}</b></div><div class="coordinate"><span>Supply</span><b>{current['supply_score']:+.2f}</b></div></div></div><div><p class="brief-copy">{escape(str(executive['interpretation']))}</p><div class="signal-grid"><div class="signal"><span>Demand direction</span><strong>{executive['demand_direction']}</strong><small>{executive['demand_change']:+.3f} over displayed year</small></div><div class="signal"><span>Supply direction</span><strong>{executive['supply_direction']}</strong><small>{executive['supply_change']:+.3f} over displayed year</small></div><div class="signal"><span>Largest axis change</span><strong>{executive['largest_change']}</strong><small>Absolute movement</small></div></div><div class="brief-factors"><div class="factor"><b>Major supporting factors</b>{escape(str(executive['support']))}</div><div class="factor"><b>Primary headwind</b>{escape(str(executive['headwind']))}</div></div><div class="freshness-summary"><span>{escape(monthly_text)}</span><span>{escape(annual_text)}</span></div></div></div></section>
+<section id="current-position"><span id="market-regime" class="legacy-anchor"></span><span id="market-interpretation" class="legacy-anchor"></span><div class="section-head"><div><p class="eyebrow">Current Position</p><h2>What is the market doing today?</h2><p class="section-intro">The governed plane places Supply on the horizontal axis and Demand on the vertical axis. Persisted assignments—not display geometry—remain authoritative.</p></div></div><div class="position-grid"><div class="surface" aria-label="Twelve-month governed regime plane">{plane}</div><aside class="surface"><p class="eyebrow">Current reading</p><h3>{escape(str(current['minor_regime']).replace('_', ' ').title())}</h3><div class="coordinate-grid"><div class="coordinate"><span>Demand</span><b>{current['demand_score']:+.2f}</b></div><div class="coordinate"><span>Supply</span><b>{current['supply_score']:+.2f}</b></div></div><p>{escape(interpretation['current_condition'])}</p><p class="meta">{escape(interpretation['recent_movement'])}</p></aside></div></section>
+<section id="market-drivers"><span id="regime-drivers" class="legacy-anchor"></span><div class="section-head"><div><p class="eyebrow">Drivers</p><h2>What's driving the market?</h2><p class="section-intro">Governed dimension contributions explain the current Demand and Supply axis scores. Signs and magnitudes remain explicit.</p></div></div><div class="drivers"><article class="driver-card"><h3>Demand-side contributions</h3><p class="driver-summary">{escape(summaries[0])}</p>{dimensions[0]}</article><article class="driver-card"><h3>Supply-side contributions</h3><p class="driver-summary">{escape(summaries[1])}</p>{dimensions[1]}</article></div></section>
+<section id="market-trajectory"><div class="section-head"><div><p class="eyebrow">Trajectory</p><h2>What changed?</h2><p class="section-intro">Five years of persisted axis history show how the market reached its current position; transition markers identify changes in major regime.</p></div></div><div class="callout-grid"><div class="callout"><span>Demand movement</span><b>{executive['demand_direction']} {executive['demand_change']:+.3f}</b></div><div class="callout"><span>Supply movement</span><b>{executive['supply_direction']} {executive['supply_change']:+.3f}</b></div><div class="callout"><span>Capital Markets</span><b>{executive['capital_markets_demand']}; {executive['capital_markets_supply']}</b></div><div class="callout"><span>Affordability</span><b>{executive['affordability']}</b></div></div><article class="trajectory-card"><h3>Demand and Supply — five years</h3>{history}<h3 class="chart-title">Regime transitions</h3>{strip}</article></section>
+<section id="supporting-evidence"><span id="evidence-detail" class="legacy-anchor"></span><div class="section-head"><div><p class="eyebrow">Evidence</p><h2>What supports this conclusion?</h2><p class="section-intro">Open a dimension to inspect its persisted metric scores, governed weights, contributions, and evidence age. Detail stays collapsed by default.</p></div></div><div class="evidence-grid">{''.join(drilldowns)}</div></section>
+<section id="audit"><span id="data-methodology" class="legacy-anchor"></span><div class="section-head"><div><p class="eyebrow">Audit</p><h2>How was this determined?</h2><p class="section-intro">Freshness, methodology, and immutable input identities are available without competing with the decision view.</p></div></div><div class="audit-grid"><details><summary>Freshness and methodology</summary><p>{escape(monthly_text)}.</p><p>{escape(annual_text)}.</p><p>Unclassified cadence metrics: {snapshot.freshness['unknown']['metric_count']}.</p><p><strong>Oldest contributing active-axis input:</strong> {current['max_axis_age_days']} days.</p><p class="meta">Artifact-only rendering. Persisted assignments are authoritative; display geometry does not reclassify points.</p></details><details><summary>Run provenance and registry identities</summary><dl class="method-grid"><div><dt>Run ID</dt><dd>{escape(run_dir.name)}</dd><dt>Geography ID</dt><dd>{escape(geo_id)}</dd><dt>Market label</dt><dd>{escape(market_name)}</dd></div><div><dt>Evaluation month</dt><dd>{current['as_of_date']:%Y-%m-%d}</dd><dt>Visualization / schema</dt><dd>{VISUALIZATION_VERSION} / {SCHEMA_VERSION}</dd><dt>Source run</dt><dd>{escape(str(run_dir))}</dd></div></dl><p><b>Axis registry</b><code class="hash">{axis_hash}</code></p><p><b>Metric registry</b><code class="hash">{metric_hash}</code></p>{f'<p><b>Source registry</b><code class="hash">{source_hash}</code></p>' if source_hash else ''}</details></div></section>
 </main></body></html>'''
     html_path, json_path = output_dir / f"{geo_id}.html", output_dir / f"{geo_id}_snapshot.json"
     html_path.write_text(html, encoding="utf-8", newline="\n")
@@ -439,14 +530,15 @@ def render_snapshot(run_dir: Path, geo_id: str, market_name: str, output_dir: Pa
                "demand_drivers": snapshot.drivers["demand"][["dimension", "dimension_score", "dimension_weight", "weighted_contribution"]].to_dict("records"),
                "supply_drivers": snapshot.drivers["supply"][["dimension", "dimension_score", "dimension_weight", "weighted_contribution"]].to_dict("records"),
                "metric_drivers": compact, "explanation": snapshot.explanation, "interpretation": interpretation,
+               "executive_summary": executive,
                "cadence_freshness": snapshot.freshness,
                "trajectory": {"plane_months": len(snapshot.path), "history_months": len(snapshot.history),
                               "history_start": snapshot.history.date.min().date().isoformat(), "history_end": snapshot.history.date.max().date().isoformat()},
                "provenance": {"source_run_id": run_dir.name, "source_run_path": str(run_dir),
-                              "axis_registry": str(axis_registry_path), "axis_registry_sha256": _sha256(axis_registry_path),
-                              "metric_registry": str(metric_registry_path), "metric_registry_sha256": _sha256(metric_registry_path),
+                              "axis_registry": str(axis_registry_path), "axis_registry_sha256": axis_hash,
+                              "metric_registry": str(metric_registry_path), "metric_registry_sha256": metric_hash,
                               "source_registry": str(source_registry_path) if source_registry_path else None,
-                              "source_registry_sha256": _sha256(source_registry_path) if source_registry_path and source_registry_path.is_file() else None}}
+                              "source_registry_sha256": source_hash}}
     json_path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8", newline="\n")
     return html_path, json_path, snapshot
 
