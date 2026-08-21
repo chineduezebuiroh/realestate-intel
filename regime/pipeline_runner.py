@@ -20,6 +20,7 @@ from regime._03_metric_scorer import score_metrics
 from regime._04_asof_aligner import align_metric_scores_asof
 from regime._05_dimension_scorer import score_dimensions
 from regime._06_axis_engine import score_axes
+from regime.contribution_lineage import build_contribution_lineage
 from regime._07_coordinate_engine import build_coordinates
 from regime._08_geometry_engine import assign_geometry
 from regime._09_regime_assignment import assign_regimes
@@ -332,6 +333,14 @@ def run_regime_pipeline(
         axis_scores = score_axes(dimension_scores)
         stage_summaries["axis_scores"] = _frame_summary(axis_scores)
         _write_pipeline_artifact(store, run_id, "axis_scores", axis_scores)
+
+        print("[regime_pipeline] persisting hierarchical contribution lineage")
+        contribution_lineage = build_contribution_lineage(
+            normalized_features, aligned_metric_scores, dimension_scores
+        )
+        for artifact_name, dataframe in contribution_lineage.items():
+            stage_summaries[artifact_name] = _frame_summary(dataframe)
+            _write_pipeline_artifact(store, run_id, artifact_name, dataframe)
 
         print("[regime_pipeline] 7/9 building coordinates")
         coordinates = build_coordinates(axis_scores)

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Fast contract smoke test for the diagnostic-only LAUS MA factorial."""
+import warnings
 import numpy as np
 import pandas as pd
 
 from regime.calendar_ma import minimum_valid_observations
 from regime.experiments.laus_ma_window_calibration import (
-    BALANCES, GOVERNANCE, LAUS_WEIGHTS, MA_WINDOWS, construct_laus_features,
-    scenario_grid,
+    BALANCES, GOVERNANCE, LAUS_WEIGHTS, MA_WINDOWS,
+    _conflict_neutralization, align_challenger_laus_scores,
+    construct_laus_features, scenario_grid,
 )
 
 
@@ -20,9 +22,15 @@ def main() -> None:
     assert minimum_valid_observations(3)==2 and minimum_valid_observations(6)==4
     assert minimum_valid_observations(9)==6 and minimum_valid_observations(12)==8
 
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        assert _conflict_neutralization(np.nan, 1.0) is False
+        assert _conflict_neutralization(1.0, -1.0) is True
+        assert _conflict_neutralization(1.0, 1.0) is False
+
     # Missing February proves calendarization (not sparse-row rolling), no fill,
     # exact lag3/lag12, and the shared 2/3 coverage rule for every candidate.
-    dates=pd.date_range("2018-01-31",periods=30,freq="M")
+    dates=pd.date_range("2018-01-31",periods=30,freq="ME")
     rows=[]
     for metric in ("labor_force","employment","laus_unemployment_rate"):
         for i,date in enumerate(dates):
@@ -52,6 +60,41 @@ def main() -> None:
                 month=pd.Timestamp(row.date).to_period("M")
                 expected=levels.loc[month]/levels.loc[month-lag]-1
                 assert np.isclose(row.raw_feature_value,expected)
+
+    # Challenger LAUS ends in May, while the production evaluation calendar
+    # continues through July. The production aligner must carry May's governed
+    # score into both months rather than dropping the entire Cyclical block.
+    geo="district_of_columbia_dc__county"
+    evaluation_dates=pd.date_range("2026-01-31", "2026-07-31", freq="ME")
+    persisted=pd.DataFrame({
+        "geo_id":geo, "evaluation_date":evaluation_dates,
+        "canonical_metric_key":"population", "metric_score":0.2,
+        "feature_count":1, "feature_weight_sum":1.0,
+        "min_feature_score":0.2, "max_feature_score":0.2,
+    })
+    challenger_rows=[]
+    for metric,score in zip(
+        ("labor_force", "employment", "laus_unemployment_rate"),
+        (0.3, 0.4, -0.2),
+    ):
+        for date in evaluation_dates[:5]:
+            challenger_rows.append({
+                "geo_id":geo, "date":date, "metric":metric,
+                "metric_score":score, "level_score":score,
+                "short_score":score, "long_score":score,
+            })
+    aligned=align_challenger_laus_scores(pd.DataFrame(challenger_rows),persisted)
+    summer=aligned.loc[aligned.date.isin(evaluation_dates[-2:])]
+    assert len(summer)==6
+    assert set(summer.metric)=={"labor_force","employment","laus_unemployment_rate"}
+    assert summer.score.notna().all()
+    assert (summer.metric_date==pd.Timestamp("2026-05-31")).all()
+    # With all three aligned labor metrics present, Cyclical and Core Demand
+    # remain valid instead of falling back to the Structural score alone.
+    cyclical=summer.groupby("date").score.mean()
+    core=0.25*0.2+0.75*cyclical
+    assert cyclical.notna().all() and core.notna().all()
+    assert not np.isclose(core,0.2).any()
     assert "district_of_columbia_dc__county" in source.geo_id.unique()
     print("PASS: governed 16-scenario LAUS MA calibration contract")
 

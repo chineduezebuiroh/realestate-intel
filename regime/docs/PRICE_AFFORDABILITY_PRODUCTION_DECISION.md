@@ -1,5 +1,80 @@
 # Price / Affordability Production Smoothing Decision
 
+## Current governed status — Price promotion (2026-08-15)
+
+**Price status:** Accepted, promoted, and calibration closed
+
+**Canonical Price policy:** `MA12/P6`
+
+**Price scope:** `median_sale_price` and `median_ppsf` only
+
+**Price feature weights:** Level 35%, Short 20%, Long 45%
+
+The accepted production policy retains the MA12 structural feature construction:
+
+```text
+level = trailing MA12(raw metric)
+short = trailing MA12(raw metric) / lag3(trailing MA12(raw metric)) - 1
+long  = trailing MA12(raw metric) / lag12(trailing MA12(raw metric)) - 1
+```
+
+P6 changes only the feature weights of the two direct Price metrics to
+`0.35 / 0.20 / 0.45`. All earlier Price weighting and MA candidates are
+**superseded by production**, but the historical evidence and artifact references
+remain preserved below for auditability and discoverability.
+
+### Closed Price calibration record
+
+1. **Phase 1 — Feature Anatomy** separated structural level, short movement,
+   and long movement. It established that level did not need to remain dominant
+   and that the long feature carried material cycle information.
+2. **Phase 2 — Feature Weight Calibration** held feature construction,
+   normalization, Price metric membership and weights, and all other dimensions
+   fixed. P6 retained a meaningful structural level and short response while
+   assigning the larger role supported by the evidence to long movement.
+3. **Turning Point Calibration** tested the bounded finalists under governed
+   detector semantics. Detector persistence was not changed, and the review did
+   not reopen either the feature-weight or MA search space.
+4. **Final MA Calibration** compared only MA9 and MA12 at the P4 and P6
+   finalists. No later diagnostic demonstrated a structural advantage for MA9;
+   remaining finalist differences were incremental rather than structural; the
+   bounded search converged; and further MA exploration was unlikely to change
+   the production decision.
+
+MA12/P6 was therefore selected as the durable Price policy. The governed
+machine-readable decision is
+[`config/price_policy_promotion_2026_08_15.json`](../../config/price_policy_promotion_2026_08_15.json),
+and the exact production rows are in
+[`config/feature_registry.csv`](../../config/feature_registry.csv).
+
+## Current Affordability production policy — promoted (2026-08-16)
+
+Affordability calibration is closed at human-approved `MA12/P4`, with
+Level/Short/Long weights `0.35 / 0.20 / 0.45` for exactly `price_to_income` and
+`payment_burden`. The former `AFF-FW-A` 50/20/30 policy is superseded while its
+historical evidence remains preserved.
+
+The lineage remains derive-first: raw governed Price and canonical forward-filled
+income produce price-to-income; payment burden additionally consumes the canonical
+raw monthly `mortgage_30y`; only then are MA12 level, lag-3 ratio, and lag-12 ratio
+features constructed. No mortgage pre-smoothing or Capital Markets structural state
+crosses this boundary. Normalization, metric/dimension/axis weights, Price, Labor,
+Supply, and Capital Markets are unchanged. ADR-009 and
+`config/affordability_policy_promotion_2026_08_16.json` govern this closure.
+
+---
+
+## Historical MA12 structural-linked decision record (preserved)
+
+The remainder of this document preserves the earlier smoothing decision and its
+evidence references. Its direct-Price `0.50 / 0.25 / 0.25` policy and provisional
+Price status are historical and superseded by the current MA12/P6 production
+decision above. Its Affordability context remains part of the decision history;
+where it says Affordability was pending, that describes the state at the time of
+that record and is superseded only by the separately governed `AFF-FW-A`
+Affordability decision cited above.
+
+
 ## Decision status
 
 **Status:** Provisional production freeze

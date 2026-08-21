@@ -75,7 +75,7 @@ def main() -> None:
 
     # Explicit missing month and missing observation prove calendar MA9, 2/3
     # coverage, no sparse-row rolling, and no forward/zero fill.
-    dates = pd.date_range("2020-01-31", periods=24, freq="M")
+    dates = pd.date_range("2020-01-31", periods=24, freq="ME")
     values = pd.Series(np.arange(1.0, 25.0))
     values.iloc[4] = np.nan
     group = pd.DataFrame({"date": dates, "value": values})

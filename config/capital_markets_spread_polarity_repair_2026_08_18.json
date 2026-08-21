@@ -1,0 +1,24 @@
+{
+  "repair_contract": "capital_markets_spread_10y_2y_polarity_repair_2026_08_18",
+  "decision_date": "2026-08-18",
+  "defect_confirmed": true,
+  "canonical_metric": "spread_10y_2y",
+  "canonical_formula": "treasury_10y - treasury_2y",
+  "physical_source_identity": "fred_spread_2y_10y = treasury_2y - treasury_10y",
+  "repair_method": "sign_inverted_provider_spread",
+  "spread_10y_2y_feature_policy": "P7",
+  "spread_10y_2y_feature_policy_status": "revalidation_required",
+  "other_feature_policies": {
+    "mortgage_30y": {"policy": "P4", "status": "provisionally_valid"},
+    "mortgage_15y": {"policy": "P2", "status": "provisionally_valid"},
+    "treasury_10y": {"policy": "P1", "status": "provisionally_valid"},
+    "fedfunds": {"policy": "P5", "status": "provisionally_valid"},
+    "spread_10y_fedfunds": {"policy": "P9", "status": "provisionally_valid"}
+  },
+  "family_weight_evidence_status": "invalidated_pending_rerun",
+  "family_weight_production_decision": "none",
+  "automated_winner": false,
+  "production_policy_changed": "source_canonicalization_only",
+  "historical_promotion_record": "config/capital_markets_native_feature_policy_2026_08_18.json",
+  "historical_promotion_record_mutated": false
+}

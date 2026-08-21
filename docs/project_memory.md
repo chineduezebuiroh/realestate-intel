@@ -72,17 +72,17 @@ The Real Estate Intel platform has matured into a deterministic, artifact-driven
 - Demand-dimension production engineering freeze covering Labor, GDP, ACS,
   contribution, cancellation, and weighting behavior
 
+Supply calibration remains fully closed and frozen at human-approved S8. Capital Markets is fully calibrated and frozen at human-approved F4: 35% Long-Term Rates, 10% Fed Funds, and 55% Spreads (`automated_winner = false`). Exact metric weights are 0.11666666666666667 each for `mortgage_30y`, `mortgage_15y`, and `treasury_10y`; 0.10 for `fedfunds`; and 0.275 each for `spread_10y_2y` and `spread_10y_fedfunds`. Native policies remain P4/P2/P1/P5/P6/P9, canonical `spread_10y_2y = treasury_10y - treasury_2y` remains implemented by inversion of physical `fred_spread_2y_10y`, and equal intra-family weighting is retained. No Capital Markets calibration remains pending.
+
+Price calibration is complete. The canonical production policy for both
+`median_sale_price` and `median_ppsf` is MA12/P6: 35% Level, 20% Short, and 45%
+Long. The bounded search converged without a structural MA9 advantage; prior
+Price diagnostic policies are superseded by production. Affordability and all
+other metric families remain unchanged by this promotion.
+
 ### Current Focus
 
-Demand architecture calibration is closed. The explicit human-selected
-production architecture is LF-IN, LAUS calendar MA9 with 80/10/10
-Level/Short/Long weights, and 25/75 Structural/Cyclical composition. The
-selection was not an automated winner. Historical factorial, lineage,
-detector-semantics, and MA-window evidence remains intact.
-
-The next workstream is the previously started **Macro Regime Visualization
-MVP**, followed directionally by CBSA/metro expansion, a local-regime layer,
-and regime-informed forecasting integration.
+The active workstream is **Macro Regime Visualization MVP**. Capital Markets, Supply, Affordability, Price, and Demand calibration workstreams are closed under their governed freeze contracts. After the visualization MVP, direction proceeds to CBSA/metro expansion, the local-regime layer, and regime-informed forecasting integration, subject to roadmap governance.
 
 The Regime Engine v1.0 historical/current county-level macro baseline has been
 prepared for merge to `main`. It freezes the settled production architecture as
@@ -90,19 +90,24 @@ an auditable release candidate without changing scoring behavior. After human
 merge, validation, and tagging on `main`, the next stage is a lightweight
 Visualization MVP.
 
-BPS calibration is complete. Human-approved `BPS-FINAL-80` is production:
+BPS feature calibration is preserved as superseded history. Human-approved
+`BPS-FINAL-80` established:
 MA12 level, MA12/lag6 short ratio, and MA12/lag12 long ratio with 80/10/10
-feature weights, existing positive expanding-percentile normalization, and the
-0.20 Supply metric weight unchanged. The prior transform, lag, five-policy, and
-70-versus-80 finalist reviews remain the historical calibration trail.
+feature weights and existing positive expanding-percentile normalization. Its
+then-current 0.20 Supply metric weight was subsequently superseded by S8's 0.30
+Permit Activity weight. The prior transform, lag, five-policy, and 70-versus-80
+finalist reviews remain the historical calibration trail.
 
-Capital Markets calibration is closed after promotion of the human-selected `MW-TEMPERED-C` production policy; no transform, feature-weight, or metric-weight calibration remains pending. Next is Affordability feature decisions and derivation-order confirmation.
+Historical Capital Markets source review confirmed that physical `fred_spread_2y_10y`
+(`2Y - 10Y`) had been passed through as canonical `spread_10y_2y`. Canonical
+resolution now repairs that boundary to the governed `10Y - 2Y` chronology.
+That defect-era P7 policy subsequently failed corrected revalidation; P6 replaced it. Defect-era F0-F9 evidence remains invalid historical evidence. The corrected rerun supported the later human-approved F4 closure described above.
 
 
-Affordability calibration is complete. Phase 4A's derive-first MA12/lag3/lag12
-contract remains frozen, and Phase 4B retained the incumbent 50/20/30 feature
-weights through the human-selected `AFF-FW-A` policy without promoting a
-challenger.
+Affordability calibration is closed at the human-approved shared MA12/P4 policy:
+35% Level, 20% Short, and 45% Long for `price_to_income` and `payment_burden`.
+The derive-first contract remains frozen; `AFF-FW-A` is superseded with history
+preserved. Native Supply feature calibration and the S0–S9 metric-weight campaign are closed. Human-selected S8 (65/30/5) is production, so Supply is fully calibrated and frozen. The former Capital Markets follow-on review is now also closed by F4, as recorded in current status above.
 
 Current development has shifted from infrastructure implementation toward county-level production calibration.
 
@@ -169,7 +174,7 @@ The project is currently transitioning from foundational engineering into analyt
 
 - Improve production-review tooling.
 - Complete Inventory and Supply-axis calibration.
-- Complete Price feature-weight calibration.
+- Maintain the closed MA12/P6 Price production policy.
 - Audit CBSA labor-source correctness.
 - Continue expanding architecture documentation and ADR coverage.
 
@@ -236,7 +241,6 @@ Several architectural principles have become foundational to the platform.
 The following topics remain active areas of investigation and should not be considered settled production policy.
 
 - Optimal smoothing and feature weighting for the Inventory dimension.
-- Appropriate feature weighting within the Price dimension.
 - CBSA labor-source treatment and geography contracts.
 - Geographic expansion beyond the county-level Macro Regime framework.
 - Future Market Balance and Market Profile architecture.
@@ -297,3 +301,11 @@ Detailed implementation history belongs in phase decision documents rather than 
 > after which county-only scope is applied before challengers. ZIP remains
 > reserved for future local work; city is outside both current macro and
 > planned local regimes; all other non-county levels are excluded.
+
+## Capital Markets native feature-policy promotion (2026-08-18)
+
+Capital Markets native feature calibration is now closed at human-approved, metric-specific P4/P2/P1/P5/P7/P9 policies; no automated winner was used. Family metric-weight calibration remains pending at the unchanged 45/10/45 long-rate/Fed-Funds/spread allocation, so Capital Markets is not fully frozen. Supply remains frozen at S8. Demand architecture, Price, Affordability, Labor, normalization, metric weights, and Demand/Supply axis weights remain unchanged.
+
+## Corrected Capital Markets spread feature closure (2026-08-18)
+
+The polarity defect is repaired and validated, and targeted `spread_10y_2y` revalidation is closed at human-approved P6 (60/5/35). Original P7 remains historical defect-era evidence with `revalidation_failed` status. All six native Capital Markets feature policies are valid again. A fresh corrected feature-policy production baseline remains to be materialized, followed by an F0-F9 family-weight calibration rerun. No family-weight production decision has been made; metric and Demand/Supply axis weights remain unchanged.

@@ -652,26 +652,66 @@ def directional_agreement(incumbent: pd.DataFrame, challenger: pd.DataFrame, val
         "agreement_share": float(agreements.mean()) if valid else np.nan}
 
 
-def detect_turning_points(frame: pd.DataFrame, value: str) -> pd.DataFrame:
+def detect_turning_points(frame: pd.DataFrame, value: str, *, persistence: int = TURN_PERSISTENCE,
+        fixed_prominence: float = TURN_FIXED_PROMINENCE,
+        prominence_multiplier: float = TURN_PROMINENCE_MULTIPLIER,
+        include_rejected: bool = False) -> pd.DataFrame:
+    """Detect persistent direction changes.
+
+    Keyword overrides are intended for bounded diagnostics.  The defaults and
+    all existing callers retain the governed shared-detector behaviour.
+    ``include_rejected`` exposes the filters used by that same algorithm; it is
+    not an alternative detector.
+    """
+    if persistence < 1:
+        raise ValueError("turning-point persistence must be at least one month")
     work = frame[["date", value]].copy().sort_values("date")
     work["date"] = pd.to_datetime(work.date)
     changes = calendar_delta(work, value, 1)
     changes["direction"] = changes.delta.map(direction)
     material = changes.delta.abs().dropna()
-    threshold = max(TURN_FIXED_PROMINENCE, TURN_PROMINENCE_MULTIPLIER * (float(material.median()) if len(material) else 0.0))
+    threshold = max(fixed_prominence, prominence_multiplier * (float(material.median()) if len(material) else 0.0))
     rows = []
-    for i in range(TURN_PERSISTENCE, len(changes) - TURN_PERSISTENCE):
-        pre, post = changes.iloc[i-TURN_PERSISTENCE:i], changes.iloc[i:i+TURN_PERSISTENCE]
+    for i in range(1 if include_rejected else persistence, len(changes) - (1 if include_rejected else persistence)):
+        pre, post = changes.iloc[i-persistence:i], changes.iloc[i:i+persistence]
         pdirections, ndirections = set(pre.direction), set(post.direction)
-        contiguous = pre.lag_value.notna().all() and post.lag_value.notna().all()
+        enough_history = len(pre) == len(post) == persistence
+        contiguous = enough_history and pre.lag_value.notna().all() and post.lag_value.notna().all()
+        rejection = ""
         if contiguous and len(pdirections) == len(ndirections) == 1:
             before, after = next(iter(pdirections)), next(iter(ndirections))
             if before in {"positive", "negative"} and after in {"positive", "negative"} and before != after:
                 prominence = abs(pre.delta.sum()) + abs(post.delta.sum())
-                rows.append({"turning_point_date": pre.date.iloc[-1], "turning_point_type": "peak" if before == "positive" else "trough",
-                    "incoming_persistence": TURN_PERSISTENCE, "outgoing_persistence": TURN_PERSISTENCE,
+                qualified = bool(prominence > threshold)
+                row = {"turning_point_date": pre.date.iloc[-1], "turning_point_type": "peak" if before == "positive" else "trough",
+                    "incoming_persistence": persistence, "outgoing_persistence": persistence,
                     "prominence": prominence, "prominence_threshold": threshold,
-                    "qualified": bool(prominence > threshold)})
+                    "qualified": qualified}
+                if include_rejected:
+                    row["rejection_reason"] = "" if qualified else "prominence_not_above_threshold"
+                rows.append(row)
+                continue
+            rejection = "no_direction_reversal"
+        elif not enough_history:
+            rejection = "insufficient_persistence_history"
+        elif not contiguous:
+            rejection = "non_contiguous_or_missing_month"
+        else:
+            rejection = "persistence_direction_not_uniform"
+        if include_rejected:
+            immediate_before = changes.iloc[i-1].direction
+            immediate_after = changes.iloc[i].direction
+            if (immediate_before not in {"positive", "negative"} or
+                    immediate_after not in {"positive", "negative"} or
+                    immediate_before == immediate_after):
+                continue
+            rows.append({"turning_point_date": changes.iloc[i-1].date,
+                "turning_point_type": "peak" if immediate_before == "positive" else "trough",
+                "incoming_persistence": persistence,
+                "outgoing_persistence": persistence,
+                "prominence": abs(changes.iloc[i-1].delta) + abs(changes.iloc[i].delta),
+                "prominence_threshold": threshold, "qualified": False,
+                "rejection_reason": rejection})
     return pd.DataFrame(rows)
 
 

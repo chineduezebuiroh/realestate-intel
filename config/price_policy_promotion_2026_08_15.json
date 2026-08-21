@@ -1,0 +1,25 @@
+{
+  "decision_id": "price_ma12_p6_2026_08_15",
+  "decision_date": "2026-08-15",
+  "selected_policy": "MA12/P6",
+  "human_decision": "approved",
+  "promotion_state": "promoted",
+  "calibration_state": "closed",
+  "automated_winner": false,
+  "metrics": ["median_sale_price", "median_ppsf"],
+  "level_window_months": 12,
+  "short_lag_months": 3,
+  "long_lag_months": 12,
+  "feature_weights": {"level": 0.35, "short": 0.20, "long": 0.45},
+  "supersedes": "MA12/Alternative A (50/25/25)",
+  "explicit_non_changes": [
+    "normalization",
+    "detector persistence",
+    "metric membership and metric weights",
+    "Labor and numeric Demand architecture",
+    "Supply",
+    "Capital Markets",
+    "Affordability",
+    "axis weights"
+  ]
+}

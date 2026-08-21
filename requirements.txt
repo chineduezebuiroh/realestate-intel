@@ -6,6 +6,8 @@ fredapi==0.5.2
 streamlit>=1.37.1
 pyyaml
 altair
+plotly>=5.18,<7
+pyarrow>=14
 
 statsmodels
 numpy

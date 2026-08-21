@@ -37,6 +37,11 @@ ORIGINAL_MA12_DEFINITION = {
     "short_term_change": ("ma_pct_change", "12m/lag3m", 0.25),
     "long_term_change": ("ma_pct_change", "12m/lag12m", 0.25),
 }
+PRICE_P6_DEFINITION = {
+    "level": ("ma_level", "12m", 0.35),
+    "short_term_change": ("ma_pct_change", "12m/lag3m", 0.20),
+    "long_term_change": ("ma_pct_change", "12m/lag12m", 0.45),
+}
 # BPS-H-LAG6 was governed after the original 2026-08-05 MA12 promotion.  It is
 # deliberately the sole exception to the original five-target contract.
 BPS_LAG6_DEFINITION = {
@@ -130,7 +135,11 @@ def _assert_registry_scope(config: object) -> None:
         family = promoted[promoted.canonical_metric_key.eq(metric)].copy()
         if set(family.metric_key) != {registry_key}:
             raise AssertionError(f"{metric} changed source/metric ownership")
-        expected_definition = BPS_LAG6_DEFINITION if metric == "permit_activity" else ORIGINAL_MA12_DEFINITION
+        expected_definition = (
+            BPS_LAG6_DEFINITION if metric == "permit_activity"
+            else PRICE_P6_DEFINITION if metric in {"median_sale_price", "median_ppsf"}
+            else ORIGINAL_MA12_DEFINITION
+        )
         if family.feature_type.duplicated().any() or set(family.feature_type) != set(expected_definition):
             raise AssertionError(f"{metric} does not resolve one level, short, and long feature")
         if not np.isclose(family.feature_weight.sum(), 1.0):
@@ -138,7 +147,7 @@ def _assert_registry_scope(config: object) -> None:
         for feature_type, (transform, window, weight) in expected_definition.items():
             row = family[family.feature_type.eq(feature_type)].iloc[0]
             if (row["transform"], row["feature_window"], float(row["feature_weight"])) != (transform, window, weight):
-                raise AssertionError(f"{metric}/{feature_type} is not the governed MA12 Alternative A policy")
+                raise AssertionError(f"{metric}/{feature_type} is not its governed MA12 production policy")
     changed_from_prior = {
         metric for metric, (prior_transforms, prior_weights) in PRIOR_LINEAGE.items()
         if prior_transforms != tuple(promoted[promoted.canonical_metric_key.eq(metric)].sort_values("feature_type")["transform"])

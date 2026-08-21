@@ -210,3 +210,25 @@ Based on the implemented MA6/MA9 Phase 1 scope, **no new numbered smoke test is 
 |---:|---|---|---|
 | 49 | `scripts/smoke_tests/40_49/49_laus_ma9_production_contract.py` | Production LAUS MA9 calendar construction, exact lag3/lag12, source segmentation, and non-LAUS isolation. | `python scripts/smoke_tests/40_49/49_laus_ma9_production_contract.py` |
 | 118 | `scripts/smoke_tests/110_119/118_final_demand_architecture.py` | Promoted LF-IN, MA9, LAUS 80/10/10, S25/C75, missingness, membership, and human-governance contract. | `python scripts/smoke_tests/110_119/118_final_demand_architecture.py` |
+| 125 | `scripts/smoke_tests/120_129/125_structural_role_diagnostic.py` | Three-case Structural role identities, B/C numeric parity, linear and availability-boundary parity, locked architecture, row-order invariance, zero Structural scoring in B/C, retained C context, and fail-closed authoritative input. | `PYTHONPATH=. python scripts/smoke_tests/120_129/125_structural_role_diagnostic.py` |
+| 127 | `scripts/smoke_tests/120_129/127_hierarchical_renorm_diagnostic.py` | Exactly A/B/C hierarchical re-normalization paths, fixed local percentile policy, production aggregation reuse, no axis re-normalization, governed weights and Market Context exclusion, row-order invariance, registry immutability, bounded review exports, and fail-closed artifact loading. | `PYTHONPATH=. python scripts/smoke_tests/120_129/127_hierarchical_renorm_diagnostic.py` |
+
+## Price Phase 1 diagnostic coverage
+
+| Number | Script | Purpose | Command |
+|---:|---|---|---|
+| 128 | `scripts/smoke_tests/120_129/128_price_feature_anatomy.py` | Exact two-metric Price scope, registry-resolved contract, calendar-faithful missingness, seven-county equal-footing exports, feature/metric reconstruction, actual plotted SVG primitives, configuration immutability, diagnostic governance, and fail-closed authoritative loading. | `PYTHONPATH=. python scripts/smoke_tests/120_129/128_price_feature_anatomy.py` |
+
+## Affordability Phase 1 diagnostic coverage
+
+| Number | Script | Purpose | Command |
+|---:|---|---|---|
+| 133 | `scripts/smoke_tests/130_139/133_affordability_feature_anatomy.py` | Exact registry-resolved Affordability membership, calendar-faithful missingness, persisted metric and dimension reconstruction, actual SVG paths, registry immutability, diagnostic-only governance, and fail-closed authoritative loading through the canonical Price anatomy workflow. | `PYTHONPATH=. python scripts/smoke_tests/130_139/133_affordability_feature_anatomy.py` |
+
+## Affordability closure coverage
+
+| Number | Script | Purpose | Command |
+|---:|---|---|---|
+| 134 | `scripts/smoke_tests/130_139/134_affordability_feature_weight_calibration.py` | Bounded Phase-2 Affordability weights, orientation, P5 boundary, evidence governance. | `PYTHONPATH=. python scripts/smoke_tests/130_139/134_affordability_feature_weight_calibration.py` |
+| 135 | `scripts/smoke_tests/130_139/135_affordability_final_ma_calibration.py` | Closed MA grid plus truthful SVG paths, finite domains, missing-month gaps, independent raw-cycle panel, equal-footing aggregation, and row-order determinism. | `PYTHONPATH=. python scripts/smoke_tests/130_139/135_affordability_final_ma_calibration.py` |
+| 136 | `scripts/smoke_tests/130_139/136_affordability_ma12_p4_production_promotion.py` | Exact two-metric MA12/P4 production registry, derive-first promotion record, closure, and explicit non-change scope. | `PYTHONPATH=. python scripts/smoke_tests/130_139/136_affordability_ma12_p4_production_promotion.py` |

@@ -44,7 +44,7 @@ fred_mortgage_15y,fred_macro,fred_mortgage_15y_avg,15-Year Mortgage Rate,Average
 fred_fedfunds,fred_macro,fred_fedfunds,Fed Funds Rate,Effective federal funds rate,nation,monthly,Percent,SA,true,
 fred_10y,fred_macro,fred_gs10,Treasury 10-Year Yield,10-year Treasury constant maturity rate,nation,monthly,Percent,NSA,true,
 fred_2y,fred_macro,fred_gs2,Treasury 2-Year Yield,2-year Treasury constant maturity rate,nation,monthly,Percent,NSA,true,
-fred_2y10y_spread,fred_macro,fred_spread_2y_10y,10Y-2Y Treasury Spread,Governed formula contract: treasury_10y - treasury_2y (physical source-series identity retained),nation,monthly,Percentage points,NSA,true,
+fred_2y10y_spread,fred_macro,fred_spread_2y_10y,2Y-10Y Physical Treasury Spread,Physical provider identity is 2Y - 10Y; canonical spread_10y_2y is sign-inverted to governed 10Y - 2Y at canonical resolution,nation,monthly,Percentage points,NSA,true,
 fred_10y_fedfunds_spread,fred_macro,fred_spread_10y_fedfunds,10Y-Fed Funds Spread,10-year Treasury minus fed funds spread,nation,monthly,Percentage points,NSA,true,
 fred_cpi,fred_macro,fred_cpi_urban_sa_index,CPI Urban SA Index,Consumer Price Index for all urban consumers,nation,monthly,Index,SA,true,
 

@@ -1,0 +1,239 @@
+"""Supply Phase-1 adapter and family-level descriptive evidence.
+
+This module deliberately delegates feature and dimension reconstruction to the
+canonical Price anatomy implementation.  It adds only Supply-family comparisons;
+it never constructs a challenger or scores a prospective metric-weight policy.
+"""
+from __future__ import annotations
+
+from itertools import combinations
+from pathlib import Path
+import numpy as np
+import pandas as pd
+
+from regime.diagnostics import price_feature_anatomy as canonical
+
+DIMENSION = "supply"
+EXPECTED_METRICS = ("active_inventory", "permit_activity", "permit_intensity")
+EXPECTED_WEIGHTS = {"active_inventory": .65, "permit_activity": .30, "permit_intensity": .05}
+REVIEW_GEOS = canonical.REVIEW_GEOS
+DC = canonical.DC
+OUTPUTS = (
+    "production_contract", "raw_chronology", "feature_anatomy", "normalized_features",
+    "feature_contributions", "aligned_metric_scores", "feature_statistics", "metric_statistics",
+    "supply_dimension_statistics", "monthly_coverage", "seasonality_noise",
+    "raw_feature_relationship", "cross_metric_relationship", "permit_family_overlap",
+    "dimension_contribution_structure", "evaluation_matrix", "governance_status",
+    "raw_cross_metric_alignment", "aligned_metric_contributions",
+)
+
+
+def resolve_contract(root: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    contract, registry = canonical.resolve_contract(root, DIMENSION)
+    membership = tuple(sorted(contract.metric.unique()))
+    weights = contract.groupby("metric").metric_weight.first().to_dict()
+    if membership != tuple(sorted(EXPECTED_METRICS)):
+        raise ValueError(f"unexpected governed Supply membership: {membership}")
+    if any(not np.isclose(weights.get(k, np.nan), v) for k, v in EXPECTED_WEIGHTS.items()):
+        raise ValueError(f"frozen Supply weights differ from promoted S8 65/30/5: {weights}")
+    return contract, registry
+
+
+def load_run(run: Path) -> dict[str, pd.DataFrame]:
+    return canonical.load_run(run)
+
+
+def _periods(frame: pd.DataFrame):
+    return canonical._periods(frame)
+
+
+def _native_raw(artifacts: dict[str, pd.DataFrame], contract: pd.DataFrame) -> pd.DataFrame:
+    """Expose native dates and a separate diagnostic month identity.
+
+    Native source/feature dates, calendar-month comparison identities, and
+    production evaluation dates are deliberately never interchangeable here.
+    """
+    q=canonical._dates(artifacts["source_metrics"]); mc=canonical._metric_col(q); value=canonical._value_col(q,("value","metric_value","raw_value"))
+    identities=pd.concat([contract[["registry_metric_key","metric"]].drop_duplicates(),contract[["metric"]].drop_duplicates().assign(registry_metric_key=lambda x:x.metric)[["registry_metric_key","metric"]]]).drop_duplicates()
+    q=(q.rename(columns={mc:"registry_metric_key",value:"raw_value"}).merge(identities,on="registry_metric_key",validate="many_to_one"))
+    q=q[q.geo_id.isin(REVIEW_GEOS)][["geo_id","date","metric","raw_value"]].rename(columns={"date":"native_date"})
+    missing=set(EXPECTED_METRICS)-set(q.metric.unique())
+    if missing: raise ValueError(f"governed raw metrics missing after identity resolution: {sorted(missing)}")
+    q["calendar_month"]=q.native_date.dt.to_period("M").astype(str)
+    if q.duplicated(["geo_id","metric","calendar_month"]).any():
+        raise ValueError("duplicate raw calendar-month chronology")
+    # ``date`` remains a compatibility alias for native chronology consumers;
+    # the explicitly named identities are authoritative in new evidence.
+    q["date"]=q["native_date"]
+    return q.sort_values(["metric","geo_id","calendar_month","native_date"]).reset_index(drop=True)
+
+
+def _raw_pair_alignment(raw: pd.DataFrame) -> pd.DataFrame:
+    rows=[]
+    for left,right in combinations(EXPECTED_METRICS,2):
+      l=raw[raw.metric.eq(left)].rename(columns={"native_date":"left_native_date","raw_value":"left_raw_value"})
+      r=raw[raw.metric.eq(right)].rename(columns={"native_date":"right_native_date","raw_value":"right_raw_value"})
+      z=l[["geo_id","calendar_month","left_native_date","left_raw_value"]].merge(r[["geo_id","calendar_month","right_native_date","right_raw_value"]],on=["geo_id","calendar_month"],validate="one_to_one")
+      z.insert(0,"right_metric",right); z.insert(0,"left_metric",left); rows.append(z)
+    return pd.concat(rows,ignore_index=True).sort_values(["left_metric","right_metric","geo_id","calendar_month"]).reset_index(drop=True)
+
+
+def _aligned_contributions(aligned: pd.DataFrame, dims: pd.DataFrame) -> pd.DataFrame:
+    q=aligned.rename(columns={"date":"evaluation_date","metric_date":"native_metric_date"}).copy()
+    evaluation=dims[["geo_id","date"]].rename(columns={"date":"evaluation_date"}).drop_duplicates()
+    metrics=pd.DataFrame({"metric":EXPECTED_METRICS})
+    grid=evaluation.merge(metrics,how="cross")
+    q=grid.merge(q,on=["geo_id","evaluation_date","metric"],how="left",validate="one_to_one")
+    q["configured_metric_weight"]=q.metric.map(EXPECTED_WEIGHTS)
+    q["metric_available"]=q.aligned_metric_score.notna()
+    q["available_configured_weight_sum"]=q.configured_metric_weight.where(q.metric_available,0).groupby([q.geo_id,q.evaluation_date]).transform("sum")
+    q["effective_metric_weight"]=q.configured_metric_weight.div(q.available_configured_weight_sum).where(q.metric_available)
+    q["weighted_metric_contribution"]=q.aligned_metric_score*q.effective_metric_weight
+    q=q.merge(dims[["geo_id","date","supply_dimension_score"]].rename(columns={"date":"evaluation_date"}),on=["geo_id","evaluation_date"],validate="many_to_one")
+    replay=q.groupby(["geo_id","evaluation_date"]).weighted_metric_contribution.sum(min_count=1)
+    actual=q.drop_duplicates(["geo_id","evaluation_date"]).set_index(["geo_id","evaluation_date"]).supply_dimension_score.reindex(replay.index)
+    if not np.allclose(replay,actual,equal_nan=True,atol=1e-12): raise ValueError("aligned metric contributions do not reconstruct Supply dimension")
+    return q.sort_values(["geo_id","evaluation_date","metric"]).reset_index(drop=True)
+
+
+def _agreement(a: pd.Series,b: pd.Series) -> float:
+    return float((np.sign(a)==np.sign(b)).mean()) if len(a) else np.nan
+
+
+def _relationship_rows(metric: pd.DataFrame, contributions: pd.DataFrame, raw_pairs: pd.DataFrame) -> list[dict]:
+    wide = metric.pivot(index=["geo_id", "date"], columns="metric", values="production_metric_score").reset_index()
+    cw = contributions.pivot(index=["geo_id", "evaluation_date"], columns="metric", values="weighted_metric_contribution").reset_index().rename(columns={"evaluation_date":"date"})
+    rows = []
+    for left, right in combinations(EXPECTED_METRICS, 2):
+        for geo, group in wide.groupby("geo_id"):
+            for period, q in _periods(group.sort_values("date")):
+                z = q[["date", left, right]].dropna().sort_values("date")
+                dc = cw[cw.geo_id.eq(geo)].merge(z[["date"]],on="date")[["date",left,right]].dropna().sort_values("date")
+                rp=raw_pairs[(raw_pairs.geo_id.eq(geo))&raw_pairs.left_metric.eq(left)&raw_pairs.right_metric.eq(right)].copy(); rp["date"]=pd.PeriodIndex(rp.calendar_month,freq="M").to_timestamp("M")
+                start,end=(q.date.min(),q.date.max()); raw_pair=rp[rp.date.between(start,end)].dropna(subset=["left_raw_value","right_raw_value"]).sort_values("date")
+                dl, dr = z[left].diff(), z[right].diff()
+                lag_corr = {lag: z[left].corr(z[right].shift(lag)) for lag in range(-6, 7)}
+                best = max(lag_corr, key=lambda x: abs(lag_corr[x]) if pd.notna(lag_corr[x]) else -1)
+                rows.append({"left_metric": left, "right_metric": right, "geo_id": geo, "period": period,
+                    "observation_count": len(z), "raw_observation_count":len(raw_pair), "raw_chronology_correlation": raw_pair.left_raw_value.corr(raw_pair.right_raw_value),
+                    "raw_sign_agreement":_agreement(raw_pair.left_raw_value,raw_pair.right_raw_value),"raw_direction_agreement":_agreement(raw_pair.left_raw_value.diff().iloc[1:],raw_pair.right_raw_value.diff().iloc[1:]),
+                    "normalized_metric_correlation": z[left].corr(z[right]),
+                    "sign_agreement": _agreement(z[left],z[right]), "direction_agreement": _agreement(dl.iloc[1:],dr.iloc[1:]),
+                    "contribution_correlation": dc[left].corr(dc[right]),"contribution_observation_count":len(dc),
+                    "contribution_sign_agreement":_agreement(dc[left],dc[right]),"contribution_direction_agreement":_agreement(dc[left].diff().iloc[1:],dc[right].diff().iloc[1:]),
+                    "best_descriptive_lag_months": best, "best_absolute_lag_correlation": lag_corr[best]})
+    return rows
+
+
+def _permit_overlap(metric: pd.DataFrame, contributions: pd.DataFrame) -> pd.DataFrame:
+    wide = metric.pivot(index=["geo_id", "date"], columns="metric", values="production_metric_score").reset_index()
+    cw = contributions.pivot(index=["geo_id", "evaluation_date"],columns="metric",values="weighted_metric_contribution").reset_index().rename(columns={"evaluation_date":"date"})
+    rows=[]
+    for geo,g in wide.groupby("geo_id"):
+      for period,q in _periods(g.sort_values("date")):
+        z=q.dropna(subset=["permit_activity","permit_intensity"]); a=z.permit_activity.diff(); i=z.permit_intensity.diff(); agree=np.sign(a)==np.sign(i)
+        c=cw[cw.geo_id.eq(geo)].merge(z[["date"]],on="date").sort_values("date"); ca=c.permit_activity.diff(); ci=c.permit_intensity.diff()
+        scale=pd.concat([a.abs(),i.abs()]).median(); material=max(float(scale) if pd.notna(scale) else 0, .05)
+        one_material=((c.permit_activity.abs()>=material)&(c.permit_intensity.abs()<material/2))|((c.permit_intensity.abs()>=material)&(c.permit_activity.abs()<material/2))
+        rows.append({"geo_id":geo,"period":period,"chronology_correlation":z.permit_activity.corr(z.permit_intensity),"metric_sign_agreement":_agreement(z.permit_activity,z.permit_intensity),"metric_direction_agreement":_agreement(a.iloc[1:],i.iloc[1:]),
+          "contribution_correlation":c.permit_activity.corr(c.permit_intensity),"contribution_sign_agreement":_agreement(c.permit_activity,c.permit_intensity),"contribution_direction_agreement":_agreement(ca.iloc[1:],ci.iloc[1:]),"contribution_observation_count":len(c),"direction_agreement_months":int(agree.iloc[1:].sum()),
+          "direction_disagreement_months":int((~agree.iloc[1:]).sum()),"permit_activity_unique_material_moves":int(((a.abs()>=material)&(i.abs()<material/2)).sum()),
+          "permit_intensity_unique_material_moves":int(((i.abs()>=material)&(a.abs()<material/2)).sum()),
+          "unique_turning_months":int(((np.sign(a)*np.sign(a.shift())<0) ^ (np.sign(i)*np.sign(i.shift())<0)).sum()),"one_metric_material_other_not_months":int(one_material.sum())})
+    return pd.DataFrame(rows)
+
+
+def _structure(contributions: pd.DataFrame) -> pd.DataFrame:
+    wide=contributions.pivot(index=["geo_id","evaluation_date"],columns="metric",values="weighted_metric_contribution").reset_index().rename(columns={"evaluation_date":"date"})
+    rows=[]
+    for geo,g in wide.groupby("geo_id"):
+      for period,q in _periods(g.sort_values("date")):
+        z=q; weighted=z[list(EXPECTED_METRICS)]; permits=weighted.permit_activity.fillna(0)+weighted.permit_intensity.fillna(0); inv=weighted.active_inventory.fillna(0)
+        gross=weighted.abs().sum(axis=1); net=weighted.sum(axis=1,min_count=1).abs(); pa=weighted.permit_activity; pi=weighted.permit_intensity; inventory=weighted.active_inventory
+        ratio=1-net.div(gross.replace(0,np.nan)); ntg=net.sum()/gross.sum()
+        if ((ratio.dropna() < -1e-12)|(ratio.dropna()>1+1e-12)).any() or not (-1e-12<=ntg<=1+1e-12): raise ValueError("Supply cancellation outside [0,1]")
+        rows.append({"geo_id":geo,"period":period,"observation_count":len(z),"inventory_absolute_contribution_share":weighted.active_inventory.abs().sum()/gross.sum(),
+          "combined_permit_absolute_contribution_share":weighted[["permit_activity","permit_intensity"]].abs().sum().sum()/gross.sum(),
+          "inventory_opposes_both_permits_rate":(((np.sign(inventory)!=np.sign(pa))&(np.sign(inventory)!=np.sign(pi))).mean()),
+          "permits_agree_against_inventory_rate":(((np.sign(pa)==np.sign(pi))&(np.sign(pa)!=np.sign(inventory))).mean()),
+          "mean_cancellation_ratio":ratio.clip(0,1).mean(),"net_to_gross_contribution":min(max(ntg,0),1),
+          "inventory_metric_dominance_rate":(weighted.active_inventory.abs().ge(weighted[["permit_activity","permit_intensity"]].abs().max(axis=1))).mean(),
+          "permit_family_dominance_rate":(permits.abs()>inv.abs()).mean()})
+    return pd.DataFrame(rows)
+
+
+def build(artifacts: dict[str, pd.DataFrame], root: Path) -> dict[str, pd.DataFrame]:
+    contract,_=resolve_contract(root)  # enforce the frozen contract before reconstruction
+    native_raw=_native_raw(artifacts,contract)
+    tables=canonical.build(artifacts,root,DIMENSION)
+    feature_registry=pd.read_csv(root/"config/feature_registry.csv",usecols=["feature_key","notes"])
+    notes=feature_registry.set_index("feature_key").notes.reindex(tables["production_contract"].feature_key)
+    provenance=notes.map(lambda value: "" if pd.isna(value) else str(value).strip())
+    tables["production_contract"]["feature_policy_provenance"]=[value or "governed registry; no explicit promotion metadata" for value in provenance]
+    tables["production_contract"]["prior_explicit_calibration_or_promotion"]=[any(token in value.lower() for token in ("promoted","promotion","calibrat")) for value in provenance]
+    metric=tables["_aligned_metrics"].rename(columns={"aligned_metric_score":"production_metric_score"})
+    tables["raw_chronology"]=native_raw
+    tables["raw_cross_metric_alignment"]=_raw_pair_alignment(native_raw)
+    tables["aligned_metric_contributions"]=_aligned_contributions(tables["_aligned_metrics"],tables["_dimension"])
+    tables["cross_metric_relationship"]=pd.DataFrame(_relationship_rows(metric,tables["aligned_metric_contributions"],tables["raw_cross_metric_alignment"]))
+    tables["permit_family_overlap"]=_permit_overlap(metric,tables["aligned_metric_contributions"])
+    tables["dimension_contribution_structure"]=_structure(tables["aligned_metric_contributions"])
+    # Replace the generic configured-weight denominator with exact production
+    # effective contributions, including missing-metric renormalization.
+    stats=[]; ac=tables["aligned_metric_contributions"]
+    for geo,g in tables["_dimension"].groupby("geo_id"):
+      for period,q in _periods(g.sort_values("date")):
+       c=ac[ac.geo_id.eq(geo)&ac.evaluation_date.isin(q.date)]; by=c.groupby("evaluation_date").weighted_metric_contribution.agg(gross=lambda x:x.abs().sum(),net=lambda x:abs(x.sum()))
+       ratio=1-by.net.div(by.gross.replace(0,np.nan)); base=canonical._series_stats(q.supply_dimension_score,q.date)
+       if ((ratio.dropna() < -1e-12)|(ratio.dropna()>1+1e-12)).any(): raise ValueError("Supply cancellation outside [0,1]")
+       stats.append({"geo_id":geo,"period":period,**base,"mean_cancellation_ratio":ratio.clip(0,1).mean(),"net_to_gross":by.net.sum()/by.gross.sum(),"all_metrics_positive_rate":q[list(EXPECTED_METRICS)].gt(0).all(axis=1).mean()})
+    tables["supply_dimension_statistics"]=pd.DataFrame(stats)
+    turns=int(tables["metric_statistics"].turning_point_count.fillna(0).sum())
+    health="pass" if turns>0 else "fail"
+    bounds={"active_inventory":"Level .35-.65; Short .10-.35; Long .15-.45",
+      "permit_activity":"Level .60-.90; Short .05-.25; Long .05-.25",
+      "permit_intensity":"Level .35-.65; Short .10-.35; Long .15-.45"}
+    tables["evaluation_matrix"]=pd.DataFrame([
+      {"question":q,"metric":m,"status":"descriptive_evidence_only","evidence":"review exported county/equal-footing tables and plots; no candidate was scored",
+       "bounded_future_candidate_region":bounds[m]} for q,m in enumerate(EXPECTED_METRICS,1)
+    ] + [{"question":"raw_metric_anatomy_vs_incumbent_feature_policy_effects","metric":"supply_family",
+      "status":"human_review_required","evidence":"separate underlying raw behavior from differences introduced by incumbent feature construction",
+      "bounded_future_candidate_region":"not_applicable"}]).assign(turning_point_detector_health=health,qualified_turn_count=turns)
+    tables["governance_status"]=pd.DataFrame([{"recommendation_state":"none","promotion_state":"current_production_unchanged",
+      "human_decision":"supply_feature_anatomy_review_pending","automated_winner":False,"production_policy_changed":False,
+      "metric_weight_policy_changed":False,"capital_markets_changed":False,"turning_point_detector_health":health}])
+    tables["_metadata"]={"dimension":DIMENSION,"target_metrics":EXPECTED_METRICS,"dimension_score":"supply_dimension_score"}
+    return tables
+
+
+def _scope_series(frame: pd.DataFrame, col: str, scope: str) -> pd.DataFrame:
+    q=frame[["geo_id","date",col]].dropna()
+    if scope=="dc": return q[q.geo_id.eq(DC)].rename(columns={col:"value"})
+    return canonical._pool(q,col,["geo_id"]).rename(columns={col:"value"})
+
+
+def write_review(tables: dict[str, pd.DataFrame], out: Path) -> None:
+    canonical.write_review(tables,out,DIMENSION)
+    prefix="supply_phase1"; plots=[]
+    # The canonical writer owns common anatomy exports; the adapter persists
+    # its additional family tables under the same deterministic prefix.
+    for name in OUTPUTS:
+      tables[name].to_csv(out/f"{prefix}_{name}.csv",index=False)
+    metric=tables["_aligned_metrics"].rename(columns={"aligned_metric_score":"production_metric_score"})
+    wide=metric.pivot(index=["geo_id","date"],columns="metric",values="production_metric_score").reset_index()
+    wide=wide.merge(tables["_dimension"][["geo_id","date","supply_dimension_score"]],on=["geo_id","date"])
+    for scope in ("dc","seven_county_standardized"):
+      permit=[(m,_scope_series(wide,m,scope)) for m in ("permit_activity","permit_intensity")]
+      fn=f"{prefix}_permit_family_{scope}_overlap.svg"; canonical._plot(out/fn,permit,f"Permit family overlap — {scope}",(-1,1)); plots.append(fn)
+      panels=[]
+      for m in EXPECTED_METRICS:
+        q=wide[["geo_id","date",m]].copy(); q[m]=q[m]*EXPECTED_WEIGHTS[m]; panels.append((f"{m} contribution",_scope_series(q,m,scope)))
+      panels.append(("Supply score",_scope_series(wide,"supply_dimension_score",scope)))
+      fn=f"{prefix}_contribution_structure_{scope}.svg"; canonical._plot(out/fn,panels,f"Supply contribution structure — {scope}",(-1,1)); plots.append(fn)
+    index=out/f"{prefix}_review_index.html"; body=index.read_text()
+    note=("<p><strong>Temporal identity note:</strong> Raw cross-metric evidence joins a separate calendar-month identity while preserving native source dates; production contribution evidence uses aligned evaluation dates; feature anatomy uses native feature dates.</p>"
+      "<p><strong>Interpretation note:</strong> The three Supply metrics enter this anatomy review under different incumbent "
+      "feature policies. Therefore observed cross-metric differences may reflect both underlying metric behavior and current "
+      "feature-policy construction. Phase 1 must not attribute all differences solely to the raw data-generating process.</p>")
+    body=body.replace("<ul>",note+"<ul>").replace("</ul>","".join(f'<li><a href="{p}">{p}</a></li>' for p in plots)+"</ul>")
+    index.write_text(body)

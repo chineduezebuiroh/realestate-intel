@@ -1,4 +1,4 @@
-"""Fail-closed contract smoke for the Regime Engine v1.0 release baseline."""
+"""Fail-closed contract smoke for governed production configuration."""
 
 from __future__ import annotations
 
@@ -14,35 +14,38 @@ ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = ROOT / "config/regime_engine_v1_0_release.json"
 
 FEATURE_POLICIES = {
-    "redfin_median_sale_price": ("ma_level", "12m", .50, "ma_pct_change", "12m/lag3m", .25, "ma_pct_change", "12m/lag12m", .25),
-    "redfin_median_ppsf": ("ma_level", "12m", .50, "ma_pct_change", "12m/lag3m", .25, "ma_pct_change", "12m/lag12m", .25),
-    "redfin_inventory": ("ma_level", "12m", .50, "ma_pct_change", "12m/lag3m", .25, "ma_pct_change", "12m/lag12m", .25),
-    "bps_total_units": ("ma_level", "12m", .80, "ma_pct_change", "12m/lag6m", .10, "ma_pct_change", "12m/lag12m", .10),
-    "derived_permit_intensity": ("ma_level", "12m", .50, "ma_pct_change", "12m/lag3m", .25, "ma_pct_change", "12m/lag12m", .25),
-    "derived_price_to_income": ("ma_level", "12m", .50, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .30),
-    "derived_payment_burden": ("ma_level", "12m", .50, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .30),
-    "fred_mortgage_30y": ("ma_level", "12m", .60, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .20),
-    "fred_mortgage_15y": ("ma_level", "12m", .60, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .20),
-    "fred_10y": ("ma_level", "12m", .60, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .20),
-    "fred_fedfunds": ("ma_level", "3m", .60, "ma_pct_change", "3m/lag3m", .20, "ma_pct_change", "3m/lag12m", .20),
-    "fred_2y10y_spread": ("ma_level", "9m", .60, "ma_difference", "9m/lag3m", .20, "ma_difference", "9m/lag12m", .20),
-    "fred_10y_fedfunds_spread": ("ma_level", "9m", .60, "ma_difference", "9m/lag3m", .20, "ma_difference", "9m/lag12m", .20),
+    "redfin_median_sale_price": ("ma_level", "12m", .35, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .45),
+    "redfin_median_ppsf": ("ma_level", "12m", .35, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .45),
+    "redfin_inventory": ("ma_level", "12m", .40, "ma_pct_change", "12m/lag3m", .15, "ma_pct_change", "12m/lag12m", .45),
+    "bps_total_units": ("ma_level", "12m", .75, "ma_pct_change", "12m/lag6m", .10, "ma_pct_change", "12m/lag12m", .15),
+    "derived_permit_intensity": ("ma_level", "12m", .40, "ma_pct_change", "12m/lag3m", .15, "ma_pct_change", "12m/lag12m", .45),
+    "derived_price_to_income": ("ma_level", "12m", .35, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .45),
+    "derived_payment_burden": ("ma_level", "12m", .35, "ma_pct_change", "12m/lag3m", .20, "ma_pct_change", "12m/lag12m", .45),
+    "fred_mortgage_30y": ("ma_level", "12m", .55, "ma_pct_change", "12m/lag3m", .10, "ma_pct_change", "12m/lag12m", .35),
+    "fred_mortgage_15y": ("ma_level", "12m", .60, "ma_pct_change", "12m/lag3m", .10, "ma_pct_change", "12m/lag12m", .30),
+    "fred_10y": ("ma_level", "12m", .60, "ma_pct_change", "12m/lag3m", .15, "ma_pct_change", "12m/lag12m", .25),
+    "fred_fedfunds": ("ma_level", "3m", .50, "ma_pct_change", "3m/lag3m", .10, "ma_pct_change", "3m/lag12m", .40),
+    "fred_2y10y_spread": ("ma_level", "9m", .60, "ma_difference", "9m/lag3m", .05, "ma_difference", "9m/lag12m", .35),
+    "fred_10y_fedfunds_spread": ("ma_level", "9m", .40, "ma_difference", "9m/lag3m", .10, "ma_difference", "9m/lag12m", .50),
+    "laus_labor_force": ("ma_level", "9m", .40, "ma_pct_change", "9m/lag3m", .15, "ma_pct_change", "9m/lag12m", .45),
+    "laus_employment": ("ma_level", "9m", .40, "ma_pct_change", "9m/lag3m", .15, "ma_pct_change", "9m/lag12m", .45),
+    "laus_unemployment_rate": ("ma_level", "9m", .40, "ma_pct_change", "9m/lag3m", .15, "ma_pct_change", "9m/lag12m", .45),
 }
 
 METRIC_WEIGHTS = {
     "redfin_median_sale_price": .50, "redfin_median_ppsf": .50,
-    "redfin_inventory": .60, "redfin_homes_sold": .50,
+    "redfin_inventory": .65, "redfin_homes_sold": .50,
     "redfin_pending_sales": .50, "redfin_dom": .3333,
     "redfin_months_supply": .3333, "redfin_sale_to_list": .3334,
-    "acs1_population": .1667, "acs1_median_household_income": .1667,
-    "acs5_population": .1667, "acs5_median_household_income": .1667,
-    "bea_annual_gdp": .1667, "laus_labor_force": .1667,
-    "laus_employment": .1667, "laus_unemployment_rate": .1667,
-    "ces_total_nonfarm": .1667, "bps_total_units": .20,
-    "derived_permit_intensity": .20, "derived_price_to_income": .50,
-    "derived_payment_burden": .50, "fred_mortgage_30y": .15,
-    "fred_mortgage_15y": .15, "fred_10y": .15, "fred_fedfunds": .10,
-    "fred_2y10y_spread": .225, "fred_10y_fedfunds_spread": .225,
+    "acs1_population": 1/3, "acs1_median_household_income": 1/3,
+    "acs5_population": 1/3, "acs5_median_household_income": 1/3,
+    "bea_annual_gdp": 1/3, "laus_labor_force": 1/3,
+    "laus_employment": 1/3, "laus_unemployment_rate": 1/3,
+    "ces_total_nonfarm": 1/3, "bps_total_units": .30,
+    "derived_permit_intensity": .05, "derived_price_to_income": .50,
+    "derived_payment_burden": .50, "fred_mortgage_30y": .11666666666666667,
+    "fred_mortgage_15y": .11666666666666667, "fred_10y": .11666666666666667, "fred_fedfunds": .10,
+    "fred_2y10y_spread": .275, "fred_10y_fedfunds_spread": .275,
 }
 AXIS_WEIGHTS = {
     ("demand", "demand"): .65, ("demand", "price"): .175,

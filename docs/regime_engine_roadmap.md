@@ -89,12 +89,59 @@ Current Phase D work is organized around four calibration groups:
 
 1. review-tooling improvements;
 2. Inventory and Supply-axis calibration;
-3. Price feature-weight calibration;
+3. completed Price feature-weight and final-MA calibration (MA12/P6 promoted);
 4. deferred CBSA labor-source correctness review.
 
 Detailed implementation history is recorded in the corresponding Phase D decision documents and persisted comparison artifacts.
 
 ---
+
+## Affordability closure and Supply sequence (2026-08-16)
+
+Affordability calibration is **CLOSED** at shared MA12/P4 (35/20/45) for
+`price_to_income` and `payment_burden`. Supply is next. Capital Markets is
+intentionally deferred until native Supply metrics are calibrated because Capital
+Markets is shared across Demand and Supply.
+
+After Supply feature anatomy and feature calibration, a future bounded Supply
+metric-weight experiment is planned but must not run before that evidence exists.
+Its provisional candidate grid is:
+
+| Policy | Inventory | Permit Activity | Permit Intensity |
+|---|---:|---:|---:|
+| S0 | 0.60 | 0.20 | 0.20 |
+| S1 | 0.60 | 0.25 | 0.15 |
+| S2 | 0.60 | 0.30 | 0.10 |
+| S3 | 0.55 | 0.30 | 0.15 |
+| S4 | 0.60 | 0.35 | 0.05 |
+| S5 | 0.55 | 0.35 | 0.10 |
+| S6 | 0.55 | 0.40 | 0.05 |
+| S7 | 0.50 | 0.45 | 0.05 |
+
+S6 relaxes Inventory while holding Permit Intensity at the 5% floor. S7 is the
+extreme boundary stress: it tests whether Inventory and Permit Activity can
+approach parity when Permit Intensity is nearly removed.
+
+The S0-S7 grid remains **PROVISIONAL** pending, in order:
+
+1. Supply Phase 1 feature anatomy;
+2. Supply feature-weight calibration; and
+3. detector health/calibration, if required.
+
+It is not authorization to execute or promote any scenario. Supply production
+weights and the existing Supply freeze/promotion record remain unchanged.
+
+---
+
+## Native Supply feature-policy closure (2026-08-17)
+
+The human-approved production policies are Active Inventory MA12/I4 (40/15/45), Permit Activity MA12/A2 (75/10/15 with the governed lag-6 Short preserved), and Permit Intensity MA12/N4 (40/15/45). Phase 1 anatomy and evidence repairs, Phase 2 feature-weight calibration and correlation hardening, and the final I4/N4 MA check form the closed evidence sequence. MA9/I4 and MA9/N4 did not establish a material structural advantage over MA12 sufficient to offset stability costs.
+
+ADR-011 subsequently closed Supply metric-weight calibration and the Supply dimension. Human-selected S8 is production at 65/30/5; Active Inventory remains MA12/I4, Permit Activity MA12/A2 with governed lag-6 Short, and Permit Intensity MA12/N4. The bounded S0–S9 evidence is preserved, no automated winner was used, and Supply is frozen unless a governed revisit trigger occurs. Capital Markets was unchanged and becomes the next active workstream, beginning with an inventory of its existing production policy to determine confirmation/revalidation versus bounded recalibration.
+
+## Supply calibration closure (2026-08-17)
+
+The bounded S0-S9 metric-weight campaign is closed by ADR-011. The human-selected production policy is S8: Active Inventory 65%, Permit Activity 30%, and Permit Intensity 5%. Together with MA12/I4 (40/15/45), MA12/A2 (75/10/15, governed lag-6 Short), and MA12/N4 (40/15/45), this fully calibrates and freezes Supply. S0, S2, S4, S9, and the full evidence sequence remain preserved as superseded history. No 75% Inventory scenario was tested or warranted. Capital Markets was unchanged and is next for a production-policy inventory followed by a decision between confirmation/revalidation and bounded recalibration.
 
 ## Phase E — Future Vision
 
@@ -136,8 +183,8 @@ The project is now in county-level production calibration. Remaining work is foc
 # Section 5 - Active Development Priorities
 
 Demand architecture calibration is complete. The human-selected production
-policy is LF-IN, calendar MA9 LAUS construction, 80/10/10 LAUS feature weights,
-and a 25/75 Structural/Cyclical composition. No further Demand model-selection
+policy is LF-IN, calendar MA9 LAUS construction, B3 40/15/45 LAUS feature weights,
+Labor-only numeric Demand, and non-axis Market Context. No further Demand model-selection
 experiment is pending.
 
 The next workstream returns to the previously started **Macro Regime
@@ -147,6 +194,14 @@ Visualization MVP**. Subsequent direction remains:
 2. Expand regime geography to CBSA / metro.
 3. Develop the local-regime layer.
 4. Continue toward regime-informed forecasting integration.
+
+The v0.2 visualization refinement should replace the single maximum-age
+headline with governed-cadence freshness: monthly/cyclical evidence freshness
+separate from annual/structural evidence vintage (and other materially distinct
+cadences only when supported by persisted membership metadata). It should also
+make drivers more decision-oriented, reduce the diagnostic-report feel, keep
+forensic metric drilldowns secondary, and improve hierarchy and readability
+without weakening transparency. This is a roadmap item, not part of v0.1.x.
 
 
 Current work is sequenced as follows:
@@ -261,6 +316,8 @@ Significant milestones in the evolution of the Regime Engine include:
 - Verified exact Supply-axis isolation during the linked Price integration.
 - Established county-level production calibration as the current engineering phase.
 - Formalized Regime Engine architecture and ADR documentation.
+- Promoted the closed Price calibration decision: MA12 with P6 (35/20/45) for
+  both direct Price metrics; historical diagnostic policies are superseded.
 
 ---
 
@@ -306,3 +363,42 @@ A later BPS visual review remains deferred for DC, Essex, Montgomery, Prince
 George's, Fairfax, San Francisco, and Los Angeles. Its future plots are raw
 monthly permit units, the incumbent transform, MA12 structural level, and the
 normalized permit-activity score. No BPS implementation is part of this pass.
+
+## Capital Markets native feature closure (2026-08-18)
+
+Capital Markets feature calibration is closed and its metric-specific production feature policies are frozen pending material evidence. The next Capital Markets workstream is separate family metric-weight calibration. The existing long-term-rates/Fed-Funds/spreads allocation remains 45/10/45; no family-weight candidate grid has been promoted. Until that work closes, Capital Markets is not fully frozen.
+
+## Capital Markets spread-polarity repair (2026-08-18)
+
+The canonical `spread_10y_2y` source boundary is being repaired after exact
+evidence showed that physical `fred_spread_2y_10y` (`2Y - 10Y`) was mapped
+without inversion. P7 is retained only as a revalidation baseline; P4, P2, P1,
+P5, and P9 remain provisionally valid. Existing F0-F9 evidence is preserved but
+invalidated pending corrected spread-only feature calibration and a later local
+family-weight rerun. No family-weight production policy has been selected.
+
+## Corrected 10Y-2Y feature-policy closure (2026-08-18)
+
+Corrected `spread_10y_2y` feature revalidation is closed at P6 (60/5/35), with the source-polarity repair validated and original P7 retained as historical defect-era evidence. Next, materialize the fresh immutable corrected Capital Markets feature-policy production baseline. The next analytical step is then a local F0-F9 family-weight calibration rerun against that baseline; family calibration is not complete and no family-weight production policy has been selected.
+
+## Capital Markets final closure (2026-08-18)
+
+Capital Markets is complete under ADR-014 and the F4 freeze contract:
+
+- native feature calibration = `closed`;
+- polarity repair = `closed`;
+- corrected spread feature revalidation = `closed`;
+- family metric-weight calibration = `closed`;
+- intra-family calibration = `not_required`;
+- Capital Markets = **fully frozen**.
+
+Human-approved F4 assigns 35% to Long-Term Rates, 10% to Fed Funds, and 55% to Spreads, with equal within-family metric weighting and no automated winner. The corrected F0-F9 rerun—not invalid defect-era evidence—is the decision basis. Preference-driven retuning cannot reopen the freeze.
+
+The active sequence is now:
+
+1. Macro Regime Visualization MVP;
+2. CBSA/metro expansion;
+3. local-regime layer;
+4. regime-informed forecasting integration;
+
+subject to existing roadmap governance. No additional Capital Markets calibration campaign is planned.
