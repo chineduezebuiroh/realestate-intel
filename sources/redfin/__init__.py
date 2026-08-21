@@ -1,1 +1,1 @@
-
+"""Governed Redfin ingestion."""
