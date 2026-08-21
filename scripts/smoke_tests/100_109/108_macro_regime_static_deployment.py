@@ -48,8 +48,18 @@ def main() -> int:
         assert f'counties/{DC_GEO_ID}.html' in index
         assert 'href="../index.html"' in county
         assert "plotly" in county.lower()
-        assert "file://" not in published.lower() and "/Users/" not in published
-        assert not re.search(r'(?<![\w-])/(?:home|workspace|tmp|var)/', published)
+        # Embedded Plotly legitimately contains the literal string "file://"
+        # in origin/security checks. Reject actual published file-protocol
+        # references and machine-local paths rather than the library literal.
+        assert "/Users/" not in published
+        assert not re.search(
+            r'(?i)(?:href|src)\s*=\s*["\']file://',
+            published,
+        )
+        assert not re.search(
+            r'(?<![\w-])/(?:home|workspace|tmp|var)/',
+            published,
+        )
     print("[macro_regime_static_deployment] authoritative static publication: OK")
     return 0
 
