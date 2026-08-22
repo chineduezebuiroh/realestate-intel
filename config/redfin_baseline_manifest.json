@@ -2,19 +2,12 @@
   "manifest_version": 1,
   "baseline_id": "2026-07",
   "immutable": true,
+  "metric_domain_contract": "config/redfin_metric_domain_contract.json",
   "historical_coverage": {
     "nation/state/county/metro": "2012-01",
     "city/zip/neighborhood": "2012-03"
   },
-  "unit_conventions": {
-    "average_sale_to_list_ratio": "percentage_points",
-    "share_sold_above_original_list": "percentage_points",
-    "percent_off_market_in_two_weeks": "percentage_points"
-  },
-  "known_source_anomalies": [
-    "share_sold_above_original_list may exceed 100 in Redfin source data; July 2026 baseline observed values through 103.47. Values above 100 through 105 are retained unchanged with a warning.",
-    "44 percent_off_market_in_two_weeks observations across 5 CBSA metros in 2012-2014 reach -3.79 and are retained unchanged with a warning."
-  ],
+  "unit_conventions": "Governed by config/redfin_metric_domain_contract.json",
   "files": [
     {
       "geography_family": "city",

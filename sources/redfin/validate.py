@@ -8,11 +8,10 @@ from typing import Iterable
 import duckdb
 import pandas as pd
 
-from .governance import BASELINE_ID, FAMILIES, FAMILY_LEVELS, METRICS, RAW_ROOT, GovernanceError, load_baseline_manifest
+from .governance import BASELINE_ID, FAMILIES, FAMILY_LEVELS, METRICS, RAW_ROOT, GovernanceError, load_baseline_manifest, load_metric_domain_contract
 from .storage import atomic_json, read_json, sha256
 
 ALIASES = {"avg_sale_to_list": "average_sale_to_list_ratio", "sold_above_list": "share_sold_above_original_list", "off_market_in_two_weeks": "percent_off_market_in_two_weeks", "median_sale_price": "median_sale_price_nsa", "median_ppsf": "median_sale_price_per_sqft", "median_dom": "median_days_on_market_days"}
-PERCENTAGES = {"average_sale_to_list_ratio": (0, 200, 50, 150), "share_sold_above_original_list": (0, 105, 0, 100), "percent_off_market_in_two_weeks": (-5, 100, 0, 100)}
 KEYS = ["geo_id", "metric_id", "date", "property_type_id"]
 CRITICAL = KEYS + ["value"]
 
@@ -35,19 +34,52 @@ def read_raw(path: Path) -> pd.DataFrame:
     return frame
 
 
-def validate_percentages(frame: pd.DataFrame) -> list[str]:
-    warnings = []
-    for metric, (hard_low, hard_high, soft_low, soft_high) in PERCENTAGES.items():
-        if metric not in frame: continue
+def validate_metric_domains(frame: pd.DataFrame, contract: dict | None = None) -> dict:
+    """Aggregate business warnings separately from fail-closed source violations."""
+    rules = (contract or load_metric_domain_contract())["metrics"]
+    diagnostics = {}
+    for metric, rule in rules.items():
+        if metric not in frame:
+            continue
         numeric = pd.to_numeric(frame[metric], errors="coerce")
-        if (frame[metric].notna() & numeric.isna()).any(): raise GovernanceError(f"non-numeric values in {metric}")
-        if ((numeric < hard_low) | (numeric > hard_high)).fillna(False).any(): raise GovernanceError(f"{metric} outside governed range {hard_low}..{hard_high}")
-        count = int(((numeric < soft_low) | (numeric > soft_high)).fillna(False).sum())
-        if count: warnings.append(f"{metric}: {count} tolerated source anomalies")
-    return warnings
+        if (frame[metric].notna() & numeric.isna()).any():
+            raise GovernanceError(f"non-numeric values in {metric}")
+        populated = numeric.dropna()
+        if populated.empty:
+            continue
+        below_expected = int((populated < rule["expected_min"]).sum())
+        above_expected = int((populated > rule["expected_max"]).sum())
+        below_source = int((populated < rule["source_min"]).sum())
+        above_source = int((populated > rule["source_max"]).sum())
+        diagnostics[metric] = {
+            "actual_min": float(populated.min()), "actual_max": float(populated.max()),
+            "expected_range": [rule["expected_min"], rule["expected_max"]],
+            "source_range": [rule["source_min"], rule["source_max"]],
+            "below_expected_rows": below_expected, "above_expected_rows": above_expected,
+            "below_source_rows": below_source, "above_source_rows": above_source,
+            "source_violations": below_source + above_source,
+            "status": "source_domain_violation" if below_source + above_source else "warning" if below_expected + above_expected else "normal",
+        }
+    violations = {key: value for key, value in diagnostics.items() if value["source_violations"]}
+    if violations:
+        raise GovernanceError(f"source-domain violations: {json.dumps(violations, sort_keys=True)}")
+    return diagnostics
 
 
-def inspect_raw(path: Path, require_governed_metrics: bool = True) -> dict:
+def _merge_metric_domains(target: dict, addition: dict) -> None:
+    for metric, result in addition.items():
+        if metric not in target:
+            target[metric] = dict(result)
+            continue
+        combined = target[metric]
+        combined["actual_min"] = min(combined["actual_min"], result["actual_min"])
+        combined["actual_max"] = max(combined["actual_max"], result["actual_max"])
+        for key in ("below_expected_rows", "above_expected_rows", "below_source_rows", "above_source_rows", "source_violations"):
+            combined[key] += result[key]
+        combined["status"] = "warning" if combined["below_expected_rows"] + combined["above_expected_rows"] else "normal"
+
+
+def inspect_raw(path: Path, require_governed_metrics: bool = True, domain_contract: dict | None = None) -> dict:
     """Validate one raw Redfin source with bounded memory.
 
     Every governed raw family must have a usable Redfin identity and period
@@ -98,12 +130,12 @@ def inspect_raw(path: Path, require_governed_metrics: bool = True) -> dict:
     # merely because the raw file is preserved for future use.
     wanted = [
         date_name,
-        *(metric for metric in PERCENTAGES if metric in by_normalized),
+        *(metric for metric in (domain_contract or load_metric_domain_contract())["metrics"] if metric in by_normalized),
     ]
     usecols = [by_normalized[name] for name in wanted]
 
     minimum = maximum = None
-    warnings = []
+    metric_domains = {}
 
     for chunk in pd.read_csv(
         path,
@@ -136,7 +168,7 @@ def inspect_raw(path: Path, require_governed_metrics: bool = True) -> dict:
             else max(maximum, chunk_max)
         )
 
-        warnings.extend(validate_percentages(chunk))
+        _merge_metric_domains(metric_domains, validate_metric_domains(chunk, domain_contract))
 
     if minimum is None:
         raise GovernanceError(f"empty source file: {path.name}")
@@ -145,7 +177,7 @@ def inspect_raw(path: Path, require_governed_metrics: bool = True) -> dict:
         "schema": normalized,
         "minimum": str(minimum),
         "maximum": str(maximum),
-        "warnings": warnings,
+        "metric_domains": metric_domains,
         "production_metric_contract_checked": require_governed_metrics,
     }
 
@@ -159,6 +191,7 @@ def validate_baseline(
         manifest_path or Path("config/redfin_baseline_manifest.json")
     )
     folder = root / "baseline" / manifest["baseline_id"]
+    domain_contract = load_metric_domain_contract()
 
     if not folder.is_dir():
         raise GovernanceError(
@@ -174,7 +207,7 @@ def validate_baseline(
     }
 
     schemas = {}
-    warnings = []
+    metric_domains = {}
     validation_scope = {}
 
     for item in manifest["files"]:
@@ -191,10 +224,11 @@ def validate_baseline(
         result = inspect_raw(
             path,
             require_governed_metrics=strict,
+            domain_contract=domain_contract,
         )
 
         schemas[path.name] = result["schema"]
-        warnings += result["warnings"]
+        _merge_metric_domains(metric_domains, result["metric_domains"])
         validation_scope[family] = (
             "active_production"
             if strict
@@ -209,6 +243,12 @@ def validate_baseline(
                 f"exact baseline coverage mismatch: {path.name}"
             )
 
+    for metric, rule in domain_contract["metrics"].items():
+        result = metric_domains.get(metric)
+        if result is None or abs(result["actual_min"] - rule["observed_baseline_min"]) > 1e-9 or abs(result["actual_max"] - rule["observed_baseline_max"]) > 1e-9:
+            raise GovernanceError(f"baseline extrema do not reproduce governed evidence for {metric}")
+    warnings = [f"{metric}: {result['below_expected_rows'] + result['above_expected_rows']} expected-range observations" for metric, result in metric_domains.items() if result["status"] == "warning"]
+
     return {
         "baseline_id": BASELINE_ID,
         "manifest_version": manifest["manifest_version"],
@@ -217,14 +257,16 @@ def validate_baseline(
         "active_production_families": sorted(active_families),
         "validation_scope": validation_scope,
         "schemas": schemas,
-        "warnings": sorted(set(warnings)),
+        "warnings": sorted(warnings),
+        "metric_domains": dict(sorted(metric_domains.items())),
     }
 
 
 def validate_drop(drop_id: str, root: Path = RAW_ROOT) -> dict:
     folder = root / "drops" / drop_id; meta = read_json(folder / "metadata.json")
     if meta.get("status") not in {"registered", "validated"}: raise GovernanceError("drop is not validation eligible")
-    schemas, warnings, latest, families = {}, [], [], set()
+    schemas, latest, families, metric_domains = {}, [], set(), {}
+    domain_contract = load_metric_domain_contract()
     for record in meta["files"]:
         path = folder / record["filename"]
         if not path.is_file() or sha256(path) != record["sha256"]: raise GovernanceError(f"registered hash changed: {path.name}")
@@ -240,14 +282,16 @@ def validate_drop(drop_id: str, root: Path = RAW_ROOT) -> dict:
         result = inspect_raw(
             path,
             require_governed_metrics=family in active_families,
+            domain_contract=domain_contract,
         )
         schemas[path.name] = result["schema"]
-        warnings += result["warnings"]
+        _merge_metric_domains(metric_domains, result["metric_domains"])
         latest.append(result["maximum"])
         families.add(family)
     if families != set(FAMILIES): raise GovernanceError("drop must contain all seven geography families")
     if set(latest) != {drop_id}: raise GovernanceError(f"every drop family must end at {drop_id}: {latest}")
-    meta.update(status="validated", validation_status="validated", schemas=schemas, latest_redfin_month=drop_id, warnings=sorted(set(warnings)))
+    warnings = [f"{metric}: {result['below_expected_rows'] + result['above_expected_rows']} expected-range observations" for metric, result in metric_domains.items() if result["status"] == "warning"]
+    meta.update(status="validated", validation_status="validated", schemas=schemas, latest_redfin_month=drop_id, warnings=sorted(warnings), metric_domains=dict(sorted(metric_domains.items())))
     atomic_json(folder / "metadata.json", meta); return meta
 
 
@@ -271,15 +315,19 @@ def _validate_long(frame: pd.DataFrame, expected_latest: str, geo_manifest: Path
     governed = governed_geographies(geo_manifest); expected_geos = set(governed.geo_id); actual_geos = set(frame.geo_id)
     if actual_geos != expected_geos: raise GovernanceError(f"governed geography loss/addition: missing={sorted(expected_geos-actual_geos)} extra={sorted(actual_geos-expected_geos)}")
     if str(frame.date.max().to_period("M")) != expected_latest: raise GovernanceError("candidate/serving latest month mismatch")
+    manifest = load_baseline_manifest()
+    floors = {item["geography_family"]: item["historical_floor"] for item in manifest["files"]}
     for family, levels in FAMILY_LEVELS.items():
         family_geos = set(governed.loc[governed.level.str.lower().isin(levels), "geo_id"])
         if not family_geos: continue
-        floor = "2012-03" if family in {"zip", "neighborhood"} else "2012-01"
+        floor = floors[family]
         observed = frame[frame.geo_id.isin(family_geos)].date.min().to_period("M")
         if str(observed) != floor: raise GovernanceError(f"candidate/serving historical floor mismatch for {family}")
-    percentage_frame = pd.DataFrame({metric: pd.Series(frame.loc[frame.metric_id.eq(metric), "value"].to_numpy()) for metric in PERCENTAGES})
-    warnings = validate_percentages(percentage_frame)
-    return {"rows": len(frame), "geographies": len(actual_geos), "metrics": len(METRICS), "latest_month": expected_latest, "warnings": warnings}
+    rules = load_metric_domain_contract()["metrics"]
+    percentage_frame = pd.DataFrame({metric: pd.Series(frame.loc[frame.metric_id.eq(metric), "value"].to_numpy()) for metric in rules})
+    metric_domains = validate_metric_domains(percentage_frame)
+    warnings = [f"{metric}: {result['below_expected_rows'] + result['above_expected_rows']} expected-range observations" for metric, result in metric_domains.items() if result["status"] == "warning"]
+    return {"rows": len(frame), "geographies": len(actual_geos), "metrics": len(METRICS), "latest_month": expected_latest, "warnings": warnings, "metric_domains": dict(sorted(metric_domains.items()))}
 
 
 def candidate_diagnostics(frame: pd.DataFrame, connection, expected_latest: str, geo_manifest: Path = Path("config/geo_manifest.generated.csv")) -> dict:

@@ -18,10 +18,11 @@ def expect(fn):
  raise AssertionError("expected fail-closed error")
 
 def raw(path,family,end="2026-07",start=None,active_fallback=False,code="1"):
- start=start or ("2012-03" if family in {"zip","neighborhood"} else "2012-01")
+ start=start or ("2012-03" if family in {"city","zip","neighborhood"} else "2012-01")
  rows=[]
  for month in (start,end):
-  row={"period_end":month+"-28","region_id":code,"average_sale_to_list_ratio":100,"homes_sold":2,"median_days_on_market_days":10,"median_sale_price_nsa":3,"median_sale_price_per_sqft":4,"months_of_supply":5,"new_listings":6,"pending_sales":7,"percent_off_market_in_two_weeks":-3.79,"share_sold_above_original_list":100.05}
+  first = month == start
+  row={"period_end":month+"-28","region_id":code,"average_sale_to_list_ratio":50 if first else 200,"homes_sold":2,"median_days_on_market_days":10,"median_sale_price_nsa":3,"median_sale_price_per_sqft":4,"months_of_supply":5,"new_listings":6,"pending_sales":7,"percent_off_market_in_two_weeks":-7.57 if first else 100,"share_sold_above_original_list":-1.73 if first else 103.47}
   row["active_listings" if active_fallback else "inventory"]=8; rows.append(row)
  pd.DataFrame(rows).to_csv(path,index=False)
 
@@ -29,12 +30,19 @@ with tempfile.TemporaryDirectory() as td:
  root=Path(td)/"raw"; bootstrap(root); manifest={"manifest_version":1,"baseline_id":"2026-07","immutable":True,"files":[]}
  for family in FAMILIES:
   path=root/"baseline/2026-07"/NAMES[family]; raw(path,family,active_fallback=family=="nation")
-  manifest["files"].append({"filename":path.name,"sha256":sha256(path),"geography_family":family,"historical_floor":"2012-03" if family in {"zip","neighborhood"} else "2012-01"})
+  manifest["files"].append({"filename":path.name,"sha256":sha256(path),"geography_family":family,"historical_floor":"2012-03" if family in {"city","zip","neighborhood"} else "2012-01"})
  mp=Path(td)/"manifest.json"; mp.write_text(json.dumps(manifest)); assert validate_baseline(root,mp)["latest_month"]=="2026-07"
  assert {infer_family(name) for name in NAMES.values()}==set(FAMILIES); expect(lambda:infer_family("unknown.csv")); expect(lambda:infer_family("states_and_metros.csv"))
  # Exact floors are identities, not lower bounds.
  target=root/"baseline/2026-07"/NAMES["nation"]; raw(target,"nation",start="2011-12"); manifest["files"][0]["sha256"] = sha256(target); mp.write_text(json.dumps(manifest)); expect(lambda:validate_baseline(root,mp))
  raw(target,"nation"); manifest["files"][0]["sha256"] = sha256(target); mp.write_text(json.dumps(manifest))
+ # Frozen baseline hashes are necessary but the aggregate empirical extrema must also reproduce the domain contract.
+ for item in manifest["files"]:
+  changed_path=root/"baseline/2026-07"/item["filename"]; changed=pd.read_csv(changed_path); changed["average_sale_to_list_ratio"]=100; changed.to_csv(changed_path,index=False); item["sha256"]=sha256(changed_path)
+ mp.write_text(json.dumps(manifest)); expect(lambda:validate_baseline(root,mp))
+ for item in manifest["files"]:
+  restored=root/"baseline/2026-07"/item["filename"]; raw(restored,item["geography_family"]); item["sha256"]=sha256(restored)
+ mp.write_text(json.dumps(manifest))
  for protected in (root,root/"baseline",root/"current",root/"quarantine"): expect(lambda p=protected:assert_safe_delete(p,root))
  # Registration uses all exact real-style family tokens; endpoint must match for every file.
  drop=root/"drops/2026-08"; drop.mkdir()
