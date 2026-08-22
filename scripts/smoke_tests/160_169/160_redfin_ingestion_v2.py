@@ -67,7 +67,9 @@ with tempfile.TemporaryDirectory() as td:
   def __init__(self,inner): self.inner=inner
   def register(self,*args): return self.inner.register(*args)
   def execute(self,sql,*args):
-   if sql.strip().startswith("INSERT INTO fact_timeseries SELECT"): raise RuntimeError("forced insert failure")
+   normalized = " ".join(sql.split()).upper()
+   if normalized.startswith("INSERT INTO FACT_TIMESERIES"):
+    raise RuntimeError("forced insert failure")
    return self.inner.execute(sql,*args)
  try: apply_candidate("2026-08",candidate,FailAfterDelete(con),root)
  except RuntimeError: pass

@@ -21,7 +21,26 @@ def apply_candidate(drop_id: str, candidate: Path, connection=None, root: Path =
         con.execute("BEGIN TRANSACTION")
         con.execute("""CREATE TABLE IF NOT EXISTS fact_timeseries(geo_id TEXT NOT NULL, metric_id TEXT NOT NULL, date DATE NOT NULL, property_type_id TEXT NOT NULL DEFAULT 'all', value DOUBLE, source_id TEXT, property_type TEXT, PRIMARY KEY(geo_id,metric_id,date,property_type_id))""")
         con.register("redfin_candidate", frame); con.execute("DELETE FROM fact_timeseries WHERE source_id='redfin'")
-        con.execute("""INSERT INTO fact_timeseries SELECT geo_id,metric_id,date,property_type_id,CAST(value AS DOUBLE),'redfin',property_type FROM redfin_candidate""")
+        con.execute("""
+            INSERT INTO fact_timeseries (
+                geo_id,
+                metric_id,
+                date,
+                property_type_id,
+                value,
+                source_id,
+                property_type
+            )
+            SELECT
+                geo_id,
+                metric_id,
+                date,
+                property_type_id,
+                CAST(value AS DOUBLE),
+                'redfin',
+                property_type
+            FROM redfin_candidate
+        """)
         inserted = con.execute("SELECT count(*) FROM fact_timeseries WHERE source_id='redfin'").fetchone()[0]
         if inserted != len(frame): raise GovernanceError("post-insert row count mismatch")
         metrics = {row[0] for row in con.execute("SELECT DISTINCT metric_id FROM fact_timeseries WHERE source_id='redfin'").fetchall()}
