@@ -1,0 +1,55 @@
+{
+  "manifest_version": 1,
+  "baseline_id": "2026-07",
+  "immutable": true,
+  "metric_domain_contract": "config/redfin_metric_domain_contract.json",
+  "historical_coverage": {
+    "nation/state/county/metro": "2012-01",
+    "city/zip/neighborhood": "2012-03"
+  },
+  "unit_conventions": "Governed by config/redfin_metric_domain_contract.json",
+  "files": [
+    {
+      "geography_family": "city",
+      "filename": "redfin_housing_market_monthly_all_cities_2012_Jan_to_2026_Jul.csv",
+      "sha256": "39ecf617c7f864e32f9dd821a8273e14ab1cb6318856c05667f7c6617c8d551c",
+      "historical_floor": "2012-03"
+    },
+    {
+      "geography_family": "county",
+      "filename": "redfin_housing_market_monthly_all_counties_2012_Jan_to_2026_Jul.csv",
+      "sha256": "da8c22dfc6659ce47cd85e2809cdd826cad2c0d2cd8ae593127ffec283e84da1",
+      "historical_floor": "2012-01"
+    },
+    {
+      "geography_family": "nation",
+      "filename": "redfin_housing_market_monthly_all_country_2012_Jan_to_2026_Jul.csv",
+      "sha256": "09a014b2bc16dd57ba8e4da6f26c2a5a972b1164a3a053552011f2f003aa6bde",
+      "historical_floor": "2012-01"
+    },
+    {
+      "geography_family": "metro",
+      "filename": "redfin_housing_market_monthly_all_metros_2012_Jan_to_2026_Jul.csv",
+      "sha256": "2292b4215e282fdd577c1ba1e13c28099cec08b472362484561cae55b4960f2f",
+      "historical_floor": "2012-01"
+    },
+    {
+      "geography_family": "neighborhood",
+      "filename": "redfin_housing_market_monthly_all_neighborhoods_2012_Jan_to_2026_Jul.csv",
+      "sha256": "ae1d09e375b9c287c28cf9790a7e72009c86314206710a3e9d34f6d1306d6975",
+      "historical_floor": "2012-03"
+    },
+    {
+      "geography_family": "state",
+      "filename": "redfin_housing_market_monthly_all_states_2012_Jan_to_2026_Jul.csv",
+      "sha256": "a8abbaf78cbae9700ed0e831a1134f6bca7e04f1bc13b684cac2e5d0555d17bd",
+      "historical_floor": "2012-01"
+    },
+    {
+      "geography_family": "zip",
+      "filename": "redfin_housing_market_monthly_all_zips_2012_Jan_to_2026_Jul.csv",
+      "sha256": "326a338e7163273fd9cfaa73caedb1d149af03620c9df99d3b8e9ca36cbc3f1c",
+      "historical_floor": "2012-03"
+    }
+  ]
+}
