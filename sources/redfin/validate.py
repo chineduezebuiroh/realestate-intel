@@ -307,8 +307,11 @@ def _validate_long(frame: pd.DataFrame, expected_latest: str, geo_manifest: Path
     if frame[CRITICAL].isna().any().any(): raise GovernanceError("null critical candidate/serving fields")
     if frame.duplicated(KEYS).any(): raise GovernanceError("duplicate canonical keys")
     if set(frame.metric_id.unique()) != METRICS: raise GovernanceError("candidate/serving metrics do not equal governed 11-metric set")
-    incomplete = frame.groupby("geo_id").metric_id.nunique().ne(len(METRICS))
-    if incomplete.any(): raise GovernanceError("one or more governed geographies lost governed metrics")
+    # Redfin legitimately has sparse geography/metric coverage, especially
+    # for thin ZIP markets. Enforce the exact 11-metric universe globally,
+    # but do not require every geography to have observed every metric.
+    # Candidate comparison against trusted production below is responsible
+    # for failing closed on newly lost geo/metric presence.
     numeric = pd.to_numeric(frame.value, errors="coerce")
     if numeric.isna().any(): raise GovernanceError("non-numeric candidate/serving values")
     frame = frame.copy(); frame["value"] = numeric; frame["date"] = pd.to_datetime(frame.date)
@@ -327,7 +330,33 @@ def _validate_long(frame: pd.DataFrame, expected_latest: str, geo_manifest: Path
     percentage_frame = pd.DataFrame({metric: pd.Series(frame.loc[frame.metric_id.eq(metric), "value"].to_numpy()) for metric in rules})
     metric_domains = validate_metric_domains(percentage_frame)
     warnings = [f"{metric}: {result['below_expected_rows'] + result['above_expected_rows']} expected-range observations" for metric, result in metric_domains.items() if result["status"] == "warning"]
-    return {"rows": len(frame), "geographies": len(actual_geos), "metrics": len(METRICS), "latest_month": expected_latest, "warnings": warnings, "metric_domains": dict(sorted(metric_domains.items()))}
+
+    observed_pairs = set(
+        frame[["geo_id", "metric_id"]]
+        .drop_duplicates()
+        .itertuples(index=False, name=None)
+    )
+    expected_pairs = {
+        (geo_id, metric_id)
+        for geo_id in actual_geos
+        for metric_id in METRICS
+    }
+    missing_pairs = expected_pairs - observed_pairs
+    missing_by_metric = {}
+    for _, metric_id in missing_pairs:
+        missing_by_metric[metric_id] = missing_by_metric.get(metric_id, 0) + 1
+
+    return {
+        "rows": len(frame),
+        "geographies": len(actual_geos),
+        "metrics": len(METRICS),
+        "latest_month": expected_latest,
+        "warnings": warnings,
+        "metric_domains": dict(sorted(metric_domains.items())),
+        "sparse_geo_metric_pairs": len(missing_pairs),
+        "sparse_geographies": len({geo_id for geo_id, _ in missing_pairs}),
+        "sparse_geo_metric_pairs_by_metric": dict(sorted(missing_by_metric.items())),
+    }
 
 
 def candidate_diagnostics(frame: pd.DataFrame, connection, expected_latest: str, geo_manifest: Path = Path("config/geo_manifest.generated.csv")) -> dict:
@@ -338,7 +367,40 @@ def candidate_diagnostics(frame: pd.DataFrame, connection, expected_latest: str,
     revisions = comparison.loc[changed & (comparison.date.dt.to_period("M") < pd.Period(expected_latest, "M"))].copy()
     levels = governed_geographies(geo_manifest)[["geo_id", "level"]]
     revisions = revisions.merge(levels, on="geo_id", how="left")
-    return {"old_only_keys": int(comparison._merge.eq("left_only").sum()), "new_only_keys": int(comparison._merge.eq("right_only").sum()), "matched_keys": int(matched.sum()), "changed_rows": int(changed.sum()), "historical_revisions": int(len(revisions)), "historical_revisions_by_metric": revisions.groupby("metric_id").size().to_dict(), "historical_revisions_by_geography_level": revisions.groupby("level").size().to_dict()}
+
+    old_presence = set(
+        old[["geo_id", "metric_id"]]
+        .drop_duplicates()
+        .itertuples(index=False, name=None)
+    )
+    new_presence = set(
+        new[["geo_id", "metric_id"]]
+        .drop_duplicates()
+        .itertuples(index=False, name=None)
+    )
+
+    lost_presence = sorted(old_presence - new_presence)
+    recovered_presence = sorted(new_presence - old_presence)
+
+    return {
+        "old_only_keys": int(comparison._merge.eq("left_only").sum()),
+        "new_only_keys": int(comparison._merge.eq("right_only").sum()),
+        "matched_keys": int(matched.sum()),
+        "changed_rows": int(changed.sum()),
+        "historical_revisions": int(len(revisions)),
+        "historical_revisions_by_metric": revisions.groupby("metric_id").size().to_dict(),
+        "historical_revisions_by_geography_level": revisions.groupby("level").size().to_dict(),
+        "lost_geo_metric_pairs": len(lost_presence),
+        "recovered_geo_metric_pairs": len(recovered_presence),
+        "lost_geo_metric_pair_examples": [
+            {"geo_id": geo_id, "metric_id": metric_id}
+            for geo_id, metric_id in lost_presence[:100]
+        ],
+        "recovered_geo_metric_pair_examples": [
+            {"geo_id": geo_id, "metric_id": metric_id}
+            for geo_id, metric_id in recovered_presence[:100]
+        ],
+    }
 
 
 def validate_candidate(candidate: Path, drop_id: str, root: Path = RAW_ROOT, geo_manifest: Path = Path("config/geo_manifest.generated.csv"), db_path: Path | None = None) -> dict:
@@ -347,10 +409,25 @@ def validate_candidate(candidate: Path, drop_id: str, root: Path = RAW_ROOT, geo
     if meta.get("status") not in {"candidate_built", "candidate_validated"} or Path(meta.get("candidate_path", "")) != candidate: raise GovernanceError("candidate metadata/build state mismatch")
     frame = pd.read_parquet(candidate); summary = _validate_long(frame, drop_id, geo_manifest)
     con = duckdb.connect(str(db_path), read_only=True) if db_path and db_path.exists() else None
-    try: diagnostics = candidate_diagnostics(frame, con, drop_id, geo_manifest)
+    try:
+        diagnostics = candidate_diagnostics(frame, con, drop_id, geo_manifest)
     finally:
-        if con: con.close()
-    report = {"status":"candidate_validated", "drop_id":drop_id, "summary":summary, "diagnostics":diagnostics}
+        if con:
+            con.close()
+
+    if db_path and diagnostics["lost_geo_metric_pairs"]:
+        raise GovernanceError(
+            "candidate loses geo/metric coverage present in trusted production: "
+            f"{diagnostics['lost_geo_metric_pairs']} pairs; "
+            f"examples={diagnostics['lost_geo_metric_pair_examples'][:20]}"
+        )
+
+    report = {
+        "status": "candidate_validated",
+        "drop_id": drop_id,
+        "summary": summary,
+        "diagnostics": diagnostics,
+    }
     report_path = candidate.with_suffix(".validation.json"); atomic_json(report_path, report)
     meta.update(status="candidate_validated", candidate_validation_path=str(report_path), diagnostics=diagnostics); atomic_json(meta_path, meta)
     return report

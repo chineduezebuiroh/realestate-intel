@@ -62,12 +62,68 @@ def _source_to_long(path: Path, priority: int, family: str, mapping: pd.DataFram
     date_col="period_end" if "period_end" in frame else "period_begin" if "period_begin" in frame else None
     if not date_col: raise GovernanceError(f"missing period column: {path.name}")
     frame["date"]=pd.to_datetime(frame[date_col],errors="raise").dt.to_period("M").dt.to_timestamp("M")
-    if "region_id" in frame and "table_id" in frame: frame["join_id"]=frame.region_id.where(frame.region_id.notna(),frame.table_id)
-    elif "region_id" in frame: frame["join_id"]=frame.region_id
-    elif "table_id" in frame: frame["join_id"]=frame.table_id
-    else: raise GovernanceError(f"missing canonical geography identifier: {path.name}")
-    frame["join_id"]=frame.join_id.astype(str).str.replace(r"\.0$","",regex=True); mapping=mapping.copy(); mapping["redfin_code"]=mapping.redfin_code.astype(str).str.replace(r"\.0$","",regex=True)
-    frame=frame.merge(mapping,left_on="join_id",right_on="redfin_code",how="inner",validate="many_to_one")
+    mapping = mapping.copy()
+
+    # Redfin's national/country export is a singleton source family and does
+    # not publish a usable region_id/table_id. Map it explicitly to the one
+    # governed nation geography rather than pretending redfin_code is usable.
+    if family == "nation":
+        if len(mapping) != 1:
+            raise GovernanceError(
+                f"nation family requires exactly one governed mapping; found {len(mapping)}"
+            )
+
+        if "region_type" in frame:
+            region_types = {
+                value
+                for value in frame["region_type"]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                .unique()
+                if value
+            }
+            if region_types and region_types != {"country"}:
+                raise GovernanceError(
+                    f"unexpected national Redfin region_type values: {sorted(region_types)}"
+                )
+
+        frame["geo_id"] = mapping.iloc[0]["geo_id"]
+
+    else:
+        if "region_id" in frame and "table_id" in frame:
+            frame["join_id"] = frame.region_id.where(
+                frame.region_id.notna(),
+                frame.table_id,
+            )
+        elif "region_id" in frame:
+            frame["join_id"] = frame.region_id
+        elif "table_id" in frame:
+            frame["join_id"] = frame.table_id
+        else:
+            raise GovernanceError(
+                f"missing canonical geography identifier: {path.name}"
+            )
+
+        frame["join_id"] = (
+            frame.join_id
+            .astype(str)
+            .str.replace(r"\.0$", "", regex=True)
+        )
+        mapping["redfin_code"] = (
+            mapping.redfin_code
+            .astype(str)
+            .str.replace(r"\.0$", "", regex=True)
+        )
+
+        frame = frame.merge(
+            mapping,
+            left_on="join_id",
+            right_on="redfin_code",
+            how="inner",
+            validate="many_to_one",
+        )
     if "is_seasonally_adjusted" in frame:
         flag=frame.is_seasonally_adjusted.astype(str).str.lower().str.strip(); frame=frame[flag.isin({"false","0","no","n","nan","none",""})]
     if "property_type_id" in frame:
