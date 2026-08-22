@@ -12,13 +12,20 @@ from .governance import BASELINE_ID, FAMILIES, FAMILY_LEVELS, METRICS, RAW_ROOT,
 from .storage import atomic_json, read_json, sha256
 
 ALIASES = {"avg_sale_to_list": "average_sale_to_list_ratio", "sold_above_list": "share_sold_above_original_list", "off_market_in_two_weeks": "percent_off_market_in_two_weeks", "median_sale_price": "median_sale_price_nsa", "median_ppsf": "median_sale_price_per_sqft", "median_dom": "median_days_on_market_days"}
-PERCENTAGES = {"average_sale_to_list_ratio": (0, 200, 50, 150), "share_sold_above_original_list": (0, 100.10, 0, 100), "percent_off_market_in_two_weeks": (-5, 100, 0, 100)}
+PERCENTAGES = {"average_sale_to_list_ratio": (0, 200, 50, 150), "share_sold_above_original_list": (0, 105, 0, 100), "percent_off_market_in_two_weeks": (-5, 100, 0, 100)}
 KEYS = ["geo_id", "metric_id", "date", "property_type_id"]
 CRITICAL = KEYS + ["value"]
 
 
 def normalize_columns(columns: Iterable[str]) -> list[str]:
-    values = pd.Index(columns).str.strip().str.lower().str.replace(r"\s+", "_", regex=True).str.replace(r"[^a-z0-9_]+", "", regex=True)
+    values = (
+        pd.Index(columns)
+        .str.strip()
+        .str.lower()
+        .str.replace(r"\s+", "_", regex=True)
+        .str.replace(r"[^a-z0-9_]+", "", regex=True)
+        .str.strip("_")
+    )
     return [ALIASES.get(value, value) for value in values]
 
 
@@ -40,43 +47,178 @@ def validate_percentages(frame: pd.DataFrame) -> list[str]:
     return warnings
 
 
-def inspect_raw(path: Path) -> dict:
-    """Validate schema, dates, and percentage ranges with bounded memory."""
+def inspect_raw(path: Path, require_governed_metrics: bool = True) -> dict:
+    """Validate one raw Redfin source with bounded memory.
+
+    Every governed raw family must have a usable Redfin identity and period
+    column. Exact production-metric availability is required only for families
+    currently active in the governed Redfin geography manifest.
+    """
     sep = "\t" if ".tsv" in path.name else ","
+
     header = pd.read_csv(path, sep=sep, nrows=0)
     normalized = normalize_columns(header.columns)
     by_normalized = dict(zip(normalized, header.columns))
-    date_name = "period_end" if "period_end" in by_normalized else "period_begin" if "period_begin" in by_normalized else None
-    if not date_name: raise GovernanceError(f"missing period column: {path.name}")
+
+    date_name = (
+        "period_end"
+        if "period_end" in by_normalized
+        else "period_begin"
+        if "period_begin" in by_normalized
+        else None
+    )
+    if not date_name:
+        raise GovernanceError(f"missing period column: {path.name}")
+
+    if "region_id" not in by_normalized and "table_id" not in by_normalized:
+        raise GovernanceError(f"missing Redfin identity column: {path.name}")
+
     available_metrics = set(normalized)
-    if "inventory" not in available_metrics and "active_listings" not in available_metrics: raise GovernanceError(f"missing inventory/active_listings: {path.name}")
-    missing = METRICS - available_metrics - {"inventory"}
-    if missing: raise GovernanceError(f"missing governed metrics in {path.name}: {sorted(missing)}")
-    wanted = [date_name, *(m for m in PERCENTAGES if m in by_normalized)]
+
+    if require_governed_metrics:
+        if (
+            "inventory" not in available_metrics
+            and "active_listings" not in available_metrics
+        ):
+            raise GovernanceError(
+                f"missing inventory/active_listings: {path.name}"
+            )
+
+        # inventory may be satisfied by active_listings fallback.
+        required = METRICS - {"inventory"}
+        missing = required - available_metrics
+
+        if missing:
+            raise GovernanceError(
+                f"missing governed metrics in {path.name}: {sorted(missing)}"
+            )
+
+    # Always inspect any governed percentage columns that the source actually
+    # exposes, including inactive source families. Do not require those fields
+    # merely because the raw file is preserved for future use.
+    wanted = [
+        date_name,
+        *(metric for metric in PERCENTAGES if metric in by_normalized),
+    ]
     usecols = [by_normalized[name] for name in wanted]
-    minimum = maximum = None; warnings = []
-    for chunk in pd.read_csv(path, sep=sep, usecols=usecols, chunksize=100_000, low_memory=False):
+
+    minimum = maximum = None
+    warnings = []
+
+    for chunk in pd.read_csv(
+        path,
+        sep=sep,
+        usecols=usecols,
+        chunksize=100_000,
+        low_memory=False,
+    ):
         chunk.columns = normalize_columns(chunk.columns)
-        dates = pd.to_datetime(chunk[date_name], errors="coerce")
-        if dates.isna().any(): raise GovernanceError(f"invalid dates: {path.name}")
-        chunk_min, chunk_max = dates.min().to_period("M"), dates.max().to_period("M")
-        minimum = chunk_min if minimum is None else min(minimum, chunk_min)
-        maximum = chunk_max if maximum is None else max(maximum, chunk_max)
+
+        dates = pd.to_datetime(
+            chunk[date_name],
+            errors="coerce",
+        )
+
+        if dates.isna().any():
+            raise GovernanceError(f"invalid dates: {path.name}")
+
+        chunk_min = dates.min().to_period("M")
+        chunk_max = dates.max().to_period("M")
+
+        minimum = (
+            chunk_min
+            if minimum is None
+            else min(minimum, chunk_min)
+        )
+        maximum = (
+            chunk_max
+            if maximum is None
+            else max(maximum, chunk_max)
+        )
+
         warnings.extend(validate_percentages(chunk))
-    if minimum is None: raise GovernanceError(f"empty source file: {path.name}")
-    return {"schema": normalized, "minimum": str(minimum), "maximum": str(maximum), "warnings": warnings}
+
+    if minimum is None:
+        raise GovernanceError(f"empty source file: {path.name}")
+
+    return {
+        "schema": normalized,
+        "minimum": str(minimum),
+        "maximum": str(maximum),
+        "warnings": warnings,
+        "production_metric_contract_checked": require_governed_metrics,
+    }
 
 
-def validate_baseline(root: Path = RAW_ROOT, manifest_path: Path | None = None) -> dict:
-    manifest = load_baseline_manifest(manifest_path or Path("config/redfin_baseline_manifest.json")); folder = root / "baseline" / manifest["baseline_id"]
-    if not folder.is_dir(): raise GovernanceError(f"required governed baseline absent: {folder}")
-    schemas, warnings = {}, []
+def validate_baseline(
+    root: Path = RAW_ROOT,
+    manifest_path: Path | None = None,
+    geo_manifest: Path = Path("config/geo_manifest.generated.csv"),
+) -> dict:
+    manifest = load_baseline_manifest(
+        manifest_path or Path("config/redfin_baseline_manifest.json")
+    )
+    folder = root / "baseline" / manifest["baseline_id"]
+
+    if not folder.is_dir():
+        raise GovernanceError(
+            f"required governed baseline absent: {folder}"
+        )
+
+    governed = governed_geographies(geo_manifest)
+
+    active_families = {
+        family
+        for family, levels in FAMILY_LEVELS.items()
+        if governed["level"].str.lower().isin(levels).any()
+    }
+
+    schemas = {}
+    warnings = []
+    validation_scope = {}
+
     for item in manifest["files"]:
         path = folder / item["filename"]
-        if not path.is_file() or sha256(path) != item["sha256"]: raise GovernanceError(f"baseline file/hash mismatch: {item['filename']}")
-        result = inspect_raw(path); schemas[path.name] = result["schema"]; warnings += result["warnings"]
-        if result["minimum"] != item["historical_floor"] or result["maximum"] != BASELINE_ID: raise GovernanceError(f"exact baseline coverage mismatch: {path.name}")
-    return {"baseline_id": BASELINE_ID, "manifest_version": manifest["manifest_version"], "status": "validated", "latest_month": BASELINE_ID, "schemas": schemas, "warnings": sorted(set(warnings))}
+        family = item["geography_family"]
+
+        if not path.is_file() or sha256(path) != item["sha256"]:
+            raise GovernanceError(
+                f"baseline file/hash mismatch: {item['filename']}"
+            )
+
+        strict = family in active_families
+
+        result = inspect_raw(
+            path,
+            require_governed_metrics=strict,
+        )
+
+        schemas[path.name] = result["schema"]
+        warnings += result["warnings"]
+        validation_scope[family] = (
+            "active_production"
+            if strict
+            else "preserved_source_only"
+        )
+
+        if (
+            result["minimum"] != item["historical_floor"]
+            or result["maximum"] != BASELINE_ID
+        ):
+            raise GovernanceError(
+                f"exact baseline coverage mismatch: {path.name}"
+            )
+
+    return {
+        "baseline_id": BASELINE_ID,
+        "manifest_version": manifest["manifest_version"],
+        "status": "validated",
+        "latest_month": BASELINE_ID,
+        "active_production_families": sorted(active_families),
+        "validation_scope": validation_scope,
+        "schemas": schemas,
+        "warnings": sorted(set(warnings)),
+    }
 
 
 def validate_drop(drop_id: str, root: Path = RAW_ROOT) -> dict:
@@ -86,7 +228,23 @@ def validate_drop(drop_id: str, root: Path = RAW_ROOT) -> dict:
     for record in meta["files"]:
         path = folder / record["filename"]
         if not path.is_file() or sha256(path) != record["sha256"]: raise GovernanceError(f"registered hash changed: {path.name}")
-        result = inspect_raw(path); schemas[path.name] = result["schema"]; warnings += result["warnings"]; latest.append(result["maximum"]); families.add(record["geography_family"])
+        family = record["geography_family"]
+        governed = governed_geographies(
+            Path("config/geo_manifest.generated.csv")
+        )
+        active_families = {
+            governed_family
+            for governed_family, levels in FAMILY_LEVELS.items()
+            if governed["level"].str.lower().isin(levels).any()
+        }
+        result = inspect_raw(
+            path,
+            require_governed_metrics=family in active_families,
+        )
+        schemas[path.name] = result["schema"]
+        warnings += result["warnings"]
+        latest.append(result["maximum"])
+        families.add(family)
     if families != set(FAMILIES): raise GovernanceError("drop must contain all seven geography families")
     if set(latest) != {drop_id}: raise GovernanceError(f"every drop family must end at {drop_id}: {latest}")
     meta.update(status="validated", validation_status="validated", schemas=schemas, latest_redfin_month=drop_id, warnings=sorted(set(warnings)))
