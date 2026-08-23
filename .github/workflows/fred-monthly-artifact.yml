@@ -5,7 +5,7 @@ on:
     inputs:
       target_month:
         description: Governed target month (YYYY-MM)
-        required: true
+        required: false
         type: string
       prior_artifact_path:
         description: Optional exact prior artifact directory restored by a future durable registry step
@@ -55,19 +55,20 @@ jobs:
           PRIOR_ARTIFACT: ${{ inputs.prior_artifact_path }}
         run: |
           test -n "$FRED_API_KEY" || { echo 'FRED_API_KEY repository secret is required'; exit 1; }
-          args=(--target-month "$TARGET_MONTH" --output-root "$OUTPUT_ROOT")
+          args=(--output-root "$OUTPUT_ROOT")
+          if [ -n "$TARGET_MONTH" ]; then args+=(--target-month "$TARGET_MONTH"); fi
           if [ -n "$PRIOR_ARTIFACT" ]; then args+=(--prior-artifact "$PRIOR_ARTIFACT"); fi
           python -m jobs.monthly_refresh.fred_macro "${args[@]}"
       - name: Safe workflow summary
         env:
           TARGET_MONTH: ${{ inputs.target_month }}
         run: |
-          jq '{source_id,run_status,git_sha,target_month,resulting_artifact_id,resulting_artifact_content_hash,data_sha256,artifact_package_sha256,validation_status,observation_max,row_count}' "$OUTPUT_ROOT/run_report.json" | tee "$OUTPUT_ROOT/workflow_summary.json"
+          jq '{source_id,run_status,git_sha,target_month,target_month_resolution,resulting_artifact_id,resulting_artifact_content_hash,data_sha256,artifact_package_sha256,validation_status,observation_max,row_count}' "$OUTPUT_ROOT/run_report.json" | tee "$OUTPUT_ROOT/workflow_summary.json"
           {
             echo '### FRED governed source artifact'
             echo "- Git SHA: $GITHUB_SHA"
             echo "- Workflow run: $GITHUB_RUN_ID / attempt $GITHUB_RUN_ATTEMPT"
-            echo "- Target month: $TARGET_MONTH"
+            echo "- Target month: $(jq -r .target_month "$OUTPUT_ROOT/run_report.json")"
             echo '```json'
             cat "$OUTPUT_ROOT/workflow_summary.json"
             echo '```'
@@ -75,7 +76,7 @@ jobs:
       - name: Upload acceptance evidence (not production registry publication)
         uses: actions/upload-artifact@v4
         with:
-          name: fred-governed-artifact-${{ inputs.target_month }}-${{ github.sha }}
+          name: fred-governed-artifact-${{ inputs.target_month || 'inferred' }}-${{ github.sha }}
           path: artifacts/source_artifacts/fred_macro/current_run/
           if-no-files-found: error
           retention-days: 30
