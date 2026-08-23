@@ -12,6 +12,17 @@ on:
         required: false
         type: string
 
+  # Temporary acceptance bridge until governed orchestration is available on main.
+  push:
+    branches:
+      - monthly-refresh-orchestration
+    paths:
+      - ".github/workflows/fred-monthly-artifact.yml"
+      - "jobs/monthly_refresh/fred_macro.py"
+      - "sources/fred_macro/**"
+      - "core/source_artifacts/**"
+      - "scripts/smoke_tests/160_169/166_fred_monthly_artifact_runner.py"
+
 permissions:
   contents: read
 
