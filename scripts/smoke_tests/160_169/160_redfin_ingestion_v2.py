@@ -81,10 +81,10 @@ with tempfile.TemporaryDirectory() as td:
  disk.execute("CREATE TABLE fact_timeseries(geo_id TEXT,metric_id TEXT,date DATE,property_type_id TEXT,value DOUBLE,source_id TEXT,property_type TEXT)"); disk.register("fixture",frame); disk.execute("INSERT INTO fact_timeseries SELECT geo_id,metric_id,date,property_type_id,value,'redfin',property_type FROM fixture"); disk.close()
  assert validate_serving(db,"2026-08",geo)["metrics"]==11
  # Promotion creates metadata-only pointer/history; retention keeps three raw snapshots and requires newest promoted boundary.
- m=json.loads((drop/"metadata.json").read_text()); m.update(status="published",publication_status="published",promotion_status="not_promoted"); atomic_json(drop/"metadata.json",m); promote("2026-08",root)
+ m=json.loads((drop/"metadata.json").read_text()); m.update(status="published",publication_status="published",promotion_status="not_promoted",canonical_state_status="reconciled",canonical_artifact_status="validated"); atomic_json(drop/"metadata.json",m); promote("2026-08",root)
  assert current(root)["promoted_drop"]=="2026-08" and (root/"current/history.json").exists() and not list((root/"current").glob("*.csv"))
  for month in ("2026-05","2026-06","2026-07"):
-  folder=root/"drops"/month; folder.mkdir(); atomic_json(folder/"metadata.json",{"drop_id":month,"status":"promoted","publication_status":"published","promotion_status":"promoted","files":[]})
+  folder=root/"drops"/month; folder.mkdir(); atomic_json(folder/"metadata.json",{"drop_id":month,"status":"promoted","publication_status":"published","promotion_status":"promoted","canonical_state_status":"reconciled","canonical_artifact_status":"validated","files":[]})
  assert [Path(p).name for p in retain(root,keep=3,dry_run=True)]==["2026-05"]
  (root/"quarantine/failed").mkdir(); assert "failed" not in [Path(p).name for p in retain(root,keep=3,dry_run=True)]
  # Broad ignore contract: every raw family and generated candidates ignored; governed metadata remains tracked.
