@@ -1,9 +1,21 @@
 from __future__ import annotations
+import hashlib
 import os
 from pathlib import Path
 import pandas as pd
 from core.source_artifacts import create_artifact, preserve_prior
 from core.source_artifacts.validation import validate_artifact
+
+GOVERNED_CONFIG_PATHS = ("config/geo_manifest.generated.csv", "config/source_metric_registry.csv",
+                         "config/source_refresh_revision_policy_v0_2.json")
+
+def governed_config_hashes(repository_root: Path = Path(".")) -> dict[str, str]:
+    result = {}
+    for relative in GOVERNED_CONFIG_PATHS:
+        path = repository_root / relative
+        if not path.is_file(): raise FileNotFoundError(f"missing governed FRED configuration: {relative}")
+        result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return dict(sorted(result.items()))
 
 def acquire_current() -> pd.DataFrame:
     if not os.getenv("FRED_API_KEY","").strip(): raise RuntimeError("FRED_API_KEY is required for production FRED artifact acquisition")
@@ -26,8 +38,8 @@ def acquire_current() -> pd.DataFrame:
 
 def produce(output: Path, normalized: pd.DataFrame, *, target_month: str, provider_release_id: str,
  retrieved_at: str, prior_artifact: Path|None=None, git_sha: str="unknown", max_single_asset_bytes: int|None=None,
- artifact_created_at: str|None=None) -> dict:
+ artifact_created_at: str|None=None, repository_root: Path=Path(".")) -> dict:
     prior=pd.read_parquet(prior_artifact/"data.parquet") if prior_artifact else None
-    if prior_artifact: validate_artifact(prior_artifact,expected_source_id="fred_macro")
+    prior_manifest=validate_artifact(prior_artifact,expected_source_id="fred_macro")["manifest"] if prior_artifact else None
     reconciled=preserve_prior(prior,normalized)
-    return create_artifact(output,reconciled,source_id="fred_macro",source_family="Federal Reserve Economic Data macro series",source_type="revisionary_current_truth",provider="Federal Reserve Bank of St. Louis",distribution_channel="FRED API",provider_release_id=provider_release_id,provider_release_timestamp_or_date=None,retrieved_at=retrieved_at,artifact_created_at=artifact_created_at,target_month=target_month,source_request_identity=f"fred-series-spec:{provider_release_id}",source_urls_or_endpoint_identity=["api.stlouisfed.org/fred/series/observations"],prior_artifact_id=None,git_sha=git_sha,max_single_asset_bytes=max_single_asset_bytes)
+    return create_artifact(output,reconciled,source_id="fred_macro",source_family="Federal Reserve Economic Data macro series",source_type="revisionary_current_truth",provider="Federal Reserve Bank of St. Louis",distribution_channel="FRED API",provider_release_id=provider_release_id,provider_release_timestamp_or_date=None,retrieved_at=retrieved_at,artifact_created_at=artifact_created_at,target_month=target_month,source_request_identity=f"fred-series-spec:{provider_release_id}",source_urls_or_endpoint_identity=["api.stlouisfed.org/fred/series/observations"],prior_artifact_id=prior_manifest["artifact_id"] if prior_manifest else None,prior_artifact_sha256=prior_manifest["artifact_content_hash"] if prior_manifest else None,config_hashes=governed_config_hashes(repository_root),git_sha=git_sha,max_single_asset_bytes=max_single_asset_bytes)
