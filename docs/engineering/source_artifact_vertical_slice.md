@@ -38,19 +38,26 @@ supports exact `artifact://` records (plus explicit local `file://` paths).
 
 ## Redfin local workflow
 
-The managed inbox is `data/redfin/raw/incoming/`. Registration identifies the
+The managed inbox is `data/redfin/raw/incoming/`. It is only an operator landing
+mechanism, not an ingestion or transformation engine. Registration identifies the
 exact seven governed filename families, rejects unknown/duplicate/missing
 families, inspects every endpoint, requires a common latest month, derives the
 drop ID, and hashes every input. It copies into a sibling staging directory,
-verifies hashes, atomically renames the complete directory, then clears incoming
-files. `--keep-incoming` provides non-mutating fixture/dry inspection. An exact
+verifies hashes, atomically renames the complete directory, and delegates to the
+existing Redfin v2 registration primitive so metadata is identical to a manually
+staged drop. Only then does it clear incoming files. Endpoint inspection
+normalizes the header and streams only the period column in bounded chunks.
+`--keep-incoming` retains the input files after registration. An exact
 existing registration is `already_registered`; changed bytes for the same month
 are `conflicting_drop`.
 
 `data/redfin/state/canonical_redfin.duckdb` is ignored durable local state and
-does not mutate the immutable July baseline. Bootstrap accepts already governed
-baseline-normalized facts and stamps the deterministic `2026-07` lineage.
-Reconciliation validates/canonicalizes a contribution, begins a transaction,
+does not mutate the immutable July baseline. `build_baseline_contribution()`
+validates and transforms only the immutable baseline through the authoritative
+ingest semantics; `bootstrap_from_governed_baseline()` supplies those rows to
+state bootstrap. `build_drop_contribution()` transforms only one validated
+provider drop, and `reconcile_governed_drop()` supplies that drop-only contribution
+to reconciliation. Reconciliation validates/canonicalizes a contribution, begins a transaction,
 replaces returned keys, preserves prior-only keys, validates uniqueness, and
 commits; every exception rolls back. Artifact emission reads the complete state,
 requires its latest governed vintage to equal the target month, and emits a
@@ -58,6 +65,14 @@ key-aligned lineage sidecar. Raw retention now additionally requires metadata
 proof of `canonical_state_status=reconciled` and
 `canonical_artifact_status=validated`, while retaining the existing three-drop,
 baseline, history, and quarantine safeguards.
+
+The four Redfin products are deliberately distinct. A **reconstructed
+candidate** from `build_candidate()` is baseline plus target drop and remains the
+governed v2 comparison/legacy-apply surface; it must not be reconciled into
+state. A **source contribution** is one provider drop only. **Durable state** is
+complete preserved canonical truth: overlap and new keys receive new lineage,
+while prior-only keys retain their values and owning lineage. A **source
+artifact** packages that complete state and its key-aligned ownership lineage.
 
 Local responsibility ends at a validated immutable upload-ready directory. Its
 manifest provides path-independent artifact URI, ID, full hashes, size, and
@@ -97,12 +112,13 @@ git diff --check
 
 ### B–E — local Redfin, with manual review stops
 
-First bootstrap a **copied candidate** state from accepted baseline-normalized
-facts through `sources.redfin.state.bootstrap_state`; never point the proof at a
-production DB. Exercise inbox without clearing it:
+First bootstrap a separate state database through the authoritative baseline
+extraction API; never point the proof at a production DB. Exercise inbox without
+clearing it:
 
 ```bash
 PYTHONPATH=. python -m scripts.register_redfin_inbox --root /tmp/redfin-fixture/raw --keep-incoming
+PYTHONPATH=. python -c "from pathlib import Path; from sources.redfin.state import bootstrap_from_governed_baseline; print(bootstrap_from_governed_baseline(Path('data/redfin/state/canonical_redfin.duckdb')))"
 PYTHONPATH=. python -m scripts.validate_source_artifact artifacts/source_artifacts/redfin/<artifact_id>
 sha256sum artifacts/source_artifacts/redfin/<artifact_id>/{manifest.json,data.parquet,lineage.parquet,validation.json}
 du -ah artifacts/source_artifacts/redfin/<artifact_id>

@@ -4,6 +4,10 @@ from pathlib import Path
 import duckdb, pandas as pd
 from core.source_artifacts.artifact import canonicalize, create_artifact
 from core.source_artifacts.models import CANONICAL_KEY, LINEAGE_COLUMNS
+from core.source_artifacts.hashing import sha256_json
+from .governance import BASELINE_ID, RAW_ROOT
+from .ingest import build_baseline_contribution, build_drop_contribution
+from .storage import read_json
 
 STATE_SCHEMA="""CREATE TABLE IF NOT EXISTS canonical_redfin(
  geo_id VARCHAR, metric_id VARCHAR, date DATE, property_type_id VARCHAR, value DOUBLE,
@@ -28,6 +32,41 @@ def reconcile_state(db: Path, contribution: pd.DataFrame, *, drop_id: str, sourc
         con.execute("COMMIT")
     except Exception: con.execute("ROLLBACK"); con.close(); raise
     con.close(); return len(data)
+
+
+def bootstrap_from_governed_baseline(
+    db: Path,
+    *,
+    root: Path = RAW_ROOT,
+    geo_manifest: Path = Path("config/geo_manifest.generated.csv"),
+    manifest_path: Path = Path("config/redfin_baseline_manifest.json"),
+) -> int:
+    """Bootstrap state through ingest.py's authoritative baseline extraction."""
+    contribution = build_baseline_contribution(root, geo_manifest, manifest_path)
+    manifest = read_json(manifest_path)
+    baseline_hash = sha256_json({"baseline_id": BASELINE_ID, "files": manifest["files"]})
+    return bootstrap_state(db, contribution, baseline_hash=baseline_hash)
+
+
+def reconcile_governed_drop(
+    db: Path,
+    drop_id: str,
+    *,
+    root: Path = RAW_ROOT,
+    geo_manifest: Path = Path("config/geo_manifest.generated.csv"),
+) -> int:
+    """Reconcile only keys actually present in one validated provider drop."""
+    contribution = build_drop_contribution(drop_id, root, geo_manifest)
+    metadata = read_json(root / "drops" / drop_id / "metadata.json")
+    source_hash = sha256_json(metadata["files"])
+    request_identity = "redfin-drop:" + sha256_json({"drop_id": drop_id, "files": metadata["files"]})
+    return reconcile_state(
+        db,
+        contribution,
+        drop_id=drop_id,
+        source_hash=source_hash,
+        request_identity=request_identity,
+    )
 
 def emit_artifact(db: Path, output: Path, *, target_month: str, retrieved_at: str, git_sha: str="unknown", max_single_asset_bytes: int|None=None) -> dict:
     con=duckdb.connect(str(db),read_only=True); state=con.execute("select * from canonical_redfin order by geo_id,metric_id,date,property_type_id").df(); con.close()
