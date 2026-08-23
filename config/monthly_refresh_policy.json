@@ -1,0 +1,10 @@
+{
+  "schema_version": "monthly_refresh_policy_v1",
+  "production_experiment_id": "governed_production",
+  "production_policy_source": "version-controlled production registries",
+  "source_refresh_policy": "verification_only_until_delete-first_jobs_are_transactionally_hardened",
+  "manual_prerequisite_sources": ["redfin"],
+  "monthly_required_sources": ["ces", "laus", "fred_macro", "fred_unemp", "census_bps", "census_bps_provisional"],
+  "slower_cadence_sources": ["bea_gdp_qtr", "bea_gdp_ann", "census_acs1", "census_acs5"],
+  "notes": "This pointer selects settled registries, not an old artifact directory. It does not recalibrate or change analytical policy."
+}

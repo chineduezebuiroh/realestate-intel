@@ -17,6 +17,7 @@ __pycache__/
 artifacts/regime/comparisons/
 artifacts/regime/review_exports/
 artifacts/regime/runs/
+artifacts/monthly_refresh/
 
 # Other generated review/analysis output formats
 artifacts/regime/**/*.csv

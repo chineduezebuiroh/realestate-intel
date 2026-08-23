@@ -2,6 +2,23 @@ name: Deploy Macro Regime site
 
 on:
   workflow_dispatch:
+    inputs:
+      run_id:
+        description: Exact immutable production run ID
+        required: true
+        type: string
+      release_tag:
+        description: Exact immutable GitHub Release tag
+        required: true
+        type: string
+      release_asset:
+        description: Exact release asset filename
+        required: true
+        type: string
+      release_sha256:
+        description: Reviewed SHA-256 digest
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -16,10 +33,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      RUN_ID: capital_markets_f4_production_20260818
-      RELEASE_TAG: ${{ vars.MACRO_REGIME_ARTIFACT_RELEASE_TAG }}
-      RELEASE_ASSET: ${{ vars.MACRO_REGIME_ARTIFACT_ASSET }}
-      RELEASE_SHA256: ${{ vars.MACRO_REGIME_ARTIFACT_SHA256 }}
+      RUN_ID: ${{ inputs.run_id }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_ASSET: ${{ inputs.release_asset }}
+      RELEASE_SHA256: ${{ inputs.release_sha256 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

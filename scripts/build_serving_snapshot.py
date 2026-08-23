@@ -1,7 +1,9 @@
 from __future__ import annotations
 # scripts/build_serving_snapshot.py
 
+import argparse
 import duckdb
+from pathlib import Path
 
 from core.config import (
     FULL_DB_PATH,
@@ -279,20 +281,20 @@ def validate_snapshot(serving: duckdb.DuckDBPyConnection) -> None:
             print(f"[snapshot][warn] known view missing from serving snapshot: {view_name}")
 
 
-def main() -> int:
-    if not FULL_DB_PATH.exists():
-        raise SystemExit(f"[snapshot][fatal] full DB not found: {FULL_DB_PATH}")
+def build_candidate(full_db: Path, candidate: Path) -> Path:
+    """Build a complete snapshot without touching the live serving database."""
+    if not full_db.exists():
+        raise SystemExit(f"[snapshot][fatal] full DB not found: {full_db}")
 
-    SERVING_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if SERVING_DB_PATH.exists():
-        SERVING_DB_PATH.unlink()
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.unlink(missing_ok=True)
 
-    print(f"[snapshot] full DB: {FULL_DB_PATH}")
-    print(f"[snapshot] serving DB: {SERVING_DB_PATH}")
+    print(f"[snapshot] full DB: {full_db}")
+    print(f"[snapshot] candidate DB: {candidate}")
     print(f"[snapshot] serving start date: {SERVING_START_DATE}")
 
-    serving = duckdb.connect(str(SERVING_DB_PATH))
-    serving.execute(f"ATTACH '{FULL_DB_PATH}' AS full_db")
+    serving = duckdb.connect(str(candidate))
+    serving.execute(f"ATTACH '{full_db}' AS full_db")
 
     for table_name in DIM_TABLES:
         copy_table_if_exists(serving, "full_db", table_name)
@@ -303,8 +305,31 @@ def main() -> int:
 
     serving.close()
 
-    size_mb = SERVING_DB_PATH.stat().st_size / (1024 * 1024)
-    print(f"[snapshot] done: {SERVING_DB_PATH} ({size_mb:,.1f} MB)")
+    size_mb = candidate.stat().st_size / (1024 * 1024)
+    print(f"[snapshot] candidate complete: {candidate} ({size_mb:,.1f} MB)")
+    return candidate
+
+
+def promote_candidate(candidate: Path, serving_db: Path) -> None:
+    """Atomically replace the live snapshot; candidate and live must share a filesystem."""
+    if not candidate.is_file():
+        raise FileNotFoundError(candidate)
+    serving_db.parent.mkdir(parents=True, exist_ok=True)
+    candidate.replace(serving_db)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--full-db", type=Path, default=FULL_DB_PATH)
+    parser.add_argument("--serving-db", type=Path, default=SERVING_DB_PATH)
+    parser.add_argument("--candidate", type=Path)
+    parser.add_argument("--promote", action="store_true")
+    args = parser.parse_args()
+    candidate = args.candidate or args.serving_db.with_name(args.serving_db.stem + ".candidate.duckdb")
+    build_candidate(args.full_db, candidate)
+    if args.promote:
+        promote_candidate(candidate, args.serving_db)
+        print(f"[snapshot] promoted atomically: {args.serving_db}")
     return 0
 
 
