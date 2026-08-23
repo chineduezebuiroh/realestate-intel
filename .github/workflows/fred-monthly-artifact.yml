@@ -1,0 +1,70 @@
+name: FRED governed monthly artifact acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_month:
+        description: Governed target month (YYYY-MM)
+        required: true
+        type: string
+      prior_artifact_path:
+        description: Optional exact prior artifact directory restored by a future durable registry step
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  fred-artifact:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+      OUTPUT_ROOT: artifacts/source_artifacts/fred_macro/current_run
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install governed dependencies
+        run: pip install -r requirements.txt
+      - name: Compile and fixture acceptance
+        run: |
+          python -m compileall -q core/source_artifacts sources/fred_macro jobs/monthly_refresh scripts/smoke_tests/160_169
+          python scripts/smoke_tests/160_169/164_source_artifact_vertical_slice.py
+          python scripts/smoke_tests/160_169/165_source_artifact_provenance.py
+          python scripts/smoke_tests/160_169/166_fred_monthly_artifact_runner.py
+      - name: Acquire and validate ordinary-current FRED artifact
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TARGET_MONTH: ${{ inputs.target_month }}
+          PRIOR_ARTIFACT: ${{ inputs.prior_artifact_path }}
+        run: |
+          test -n "$FRED_API_KEY" || { echo 'FRED_API_KEY repository secret is required'; exit 1; }
+          args=(--target-month "$TARGET_MONTH" --output-root "$OUTPUT_ROOT")
+          if [ -n "$PRIOR_ARTIFACT" ]; then args+=(--prior-artifact "$PRIOR_ARTIFACT"); fi
+          python -m jobs.monthly_refresh.fred_macro "${args[@]}"
+      - name: Safe workflow summary
+        env:
+          TARGET_MONTH: ${{ inputs.target_month }}
+        run: |
+          jq '{source_id,run_status,git_sha,target_month,resulting_artifact_id,resulting_artifact_content_hash,data_sha256,artifact_package_sha256,validation_status,observation_max,row_count}' "$OUTPUT_ROOT/run_report.json" | tee "$OUTPUT_ROOT/workflow_summary.json"
+          {
+            echo '### FRED governed source artifact'
+            echo "- Git SHA: $GITHUB_SHA"
+            echo "- Workflow run: $GITHUB_RUN_ID / attempt $GITHUB_RUN_ATTEMPT"
+            echo "- Target month: $TARGET_MONTH"
+            echo '```json'
+            cat "$OUTPUT_ROOT/workflow_summary.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload acceptance evidence (not production registry publication)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fred-governed-artifact-${{ inputs.target_month }}-${{ github.sha }}
+          path: artifacts/source_artifacts/fred_macro/current_run/
+          if-no-files-found: error
+          retention-days: 30

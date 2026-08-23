@@ -2,7 +2,15 @@
 
 ## Boundary and target identity
 
-Monthly production is a local authoritative operation. Redfin's seven manually downloaded families remain under ignored `data/redfin/raw/`, and the mutable source database remains `data/market.duckdb`. GitHub Actions neither observes nor mutates either resource. Explicit `YYYY-MM` deterministically identifies `monthly_refresh_YYYYMM_v1` and `macro_regime_production_YYYYMM_v1`. July 2026 is the already-applied bootstrap; orchestration does not reconstruct it.
+The legacy end-to-end monthly production path is a local authoritative
+operation. Redfin's seven manually downloaded families remain under ignored
+`data/redfin/raw/`, and the mutable source database remains
+`data/market.duckdb`. GitHub Actions neither observes nor mutates either
+resource. The separate FRED source-artifact acceptance boundary documented
+below is cloud-native and deliberately stops before those databases. Explicit
+`YYYY-MM` deterministically identifies `monthly_refresh_YYYYMM_v1` and
+`macro_regime_production_YYYYMM_v1`. July 2026 is the already-applied bootstrap;
+orchestration does not reconstruct it.
 
 The GitHub boundary begins only after local analytics, serving validation, regime validation, static build, and immutable bundle construction. `--publish` explicitly creates a named Release and dispatches Pages with the exact run, tag, asset, and SHA-256. Without it, no GitHub authentication is needed.
 
@@ -13,7 +21,7 @@ The GitHub boundary begins only after local analytics, serving validation, regim
 | Redfin | manual/monthly | governed v2 lifecycle scripts | exact-month prerequisite; blocks until transactionally applied |
 | CES | required/monthly | `jobs.full_refresh.run_refresh_bls_ces` | freshness verification; delete-first job is not auto-invoked |
 | LAUS | required/monthly | `jobs.full_refresh.run_refresh_bls_laus` | freshness verification; delete-first job is not auto-invoked |
-| FRED macro/unemployment | required/daily-monthly | source modules only | verification; no governed full-refresh job |
+| FRED macro/unemployment | required/daily-monthly | legacy source modules; governed FRED macro artifact runner | FRED macro has a cloud acceptance runner; legacy orchestration still verifies the direct-DB state during migration |
 | Census BPS/provisional | required/monthly | full job/source module | verification; delete-first transform is not auto-invoked |
 | BEA quarterly/annual GDP | slower/quarterly-annual | source modules | unchanged is `no_new_release_expected` |
 | ACS 1/5-year | slower/annual | `jobs.full_refresh.run_refresh_census_acs` | unchanged is expected; delete-first transform is not auto-invoked |
@@ -65,3 +73,31 @@ Exit zero means waiting, already complete, analytics complete, or complete. Nonz
 10. **GitHub stop:** run `--publish`; inspect Release, exact workflow inputs, Pages smoke/deployment, root page, and direct DC page.
 
 Remaining first-run blockers are source-job transactional hardening, formal publication-lag thresholds, and operator confirmation that required online sources were refreshed. Raw files and databases are never committed or uploaded by the analytical phase.
+# FRED cloud source-artifact acceptance boundary
+
+FRED macro is the first API-native governed source-artifact producer. Its
+narrowly scoped `workflow_dispatch` workflow owns ordinary-current provider
+acquisition, and receives `FRED_API_KEY` only from GitHub Actions repository
+secrets. The runner lifecycle is check/acquire, normalize, reconcile, emit,
+validate, and report; it stops before canonical assembly and does not open or
+mutate either production DuckDB.
+
+Ordinary-current FRED history is the authoritative latest revised view, not an
+ALFRED vintage. Consequently, equal endpoint months do not establish equal
+source state: canonical content identity detects both historical revisions and
+new keys. New values replace overlapping keys, while prior-only governed keys
+remain preserved unless a future governed provider retraction/deletion policy
+explicitly says otherwise.
+
+The first cloud run may bootstrap with no prior artifact. Later runs accept an
+exact prior governed artifact directory explicitly; no production database is a
+prior-state fallback. During this acceptance phase, `actions/upload-artifact`
+stores the validated package and machine-readable run report for downloadable
+workflow evidence. Its finite retention is **not** represented as the final
+immutable artifact registry; durable remote resolution/publication remains a
+separate infrastructure step.
+
+The legacy FRED jobs still write directly to DuckDB for migration and parity
+purposes. They are retained temporarily, but provider -> governed source
+artifact -> canonical assembly is the target architecture and the two paths are
+not equally preferred production designs.
