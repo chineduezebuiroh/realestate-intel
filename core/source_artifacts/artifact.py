@@ -1,5 +1,6 @@
 from __future__ import annotations
 import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 import pandas as pd
 from .hashing import canonical_json_bytes, sha256_file, sha256_json, write_canonical_json
@@ -23,11 +24,13 @@ def artifact_package_sha256(path: Path) -> str:
 
 def create_artifact(output: Path, frame: pd.DataFrame, *, source_id: str, source_family: str,
  source_type: str, provider: str, distribution_channel: str, provider_release_id: str,
- provider_release_timestamp_or_date: str, retrieved_at: str, target_month: str,
+ provider_release_timestamp_or_date: str|None, retrieved_at: str|None, target_month: str,
  source_request_identity: str, source_urls_or_endpoint_identity: list[str], revision: int=1,
  prior_artifact_id: str|None=None, prior_artifact_sha256: str|None=None,
  lineage: pd.DataFrame|None=None, config_hashes: dict|None=None, git_sha: str="unknown",
- max_single_asset_bytes: int|None=None, storage_backend: str="local_filesystem") -> dict:
+ max_single_asset_bytes: int|None=None, storage_backend: str="local_filesystem",
+ artifact_created_at: str|None=None, registered_at: str|None=None,
+ acquisition_time_status: str|None=None, raw_source_lineage: dict|None=None) -> dict:
     output.mkdir(parents=True,exist_ok=False)
     data=canonicalize(frame)
     if data.source_id.nunique()!=1 or data.source_id.iloc[0]!=source_id: raise ValueError("source mismatch")
@@ -44,9 +47,13 @@ def create_artifact(output: Path, frame: pd.DataFrame, *, source_id: str, source
         lineage_hash=sha256_file(output/"lineage.parquet")
     validation={"schema_version":"source_artifact_validation_v1","status":"passed","checks":["canonical_schema","unique_key","finite_values","source_constant"]}
     write_canonical_json(output/"validation.json",validation); validation_hash=sha256_file(output/"validation.json")
-    identity_payload={"source_id":source_id,"provider_release_id":provider_release_id,"target_month":target_month,"revision":revision,"data_sha256":data_hash,"lineage_sha256":lineage_hash,"schema_version":SCHEMA_VERSION,"refresh_contract":REFRESH_VERSION}
+    config_hashes=dict(sorted((config_hashes or {}).items()))
+    identity_payload={"source_id":source_id,"provider_release_id":provider_release_id,"target_month":target_month,"revision":revision,"data_sha256":data_hash,"lineage_sha256":lineage_hash,"schema_version":SCHEMA_VERSION,"refresh_contract":REFRESH_VERSION,"config_hashes":config_hashes}
     content_hash=sha256_json(identity_payload)
     artifact_id=f"src__{source_id}__{target_month}__r{revision}__{content_hash[:16]}"
-    manifest={"schema_version":SCHEMA_VERSION,"artifact_contract_version":CONTRACT_VERSION,"artifact_id":artifact_id,"artifact_content_hash":content_hash,"source_id":source_id,"source_family":source_family,"source_type":source_type,"provider":{"name":provider,"distribution_channel":distribution_channel},"distribution_channel":distribution_channel,"provider_release_id":provider_release_id,"provider_release_timestamp_or_date":provider_release_timestamp_or_date,"retrieved_at":retrieved_at,"target_month":target_month,"artifact_status":"complete","validation_status":"passed","canonical_key":CANONICAL_KEY,"observation_min":str(data.date.min()),"observation_max":str(data.date.max()),"row_count":len(data),"geography_count":data.geo_id.nunique(),"metric_count":data.metric_id.nunique(),"metric_inventory":sorted(data.metric_id.unique().tolist()),"source_request_identity":source_request_identity,"source_urls_or_endpoint_identity":source_urls_or_endpoint_identity,"revision_policy_id":f"{REFRESH_VERSION}:{source_id}","absence_semantics":"preserve_prior","prior_artifact_id":prior_artifact_id,"prior_artifact_sha256":prior_artifact_sha256,"data_filename":"data.parquet","data_sha256":data_hash,"data_size_bytes":size,"lineage_filename":"lineage.parquet" if lineage is not None else None,"lineage_sha256":lineage_hash,"validation_filename":"validation.json","validation_sha256":validation_hash,"canonical_schema_identity":"sha256:"+sha256_json({"columns":CANONICAL_COLUMNS,"key":CANONICAL_KEY,"parquet":"pyarrow-zstd"}),"config_hashes":config_hashes or {},"git_sha":git_sha,"storage_backend":storage_backend,"artifact_uri":f"artifact://source/{source_id}/{artifact_id}","warnings":[]}
+    if acquisition_time_status is None:
+        acquisition_time_status="retrieved_at_recorded" if retrieved_at is not None else "historical_not_recorded"
+    artifact_created_at=artifact_created_at or datetime.now(timezone.utc).isoformat().replace("+00:00","Z")
+    manifest={"schema_version":SCHEMA_VERSION,"artifact_contract_version":CONTRACT_VERSION,"artifact_id":artifact_id,"artifact_content_hash":content_hash,"source_id":source_id,"source_family":source_family,"source_type":source_type,"provider":{"name":provider,"distribution_channel":distribution_channel},"distribution_channel":distribution_channel,"provider_release_id":provider_release_id,"provider_release_timestamp_or_date":provider_release_timestamp_or_date,"retrieved_at":retrieved_at,"registered_at":registered_at,"acquisition_time_status":acquisition_time_status,"artifact_created_at":artifact_created_at,"target_month":target_month,"artifact_status":"complete","validation_status":"passed","canonical_key":CANONICAL_KEY,"observation_min":str(data.date.min()),"observation_max":str(data.date.max()),"row_count":len(data),"geography_count":data.geo_id.nunique(),"metric_count":data.metric_id.nunique(),"metric_inventory":sorted(data.metric_id.unique().tolist()),"source_request_identity":source_request_identity,"source_urls_or_endpoint_identity":source_urls_or_endpoint_identity,"raw_source_lineage":raw_source_lineage,"revision_policy_id":f"{REFRESH_VERSION}:{source_id}","absence_semantics":"preserve_prior","prior_artifact_id":prior_artifact_id,"prior_artifact_sha256":prior_artifact_sha256,"data_filename":"data.parquet","data_sha256":data_hash,"data_size_bytes":size,"lineage_filename":"lineage.parquet" if lineage is not None else None,"lineage_sha256":lineage_hash,"validation_filename":"validation.json","validation_sha256":validation_hash,"canonical_schema_identity":"sha256:"+sha256_json({"columns":CANONICAL_COLUMNS,"key":CANONICAL_KEY,"parquet":"pyarrow-zstd"}),"config_hashes":config_hashes,"git_sha":git_sha,"storage_backend":storage_backend,"artifact_uri":f"artifact://source/{source_id}/{artifact_id}","warnings":[]}
     write_canonical_json(output/"manifest.json",manifest)
     return manifest

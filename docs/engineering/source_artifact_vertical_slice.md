@@ -22,9 +22,10 @@ depend on the pinned PyArrow version.
 
 The one artifact ID algorithm hashes canonical JSON containing source ID,
 provider release ID, target month, correction revision, full data and lineage
-hashes, artifact schema, and refresh contract; it uses the first 16 hex digits
+hashes, artifact schema, refresh contract, and sorted governed config hashes; it uses the first 16 hex digits
 only as a readable suffix while manifests retain full SHA-256 hashes.
-`retrieved_at` is lineage and is excluded. `artifact_content_hash` is this full
+`retrieved_at`, `registered_at`, and `artifact_created_at` are operational lineage
+and are excluded. `artifact_content_hash` is this full
 semantic hash. File hashes cover exact bytes. The source-set `artifact_sha256`
 is a deterministic package-envelope hash over sorted filename, separator, and
 file bytes (including the non-self-hashed manifest). A manifest can separately
@@ -50,6 +51,21 @@ normalizes the header and streams only the period column in bounded chunks.
 `--keep-incoming` retains the input files after registration. An exact
 existing registration is `already_registered`; changed bytes for the same month
 are `conflicting_drop`.
+
+Registration's `registered_at` is governed system-entry time, not a claim about
+an earlier browser download. Artifact emission reads it for managed drops and
+records `retrieved_at=null` with `registration_time_only` unless an actual
+acquisition timestamp was governed. The July historical bootstrap uses
+`retrieved_at=null` and `historical_not_recorded`. Redfin and ordinary FRED
+provider publication dates remain null unless authoritative metadata supplies
+them; release IDs and observation bounds never synthesize the date. Every
+artifact separately records `artifact_created_at` at emission.
+
+Redfin emission fails closed unless it hashes the tracked baseline manifest,
+metric-domain contract, generated geography manifest, and source-refresh policy.
+Keys are sorted repository-relative paths and values are full SHA-256. Compact
+target baseline/drop raw hashes are manifest-level; mixed per-key ownership stays
+in `lineage.parquet`.
 
 `data/redfin/state/canonical_redfin.duckdb` is ignored durable local state and
 does not mutate the immutable July baseline. `build_baseline_contribution()`
@@ -101,8 +117,9 @@ metadata in a new candidate, and refuses either production database path.
 ### A — code and smokes
 
 ```bash
-python -m compileall core/source_artifacts sources/redfin sources/fred_macro scripts/validate_source_artifact.py scripts/validate_source_set.py scripts/build_market_from_artifacts.py scripts/register_redfin_inbox.py
+python -m compileall core/source_artifacts sources/redfin sources/fred_macro scripts/validate_source_artifact.py scripts/validate_source_set.py scripts/build_market_from_artifacts.py scripts/register_redfin_inbox.py scripts/smoke_tests/160_169/165_source_artifact_provenance.py
 PYTHONPATH=. python scripts/smoke_tests/160_169/164_source_artifact_vertical_slice.py
+PYTHONPATH=. python scripts/smoke_tests/160_169/165_source_artifact_provenance.py
 PYTHONPATH=. python scripts/smoke_tests/160_169/160_redfin_ingestion_v2.py
 PYTHONPATH=. python scripts/smoke_tests/160_169/161_redfin_merge_semantics.py
 PYTHONPATH=. python scripts/smoke_tests/160_169/162_redfin_metric_domains.py
@@ -127,6 +144,19 @@ du -ah artifacts/source_artifacts/redfin/<artifact_id>
 Only after fixtures pass, invoke `emit_artifact` against the reviewed governed
 local state into `artifacts/source_artifacts/redfin/`; validate and inspect the
 size/hash/lineage above, then **stop for manual review and do not publish**.
+
+For the accepted July historical bootstrap, regenerate into a new local-only
+directory without supplying a fabricated retrieval or provider-publication date:
+
+```bash
+rm -rf artifacts/source_artifacts/redfin/july-2026-regenerated
+PYTHONPATH=. python -c "from pathlib import Path; from sources.redfin.state import emit_artifact; print(emit_artifact(Path('data/redfin/state/canonical_redfin.duckdb'), Path('artifacts/source_artifacts/redfin/july-2026-regenerated'), target_month='2026-07', git_sha='$(git rev-parse HEAD)'))"
+sha256sum artifacts/source_artifacts/redfin/july-2026-regenerated/data.parquet | grep '^0ed5c374372bdcc8f5969dcbd6cd5015c55f2f84a2506687dea00081ccb49924 '
+```
+
+The destination must not already exist. The command reads the separately
+reviewed durable state and writes only the new local artifact directory; it does
+not mutate either production DuckDB or publish/upload the package.
 
 ### F–G — FRED and partial candidate
 

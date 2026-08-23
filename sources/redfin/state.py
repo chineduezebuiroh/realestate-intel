@@ -4,7 +4,7 @@ from pathlib import Path
 import duckdb, pandas as pd
 from core.source_artifacts.artifact import canonicalize, create_artifact
 from core.source_artifacts.models import CANONICAL_KEY, LINEAGE_COLUMNS
-from core.source_artifacts.hashing import sha256_json
+from core.source_artifacts.hashing import sha256_file, sha256_json
 from .governance import BASELINE_ID, RAW_ROOT
 from .ingest import build_baseline_contribution, build_drop_contribution
 from .storage import read_json
@@ -68,10 +68,39 @@ def reconcile_governed_drop(
         request_identity=request_identity,
     )
 
-def emit_artifact(db: Path, output: Path, *, target_month: str, retrieved_at: str, git_sha: str="unknown", max_single_asset_bytes: int|None=None) -> dict:
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+GOVERNED_CONFIG_PATHS = (
+    "config/geo_manifest.generated.csv",
+    "config/redfin_baseline_manifest.json",
+    "config/redfin_metric_domain_contract.json",
+    "config/source_refresh_revision_policy_v0_2.json",
+)
+
+def governed_config_hashes(repository_root: Path=REPOSITORY_ROOT) -> dict[str,str]:
+    hashes={}
+    for relative in GOVERNED_CONFIG_PATHS:
+        path=repository_root/relative
+        if not path.is_file(): raise FileNotFoundError(f"required governed config absent: {relative}")
+        hashes[relative]=sha256_file(path)
+    return dict(sorted(hashes.items()))
+
+def emit_artifact(db: Path, output: Path, *, target_month: str, retrieved_at: str|None=None,
+ registered_at: str|None=None, raw_root: Path=RAW_ROOT, repository_root: Path=REPOSITORY_ROOT,
+ artifact_created_at: str|None=None, git_sha: str="unknown", max_single_asset_bytes: int|None=None) -> dict:
     con=duckdb.connect(str(db),read_only=True); state=con.execute("select * from canonical_redfin order by geo_id,metric_id,date,property_type_id").df(); con.close()
     if state.empty or state.latest_source_vintage.max()!=target_month: raise ValueError("state latest governed vintage does not equal target month")
     data=state.assign(source_id="redfin")[["geo_id","metric_id","date","property_type_id","value","source_id","property_type"]]
     lineage=state.rename(columns={"latest_source_vintage":"provider_vintage","latest_source_drop_id":"provider_release_id","latest_source_hash_or_artifact_identity":"latest_source_hash_or_drop_id"})
     lineage=lineage[LINEAGE_COLUMNS]
-    return create_artifact(output,data,source_id="redfin",source_family="Redfin monthly market data",source_type="rolling_full_snapshot_manual",provider="Redfin",distribution_channel="manual export",provider_release_id=target_month,provider_release_timestamp_or_date=target_month+"-01",retrieved_at=retrieved_at,target_month=target_month,source_request_identity=f"redfin-state:{target_month}",source_urls_or_endpoint_identity=["provider-export:redfin:seven-family"],lineage=lineage,git_sha=git_sha,max_single_asset_bytes=max_single_asset_bytes)
+    raw_lineage=None
+    if target_month==BASELINE_ID:
+        baseline=read_json(repository_root/"config/redfin_baseline_manifest.json")
+        raw_lineage={"kind":"immutable_governed_baseline","baseline_id":baseline["baseline_id"],"files":[{"filename":x["filename"],"sha256":x["sha256"]} for x in baseline["files"]]}
+        status="retrieved_at_recorded" if retrieved_at else "historical_not_recorded"
+    else:
+        metadata_path=raw_root/"drops"/target_month/"metadata.json"
+        if metadata_path.is_file():
+            metadata=read_json(metadata_path); registered_at=registered_at or metadata.get("registered_at")
+            raw_lineage={"kind":"governed_registered_drop","drop_id":target_month,"files":[{"filename":x["filename"],"sha256":x["sha256"]} for x in metadata["files"]]}
+        status="retrieved_at_recorded" if retrieved_at else "registration_time_only"
+    return create_artifact(output,data,source_id="redfin",source_family="Redfin monthly market data",source_type="rolling_full_snapshot_manual",provider="Redfin",distribution_channel="manual export",provider_release_id=target_month,provider_release_timestamp_or_date=None,retrieved_at=retrieved_at,registered_at=registered_at,acquisition_time_status=status,artifact_created_at=artifact_created_at,target_month=target_month,source_request_identity=f"redfin-state:{target_month}",source_urls_or_endpoint_identity=["provider-export:redfin:seven-family"],raw_source_lineage=raw_lineage,lineage=lineage,config_hashes=governed_config_hashes(repository_root),git_sha=git_sha,max_single_asset_bytes=max_single_asset_bytes)
