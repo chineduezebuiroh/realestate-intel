@@ -1,0 +1,605 @@
+{
+  "production_governed": false,
+  "runtime_consumed": false,
+  "schema_version": "source_refresh_revision_policy_schema_v0_2",
+  "source_refresh_revision_contract_version": "source_refresh_revision_v0_2",
+  "sources": [
+    {
+      "absence_semantics": "preserve_prior_unless_governed_explicit_retraction",
+      "acquisition_mode": "manual local seven-family snapshot via future governed incoming inbox",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "immutable validated canonical Redfin artifact for target_month exists in durable storage",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": false,
+      "confidence": "HIGH",
+      "deep_reconciliation_policy": "every release is a historical reconciliation",
+      "external_verification_required": false,
+      "governed_geography_scope": [
+        "nation",
+        "state",
+        "cbsa_metro",
+        "county",
+        "zip"
+      ],
+      "governed_metric_scope": "exact 11 governed Redfin metrics",
+      "historical_revision_behavior": "broad revisions and rolling historical-window omission possible",
+      "monthly_no_release_behavior": "waiting_for_manual_redfin; reuse is not eligibility for a new target month",
+      "monthly_refresh_failure_behavior": "block_analytics_and_publication",
+      "monthly_staleness_behavior": "block_analytics_and_publication",
+      "normal_refresh_depth": "full returned rolling snapshot reconciled against canonical_redfin_state",
+      "notes": [
+        "Immutable July baseline is never mutated.",
+        "Durable per-key latest-vintage state is required before supplying raw drops age out.",
+        "Current Redfin v2 only partially implements durable latest-vintage preservation."
+      ],
+      "overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "monthly",
+      "required_secrets": [
+        "durable artifact storage upload credential"
+      ],
+      "required_tracked_config": [
+        "config/redfin_baseline_manifest.json",
+        "config/redfin_metric_domain_contract.json",
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+      "source_family": "Redfin monthly market data",
+      "source_id": "redfin",
+      "source_type": "rolling_full_snapshot_manual",
+      "used_by_current_macro_regime": true
+    },
+    {
+      "absence_semantics": "preserve_prior_unless_governed_explicit_retraction",
+      "acquisition_mode": "BLS v2 API using governed generated series specification",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "governed BLS latest-release/latest-period probe",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "HIGH",
+      "deep_reconciliation_policy": "annual deep/full reconciliation for benchmark revisions; no fixed maximum revision depth",
+      "external_verification_required": true,
+      "governed_geography_scope": [
+        "state",
+        "cbsa_metro"
+      ],
+      "governed_metric_scope": [
+        "ces_total_nonfarm_sa",
+        "ces_total_private_sa",
+        "ces_construction_sa"
+      ],
+      "historical_revision_behavior": "routine preliminary revisions and annual benchmark revisions may materially revise longer history",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release",
+      "monthly_refresh_failure_behavior": "block_publication_when_new_release_detected",
+      "monthly_staleness_behavior": "block_publication_beyond_governed_lag",
+      "normal_refresh_depth": "approximately three-year overlap",
+      "notes": [
+        "Exact availability endpoint and publication lag remain to be governed."
+      ],
+      "overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "monthly",
+      "required_secrets": [
+        "BLS_API_KEY when governed execution requires registered limits"
+      ],
+      "required_tracked_config": [
+        "config/ces_series.generated.csv",
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+      "source_family": "BLS Current Employment Statistics",
+      "source_id": "ces",
+      "source_type": "revisionary_current_truth",
+      "used_by_current_macro_regime": true
+    },
+    {
+      "absence_semantics": "preserve_prior_unless_governed_explicit_retraction",
+      "acquisition_mode": "BLS v2 API with governed bulk-file fallback",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "governed BLS latest-release/latest-period probe plus series-map identity",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "HIGH",
+      "deep_reconciliation_policy": "annual at least five-year reconciliation; prefer full history when practical; reconcile series/geography remaps",
+      "external_verification_required": true,
+      "governed_geography_scope": [
+        "nation",
+        "state",
+        "cbsa_metro",
+        "county"
+      ],
+      "governed_metric_scope": [
+        "laus_labor_force_nsa",
+        "laus_employment_nsa",
+        "laus_unemployment_nsa",
+        "laus_unemployment_rate_nsa"
+      ],
+      "historical_revision_behavior": "annual re-estimation may revise approximately five years; series/geography identities may change",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release",
+      "monthly_refresh_failure_behavior": "block_publication_when_new_release_detected",
+      "monthly_staleness_behavior": "block_publication_beyond_governed_lag",
+      "normal_refresh_depth": "approximately three-year overlap",
+      "notes": [
+        "Exact release probe and lag remain open."
+      ],
+      "overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "monthly",
+      "required_secrets": [
+        "BLS_API_KEY when governed execution requires registered limits"
+      ],
+      "required_tracked_config": [
+        "config/laus_series.generated.csv",
+        "config/laus_series.csv",
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+      "source_family": "BLS Local Area Unemployment Statistics",
+      "source_id": "laus",
+      "source_type": "revisionary_current_truth",
+      "used_by_current_macro_regime": true
+    },
+    {
+      "absence_semantics": "preserve_prior_unless_governed_explicit_retraction",
+      "acquisition_mode": "latest compiled full snapshot",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "latest compiled release identifier from governed Census directory discovery",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "MEDIUM",
+      "deep_reconciliation_policy": "every detected compiled release",
+      "external_verification_required": true,
+      "governed_geography_scope": [
+        "state",
+        "county",
+        "place"
+      ],
+      "governed_metric_scope": "five governed BPS permit metrics",
+      "historical_revision_behavior": "new compiled snapshots can replace matching historical observations",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release",
+      "monthly_refresh_failure_behavior": "block_publication_when_new_release_detected",
+      "monthly_staleness_behavior": "block_publication_beyond_governed_lag",
+      "normal_refresh_depth": "complete compiled snapshot",
+      "notes": [
+        "Suppression/retraction semantics remain unresolved; preserve prior is mandatory until governed evidence exists."
+      ],
+      "overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "monthly",
+      "required_secrets": [],
+      "required_tracked_config": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+      "source_family": "Census Building Permits Survey final compiled",
+      "source_id": "census_bps",
+      "source_type": "revisionary_compiled_snapshot",
+      "used_by_current_macro_regime": true
+    },
+    {
+      "absence_semantics": "preserve_prior_unless_governed_explicit_retraction",
+      "acquisition_mode": "current provisional state/county/CBSA files",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "latest common governed per-level provisional release identifier",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "LOW",
+      "deep_reconciliation_policy": "every provisional release until corresponding final ownership",
+      "external_verification_required": true,
+      "governed_geography_scope": [
+        "state",
+        "county",
+        "cbsa_metro where configured"
+      ],
+      "governed_metric_scope": "provisional counterparts of governed BPS metrics",
+      "historical_revision_behavior": "provisional observations may change before final publication",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release",
+      "monthly_refresh_failure_behavior": "continue_with_warning_if_final_BPS_coverage_is_governed_current_else_block_publication",
+      "monthly_staleness_behavior": "evaluate_combined_BPS_family_freshness",
+      "normal_refresh_depth": "current provisional payload reconciled with prior provisional canonical state",
+      "notes": [
+        "Final BPS wins matching keys.",
+        "Suppression/retraction semantics unresolved; preserve prior."
+      ],
+      "overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "monthly",
+      "required_secrets": [],
+      "required_tracked_config": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+      "source_family": "Census Building Permits Survey provisional",
+      "source_id": "census_bps_provisional",
+      "source_type": "provisional_overlay",
+      "used_by_current_macro_regime": false
+    },
+    {
+      "absence_semantics": "not_a_monthly_retraction_concept; missing_expected_vintage_rows_fail_validation",
+      "acquisition_mode": "Census API ACS 1-year by governed vintage and geography plan",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "latest published dataset vintage/year",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "HIGH",
+      "deep_reconciliation_policy": "new-vintage validation only",
+      "external_verification_required": false,
+      "governed_geography_scope": [
+        "nation",
+        "state",
+        "county",
+        "cbsa_metro where published"
+      ],
+      "governed_metric_scope": [
+        "census_acs1_pop_total",
+        "census_acs1_median_household_income"
+      ],
+      "historical_revision_behavior": "previously published API vintage is immutable under governed assumption",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release_expected",
+      "monthly_refresh_failure_behavior": "block_publication_when_new_vintage_is_due_and_detected",
+      "monthly_staleness_behavior": "block_publication_beyond_governed_annual_lag",
+      "normal_refresh_depth": "one newly published immutable vintage",
+      "notes": [
+        "ACS1 and ACS5 remain separate artifacts and source identities."
+      ],
+      "overlap_semantics": "existing_vintage_rows_are_immutable; new_vintage_adds_distinct_observation_vintage",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "annual",
+      "required_secrets": [
+        "CENSUS_API_KEY"
+      ],
+      "required_tracked_config": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "requires_explicit_governed_Census_correction_policy",
+      "source_family": "Census ACS 1-year",
+      "source_id": "census_acs1",
+      "source_type": "immutable_vintage",
+      "used_by_current_macro_regime": true
+    },
+    {
+      "absence_semantics": "not_a_monthly_retraction_concept; missing_expected_vintage_rows_fail_validation",
+      "acquisition_mode": "Census API ACS 5-year by governed vintage and geography plan",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "latest published dataset vintage/year",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "HIGH",
+      "deep_reconciliation_policy": "new-vintage validation only",
+      "external_verification_required": false,
+      "governed_geography_scope": [
+        "nation",
+        "state",
+        "county",
+        "cbsa_metro where published"
+      ],
+      "governed_metric_scope": [
+        "census_acs5_pop_total",
+        "census_acs5_median_household_income"
+      ],
+      "historical_revision_behavior": "previously published API vintage is immutable under governed assumption",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release_expected",
+      "monthly_refresh_failure_behavior": "block_publication_when_new_vintage_is_due_and_detected",
+      "monthly_staleness_behavior": "block_publication_beyond_governed_annual_lag",
+      "normal_refresh_depth": "one newly published immutable vintage",
+      "notes": [
+        "ACS1 and ACS5 remain separate artifacts and source identities."
+      ],
+      "overlap_semantics": "existing_vintage_rows_are_immutable; new_vintage_adds_distinct_observation_vintage",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "annual",
+      "required_secrets": [
+        "CENSUS_API_KEY"
+      ],
+      "required_tracked_config": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "requires_explicit_governed_Census_correction_policy",
+      "source_family": "Census ACS 5-year",
+      "source_id": "census_acs5",
+      "source_type": "immutable_vintage",
+      "used_by_current_macro_regime": true
+    },
+    {
+      "absence_semantics": "preserve_prior_unless_governed_explicit_retraction",
+      "acquisition_mode": "ordinary FRED current fully revised history; not ALFRED",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "governed current-observation release/maximum-date probe",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "HIGH",
+      "deep_reconciliation_policy": "monthly full retrieval is current-history reconciliation",
+      "external_verification_required": false,
+      "governed_geography_scope": [
+        "nation"
+      ],
+      "governed_metric_scope": "eight governed current-history series/derived physical spreads",
+      "historical_revision_behavior": "ordinary FRED returns current revised history",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release",
+      "monthly_refresh_failure_behavior": "block_publication_for_required_release_or_missing_secret",
+      "monthly_staleness_behavior": "block_publication_beyond_governed_series lag",
+      "normal_refresh_depth": "full ordinary-series history",
+      "notes": [
+        "ALFRED is not required unless future point-in-time vintage reconstruction is approved."
+      ],
+      "overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "series-dependent",
+      "required_secrets": [
+        "FRED_API_KEY"
+      ],
+      "required_tracked_config": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+      "source_family": "FRED macro",
+      "source_id": "fred_macro",
+      "source_type": "revisionary_current_truth",
+      "used_by_current_macro_regime": true
+    },
+    {
+      "absence_semantics": "preserve_prior_unless_governed_explicit_retraction",
+      "acquisition_mode": "ordinary FRED current fully revised history; not ALFRED",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "governed current-observation release/maximum-date probe",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "HIGH",
+      "deep_reconciliation_policy": "monthly full retrieval is current-history reconciliation",
+      "external_verification_required": false,
+      "governed_geography_scope": [
+        "nation",
+        "state"
+      ],
+      "governed_metric_scope": [
+        "fred_unemployment_rate_sa"
+      ],
+      "historical_revision_behavior": "ordinary FRED returns current revised history",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release",
+      "monthly_refresh_failure_behavior": "block_publication_for_required_release_or_missing_secret",
+      "monthly_staleness_behavior": "block_publication_beyond_governed_series lag",
+      "normal_refresh_depth": "full ordinary-series history",
+      "notes": [
+        "ALFRED is not required unless future point-in-time vintage reconstruction is approved."
+      ],
+      "overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "monthly",
+      "required_secrets": [
+        "FRED_API_KEY"
+      ],
+      "required_tracked_config": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+      "source_family": "FRED unemployment",
+      "source_id": "fred_unemp",
+      "source_type": "revisionary_current_truth",
+      "used_by_current_macro_regime": true
+    },
+    {
+      "absence_semantics": "preserve_prior_unless_governed_explicit_retraction",
+      "acquisition_mode": "BEA Regional API Year=ALL",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "governed BEA release/version check",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "HIGH",
+      "deep_reconciliation_policy": "every detected release",
+      "external_verification_required": true,
+      "governed_geography_scope": [
+        "nation",
+        "state"
+      ],
+      "governed_metric_scope": [
+        "bea_qgdp_real_total_chained2017_saar"
+      ],
+      "historical_revision_behavior": "routine and benchmark revisions can revise historical GDP",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release_expected",
+      "monthly_refresh_failure_behavior": "block_publication_when_new_release_detected",
+      "monthly_staleness_behavior": "block_publication_beyond_governed_release lag",
+      "normal_refresh_depth": "full returned history on detected release",
+      "notes": [
+        "Exact release/version probe and lag remain to be governed."
+      ],
+      "overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "quarterly / release-driven",
+      "required_secrets": [
+        "BEA_API_KEY or BEA_API_USER_ID"
+      ],
+      "required_tracked_config": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+      "source_family": "BEA quarterly GDP",
+      "source_id": "bea_gdp_qtr",
+      "source_type": "revisionary_current_truth",
+      "used_by_current_macro_regime": true
+    },
+    {
+      "absence_semantics": "preserve_prior_unless_governed_explicit_retraction",
+      "acquisition_mode": "BEA Regional API Year=ALL",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "governed BEA release/version check",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "HIGH",
+      "deep_reconciliation_policy": "every detected release including annual benchmark reconciliation",
+      "external_verification_required": true,
+      "governed_geography_scope": [
+        "nation",
+        "state",
+        "county"
+      ],
+      "governed_metric_scope": [
+        "bea_agdp_real_total_chained2017"
+      ],
+      "historical_revision_behavior": "routine and benchmark revisions can revise historical GDP",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release_expected",
+      "monthly_refresh_failure_behavior": "block_publication_when_new_release_detected",
+      "monthly_staleness_behavior": "block_publication_beyond_governed_release lag",
+      "normal_refresh_depth": "full returned history on detected release",
+      "notes": [
+        "Exact release/version probe and lag remain to be governed."
+      ],
+      "overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "annual / release-driven",
+      "required_secrets": [
+        "BEA_API_KEY or BEA_API_USER_ID"
+      ],
+      "required_tracked_config": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+      "source_family": "BEA annual GDP",
+      "source_id": "bea_gdp_ann",
+      "source_type": "revisionary_current_truth",
+      "used_by_current_macro_regime": true
+    },
+    {
+      "absence_semantics": "preserve_prior_unless_governed_explicit_retraction",
+      "acquisition_mode": "ordinary FRED full current histories for Census NRC series",
+      "artifact_retention_policy": "retain_every_published_canonical_artifact_immutably_under_storage_retention_policy",
+      "availability_detection_strategy": "governed ordinary-FRED current-observation release/maximum-date probe",
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "cloud_artifact_generation_supported": true,
+      "cloud_fetch_supported": true,
+      "confidence": "MEDIUM",
+      "deep_reconciliation_policy": "monthly full retrieval",
+      "external_verification_required": true,
+      "governed_geography_scope": [
+        "nation",
+        "census_region"
+      ],
+      "governed_metric_scope": [
+        "census_housing_starts_total_saar",
+        "census_housing_completions_total_saar"
+      ],
+      "historical_revision_behavior": "underlying NRC history may revise and ordinary FRED exposes current truth",
+      "monthly_no_release_behavior": "reuse_prior_artifact_and_record_no_new_release",
+      "monthly_refresh_failure_behavior": "block_publication_when_required_release_detected",
+      "monthly_staleness_behavior": "block_publication_beyond_governed_lag",
+      "normal_refresh_depth": "full current series",
+      "notes": [
+        "Preserve both original Census provider and FRED distribution-channel lineage."
+      ],
+      "overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+      "provider_lineage_policy": "manifest_release_request_retrieval_config_and_content_hashes",
+      "provider_publication_cadence": "monthly",
+      "required_secrets": [],
+      "required_tracked_config": [
+        "config/source_metric_registry.csv"
+      ],
+      "retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+      "source_family": "Census New Residential Construction distributed through FRED",
+      "source_id": "census_nrc_fred",
+      "source_type": "revisionary_current_truth",
+      "used_by_current_macro_regime": true
+    }
+  ],
+  "status": "review_candidate",
+  "universal_policy": {
+    "check_cadence": "monthly",
+    "default_absence_semantics": "preserve_prior",
+    "default_overlap_semantics": "newest_governed_provider_release_wins_returned_keys",
+    "default_retraction_semantics": "prohibited_without_source_specific_governed_provider_evidence",
+    "no_new_release_semantics": "reuse_exact_prior_governed_artifact_without_regeneration",
+    "repository_storage": "prohibited_for_material_source_data"
+  }
+}

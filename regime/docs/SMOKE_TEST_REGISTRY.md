@@ -238,3 +238,9 @@ Based on the implemented MA6/MA9 Phase 1 scope, **no new numbered smoke test is 
 | Number | Script | Purpose | Command |
 |---:|---|---|---|
 | 108 | `scripts/smoke_tests/100_109/108_macro_regime_static_deployment.py` | Explicit-run static build, deterministic bytes, Pages-relative routing, manifest hashes and identities, embedded Plotly, county-only scope, and browser-safe path packaging. | `PYTHONPATH=. python scripts/smoke_tests/100_109/108_macro_regime_static_deployment.py --run artifacts/regime/runs/capital_markets_f4_production_20260818` |
+
+## Monthly refresh orchestration coverage
+
+| Number | Script | Purpose | Command |
+|---:|---|---|---|
+| 163 | `scripts/smoke_tests/160_169/163_monthly_refresh_orchestration.py` | Manual Redfin states, complete-month no-op, explicit checkpoints/resume order, fixture E2E, atomic live-serving preservation, downstream gating, and exclusive concurrency lock. | `PYTHONPATH=. python scripts/smoke_tests/160_169/163_monthly_refresh_orchestration.py` |
