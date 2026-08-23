@@ -1,19 +1,13 @@
 from __future__ import annotations
 import shutil, tempfile
 from pathlib import Path
-import pandas as pd
 from .governance import FAMILIES, GovernanceError, RAW_ROOT, bootstrap
-from .ingest import infer_family
-from .storage import atomic_json, raw_files, sha256
+from .ingest import infer_family, register_drop
+from .storage import raw_files, read_json, sha256
+from .validate import latest_observation_month
 
 def _latest_month(path: Path) -> str:
-    try:
-        frame=pd.read_csv(path,sep=None,engine="python",usecols=lambda c:c.lower() in {"period_end","date","month"})
-        column=next(c for c in frame if c.lower() in {"period_end","date","month"})
-        values=pd.to_datetime(frame[column],errors="raise")
-    except Exception as exc: raise GovernanceError(f"cannot inspect endpoint: {path.name}") from exc
-    if values.empty: raise GovernanceError(f"empty incoming file: {path.name}")
-    return values.max().strftime("%Y-%m")
+    return latest_observation_month(path)
 
 def register_incoming(root: Path=RAW_ROOT, *, clear_incoming: bool=True) -> dict:
     bootstrap(root); incoming=root/"incoming"; files=raw_files(incoming)
@@ -29,21 +23,30 @@ def register_incoming(root: Path=RAW_ROOT, *, clear_incoming: bool=True) -> dict
     if destination.exists():
         metadata_path=destination/"metadata.json"
         if not metadata_path.exists(): raise GovernanceError("conflicting_drop")
-        old={x["family"]:x["sha256"] for x in __import__("json").loads(metadata_path.read_text()).get("files",[]) if "family" in x}
-        if old==hashes: return {"status":"already_registered","drop_id":drop_id}
+        old={x["geography_family"]:x["sha256"] for x in read_json(metadata_path).get("files",[]) if "geography_family" in x}
+        if old==hashes:
+            if clear_incoming:
+                for path in files: path.unlink()
+            return {"status":"already_registered","drop_id":drop_id,"path":str(destination),"hashes":hashes}
         raise GovernanceError("conflicting_drop")
     destination.parent.mkdir(parents=True,exist_ok=True)
     staging=Path(tempfile.mkdtemp(prefix=f".{drop_id}-",dir=destination.parent))
+    installed = False
     try:
-        records=[]
         for family,path in sorted(families.items()):
             copied=staging/path.name; shutil.copy2(path,copied)
             if sha256(copied)!=hashes[family]: raise GovernanceError("copy verification failed")
-            records.append({"family":family,"filename":path.name,"sha256":hashes[family]})
-        atomic_json(staging/"metadata.json",{"drop_id":drop_id,"latest_month":drop_id,"status":"registered","files":records})
         staging.replace(destination)
+        installed = True
+        # The managed inbox is only a landing mechanism. Delegate durable
+        # metadata creation to the same governed v2 registration primitive as
+        # manually staged drops.
+        metadata = register_drop(drop_id, root)
     except Exception:
-        shutil.rmtree(staging,ignore_errors=True); raise
+        shutil.rmtree(staging,ignore_errors=True)
+        if installed:
+            shutil.rmtree(destination, ignore_errors=True)
+        raise
     if clear_incoming:
         for path in files: path.unlink()
-    return {"status":"registered","drop_id":drop_id,"path":str(destination),"hashes":hashes}
+    return {"status":"registered","drop_id":drop_id,"path":str(destination),"hashes":hashes,"metadata":metadata}

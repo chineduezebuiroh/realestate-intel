@@ -5,7 +5,7 @@ from pathlib import Path
 import duckdb, pandas as pd
 
 from sources.redfin.governance import FAMILIES, METRICS, GovernanceError, assert_safe_delete, bootstrap
-from sources.redfin.ingest import build_candidate, infer_family, register_drop
+from sources.redfin.ingest import build_baseline_contribution, build_candidate, build_drop_contribution, infer_family, register_drop
 from sources.redfin.storage import atomic_json, current, promote, quarantine, retain, sha256
 from sources.redfin.transform import apply_candidate
 from sources.redfin.validate import validate_baseline, validate_candidate, validate_drop, validate_serving
@@ -55,8 +55,16 @@ with tempfile.TemporaryDirectory() as td:
  quarantine("2026-09","endpoint mismatch",root)
  # Only nation/state are governed. Same numeric ID cannot cross-map, and five large families are skipped.
  geo=Path(td)/"geo.csv"; pd.DataFrame([{"geo_slug":"nation_geo","level":"nation","redfin_code":"1","include_redfin":"1"},{"geo_slug":"state_geo","level":"state","redfin_code":"1","include_redfin":"1"}]).to_csv(geo,index=False)
+ baseline_contribution=build_baseline_contribution(root,geo,mp)
+ drop_contribution=build_drop_contribution("2026-08",root,geo)
  candidate=Path(td)/"candidate.parquet"; meta=build_candidate("2026-08",candidate,root,geo,mp)
  frame=pd.read_parquet(candidate); assert set(frame.geo_id)=={"nation_geo","state_geo"}; assert set(frame.metric_id)==METRICS and "active_listings" not in set(frame.metric_id)
+ assert list(baseline_contribution.columns)==["geo_id","metric_id","date","property_type_id","value","source_id","property_type"]
+ assert set(baseline_contribution.source_id)=={"redfin"} and set(drop_contribution.source_id)=={"redfin"}
+ assert pd.Timestamp("2026-07-31") in set(pd.to_datetime(baseline_contribution.date))
+ assert pd.Timestamp("2026-07-31") not in set(pd.to_datetime(drop_contribution.date))
+ assert pd.Timestamp("2026-08-31") in set(pd.to_datetime(drop_contribution.date))
+ assert pd.Timestamp("2026-07-31") in set(pd.to_datetime(frame.date)) and pd.Timestamp("2026-08-31") in set(pd.to_datetime(frame.date))
  assert {x["family"] for x in meta["skipped_ungoverned_files"]}==set(FAMILIES)-{"nation","state"}
  report=validate_candidate(candidate,"2026-08",root,geo); assert report["status"]=="candidate_validated"
  # Apply gate and rollback preserve old production. A forced duplicate candidate fails before BEGIN.

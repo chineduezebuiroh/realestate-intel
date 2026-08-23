@@ -141,19 +141,69 @@ def _source_to_long(path: Path, priority: int, family: str, mapping: pd.DataFram
     return long
 
 
+def _canonical_contribution(
+    sources: list[tuple[Path, int, str]],
+    geo_manifest: Path,
+) -> tuple[pd.DataFrame, list[str], list[dict], pd.DataFrame]:
+    """Transform governed raw sources through the sole Redfin canonical path."""
+    mappings = active_family_mappings(geo_manifest)
+    if not mappings:
+        raise GovernanceError("no governed Redfin geographies")
+    frames, loaded, skipped = [], [], []
+    for path, priority, family in sources:
+        if family not in mappings:
+            skipped.append({"filename": path.name, "family": family})
+            continue
+        frames.append(_source_to_long(path, priority, family, mappings[family]))
+        loaded.append(path.name)
+    if not frames:
+        raise GovernanceError("no governed Redfin source family loaded")
+    contribution = merge_precedence(frames)
+    keys = ["geo_id", "metric_id", "date", "property_type_id"]
+    if contribution.duplicated(keys).any():
+        raise GovernanceError("duplicate canonical keys")
+    contribution["source_id"] = "redfin"
+    columns = ["geo_id", "metric_id", "date", "property_type_id", "value", "source_id", "property_type"]
+    return contribution[columns], loaded, skipped, contribution
+
+
+def build_baseline_contribution(
+    root: Path = RAW_ROOT,
+    geo_manifest: Path = Path("config/geo_manifest.generated.csv"),
+    manifest_path: Path = Path("config/redfin_baseline_manifest.json"),
+) -> pd.DataFrame:
+    """Extract only the immutable baseline as canonical source rows for state bootstrap."""
+    validate_baseline(root, manifest_path)
+    manifest = load_baseline_manifest(manifest_path)
+    sources = [(root / "baseline" / BASELINE_ID / item["filename"], 1, item["geography_family"]) for item in manifest["files"]]
+    return _canonical_contribution(sources, geo_manifest)[0]
+
+
+def build_drop_contribution(
+    drop_id: str,
+    root: Path = RAW_ROOT,
+    geo_manifest: Path = Path("config/geo_manifest.generated.csv"),
+) -> pd.DataFrame:
+    """Extract one registered drop only; suitable for durable reconciliation.
+
+    Unlike :func:`build_candidate`, this never reconstructs baseline history.
+    """
+    validate_drop(drop_id, root)
+    metadata = read_json(root / "drops" / drop_id / "metadata.json")
+    sources = [(root / "drops" / drop_id / item["filename"], 1, item["geography_family"]) for item in metadata["files"]]
+    return _canonical_contribution(sources, geo_manifest)[0]
+
+
 def build_candidate(drop_id: str, output: Path, root: Path = RAW_ROOT, geo_manifest: Path = Path("config/geo_manifest.generated.csv"), manifest_path: Path = Path("config/redfin_baseline_manifest.json")) -> dict:
+    """Build baseline + drop reconstructed data for legacy comparison/apply.
+
+    This is deliberately not a durable-state contribution. Use
+    ``build_drop_contribution`` for monthly state reconciliation.
+    """
     if drop_id == BASELINE_ID: validate_baseline(root,manifest_path)
     else: validate_drop(drop_id,root)
-    mappings=active_family_mappings(geo_manifest)
-    if not mappings: raise GovernanceError("no governed Redfin geographies")
-    frames=[]; loaded=[]; skipped=[]
-    for path,priority,family in resolve_sources(drop_id,root,manifest_path):
-        if family not in mappings: skipped.append({"filename":path.name,"family":family}); continue
-        frames.append(_source_to_long(path,priority,family,mappings[family])); loaded.append(path.name)
-    if not frames: raise GovernanceError("no governed Redfin source family loaded")
-    candidate=merge_precedence(frames); keys=["geo_id","metric_id","date","property_type_id"]
-    if candidate.duplicated(keys).any(): raise GovernanceError("duplicate canonical keys")
-    output.parent.mkdir(parents=True,exist_ok=True); candidate.drop(columns="_priority").to_parquet(output,index=False)
+    _, loaded, skipped, candidate = _canonical_contribution(resolve_sources(drop_id,root,manifest_path), geo_manifest)
+    output.parent.mkdir(parents=True,exist_ok=True); candidate.drop(columns=["_priority", "source_id"]).to_parquet(output,index=False)
     meta_path=root/"drops"/drop_id/"metadata.json" if drop_id != BASELINE_ID else root/"baseline"/BASELINE_ID/"candidate_metadata.json"
     meta=read_json(meta_path) if meta_path.exists() else {"baseline_id":BASELINE_ID}
     meta.update(status="candidate_built",candidate_path=str(output),candidate_rows=len(candidate),governed_geographies=sorted(candidate.geo_id.unique()),loaded_files=loaded,skipped_ungoverned_files=skipped,latest_month=drop_id)

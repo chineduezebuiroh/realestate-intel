@@ -10,6 +10,7 @@ from core.source_artifacts.storage import LocalArtifactResolver
 from sources.redfin.governance import FAMILIES,GovernanceError,bootstrap
 from sources.redfin.inbox import register_incoming
 from sources.redfin.state import bootstrap_state,reconcile_state,emit_artifact
+from sources.redfin.validate import latest_observation_month,validate_drop
 from sources.fred_macro.artifact import produce
 
 def fact(keys,source):
@@ -18,29 +19,39 @@ def expect(exc,fn):
  try: fn()
  except exc:return
  raise AssertionError("expected fail-closed error")
-def raw(path,month): pd.DataFrame([{"period_end":month+"-28","value":1}]).to_csv(path,index=False)
+def raw(path,month):
+ row={"period_end":month+"-28","region_id":"1","average_sale_to_list_ratio":100,"homes_sold":2,"inventory":3,"median_days_on_market_days":4,"median_sale_price_nsa":5,"median_sale_price_per_sqft":6,"months_of_supply":7,"new_listings":8,"pending_sales":9,"percent_off_market_in_two_weeks":10,"share_sold_above_original_list":11}
+ pd.DataFrame([row]).to_csv(path,index=False)
 
 with tempfile.TemporaryDirectory() as td:
  root=Path(td); rawroot=root/"raw"; bootstrap(rawroot)
  names={"nation":"country","state":"states","metro":"metros","county":"counties","city":"cities","neighborhood":"neighborhoods","zip":"zips"}
  for fam in FAMILIES: raw(rawroot/"incoming"/f"redfin_{names[fam]}.csv","2026-08")
  registered=register_incoming(rawroot,clear_incoming=False); assert registered["drop_id"]=="2026-08"
+ metadata=json.loads((rawroot/"drops/2026-08/metadata.json").read_text())
+ assert {"registered_at","status","validation_status","promotion_status","publication_status"}<=set(metadata)
+ assert all({"filename","sha256","size_bytes","geography_family"}<=set(item) for item in metadata["files"])
  assert register_incoming(rawroot,clear_incoming=False)["status"]=="already_registered"
+ assert validate_drop("2026-08",rawroot)["status"]=="validated"
  (rawroot/"incoming"/"redfin_states.csv").write_text("period_end,value\n2026-08-28,2\n")
  expect(GovernanceError,lambda:register_incoming(rawroot,clear_incoming=False))
  (rawroot/"incoming"/"redfin_states.csv").unlink(); expect(GovernanceError,lambda:register_incoming(rawroot,clear_incoming=False))
  raw(rawroot/"incoming"/"redfin_states.csv","2026-09"); expect(GovernanceError,lambda:register_incoming(rawroot,clear_incoming=False))
+ raw(rawroot/"incoming"/"redfin_extra_states.csv","2026-09"); expect(GovernanceError,lambda:register_incoming(rawroot,clear_incoming=False)); (rawroot/"incoming"/"redfin_extra_states.csv").unlink()
+ raw(rawroot/"incoming"/"mystery.csv","2026-09"); expect(GovernanceError,lambda:register_incoming(rawroot,clear_incoming=False)); (rawroot/"incoming"/"mystery.csv").unlink()
+ assert latest_observation_month(rawroot/"incoming"/"redfin_states.csv",chunksize=1)=="2026-09"
  # Generic and durable reconciliation: A/B + B/C then C/D retains A and revised B after raw evidence disappears.
  baseline=fact([("redfin_a","2026-06-30",1),("redfin_b","2026-06-30",2)],"redfin")
  drop1=fact([("redfin_b","2026-06-30",20),("redfin_c","2026-08-31",3)],"redfin")
  result=preserve_prior(baseline,drop1); assert dict(zip(result.metric_id,result.value))=={"redfin_a":1,"redfin_b":20,"redfin_c":3}
  db=root/"state.duckdb"; assert bootstrap_state(db,baseline,baseline_hash="a"*64)==2
  reconcile_state(db,drop1,drop_id="2026-08",source_hash="b"*64,request_identity="fixture")
- check=duckdb.connect(str(db),read_only=True); before=check.execute("select metric_id,value from canonical_redfin order by 1").fetchall(); check.close()
+ check=duckdb.connect(str(db),read_only=True); ownership=dict(check.execute("select metric_id,latest_source_vintage from canonical_redfin").fetchall()); assert ownership=={"redfin_a":"2026-07","redfin_b":"2026-08","redfin_c":"2026-08"}; before=check.execute("select metric_id,value from canonical_redfin order by 1").fetchall(); check.close()
  expect(RuntimeError,lambda:reconcile_state(db,fact([("redfin_d","2026-09-30",4)],"redfin"),drop_id="2026-09",source_hash="c"*64,request_identity="fixture",fail_after_upsert=True))
  check=duckdb.connect(str(db),read_only=True); assert check.execute("select metric_id,value from canonical_redfin order by 1").fetchall()==before; check.close()
  reconcile_state(db,fact([("redfin_c","2026-08-31",30),("redfin_d","2026-09-30",4)],"redfin"),drop_id="2026-09",source_hash="c"*64,request_identity="fixture")
  red=root/"red"; rm=emit_artifact(db,red,target_month="2026-09",retrieved_at="2026-10-01T00:00:00Z"); assert validate_artifact(red)["rows"]==4
+ artifact_ownership=dict(pd.read_parquet(red/"lineage.parquet")[["metric_id","provider_vintage"]].itertuples(index=False,name=None)); assert artifact_ownership=={"redfin_a":"2026-07","redfin_b":"2026-08","redfin_c":"2026-09","redfin_d":"2026-09"}
  prior_fred=root/"fred_prior"; create_artifact(prior_fred,fact([("fred_a","2026-06-30",1),("fred_b","2026-06-30",2)],"fred_macro"),source_id="fred_macro",source_family="FRED",source_type="revisionary_current_truth",provider="FRED",distribution_channel="API",provider_release_id="p1",provider_release_timestamp_or_date="2026-06-30",retrieved_at="x",target_month="2026-06",source_request_identity="fixture",source_urls_or_endpoint_identity=["fixture"])
  fred=root/"fred"; fm=produce(fred,fact([("fred_b","2026-06-30",20),("fred_c","2026-09-30",3)],"fred_macro"),target_month="2026-09",provider_release_id="p2",retrieved_at="x",prior_artifact=prior_fred)
  assert dict(zip(pd.read_parquet(fred/"data.parquet").metric_id,pd.read_parquet(fred/"data.parquet").value))=={"fred_a":1,"fred_b":20,"fred_c":3}
