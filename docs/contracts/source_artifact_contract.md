@@ -37,7 +37,7 @@ Canonical uniqueness is `(geo_id, metric_id, date, property_type_id)`. Data is s
 
 ## Minimal sufficient lineage
 
-Release-wide lineage belongs in `manifest.json`, not repeated on every row: provider, release/vintage, retrieval time, request identity, endpoint identities, contract/config/Git hashes, prior artifact, and artifact ownership.
+Release-wide lineage belongs in `manifest.json`, not repeated on every row: provider, release/vintage, acquisition/registration time, request identity, endpoint identities, contract/config/Git hashes, prior artifact, and artifact ownership.
 
 When one canonical snapshot contains keys last supplied by different releases—as Redfin preserve-prior state necessarily does—`lineage.parquet` is required. It contains the canonical key plus compact lineage fields:
 
@@ -49,7 +49,18 @@ latest_source_hash_or_drop_id
 source_artifact_id                 # artifact that first persisted current value
 ```
 
-Repeated lineage values may be dictionary encoded. `retrieved_at` remains manifest-level unless it genuinely differs by row lineage. This answers where, which release, when, which request/config, and which artifact without a full bitemporal warehouse.
+Repeated lineage values may be dictionary encoded. `retrieved_at` remains manifest-level unless it genuinely differs by row lineage. `raw_source_lineage` compactly identifies the governed baseline or registered drop and its raw file SHA-256 values; it does not duplicate row-level ownership.
+
+The provenance clocks and periods are deliberately distinct:
+
+* `provider_release_id` is the governed provider release identity (for example, Redfin `2026-07`).
+* `provider_release_timestamp_or_date` is an authoritative provider publication time/date and is `null` when governed metadata does not supply one. A monthly ID must never become a fabricated first-of-month date.
+* `observation_min` and `observation_max` bound canonical observations; neither is a publication or acquisition timestamp.
+* `retrieved_at` is actual source acquisition time when known. Live FRED acquisition records it. Historical Redfin bootstrap may use `null` with `acquisition_time_status=historical_not_recorded`.
+* `registered_at` is when manually obtained files entered the governed system. It is not represented as browser-download time. A managed Redfin drop without reliable download time uses `retrieved_at=null`, its governed `registered_at`, and `acquisition_time_status=registration_time_only`.
+* `artifact_created_at` is package emission time and is always present; it is not source provenance.
+
+Validation requires the status and timestamps to agree. `retrieved_at_recorded` requires `retrieved_at`; `registration_time_only` requires `registered_at` and a null `retrieved_at`; `historical_not_recorded` requires a null `retrieved_at`. Unknown-but-governed provenance is therefore distinct from an accidentally omitted required timestamp.
 
 ## Required manifest
 
@@ -63,8 +74,11 @@ Repeated lineage values may be dictionary encoded. `retrieved_at` remains manife
   "source_type": "rolling_full_snapshot_manual",
   "provider": {"name": "Redfin", "distribution_channel": "manual export"},
   "provider_release_id": "2026-08",
-  "provider_release_timestamp_or_date": "2026-08-31",
-  "retrieved_at": "2026-09-05T12:00:00Z",
+  "provider_release_timestamp_or_date": null,
+  "retrieved_at": null,
+  "registered_at": "2026-09-05T12:00:00Z",
+  "acquisition_time_status": "registration_time_only",
+  "artifact_created_at": "2026-09-05T12:05:00Z",
   "target_month": "2026-08",
   "artifact_status": "complete",
   "validation_status": "passed",
@@ -111,6 +125,9 @@ Additional required semantics:
 * Counts and inventories are validation surfaces, not the only acceptance test.
 * The manifest itself is canonical JSON (UTF-8, sorted keys, normalized timestamps, no floats for counts). A package/bundle SHA-256 is recorded by the durable-storage index and source-set manifest.
 * `artifact_id` is semantic plus a data/lineage content-hash prefix. Full hashes remain authoritative, avoiding circular dependence on a manifest that contains its own storage URI.
+* Semantic identity includes source/release/target/revision identity, canonical data and lineage hashes, schema/refresh contracts, and sorted governed `config_hashes`. A governing config change changes semantic identity even when data bytes happen to remain equal.
+* `retrieved_at`, `registered_at`, `artifact_created_at`, `acquisition_time_status`, provider publication time, and compact explanatory `raw_source_lineage` are operational provenance and do not enter semantic identity.
+* Redfin requires full SHA-256 identities under sorted repository-relative keys for `config/redfin_baseline_manifest.json`, `config/redfin_metric_domain_contract.json`, `config/geo_manifest.generated.csv`, and `config/source_refresh_revision_policy_v0_2.json`. Absence fails closed. Raw files are excluded from `config_hashes` and remain in governed raw lineage.
 
 ## Complete-state semantics and exceptions
 

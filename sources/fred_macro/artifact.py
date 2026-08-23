@@ -25,8 +25,9 @@ def acquire_current() -> pd.DataFrame:
     return result[["geo_id","metric_id","date","property_type_id","value","source_id","property_type"]]
 
 def produce(output: Path, normalized: pd.DataFrame, *, target_month: str, provider_release_id: str,
- retrieved_at: str, prior_artifact: Path|None=None, git_sha: str="unknown", max_single_asset_bytes: int|None=None) -> dict:
+ retrieved_at: str, prior_artifact: Path|None=None, git_sha: str="unknown", max_single_asset_bytes: int|None=None,
+ artifact_created_at: str|None=None) -> dict:
     prior=pd.read_parquet(prior_artifact/"data.parquet") if prior_artifact else None
     if prior_artifact: validate_artifact(prior_artifact,expected_source_id="fred_macro")
     reconciled=preserve_prior(prior,normalized)
-    return create_artifact(output,reconciled,source_id="fred_macro",source_family="Federal Reserve Economic Data macro series",source_type="revisionary_current_truth",provider="Federal Reserve Bank of St. Louis",distribution_channel="FRED API",provider_release_id=provider_release_id,provider_release_timestamp_or_date=target_month+"-01",retrieved_at=retrieved_at,target_month=target_month,source_request_identity=f"fred-series-spec:{provider_release_id}",source_urls_or_endpoint_identity=["api.stlouisfed.org/fred/series/observations"],prior_artifact_id=None,git_sha=git_sha,max_single_asset_bytes=max_single_asset_bytes)
+    return create_artifact(output,reconciled,source_id="fred_macro",source_family="Federal Reserve Economic Data macro series",source_type="revisionary_current_truth",provider="Federal Reserve Bank of St. Louis",distribution_channel="FRED API",provider_release_id=provider_release_id,provider_release_timestamp_or_date=None,retrieved_at=retrieved_at,artifact_created_at=artifact_created_at,target_month=target_month,source_request_identity=f"fred-series-spec:{provider_release_id}",source_urls_or_endpoint_identity=["api.stlouisfed.org/fred/series/observations"],prior_artifact_id=None,git_sha=git_sha,max_single_asset_bytes=max_single_asset_bytes)
