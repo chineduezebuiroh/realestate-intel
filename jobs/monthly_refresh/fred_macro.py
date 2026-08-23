@@ -1,6 +1,6 @@
 """Cloud-facing FRED check -> reconcile -> governed artifact boundary."""
 from __future__ import annotations
-import argparse, json, os, shutil, subprocess
+import argparse, json, os, re, shutil, subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -45,6 +45,7 @@ def revision_diagnostics(current: pd.DataFrame, prior: pd.DataFrame|None) -> dic
 
 def _validate_acquired(frame: pd.DataFrame) -> pd.DataFrame:
     data=canonicalize(frame)
+    if data.empty: raise ValueError("FRED acquisition returned no governed observations")
     if data[CANONICAL_KEY].duplicated().any(): raise ValueError("duplicate canonical key in acquired FRED state")
     if set(data.source_id)!={SOURCE_ID}: raise ValueError("unexpected FRED source identity")
     unexpected=sorted(set(data.metric_id)-(set(FRED_SERIES)|set(SPREAD_SERIES_META)))
@@ -56,11 +57,22 @@ def _git_sha() -> str:
     result=subprocess.run(["git","rev-parse","HEAD"],capture_output=True,text=True)
     return result.stdout.strip() if result.returncode==0 else "unknown"
 
-def run(*,target_month:str,output_root:Path,prior_artifact:Path|None=None,acquire:Callable[[],pd.DataFrame]=acquire_current,
+def _resolve_target_month(target_month: str|None, current: pd.DataFrame) -> tuple[str,str]:
+    if target_month not in (None, ""):
+        return target_month,"explicit"
+    latest=current["date"].max()
+    if pd.isna(latest): raise ValueError("cannot infer target_month from FRED observations")
+    return latest.strftime("%Y-%m"),"inferred_observation_max"
+
+def run(*,target_month:str|None=None,output_root:Path,prior_artifact:Path|None=None,acquire:Callable[[],pd.DataFrame]=acquire_current,
         retrieved_at:str|None=None,git_sha:str|None=None,repository_root:Path=Path(".")) -> dict:
-    datetime.strptime(target_month,"%Y-%m"); output_root.mkdir(parents=True,exist_ok=True); report_path=output_root/"run_report.json"
+    output_root.mkdir(parents=True,exist_ok=True); report_path=output_root/"run_report.json"; resolution=None
     try:
-        current=_validate_acquired(acquire()); acquired=source_diagnostics(current); prior=None; prior_manifest=None
+        if target_month not in (None, ""):
+            if re.fullmatch(r"\d{4}-\d{2}", target_month) is None: raise ValueError("target_month must use YYYY-MM")
+            datetime.strptime(target_month,"%Y-%m")
+        current=_validate_acquired(acquire()); target_month,resolution=_resolve_target_month(target_month,current)
+        acquired=source_diagnostics(current); prior=None; prior_manifest=None
         if prior_artifact is not None:
             prior_manifest=validate_artifact(prior_artifact,expected_source_id=SOURCE_ID)["manifest"]
             prior=pd.read_parquet(prior_artifact/"data.parquet")
@@ -77,7 +89,7 @@ def run(*,target_month:str,output_root:Path,prior_artifact:Path|None=None,acquir
                              retrieved_at=retrieval,prior_artifact=prior_artifact,git_sha=git_sha or _git_sha(),repository_root=repository_root)
             validate_artifact(artifact_dir,expected_source_id=SOURCE_ID); status="refreshed"
         report={"schema_version":"fred_monthly_source_run_v1","source_id":SOURCE_ID,"run_status":status,
-                "git_sha":git_sha or _git_sha(),"target_month":target_month,**acquired,
+                "git_sha":git_sha or _git_sha(),"target_month":target_month,"target_month_resolution":resolution,**acquired,
                 "prior_artifact_id":prior_manifest["artifact_id"] if prior_manifest else None,
                 "resulting_artifact_id":manifest["artifact_id"],"resulting_artifact_content_hash":manifest["artifact_content_hash"],
                 "data_sha256":manifest["data_sha256"],"validation_status":"passed","source_change_detected":changed,
@@ -88,11 +100,12 @@ def run(*,target_month:str,output_root:Path,prior_artifact:Path|None=None,acquir
         write_canonical_json(report_path,report); return report
     except Exception as exc:
         write_canonical_json(report_path,{"schema_version":"fred_monthly_source_run_v1","source_id":SOURCE_ID,"run_status":"failed",
-            "git_sha":git_sha or _git_sha(),"target_month":target_month,"validation_status":"failed","error":f"{type(exc).__name__}: {exc}"})
+            "git_sha":git_sha or _git_sha(),"target_month":target_month,"target_month_resolution":resolution,
+            "validation_status":"failed","error":f"{type(exc).__name__}: {exc}"})
         raise
 
 def main() -> int:
-    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument("--target-month",required=True)
+    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument("--target-month")
     parser.add_argument("--output-root",type=Path,default=Path("artifacts/source_artifacts/fred_macro/current_run")); parser.add_argument("--prior-artifact",type=Path)
     args=parser.parse_args()
     if not os.getenv("FRED_API_KEY","").strip(): parser.error("FRED_API_KEY is required for production FRED artifact acquisition")
