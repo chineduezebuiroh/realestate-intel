@@ -2,12 +2,11 @@
 
 ## Status and boundary
 
-This is the production-shaped **offline Phase 1 contract**. No GitHub client,
-Release upload, remote catalog writer, credential, or production pointer is
-active. `core/source_artifacts/package.py`, `publication.py`, `catalog.py`, and
-`fixture_remote.py` implement and exercise the contract against temporary local
-fixtures only. No initial catalog is tracked because an empty file at the
-suggested production path could be mistaken for an active registry.
+Phase 1 remains the backend-neutral contract. Phase 2A adds the GitHub adapter
+and a clearly isolated fixture-only tracked catalog; no production catalog or
+production pointer is active. See
+`docs/contracts/github_release_artifact_transport_v1.md`. The fixture catalog
+cannot be supplied as a production registry merely by its path.
 
 ## Publication package
 
@@ -58,7 +57,9 @@ Only `published_immutable_verified` receipts are catalog-eligible.
 `artifact_catalog_v1` has four top-level fields: schema version,
 `compare_and_swap.expected_git_blob_sha`, sorted `immutable_records`, and
 `accepted`. The compare-and-swap value is either null for an offline/new catalog
-or a full lowercase Git blob SHA-256 for the future serialized updater.
+or a lowercase Git blob object ID (40 characters for SHA-1 repositories or 64
+for SHA-256 repositories) for the serialized updater. This is a compare-and-swap
+identity, not the package integrity digest.
 
 Records are discriminated by `object_type`: `source`, `source_set`,
 `canonical_market`, or `serving_market`. Common fields pin logical URI, object
@@ -85,6 +86,10 @@ copy exact records and never resolve these aliases.
 `OfflineArtifactPublisher` simulates absent objects, interrupted uploads,
 verification failures, orphan states, immutable finalization, idempotent same
 bytes, and hard collisions without network I/O.
+
+`GitHubReleaseArtifactPublisher` now implements those phases against exact
+GitHub Release and numeric asset identities. `GitHubCatalogCAS` remains a
+separate operation, preserving the catalog as the governance commit point.
 
 Bytes are not governed merely because they exist. Resolution eligibility
 requires verified bytes, immutable finalization, a valid final receipt, and its
