@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import shutil
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -41,11 +42,43 @@ def _request_json(url: str, token: str) -> dict:
         return json.load(response)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Keep the GitHub archive redirect available for explicit handling."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _download(url: str, token: str, destination: Path) -> None:
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(request) as response, destination.open("wb") as output:
-        shutil.copyfileobj(response, output)
+    opener = urllib.request.build_opener(_NoRedirect())
+    try:
+        response = opener.open(request)
+    except urllib.error.HTTPError as error:
+        if error.code != 302:
+            raise RuntimeError(f"GitHub artifact download endpoint returned HTTP {error.code}; expected 302") from error
+        location = error.headers.get("Location")
+        error.close()
+    else:
+        status = response.getcode()
+        response.close()
+        raise RuntimeError(f"GitHub artifact download endpoint returned HTTP {status}; expected 302")
+    if not location:
+        raise RuntimeError("GitHub artifact download redirect did not include a Location header")
+
+    # The Location is a short-lived, credential-bearing signed URL.  Deliberately
+    # create a new request without the GitHub bearer token (or any API headers).
+    signed_request = urllib.request.Request(location)
+    try:
+        with urllib.request.urlopen(signed_request) as signed_response, destination.open("wb") as output:
+            shutil.copyfileobj(signed_response, output)
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    if destination.stat().st_size == 0:
+        destination.unlink()
+        raise RuntimeError("downloaded Actions artifact ZIP is empty")
 
 
 def validate_artifact_directory(artifact: Path) -> dict:
