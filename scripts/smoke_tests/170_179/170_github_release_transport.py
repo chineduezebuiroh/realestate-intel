@@ -26,9 +26,13 @@ class FakeAPI:
     repository = "fixture/repo"
     def __init__(self):
         self.release = None; self.asset_bytes = {}; self.next_asset = 22; self.put_conflict = False
+        self.tag_calls = 0; self.numeric_calls = 0; self.hide_created_from_tag = False
+        self.numeric_missing = False; self.numeric_tag = None
         self.catalog = empty_catalog(); self.catalog_oid = "a" * 40
     def request(self, method, url, *, payload=None, content_type="application/json", expected=(200,)):
-        if url.startswith("/releases/tags/"): return (copy.deepcopy(self.release), {}) if self.release else (None, {})
+        if url.startswith("/releases/tags/"):
+            self.tag_calls += 1
+            return (copy.deepcopy(self.release), {}) if self.release and not self.hide_created_from_tag else (None, {})
         if method == "POST" and url == "/releases":
             self.release = {"id": 11, "tag_name": payload["tag_name"], "draft": True, "prerelease": True,
                 "assets": [], "upload_url": "https://uploads.github.invalid/releases/11/assets{?name,label}",
@@ -39,7 +43,12 @@ class FakeAPI:
         if method == "PATCH" and url == "/releases/11":
             self.release["draft"] = False; self.release["published_at"] = "2026-08-31T01:00:00Z"
             return copy.deepcopy(self.release), {}
-        if method == "GET" and url == "/releases/11": return copy.deepcopy(self.release), {}
+        if method == "GET" and url == "/releases/11":
+            self.numeric_calls += 1
+            if self.numeric_missing: return None, {}
+            release = copy.deepcopy(self.release)
+            if self.numeric_tag is not None: release["tag_name"] = self.numeric_tag
+            return release, {}
         if method == "GET" and url.startswith("/contents/"):
             import base64
             return {"sha": self.catalog_oid, "content": base64.b64encode(json.dumps(self.catalog).encode()).decode()}, {}
@@ -80,13 +89,32 @@ with tempfile.TemporaryDirectory() as td:
     root=Path(td); manifest,package,metadata=fixture(root); api=FakeAPI(); uri=manifest["artifact_uri"]
     valid_package_bytes=package.read_bytes()
     pub=GitHubReleaseArtifactPublisher(api,fixture=True); assert pub.inspect(uri).state=="absent"
+    api.hide_created_from_tag=True
     pub.prepare(uri,package.read_bytes(),metadata); assert api.release["draft"]
     assert api.release["tag_name"].startswith("source-artifact-fixture/fixture_source/")
+    # Hosted regression: tag discovery remains unavailable immediately after
+    # POST creation, but every later phase uses the POST's numeric Release ID.
+    assert api.tag_calls == 1
     pub.upload(uri); pub.verify(uri); receipt=pub.finalize(uri)
+    assert api.tag_calls == 1 and api.numeric_calls >= 4
     assert (receipt["release_id"],receipt["asset_id"])==(11,22) and not api.release["draft"]
     # Identical finalized remote identity is recoverable/idempotent.
-    again=GitHubReleaseArtifactPublisher(api,fixture=True); again.prepare(uri,package.read_bytes(),metadata); again.upload(uri); again.verify(uri)
+    api.hide_created_from_tag=False
+    again=GitHubReleaseArtifactPublisher(api,fixture=True); again.prepare(uri,package.read_bytes(),metadata)
+    discovered_calls=api.tag_calls; again.upload(uri); again.verify(uri)
     assert again.finalize(uri)["asset_id"]==22 and len(api.release["assets"])==1
+    assert api.tag_calls == discovered_calls
+    # A known numeric identity disappearing or resolving to another tag fails
+    # closed; neither path performs tag rediscovery or creates a replacement.
+    missing=GitHubReleaseArtifactPublisher(api,fixture=True); missing.prepare(uri,package.read_bytes(),metadata)
+    api.numeric_missing=True; expect(PublicationError,lambda:missing.upload(uri)); api.numeric_missing=False
+    mismatch=GitHubReleaseArtifactPublisher(api,fixture=True); mismatch.prepare(uri,package.read_bytes(),metadata)
+    api.numeric_tag="wrong"; expect(IdentityCollisionError,lambda:mismatch.upload(uri)); api.numeric_tag=None
+    # Duplicate names are still a hard collision before byte comparison.
+    duplicate=copy.deepcopy(api.release["assets"][0]); duplicate["id"]=23
+    api.release["assets"].append(duplicate)
+    dup=GitHubReleaseArtifactPublisher(api,fixture=True); dup.prepare(uri,package.read_bytes(),metadata)
+    expect(IdentityCollisionError,lambda:dup.upload(uri)); api.release["assets"].pop()
     conflict=GitHubReleaseArtifactPublisher(api,fixture=True); conflict.prepare(uri,package.read_bytes()+b"x",metadata)
     expect(IdentityCollisionError,lambda:conflict.upload(uri))
     badtag=copy.deepcopy(api.release); api.release["tag_name"]="wrong"; expect(IdentityCollisionError,lambda:GitHubReleaseArtifactPublisher(api,fixture=True).prepare(uri,package.read_bytes(),metadata)); api.release=badtag

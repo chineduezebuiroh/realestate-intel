@@ -112,7 +112,36 @@ class GitHubReleaseArtifactPublisher(ArtifactPublisher):
         return result
 
     @staticmethod
+    def _validate_release(release: Any, expected_tag: str) -> dict[str, Any]:
+        if (not isinstance(release, dict) or type(release.get("id")) is not int
+                or release["id"] <= 0 or not isinstance(release.get("assets"), list)
+                or not isinstance(release.get("upload_url"), str)):
+            raise PublicationError("GitHub returned invalid numeric Release identity")
+        if release.get("tag_name") != expected_tag:
+            raise IdentityCollisionError("GitHub Release tag conflict")
+        return release
+
+    def _release_by_id(self, release_id: int, expected_tag: str) -> dict[str, Any] | None:
+        if type(release_id) is not int or release_id <= 0:
+            raise PublicationError("GitHub numeric Release identity is invalid")
+        release, _ = self.api.request("GET", f"/releases/{release_id}", expected=(200, 404))
+        if release is None:
+            return None
+        release = self._validate_release(release, expected_tag)
+        if release["id"] != release_id:
+            raise PublicationError("GitHub numeric Release lookup returned a different identity")
+        return release
+
+    def _pending_release(self, item: dict[str, Any]) -> dict[str, Any]:
+        release = self._release_by_id(item["release_id"], item["tag"])
+        if release is None:
+            raise PublicationError("known GitHub Release numeric identity is missing")
+        return release
+
+    @staticmethod
     def _asset(release: dict[str, Any], name: str) -> dict[str, Any] | None:
+        if not isinstance(release, dict):
+            raise PublicationError("asset lookup requires a validated GitHub Release")
         matches = [a for a in release.get("assets", []) if a.get("name") == name]
         if len(matches) > 1: raise IdentityCollisionError("duplicate GitHub Release asset name")
         return matches[0] if matches else None
@@ -120,8 +149,7 @@ class GitHubReleaseArtifactPublisher(ArtifactPublisher):
     def inspect(self, logical_uri: str) -> RemoteInspection:
         pending = self.pending.get(logical_uri)
         if not pending: return RemoteInspection("absent")
-        release = self._release(pending["tag"])
-        if not release: return RemoteInspection("absent")
+        release = self._pending_release(pending)
         asset = self._asset(release, pending["asset_name"])
         state = "published_immutable_verified" if not release.get("draft") and asset else ("uploaded" if asset else "prepared")
         return RemoteInspection(state, pending["sha"] if asset else None)
@@ -148,15 +176,14 @@ class GitHubReleaseArtifactPublisher(ArtifactPublisher):
             release, _ = self.api.request("POST", "/releases", payload={"tag_name": tag,
                 "name": f"Governed fixture artifact {metadata['object_id']}" if self.fixture else f"Governed artifact {metadata['object_id']}",
                 "draft": True, "prerelease": self.fixture}, expected=(201,))
-        if release.get("tag_name") != tag:
-            raise IdentityCollisionError("GitHub Release tag conflict")
+        release = self._validate_release(release, tag)
         unexpected = [a["name"] for a in release.get("assets", []) if a.get("name") != name]
         if unexpected: raise IdentityCollisionError(f"unexpected assets on exact Release: {unexpected}")
         self.pending[logical_uri] = {"state": "prepared", "bytes": package, "sha": digest,
-            "metadata": deepcopy(metadata), "tag": tag, "asset_name": name, "release": release}
+            "metadata": deepcopy(metadata), "tag": tag, "asset_name": name, "release_id": release["id"]}
 
     def upload(self, logical_uri: str) -> None:
-        item = self.pending[logical_uri]; release = self._release(item["tag"])
+        item = self.pending[logical_uri]; release = self._pending_release(item)
         asset = self._asset(release, item["asset_name"])
         if asset:
             with tempfile.TemporaryDirectory() as td:
@@ -171,6 +198,10 @@ class GitHubReleaseArtifactPublisher(ArtifactPublisher):
 
     def verify(self, logical_uri: str) -> None:
         item = self.pending[logical_uri]
+        release = self._pending_release(item)
+        asset = self._asset(release, item["asset_name"])
+        if not asset or asset.get("id") != item["asset"].get("id"):
+            raise PublicationError("verified GitHub asset identity is missing or changed")
         with tempfile.TemporaryDirectory() as td:
             package = Path(td) / "remote.tar"; self.api.download_asset(int(item["asset"]["id"]), package)
             extracted = extract_publication_package(package, Path(td) / "artifact", expected_sha256=item["sha"])
@@ -184,11 +215,17 @@ class GitHubReleaseArtifactPublisher(ArtifactPublisher):
     def finalize(self, logical_uri: str) -> dict[str, Any]:
         item = self.pending[logical_uri]
         if item.get("receipt"): return item["receipt"]
-        release = self._release(item["tag"])
+        release = self._pending_release(item)
         if release.get("draft"):
             release, _ = self.api.request("PATCH", f"/releases/{release['id']}",
                 payload={"draft": False, "prerelease": self.fixture}, expected=(200,))
-        if release.get("draft") or release.get("tag_name") != item["tag"] or int(release["id"]) != int(item["release"]["id"]):
+            release = self._validate_release(release, item["tag"])
+            if release["id"] != item["release_id"]:
+                raise PublicationError("final GitHub Release identity mismatch")
+        # Re-query the exact numeric object after publication rather than
+        # trusting either tag discovery or the PATCH response.
+        release = self._pending_release(item)
+        if release.get("draft") or release["id"] != item["release_id"]:
             raise PublicationError("final GitHub Release identity mismatch")
         asset = self._asset(release, item["asset_name"])
         if not asset or int(asset["id"]) != int(item["asset"]["id"]): raise PublicationError("final asset identity mismatch")
