@@ -1,0 +1,103 @@
+{
+  "schema_version": "durable_source_artifact_registry_candidate_v0_1",
+  "status": "design_candidate_not_runtime_config",
+  "backend": {
+    "selected": "github_releases",
+    "organization": "one_immutable_release_per_governed_artifact",
+    "escape_hatch": "s3_compatible_object_storage",
+    "migration_triggers": [
+      "package_approaches_2_gib",
+      "workflow_workspace_budget_exceeded",
+      "material_cost_or_availability_constraint",
+      "independently_administered_worm_copy_required"
+    ]
+  },
+  "objects": {
+    "source_artifact": {
+      "uri_template": "artifact://source/{source_id}/{artifact_id}",
+      "tag_template": "source-artifact/{source_id}/{artifact_id}",
+      "asset_template": "{artifact_id}.tar.zst",
+      "identity_pins": ["artifact_id", "source_id", "provider_release_id", "logical_package_sha256", "archive_sha256", "data_sha256", "config_hashes"]
+    },
+    "source_set": {
+      "tag_template": "source-set/{target_month}/{source_set_id}",
+      "asset_template": "{source_set_id}.json",
+      "immutable_inputs": ["target_month", "exact_source_records", "monthly_outcomes", "eligibility_decisions", "required_inventory", "included_inventory", "contract_versions", "config_hashes", "git_sha", "family_resolution"]
+    },
+    "canonical_market": {
+      "tag_template": "canonical-market/{target_month}/{market_artifact_id}",
+      "asset_template": "{market_artifact_id}.duckdb.zst",
+      "identity_inputs": ["source_set_id", "source_set_sha256", "canonical_schema_version", "assembly_contract_version", "config_hashes", "builder_git_sha", "dependency_lock_identity", "database_sha256"]
+    },
+    "serving_market": {
+      "tag_template": "serving-market/{target_month}/{serving_artifact_id}",
+      "asset_template": "{serving_artifact_id}.duckdb.zst",
+      "identity_inputs": ["canonical_market_artifact_id", "serving_contract_version", "serving_config_hashes", "builder_git_sha", "database_sha256"],
+      "role": "curated_stable_product_and_query_contract_not_canonical_truth"
+    }
+  },
+  "catalog": {
+    "selected_location": "tracked_git_json",
+    "future_candidate_path": "config/source_artifact_catalog_v1.json",
+    "write_model": "serialized_hosted_compare_and_swap_commit_or_pr",
+    "immutable_records": true,
+    "mutable_pointers_are_discovery_only": true,
+    "required_record_fields": ["logical_uri", "artifact_id", "source_id", "release_tag", "release_database_id", "asset_id", "asset_name", "archive_sha256", "logical_package_sha256", "data_sha256", "provider_release_id", "target_month", "observation_max", "publication_timestamp", "publication_receipt_sha256", "validation_state", "policy_version", "config_hashes"]
+  },
+  "publication_states": [
+    {"state": "local_validated", "next": ["packaged"]},
+    {"state": "packaged", "next": ["draft_created", "remote_identical_verified"]},
+    {"state": "draft_created", "next": ["asset_uploaded"]},
+    {"state": "asset_uploaded", "next": ["remote_download_verified"]},
+    {"state": "remote_download_verified", "next": ["published_immutable_verified"]},
+    {"state": "published_immutable_verified", "next": ["cataloged"]},
+    {"state": "cataloged", "next": []}
+  ],
+  "collision_rules": {
+    "same_id_same_verified_bytes": "idempotent_success",
+    "same_id_different_bytes": "hard_failure",
+    "partial_or_starter_asset": "inspect_and_delete_only_before_verified_finalization",
+    "overwrite_or_clobber": "prohibited",
+    "consumer_visibility_commit_point": "cataloged"
+  },
+  "resolver": {
+    "interface": "ArtifactResolver.resolve(uri)_returns_validated_local_directory",
+    "production_adapter": "GitHubReleaseArtifactResolver",
+    "steps": ["parse_exact_uri", "read_immutable_catalog_record", "download_by_asset_id", "stream_verify_archive_sha256", "safe_extract_to_digest_cache", "validate_source_artifact", "verify_all_pinned_identity", "return_local_directory"],
+    "assembly_storage_neutral": true
+  },
+  "monthly_outcomes": {
+    "refreshed": "successful_check_changed_content_use_new_artifact",
+    "unchanged": "successful_check_proved_identical_use_exact_prior_artifact",
+    "provider_still_stale": "successful_availability_check_proved_no_release_and_lag_is_acceptable",
+    "failed": "technical_provider_auth_or_validation_failure_blocks_unless_explicit_degraded_policy"
+  },
+  "redfin_gate": {
+    "requires_exact_target_month_artifact": true,
+    "missing_result": "waiting_for_manual_redfin",
+    "triggers_other_source_workflows": false
+  },
+  "source_set_config_hashes": [
+    "config/monthly_refresh_policy.json",
+    "config/source_refresh_revision_policy_v0_2.json",
+    "config/source_metric_registry.csv",
+    "config/geo_manifest.generated.csv",
+    "future_machine_readable_canonical_assembly_policy"
+  ],
+  "security": {
+    "actions_publication": "GITHUB_TOKEN_contents_write",
+    "actions_resolution": "GITHUB_TOKEN_contents_read",
+    "local_redfin": "existing_gh_cli_authenticated_session_preferred",
+    "pat_fallback": "fine_grained_single_repository_contents_write",
+    "embedded_credentials": false
+  },
+  "retention": {
+    "redfin_raw": "existing_separate_governed_policy",
+    "canonical_source_artifacts": "all_indefinitely",
+    "source_sets": "all_indefinitely",
+    "canonical_market": "all_initially_then_review_24_month_plus_year_end_and_pinned_only_after_rebuild_proof",
+    "serving_market": "12_month_plus_year_end_and_product_pinned",
+    "actions_artifacts": "transient_acceptance_and_debug_only"
+  },
+  "implementation_authorized": false
+}
