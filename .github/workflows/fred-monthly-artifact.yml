@@ -8,7 +8,7 @@ on:
         required: false
         type: string
       prior_artifact_path:
-        description: Optional exact prior artifact directory restored by a future durable registry step
+        description: Optional exact artifact/ directory override (takes precedence and must validate)
         required: false
         type: string
 
@@ -22,9 +22,12 @@ on:
       - "sources/fred_macro/**"
       - "core/source_artifacts/**"
       - "scripts/smoke_tests/160_169/166_fred_monthly_artifact_runner.py"
+      - "scripts/smoke_tests/160_169/167_fred_prior_actions_resolver.py"
+      - "jobs/monthly_refresh/fred_prior_actions.py"
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   fred-artifact:
@@ -48,11 +51,21 @@ jobs:
           python scripts/smoke_tests/160_169/164_source_artifact_vertical_slice.py
           python scripts/smoke_tests/160_169/165_source_artifact_provenance.py
           python scripts/smoke_tests/160_169/166_fred_monthly_artifact_runner.py
+          python scripts/smoke_tests/160_169/167_fred_prior_actions_resolver.py
+      - name: Resolve and validate prior FRED artifact
+        id: prior
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPLICIT_PRIOR: ${{ inputs.prior_artifact_path }}
+        run: |
+          args=(--repository "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --download-root "$RUNNER_TEMP/fred-prior" --provenance-output "$RUNNER_TEMP/prior_resolution.json" --github-output "$GITHUB_OUTPUT")
+          if [ -n "$EXPLICIT_PRIOR" ]; then args+=(--explicit-path "$EXPLICIT_PRIOR"); fi
+          python -m jobs.monthly_refresh.fred_prior_actions "${args[@]}"
       - name: Acquire and validate ordinary-current FRED artifact
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           TARGET_MONTH: ${{ inputs.target_month }}
-          PRIOR_ARTIFACT: ${{ inputs.prior_artifact_path }}
+          PRIOR_ARTIFACT: ${{ steps.prior.outputs.prior_artifact }}
         run: |
           test -n "$FRED_API_KEY" || { echo 'FRED_API_KEY repository secret is required'; exit 1; }
           args=(--output-root "$OUTPUT_ROOT")
@@ -63,7 +76,8 @@ jobs:
         env:
           TARGET_MONTH: ${{ inputs.target_month }}
         run: |
-          jq '{source_id,run_status,git_sha,target_month,target_month_resolution,resulting_artifact_id,resulting_artifact_content_hash,data_sha256,artifact_package_sha256,validation_status,observation_max,row_count}' "$OUTPUT_ROOT/run_report.json" | tee "$OUTPUT_ROOT/workflow_summary.json"
+          cp "$RUNNER_TEMP/prior_resolution.json" "$OUTPUT_ROOT/prior_resolution.json"
+          jq --slurpfile prior "$OUTPUT_ROOT/prior_resolution.json" '{source_id,run_status,git_sha,target_month,target_month_resolution,prior_artifact_id,resulting_artifact_id,resulting_artifact_content_hash,source_change_detected,historical_revision_count,new_key_count,prior_only_preserved_key_count,data_sha256,artifact_package_sha256,validation_status,observation_max,row_count,prior_resolution:$prior[0]}' "$OUTPUT_ROOT/run_report.json" | tee "$OUTPUT_ROOT/workflow_summary.json"
           {
             echo '### FRED governed source artifact'
             echo "- Git SHA: $GITHUB_SHA"
