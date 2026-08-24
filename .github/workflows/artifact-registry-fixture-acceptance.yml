@@ -3,6 +3,17 @@ name: Artifact registry fixture acceptance
 on:
   workflow_dispatch:
 
+  push:
+    branches:
+      - monthly-refresh-orchestration
+    paths:
+      - ".github/workflows/artifact-registry-fixture-acceptance.yml"
+      - "core/source_artifacts/github_release.py"
+      - "core/source_artifacts/catalog.py"
+      - "jobs/monthly_refresh/artifact_registry_fixture.py"
+      - "scripts/smoke_tests/170_179/170_github_release_transport.py"
+      - "artifacts/fixture_registry/catalog.json"
+
 permissions:
   contents: write
 
