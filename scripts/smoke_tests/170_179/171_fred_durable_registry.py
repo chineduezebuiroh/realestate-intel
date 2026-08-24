@@ -4,7 +4,7 @@ import copy
 
 from core.source_artifacts.catalog import (activate_source, add_record, empty_catalog,
     validate_catalog_namespace)
-from core.source_artifacts.publication import PublicationError
+from core.source_artifacts.publication import PublicationError, create_receipt
 from jobs.monthly_refresh.fred_durable import SOURCE_ID, accepted_uri, catalog_record
 
 
@@ -37,6 +37,24 @@ validate_catalog_namespace(catalog, fixture=False)
 assert accepted_uri(catalog) is None
 active = activate_source(catalog, SOURCE_ID, artifact_id)
 assert accepted_uri(active) == uri and catalog["accepted"]["source"] == {}
+
+# A fresh verification attempt may have a different receipt identity without
+# changing the governed FRED object or its first-commit receipt provenance.
+def valid_receipt(publisher_git_sha):
+    return create_receipt(logical_artifact_uri=uri, object_id=artifact_id, object_type="source",
+        object_metadata={"source_id":SOURCE_ID}, artifact_content_hash=manifest["artifact_content_hash"],
+        package_sha256="1"*64, member_hashes={"data.parquet":manifest["data_sha256"]},
+        remote_backend="github_release", remote_repository="owner/repo", release_tag=receipt["release_tag"],
+        release_id=receipt["release_id"], asset_id=receipt["asset_id"], asset_filename=receipt["asset_filename"],
+        published_at="2026-08-24T00:00:00Z", verified_at="2026-08-24T00:01:00Z",
+        publication_state="published_immutable_verified", publisher_git_sha=publisher_git_sha,
+        contract_versions=["source_artifact_contract_v1"])
+
+receipt_a=valid_receipt("commit-a"); record_a=catalog_record(manifest,receipt_a)
+catalog_a=add_record(empty_catalog(),record_a,receipt_a)
+receipt_b=valid_receipt("commit-b"); record_b=catalog_record(manifest,receipt_b)
+assert add_record(catalog_a,record_b,receipt_b)==catalog_a
+assert catalog_a["immutable_records"][0]["publication_receipt_id"]==receipt_a["receipt_id"]
 
 # Old records remain when a refreshed identity is appended; accepted movement is explicit.
 new = copy.deepcopy(record); new["object_id"] = "src__fred_macro__2026-09__r1__" + "2" * 16

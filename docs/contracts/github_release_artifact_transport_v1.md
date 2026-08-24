@@ -69,8 +69,14 @@ downloads by asset ID, verifies the package hash, safely extracts, validates the
 artifact, and compares semantic identity before returning a local directory.
 
 The transport is **logically immutable by contract**: it never deletes,
-replaces, or clobbers. GitHub immutable Releases may add platform enforcement
-when enabled in repository settings, but the REST adapter does not claim or
+replaces, or clobbers. A repeated verification can emit a new receipt, but catalog
+identity excludes only that attempt's `publication_receipt_id`; the first
+committing receipt stays on the immutable record. After validating the new
+receipt against every represented remote/object fact, an equivalent insertion
+returns `catalog_changed=false` without a Contents API write. Changed bytes,
+hashes, Release/asset identity, or typed object metadata remain collisions.
+GitHub immutable Releases may add platform enforcement when enabled in
+repository settings, but the REST adapter does not claim or
 infer that setting. A maintainer can still delete a Release where repository
 policy permits it; that is a governance and disaster-recovery risk.
 

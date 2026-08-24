@@ -9,7 +9,8 @@ from core.source_artifacts.catalog import add_record, empty_catalog, validate_ca
 from core.source_artifacts.fixture_remote import CatalogPackageResolver, OfflineArtifactPublisher
 from core.source_artifacts.hashing import sha256_file
 from core.source_artifacts.package import build_publication_package, extract_publication_package
-from core.source_artifacts.publication import IdentityCollisionError, PublicationError, create_receipt, transition, validate_receipt
+from core.source_artifacts.publication import (IdentityCollisionError, PublicationError, create_receipt,
+    receipt_identity, transition, validate_receipt)
 from core.source_artifacts.validation import ArtifactValidationError
 
 SHA="a"*64
@@ -63,8 +64,33 @@ with tempfile.TemporaryDirectory() as td:
 
     rec=record(manifest,one["package_sha256"],receipt); catalog=add_record(empty_catalog(),rec,receipt)
     assert add_record(catalog,rec,receipt)==catalog
-    conflict=copy.deepcopy(rec); conflict["package_sha256"]="b"*64; expect(IdentityCollisionError,lambda:add_record(catalog,conflict,receipt))
-    second=copy.deepcopy(rec); second["object_id"]="other"; second["logical_artifact_uri"]="artifact://source/fixture/other"; expect(IdentityCollisionError,lambda:add_record(catalog,second,receipt))
+    fresh_values=receipt_values(manifest,one["package_sha256"]); fresh_values["publisher_git_sha"]="fresh-sha"
+    fresh_receipt=create_receipt(**fresh_values); fresh_record=record(manifest,one["package_sha256"],fresh_receipt)
+    assert fresh_receipt["receipt_id"] != receipt["receipt_id"]
+    assert add_record(catalog,fresh_record,fresh_receipt)==catalog
+    assert catalog["immutable_records"][0]["publication_receipt_id"]==receipt["receipt_id"]
+    mismatched=copy.deepcopy(fresh_receipt); mismatched["asset_id"]=999; mismatched["receipt_id"]=""
+    mismatched["receipt_id"]=receipt_identity(mismatched)
+    expect(PublicationError,lambda:add_record(catalog,fresh_record,mismatched))
+    mismatched=copy.deepcopy(fresh_receipt); mismatched["object_metadata"]["source_id"]="wrong"; mismatched["receipt_id"]=receipt_identity(mismatched)
+    mismatched_record=copy.deepcopy(fresh_record); mismatched_record["publication_receipt_id"]=mismatched["receipt_id"]
+    expect(PublicationError,lambda:add_record(catalog,mismatched_record,mismatched))
+    for field,value in (("package_sha256","b"*64),("artifact_content_hash","c"*64),("release_tag","source-artifact/fixture/other"),("release_id",12),("asset_id",23)):
+        conflict=copy.deepcopy(fresh_record); conflict[field]=value
+        conflict_receipt=create_receipt(**{**fresh_values,field:value})
+        conflict["publication_receipt_id"]=conflict_receipt["receipt_id"]
+        expect(IdentityCollisionError,lambda conflict=conflict, conflict_receipt=conflict_receipt:
+            add_record(catalog,conflict,conflict_receipt))
+    conflict=copy.deepcopy(fresh_record); conflict["metadata"]["data_sha256"]="d"*64
+    expect(IdentityCollisionError,lambda:add_record(catalog,conflict,fresh_receipt))
+    conflict=copy.deepcopy(fresh_record); conflict["metadata"]["provider_release_id"]="other"
+    expect(IdentityCollisionError,lambda:add_record(catalog,conflict,fresh_receipt))
+    conflict=copy.deepcopy(fresh_record); conflict["metadata"]["observation_max"]="2026-07-31"
+    expect(IdentityCollisionError,lambda:add_record(catalog,conflict,fresh_receipt))
+    second=copy.deepcopy(rec); second["object_id"]="other"; second["logical_artifact_uri"]="artifact://source/fixture/other"
+    second_receipt=copy.deepcopy(receipt); second_receipt["object_id"]="other"; second_receipt["logical_artifact_uri"]=second["logical_artifact_uri"]
+    second_receipt["receipt_id"]=receipt_identity(second_receipt); second["publication_receipt_id"]=second_receipt["receipt_id"]
+    expect(IdentityCollisionError,lambda:add_record(catalog,second,second_receipt))
     dangling=copy.deepcopy(catalog); dangling["accepted"]["source"]["fixture"]="missing"; expect(PublicationError,lambda:validate_catalog(dangling))
     changed_pointer=copy.deepcopy(catalog); changed_pointer["accepted"]["source"]["fixture"]=manifest["artifact_id"]; validate_catalog(changed_pointer); assert changed_pointer["immutable_records"]==catalog["immutable_records"]
 
