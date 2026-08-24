@@ -83,3 +83,16 @@ idempotency, rejects altered bytes, and uploads a receipt, catalog snapshot, and
 machine-readable report. Keep the deterministic fixture Release for inspection;
 manual deletion is only needed when intentionally resetting the acceptance
 environment.
+
+## Phase 2B FRED production transport
+
+FRED is the first production source integration. Its exact identity is
+`source-artifact/fred_macro/<artifact_id>` with asset `<artifact_id>.tar`, and
+its tracked catalog is `config/artifact_catalog.json`; the fixture catalog
+remains isolated. First rerun fixture acceptance on a fresh runner. Then run the
+FRED workflow with pointer activation disabled: it may migrate the exact
+validated Actions artifact, publishes and verifies remotely, inserts the
+immutable record with CAS, and resolves it back. After evidence review, a
+separate explicit activation dispatch moves the pointer. A final fresh-run FRED
+dispatch must select durable prior state and reuse the immutable remote IDs.
+Offline mocks do not establish hosted acceptance.

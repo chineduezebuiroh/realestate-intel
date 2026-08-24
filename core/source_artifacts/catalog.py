@@ -78,6 +78,30 @@ def validate_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
     return catalog
 
 
+def validate_catalog_namespace(catalog: dict[str, Any], *, fixture: bool) -> dict[str, Any]:
+    """Enforce the tracked production/fixture registry trust boundary."""
+    validate_catalog(catalog)
+    prefix = "source-artifact-fixture/" if fixture else "source-artifact/"
+    forbidden = "source-artifact/" if fixture else "source-artifact-fixture/"
+    for record in catalog["immutable_records"]:
+        tag = record["release_tag"]
+        if not tag.startswith(prefix) or tag.startswith(forbidden):
+            raise PublicationError("catalog record belongs to the other Release namespace")
+        if fixture and record.get("metadata", {}).get("source_id") != "fixture_source":
+            raise PublicationError("fixture catalog contains a production source")
+        if not fixture and record.get("metadata", {}).get("source_id") == "fixture_source":
+            raise PublicationError("production catalog contains a fixture source")
+    return catalog
+
+
+def activate_source(catalog: dict[str, Any], source_id: str, object_id: str) -> dict[str, Any]:
+    """Move one accepted source pointer as an explicit operation."""
+    validate_catalog(catalog)
+    out = deepcopy(catalog)
+    out["accepted"]["source"][source_id] = object_id
+    return validate_catalog(out)
+
+
 def add_record(catalog: dict[str, Any], record: dict[str, Any], receipt: dict[str, Any]) -> dict[str, Any]:
     validate_catalog(catalog); validate_record(record)
     out = deepcopy(catalog)

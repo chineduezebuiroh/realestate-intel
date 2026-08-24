@@ -16,3 +16,13 @@ This is only an acceptance/evidence bridge with 30-day retention. It is not the
 durable governed source-artifact registry or a production storage contract. The
 production architecture must eventually resolve prior state from a durable,
 immutable artifact registry.
+
+## Phase 2B migration precedence
+
+Phase 2B retains this bridge only for controlled migration. Resolution reads
+`config/artifact_catalog.json` first. If `accepted.source.fred_macro` exists,
+the exact record and numeric Release/asset must download, hash, extract, and
+validate; failure is corruption and fails closed without trying Actions. Only
+absence of the accepted pointer permits the Actions bridge. Retire the bridge
+after first publication, explicit activation, and a second fresh-run durable
+idempotency proof.

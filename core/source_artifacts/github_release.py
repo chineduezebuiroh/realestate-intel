@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .catalog import add_record, empty_catalog, validate_catalog
+from .catalog import activate_source, add_record, empty_catalog, validate_catalog, validate_catalog_namespace
 from .hashing import canonical_json_bytes, sha256_file
 from .package import extract_publication_package
 from .publication import (ArtifactPublisher, IdentityCollisionError, PublicationError,
@@ -266,25 +266,37 @@ class GitHubReleaseArtifactResolver(ArtifactResolver):
 
 class GitHubCatalogCAS:
     """Atomic tracked-JSON update using GitHub Contents API's blob precondition."""
-    def __init__(self, api: GitHubAPI, path: str, branch: str): self.api, self.path, self.branch = api, path, branch
+    def __init__(self, api: GitHubAPI, path: str, branch: str, *, fixture: bool | None = None):
+        self.api, self.path, self.branch = api, path, branch
+        self.fixture = path.startswith("artifacts/fixture_registry/") if fixture is None else fixture
 
     def read(self) -> tuple[dict[str, Any], str | None]:
         encoded = urllib.parse.quote(self.path, safe="/")
         item, _ = self.api.request("GET", f"/contents/{encoded}?ref={urllib.parse.quote(self.branch)}", expected=(200, 404))
         if item is None: return empty_catalog(), None
         import base64
-        return validate_catalog(json.loads(base64.b64decode(item["content"]))), item["sha"]
+        catalog = validate_catalog(json.loads(base64.b64decode(item["content"])))
+        return validate_catalog_namespace(catalog, fixture=self.fixture), item["sha"]
 
-    def add(self, record: dict[str, Any], receipt: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    def _write(self, updated: dict[str, Any], oid: str | None, message: str) -> None:
         import base64
-        catalog, oid = self.read(); updated = add_record(catalog, record, receipt)
-        if updated == catalog: return catalog, False
         updated["compare_and_swap"]["expected_git_blob_sha"] = oid
-        validate_catalog(updated)
-        payload = {"message": f"Catalog fixture artifact {record['object_id']}",
-            "content": base64.b64encode(canonical_json_bytes(updated)).decode(), "branch": self.branch}
+        validate_catalog_namespace(updated, fixture=self.fixture)
+        payload = {"message": message, "content": base64.b64encode(canonical_json_bytes(updated)).decode(), "branch": self.branch}
         if oid is not None: payload["sha"] = oid
         encoded = urllib.parse.quote(self.path, safe="/")
         try: self.api.request("PUT", f"/contents/{encoded}", payload=payload, expected=(200, 201))
         except PublicationError as exc: raise PublicationError("catalog compare-and-swap update failed; refresh and retry") from exc
+
+    def add(self, record: dict[str, Any], receipt: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        catalog, oid = self.read(); updated = add_record(catalog, record, receipt)
+        if updated == catalog: return catalog, False
+        validate_catalog_namespace(updated, fixture=self.fixture)
+        self._write(updated, oid, f"Catalog artifact {record['object_id']}")
+        return updated, True
+
+    def activate_source(self, source_id: str, object_id: str) -> tuple[dict[str, Any], bool]:
+        catalog, oid = self.read(); updated = activate_source(catalog, source_id, object_id)
+        if updated == catalog: return catalog, False
+        self._write(updated, oid, f"Accept source artifact {object_id}")
         return updated, True
