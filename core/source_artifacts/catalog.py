@@ -10,6 +10,7 @@ from .publication import IdentityCollisionError, PublicationError, validate_rece
 CATALOG_VERSION = "artifact_catalog_v1"
 OBJECT_TYPES = {"source", "source_set", "canonical_market", "serving_market"}
 SHA = re.compile(r"[0-9a-f]{64}")
+GIT_OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 
 
 def empty_catalog(*, expected_git_blob_sha: str | None = None) -> dict[str, Any]:
@@ -53,7 +54,10 @@ def validate_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
     if set(catalog) != {"schema_version", "compare_and_swap", "immutable_records", "accepted"} or catalog["schema_version"] != CATALOG_VERSION:
         raise PublicationError("catalog schema mismatch")
     cas = catalog["compare_and_swap"]
-    if set(cas) != {"expected_git_blob_sha"} or (cas["expected_git_blob_sha"] is not None and not SHA.fullmatch(cas["expected_git_blob_sha"])):
+    # GitHub currently returns SHA-1 blob object IDs, while SHA-256 Git
+    # repositories use 64 hex characters.  This is an object identity, not a
+    # content-integrity digest, so both Git formats are deliberately accepted.
+    if set(cas) != {"expected_git_blob_sha"} or (cas["expected_git_blob_sha"] is not None and not GIT_OBJECT_ID.fullmatch(cas["expected_git_blob_sha"])):
         raise PublicationError("catalog compare-and-swap metadata invalid")
     records = catalog["immutable_records"]
     keys, uris, assets = set(), set(), set()

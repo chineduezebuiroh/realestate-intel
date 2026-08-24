@@ -1,0 +1,49 @@
+name: Artifact registry fixture acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: artifact-registry-fixture-catalog-monthly-refresh-orchestration
+  cancel-in-progress: false
+
+jobs:
+  fixture-acceptance:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: monthly-refresh-orchestration
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install governed dependencies
+        run: pip install -r requirements.txt
+      - name: Compile and run offline registry smokes
+        run: |
+          python -m compileall -q core/source_artifacts jobs/monthly_refresh scripts/smoke_tests
+          for smoke in 164 165 166 167 168 169; do python scripts/smoke_tests/160_169/${smoke}_*.py; done
+          python scripts/smoke_tests/170_179/170_github_release_transport.py
+      - name: Publish, catalog, resolve, repeat, and reject collision
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python -m jobs.monthly_refresh.artifact_registry_fixture \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch monthly-refresh-orchestration \
+            --catalog-path artifacts/fixture_registry/catalog.json \
+            --evidence "$RUNNER_TEMP/artifact-registry-fixture-evidence"
+          cat "$RUNNER_TEMP/artifact-registry-fixture-evidence/acceptance_report.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload fixture acceptance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-registry-fixture-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifact-registry-fixture-evidence/
+          if-no-files-found: error
+          retention-days: 30

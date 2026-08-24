@@ -1,6 +1,6 @@
 # Durable governed source-artifact registry and cloud canonical assembly v0.1
 
-**Status:** candidate architecture for review; not production configuration  
+**Status:** Phase 2A transport implemented for fixture acceptance; not production configuration
 **Scope:** reconnaissance and design only  
 **Decision date:** 2026-08-24
 
@@ -42,6 +42,12 @@ The current source-set v1 is explicitly a partial vertical slice, assigns every
 entry `refreshed`, makes required equal included, and permits empty
 `config_hashes`; those constraints must be replaced by a production version.
 The FRED workflow's 30-day Actions artifact is acceptance evidence only.
+
+Phase 2A adds a REST-backed Release publisher/resolver and serialized tracked
+fixture-catalog writer. It deliberately proves only the
+`source-artifact-fixture/fixture_source/...` namespace after merge through a
+manual hosted workflow. Production Release publication and pointer activation
+remain deferred.
 
 The existing monthly orchestrator is a resumable **local** pipeline that reads a
 mutable full DB, gates on local Redfin drop states, builds/promotes a local
