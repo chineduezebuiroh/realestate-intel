@@ -111,3 +111,13 @@ Source artifact schema v1, source-set v1, `LocalArtifactResolver`, `assemble()`,
 Redfin/FRED producers, the Actions prior bridge, and monthly orchestration remain
 unchanged. Phase 2 must add GitHub transports behind these interfaces rather
 than put GitHub behavior into canonical assembly.
+
+## Phase 2B FRED policy
+
+Phase 2B introduces the production catalog at `config/artifact_catalog.json`
+for FRED only. It begins empty and without accepted pointers. Production and
+fixture catalogs are validated against disjoint Release namespaces: production
+rejects `source-artifact-fixture/` and `fixture_source`, while fixtures reject
+production tags and sources. Immutable catalog insertion and
+`accepted.source.fred_macro` activation are separate CAS writes; publication
+never implies acceptance.

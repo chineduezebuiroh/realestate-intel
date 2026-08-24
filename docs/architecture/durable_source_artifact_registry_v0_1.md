@@ -450,3 +450,14 @@ source-set v2, production database write, source migration, serving cutoff
 change, or secret. Before implementation, confirm immutable releases are
 available/enabled for this repository, measure canonical package/workspace size,
 and approve catalog PR/promotion governance and independent backup expectations.
+
+## Phase 2B implementation boundary
+
+Phase 2B activates `config/artifact_catalog.json` for FRED only. It packages the
+governed FRED output, publishes in the production namespace, verifies remote
+bytes, performs an immutable CAS insert, and proves exact resolver round-trip.
+Publication and acceptance remain separate: pointer activation requires the
+explicit workflow input and a second CAS write. Hosted acceptance remains
+pending until the fixture fresh-run, first FRED publication, explicit
+activation, and second fresh-run FRED identity checks pass. No source set,
+canonical or serving database, Redfin publication, or regime execution occurs.
