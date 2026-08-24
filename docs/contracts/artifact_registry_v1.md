@@ -69,7 +69,14 @@ and observation identity. Serving metadata references its exact canonical
 market, proving the catalog is not source-only.
 
 Immutable `(object_type, object_id)`, logical URI, and `(repository, asset_id)`
-identities are unique. An identical insert is idempotent. Any conflict is a hard
+identities are unique. Immutable identity comprises the complete catalog record
+(object type/ID and exact URI, repository, Release tag and numeric ID, asset ID
+and filename, package and artifact hashes, finalized publication state, and all
+typed object metadata) except `publication_receipt_id`. The receipt that first
+commits the record remains attached to it. A later valid, catalog-eligible
+receipt for the exact same immutable publication is attempt evidence: insertion
+is a no-op and does not replace the original receipt ID. Any changed immutable
+fact is a hard
 identity collision. Records are sorted by type and ID. All hashes are full
 lowercase SHA-256. Malformed records, nonfinal states, and dangling accepted
 pointers fail closed.

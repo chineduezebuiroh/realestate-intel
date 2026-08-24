@@ -22,6 +22,13 @@ def record_key(record: dict[str, Any]) -> tuple[str, str]:
     return record["object_type"], record["object_id"]
 
 
+def immutable_record_identity(record: dict[str, Any]) -> dict[str, Any]:
+    """Return governed object facts, excluding the committing receipt provenance."""
+    identity = deepcopy(record)
+    identity.pop("publication_receipt_id", None)
+    return identity
+
+
 def validate_record(record: dict[str, Any], receipt: dict[str, Any] | None = None) -> None:
     required = {"object_type", "object_id", "logical_artifact_uri", "remote_repository", "release_tag",
                 "release_id", "asset_id", "asset_filename", "package_sha256", "artifact_content_hash",
@@ -40,8 +47,12 @@ def validate_record(record: dict[str, Any], receipt: dict[str, Any] | None = Non
         validate_receipt(receipt, require_eligible=True)
         pairs = (("receipt_id", "publication_receipt_id"), ("logical_artifact_uri", "logical_artifact_uri"),
                  ("object_id", "object_id"), ("object_type", "object_type"), ("package_sha256", "package_sha256"),
-                 ("artifact_content_hash", "artifact_content_hash"), ("release_id", "release_id"), ("asset_id", "asset_id"))
+                 ("artifact_content_hash", "artifact_content_hash"), ("remote_repository", "remote_repository"),
+                 ("release_tag", "release_tag"), ("release_id", "release_id"), ("asset_id", "asset_id"),
+                 ("asset_filename", "asset_filename"), ("publication_state", "publication_state"))
         if any(receipt[a] != record[b] for a, b in pairs): raise PublicationError("catalog record/receipt mismatch")
+        if any(record["metadata"].get(key) != value for key, value in receipt["object_metadata"].items()):
+            raise PublicationError("catalog record/receipt object metadata mismatch")
     meta = record["metadata"]
     if record["object_type"] == "source":
         needed = {"source_id", "data_sha256", "provider_release_id", "observation_max"}
@@ -103,15 +114,17 @@ def activate_source(catalog: dict[str, Any], source_id: str, object_id: str) -> 
 
 
 def add_record(catalog: dict[str, Any], record: dict[str, Any], receipt: dict[str, Any]) -> dict[str, Any]:
-    validate_catalog(catalog); validate_record(record)
+    # Validate the current attempt before considering an existing-record no-op.
+    # A fresh receipt is workflow evidence, but must still prove the incoming
+    # record describes the exact eligible remote publication.
+    validate_catalog(catalog); validate_record(record, receipt)
     out = deepcopy(catalog)
     for old in out["immutable_records"]:
         if record_key(old) == record_key(record) or old["logical_artifact_uri"] == record["logical_artifact_uri"]:
-            if old == record: return out
+            if immutable_record_identity(old) == immutable_record_identity(record): return out
             raise IdentityCollisionError("conflicting immutable catalog record")
         if (old["remote_repository"], old["asset_id"]) == (record["remote_repository"], record["asset_id"]):
             raise IdentityCollisionError("remote asset already belongs to another object")
-    validate_record(record, receipt)
     out["immutable_records"].append(deepcopy(record)); out["immutable_records"].sort(key=record_key)
     return validate_catalog(out)
 

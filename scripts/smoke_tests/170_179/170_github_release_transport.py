@@ -28,7 +28,7 @@ class FakeAPI:
         self.release = None; self.asset_bytes = {}; self.next_asset = 22; self.put_conflict = False
         self.tag_calls = 0; self.numeric_calls = 0; self.hide_created_from_tag = False
         self.numeric_missing = False; self.numeric_tag = None
-        self.catalog = empty_catalog(); self.catalog_oid = "a" * 40
+        self.catalog = empty_catalog(); self.catalog_oid = "a" * 40; self.put_calls = 0
     def request(self, method, url, *, payload=None, content_type="application/json", expected=(200,)):
         if url.startswith("/releases/tags/"):
             self.tag_calls += 1
@@ -53,6 +53,7 @@ class FakeAPI:
             import base64
             return {"sha": self.catalog_oid, "content": base64.b64encode(json.dumps(self.catalog).encode()).decode()}, {}
         if method == "PUT" and url.startswith("/contents/"):
+            self.put_calls += 1
             if self.put_conflict: raise PublicationError("HTTP 409")
             import base64
             assert payload["sha"] == self.catalog_oid
@@ -128,6 +129,14 @@ with tempfile.TemporaryDirectory() as td:
     updater=GitHubCatalogCAS(api,"artifacts/fixture_registry/catalog.json","monthly-refresh-orchestration")
     api.catalog=empty_catalog(); updated,changed=updater.add(rec,receipt); assert changed and updated["compare_and_swap"]["expected_git_blob_sha"]=="a"*40
     same,changed=updater.add(rec,receipt); assert not changed
+    puts_after_first=api.put_calls
+    fresh_metadata=copy.deepcopy(metadata); fresh_metadata["publisher_git_sha"]="fresh-independent-run"
+    fresh=GitHubReleaseArtifactPublisher(api,fixture=True); fresh.prepare(uri,package.read_bytes(),fresh_metadata)
+    fresh.upload(uri); fresh.verify(uri); receipt_b=fresh.finalize(uri)
+    assert receipt_b["receipt_id"] != receipt["receipt_id"]
+    record_b=record(manifest,receipt_b); same,changed=updater.add(record_b,receipt_b)
+    assert not changed and same == api.catalog and api.put_calls == puts_after_first
+    assert same["immutable_records"][0]["publication_receipt_id"] == receipt["receipt_id"]
     api.catalog=empty_catalog(); api.put_conflict=True; expect(PublicationError,lambda:updater.add(rec,receipt))
 
 # Explicit API failures are surfaced rather than interpreted as absence/retry.
