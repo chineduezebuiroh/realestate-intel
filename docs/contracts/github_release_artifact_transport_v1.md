@@ -30,14 +30,18 @@ The publisher validates the caller's exact metadata and follows the unchanged
 state machine:
 
 1. Build/validate the deterministic uncompressed tar and create or recover the
-   exact draft Release (`prepared`).
+   exact draft Release, validate its deterministic tag and numeric Release ID,
+   and retain that numeric ID as the primary remote identity (`prepared`).
 2. Upload without clobber, or independently download an existing same-named
    asset and prove byte equality (`uploaded`). Different bytes are a collision.
 3. Download by numeric asset ID into a fresh workspace, verify package SHA-256,
    safely extract, run artifact validation, and compare artifact/content/member
    hashes (`remotely_verified`).
-4. Publish the draft, re-query tag and numeric Release/asset identity, and emit
-   the genuine receipt (`published_immutable_verified`).
+4. Publish the draft by numeric Release ID, re-query that exact numeric Release,
+   revalidate its tag and numeric Release/asset identities, and emit the genuine
+   receipt (`published_immutable_verified`). A known numeric Release returning
+   missing fails closed; only a fresh publication attempt may recover through
+   deterministic tag discovery.
 
 Finalization never updates a catalog. A verified or published Release without a
 catalog record is an orphan and is ineligible for governed resolution. A rerun
