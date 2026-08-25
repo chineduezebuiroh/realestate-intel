@@ -465,3 +465,11 @@ explicit workflow input and a second CAS write. Hosted acceptance remains
 pending until the fixture fresh-run, first FRED publication, explicit
 activation, and second fresh-run FRED identity checks pass. No source set,
 canonical or serving database, Redfin publication, or regime execution occurs.
+
+## Redfin bootstrap compatibility
+
+Historical July bootstrap lineage and registered monthly-drop lineage are valid,
+distinct semantic representations. The first registered July reconciliation may
+create a new artifact despite equal data and raw hashes. Thereafter drop, cycle,
+ownership, artifact, package, Release/asset, and catalog identities are stable.
+Attempt evidence and raw DuckDB bytes are excluded from source-state identity.

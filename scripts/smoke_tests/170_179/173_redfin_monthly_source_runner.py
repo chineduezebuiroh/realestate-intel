@@ -76,6 +76,11 @@ with TemporaryDirectory() as td:
       ledger_path=root/"ledger.json",evidence_root=root/"evidence",catalog=catalog,publisher=publisher,
       repository_root=Path("."),git_sha="fixture")
     assert second["cycle_id"]==first["cycle_id"] and second["candidate_artifact_id"]==first["candidate_artifact_id"]
+    assert second["artifact_content_hash"]==first["artifact_content_hash"]
+    assert second["package_sha256"]==first["package_sha256"]
+    manifest=json.loads(next((root/"candidates").glob("*/artifact/manifest.json")).read_text())
+    assert manifest["git_sha"]=="operational-evidence-excluded"
+    assert len(calls)==2 and calls[0]==calls[1]
     assert digest(state)==accepted_before
     ledger=json.loads((root/"ledger.json").read_text()); assert len(ledger["cycles"])==1
     assert next(iter(ledger["cycles"].values()))["state"]=="candidate_ready"

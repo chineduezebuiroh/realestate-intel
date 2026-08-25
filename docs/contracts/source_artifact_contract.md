@@ -186,3 +186,17 @@ On no new release:
 ## Validation contract
 
 Before publication verify canonical schema/types/order, source ID constancy, exact key uniqueness, finite values/source-specific null contract, authorized metrics and geographies, observation bounds, source-specific coverage/revision/absence rules, row-lineage reconciliation, prior-artifact hashes, deterministic rerun hash, and all declared files. Any failure yields no governed artifact.
+
+## Redfin stable ownership and package identity
+
+Redfin row lineage is semantic: the canonical key plus `provider_release_id`,
+`provider_vintage`, `source_request_identity`, `latest_source_hash_or_drop_id`,
+and `source_artifact_id`. A validated full snapshot assigns each returned key to
+the stable governed drop, even when values and raw bytes equal bootstrap; absent
+keys retain prior ownership. The historical-baseline to registered-drop
+transition can therefore create one new identity with equal canonical data.
+
+Attempt timestamps, paths, current Git SHA, and receipts are operational. The
+production runner pins packaged provenance from immutable drop metadata and uses
+`operational-evidence-excluded` for executing Git SHA; the actual SHA remains in
+the publication receipt. Thus the same artifact ID implies the same package SHA.
