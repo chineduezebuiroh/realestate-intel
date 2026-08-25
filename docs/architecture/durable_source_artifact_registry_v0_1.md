@@ -1,5 +1,9 @@
 # Durable governed source-artifact registry and cloud canonical assembly v0.1
 
+> The Phase 3A local producer is specified in
+> [Redfin monthly source execution v1](../contracts/redfin_monthly_source_v1.md),
+> including its accepted/candidate split, ledger, and non-promotion boundary.
+
 **Status:** Phase 2A transport implemented for fixture acceptance; not production configuration
 **Scope:** reconnaissance and design only  
 **Decision date:** 2026-08-24

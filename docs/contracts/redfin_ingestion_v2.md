@@ -1,5 +1,9 @@
 # Redfin ingestion v2 contract
 
+> Monthly production orchestrates these authoritative primitives through
+> [Redfin monthly source execution v1](redfin_monthly_source_v1.md); accepted
+> state is never the reconciliation target during candidate evaluation.
+
 ## Governed filesystem and baseline
 
 `data/redfin/raw` is the only production raw root:
