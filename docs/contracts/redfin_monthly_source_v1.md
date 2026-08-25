@@ -106,3 +106,19 @@ The two state hashes must match. The rerun must return the same cycle, artifact,
 Release/asset, and package identities with no catalog duplicate and no pointer
 movement. Inspect the exact Release and integration-branch catalog, then stop:
 do not promote, assemble canonical market, build serving, or run Macro Regime.
+
+## Stable identity and July bootstrap transition
+
+The production rule is **latest governed registered drop owns returned keys**.
+The stable drop consists of month, sorted seven-family hashes, and governed
+policy/configuration hashes. Exact replay resolves the same cycle, lineage,
+artifact, package, Release/asset, and a catalog no-op; acceptance never moves.
+
+The accepted July bootstrap used `baseline:2026-07`, a baseline hash including
+`baseline_id`, and bootstrap ownership. Monthly reconciliation uses a
+`redfin-drop:<drop identity>` request, registered-files hash, and monthly owner.
+Those semantic lineage fields differ even when data and seven hashes match, so
+the `b102...` to `cabe...` transition is valid and both records remain immutable.
+`core.source_artifacts.identity.compare_artifact_identity` emits the deterministic
+field-level explanation. Attempt timestamps, paths, Git SHA, and DuckDB container
+bytes are not semantic identity.

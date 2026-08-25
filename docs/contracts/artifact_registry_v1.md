@@ -132,3 +132,10 @@ rejects `source-artifact-fixture/` and `fixture_source`, while fixtures reject
 production tags and sources. Immutable catalog insertion and
 `accepted.source.fred_macro` activation are separate CAS writes; publication
 never implies acceptance.
+
+## Source package equality
+
+One immutable source ID names exactly one package byte stream. Exact Redfin replay
+resolves and verifies the existing numeric Release/asset and catalog insertion is
+a no-op. Attempt receipts remain separate. Different bytes for an existing ID are
+an identity collision, never an overwrite.

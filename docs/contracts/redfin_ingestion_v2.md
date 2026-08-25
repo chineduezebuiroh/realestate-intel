@@ -191,3 +191,11 @@ Only intentional downstream orchestration may subsequently apply, validate,
 publish, and promote a monthly drop. Downloads, CBSA expansion, analytical
 features, regime calibration, forecasting, and dashboard publication are outside
 this contract.
+
+## Stable drop ownership
+
+A validated rolling snapshot owns every canonical key it returns; absent keys
+preserve prior ownership. Ownership is the governed drop identity, not execution.
+Same-drop replay is semantically identical. A genuinely different raw hash is a
+new source state and changes lineage even when retained values are equal.
+Historical baseline ownership is distinct from registered-drop ownership.

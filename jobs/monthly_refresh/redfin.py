@@ -197,7 +197,11 @@ def run(*, accepted_state: Path = ACCEPTED_STATE, raw_root: Path = RAW_ROOT,
             temporary.replace(state)
             manifest = emit_artifact(state, artifact, target_month=drop_id,
                 registered_at=metadata.get("registered_at"), raw_root=raw_root,
-                repository_root=repository_root, artifact_created_at=metadata.get("registered_at"), git_sha=git_sha)
+                repository_root=repository_root, artifact_created_at=metadata.get("registered_at"),
+                # The executing checkout is publication-attempt evidence, not
+                # a governed Redfin build input.  The actual SHA remains on the
+                # publication receipt and must not perturb package bytes.
+                git_sha="operational-evidence-excluded")
             validation = validate_artifact(artifact, expected_source_id=SOURCE_ID)
             if validation["rows"] != _candidate_rows(state): raise GovernanceError("candidate state/artifact row parity mismatch")
             if sha256_file(accepted_state) != accepted_before: raise GovernanceError("accepted Redfin state changed during candidate construction")
