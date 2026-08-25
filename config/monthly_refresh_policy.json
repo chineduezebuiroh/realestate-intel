@@ -1,5 +1,34 @@
 {
-  "schema_version": "monthly_refresh_policy_v1",
+  "schema_version": "monthly_refresh_policy_v2",
+  "orchestration_mode": "cohort_controlled_production",
+  "schedule_policy": {
+    "cadence": "weekly_saturday_readiness_check",
+    "enabled": false,
+    "not_ready_behavior": "successful_noop"
+  },
+  "cycle_identity_fields": ["redfin_drop_id", "redfin_drop_content_hash", "target_month", "policy_sha256"],
+  "readiness_catalyst": {
+    "source_id": "redfin",
+    "required_lifecycle_state": "validated",
+    "required_family_count": 7,
+    "reject_consumed_or_quarantined": true
+  },
+  "promotion": {
+    "mode": "cohort_controlled",
+    "source_jobs_may_activate_pointers": false,
+    "require_complete_source_set_v2": true,
+    "require_validated_canonical_market_artifact": true
+  },
+  "source_execution_result_schema": "monthly_source_execution_result_v1",
+  "sources": [
+    {"source_id":"redfin","required":true,"acquisition_mode":"manual_landing","execution_boundary":"redfin_monthly_source_runner","dependencies":[],"readiness_behavior":"cycle_catalyst","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":60,"max_attempts_per_cycle":3},
+    {"source_id":"fred_macro","required":true,"acquisition_mode":"automated","execution_boundary":"fred_monthly_artifact_reusable_workflow","dependencies":[],"readiness_behavior":"run_when_cycle_ready","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":45,"max_attempts_per_cycle":3},
+    {"source_id":"ces","required":true,"acquisition_mode":"automated","execution_boundary":"pending_governed_source_workflow","dependencies":[],"readiness_behavior":"run_when_cycle_ready","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":45,"max_attempts_per_cycle":3},
+    {"source_id":"laus","required":true,"acquisition_mode":"automated","execution_boundary":"pending_governed_source_workflow","dependencies":[],"readiness_behavior":"run_when_cycle_ready","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":45,"max_attempts_per_cycle":3},
+    {"source_id":"fred_unemp","required":true,"acquisition_mode":"automated","execution_boundary":"pending_governed_source_workflow","dependencies":[],"readiness_behavior":"run_when_cycle_ready","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":45,"max_attempts_per_cycle":3},
+    {"source_id":"census_bps","required":true,"acquisition_mode":"automated","execution_boundary":"pending_governed_source_workflow","dependencies":[],"readiness_behavior":"run_when_cycle_ready","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":45,"max_attempts_per_cycle":3},
+    {"source_id":"census_bps_provisional","required":true,"acquisition_mode":"automated","execution_boundary":"pending_governed_source_workflow","dependencies":["census_bps"],"readiness_behavior":"run_after_dependencies","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":30,"max_attempts_per_cycle":3}
+  ],
   "production_experiment_id": "governed_production",
   "production_policy_source": "version-controlled production registries",
   "source_refresh_policy": "verification_only_until_delete-first_jobs_are_transactionally_hardened",
