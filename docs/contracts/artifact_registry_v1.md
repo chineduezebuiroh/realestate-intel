@@ -1,5 +1,9 @@
 # Artifact registry contract v1
 
+> Redfin monthly candidates use immutable production-catalog insertion without
+> accepted-pointer movement. See
+> [Redfin monthly source execution v1](redfin_monthly_source_v1.md).
+
 ## Status and boundary
 
 Phase 1 remains the backend-neutral contract. Phase 2A adds the GitHub adapter

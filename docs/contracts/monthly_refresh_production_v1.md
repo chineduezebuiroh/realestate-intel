@@ -1,5 +1,9 @@
 # Production monthly refresh contract v1
 
+> Phase 3A implements the independently executable Redfin candidate boundary
+> in [Redfin monthly source execution v1](redfin_monthly_source_v1.md), stopping
+> before this contract's barrier and cohort promotion.
+
 **Status:** normative design; no production schedule is enabled.
 
 ## Identities, readiness, and inventory
