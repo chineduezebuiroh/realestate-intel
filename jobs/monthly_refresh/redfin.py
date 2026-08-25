@@ -129,13 +129,13 @@ def bootstrap_accepted(*, artifact: Path, accepted_state: Path, workspace: Path,
     if not accepted_state.is_file(): raise GovernanceError("accepted July Redfin state is absent")
     con = duckdb.connect(str(accepted_state), read_only=True)
     try:
-        con.read_parquet(str(artifact / "data.parquet")).create_view("artifact_data")
         mismatch = con.execute("""SELECT count(*) FROM (
           (SELECT geo_id,metric_id,date,property_type_id,value,property_type FROM canonical_redfin
-           EXCEPT SELECT geo_id,metric_id,date,property_type_id,value,property_type FROM artifact_data)
+           EXCEPT ALL SELECT geo_id,metric_id,date,property_type_id,value,property_type FROM read_parquet(?))
           UNION ALL
-          (SELECT geo_id,metric_id,date,property_type_id,value,property_type FROM artifact_data
-           EXCEPT SELECT geo_id,metric_id,date,property_type_id,value,property_type FROM canonical_redfin))""").fetchone()[0]
+          (SELECT geo_id,metric_id,date,property_type_id,value,property_type FROM read_parquet(?)
+           EXCEPT ALL SELECT geo_id,metric_id,date,property_type_id,value,property_type FROM canonical_redfin))""",
+          [str(artifact / "data.parquet")] * 2).fetchone()[0]
     finally: con.close()
     if mismatch: raise GovernanceError("accepted local state does not reproduce the proven July artifact")
     publication = publish_candidate(artifact, workspace, api, cas, git_sha)

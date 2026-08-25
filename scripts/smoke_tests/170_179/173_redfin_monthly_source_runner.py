@@ -4,13 +4,15 @@ import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import duckdb
 import pandas as pd
 
 from core.source_artifacts.package import build_publication_package
 from jobs.monthly_refresh.production import validate_source_result
-from jobs.monthly_refresh.redfin import run
+from jobs.monthly_refresh.redfin import (JULY_ARTIFACT_ID, JULY_DATA_SHA256,
+                                         bootstrap_accepted, run)
 from sources.redfin.governance import FAMILIES, GovernanceError, bootstrap
 from sources.redfin.state import STATE_SCHEMA
 
@@ -25,6 +27,16 @@ def raw(path: Path, month: str) -> None:
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class BootstrapCatalogFixture:
+    def __init__(self) -> None:
+        self.activation_calls = 0
+
+    def activate_source(self, source_id: str, artifact_id: str):
+        assert source_id == "redfin" and artifact_id == JULY_ARTIFACT_ID
+        self.activation_calls += 1
+        return {}, False
 
 
 with TemporaryDirectory() as td:
@@ -75,5 +87,38 @@ with TemporaryDirectory() as td:
           ledger_path=root/"other-ledger.json",evidence_root=root/"other-evidence",catalog=catalog,publisher=publisher)
     except GovernanceError as exc: assert "never bootstrap" in str(exc)
     else: raise AssertionError("missing accepted state was bootstrapped")
+
+    # The explicit bootstrap compares parquet directly through the read-only
+    # accepted-state connection. Publication and catalog boundaries stay fake.
+    bootstrap_artifact=root/"bootstrap-artifact"; bootstrap_artifact.mkdir()
+    bootstrap_row={"geo_id":"fixture","metric_id":"inventory","date":pd.Timestamp("2026-07-31"),
+      "property_type_id":"all","value":42.0,"source_id":"redfin","property_type":"all"}
+    pd.DataFrame([bootstrap_row]).to_parquet(bootstrap_artifact/"data.parquet",index=False)
+    bootstrap_state=root/"bootstrap-accepted.duckdb"; con=duckdb.connect(str(bootstrap_state)); con.execute(STATE_SCHEMA)
+    con.execute("INSERT INTO canonical_redfin VALUES ('fixture','inventory','2026-07-31','all',42,'all','2026-07','2026-07',?,'baseline','prior-artifact','2026-07-31')",["b"*64]); con.close()
+    bootstrap_before=digest(bootstrap_state); bootstrap_manifest={"artifact_id":JULY_ARTIFACT_ID,
+      "data_sha256":JULY_DATA_SHA256,"target_month":"2026-07"}
+    catalog_fixture=BootstrapCatalogFixture(); publication_calls=[]
+    def bootstrap_publisher(*args, **kwargs):
+        publication_calls.append(args)
+        return {"publication_state":"published_verified","accepted_pointer_changed":False}
+    with patch("jobs.monthly_refresh.redfin.validate_artifact",
+               return_value={"manifest":bootstrap_manifest}), \
+         patch("jobs.monthly_refresh.redfin.publish_candidate",side_effect=bootstrap_publisher):
+        bootstrapped=bootstrap_accepted(artifact=bootstrap_artifact,accepted_state=bootstrap_state,
+          workspace=root/"bootstrap-publication",api=object(),cas=catalog_fixture,git_sha="fixture")
+        assert bootstrapped["bootstrap_operation"] and len(publication_calls)==1
+        assert catalog_fixture.activation_calls==1 and not bootstrapped["accepted_pointer_changed"]
+        assert digest(bootstrap_state)==bootstrap_before
+
+        changed=dict(bootstrap_row); changed["value"]=43.0
+        pd.DataFrame([changed]).to_parquet(bootstrap_artifact/"data.parquet",index=False)
+        try:
+            bootstrap_accepted(artifact=bootstrap_artifact,accepted_state=bootstrap_state,
+              workspace=root/"rejected-publication",api=object(),cas=catalog_fixture,git_sha="fixture")
+        except GovernanceError as exc: assert "does not reproduce" in str(exc)
+        else: raise AssertionError("mismatching bootstrap artifact passed parity validation")
+    assert len(publication_calls)==1 and catalog_fixture.activation_calls==1
+    assert digest(bootstrap_state)==bootstrap_before
 
 print("Smoke 173 Redfin monthly source runner passed")
