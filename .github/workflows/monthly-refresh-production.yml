@@ -1,5 +1,20 @@
 name: Governed monthly refresh production cohort
 on:
+  # Temporary Phase 3B hosted acceptance scaffolding. Remove after this workflow
+  # is registered on the default branch; this is not the production schedule.
+  push:
+    branches: [monthly-refresh-orchestration]
+    paths:
+      - '.github/workflows/monthly-refresh-production.yml'
+      - '.github/workflows/redfin-monthly-source.yml'
+      - '.github/workflows/fred-monthly-source.yml'
+      - 'jobs/monthly_refresh/cohort.py'
+      - 'jobs/monthly_refresh/readiness.py'
+      - 'jobs/monthly_refresh/redfin_resolver.py'
+      - 'config/monthly_refresh_readiness.json'
+      - 'config/monthly_refresh_policy.json'
+      - 'docs/contracts/monthly_refresh_production_v1.md'
+      - 'scripts/smoke_tests/170_179/175_monthly_source_cohort_orchestrator.py'
   workflow_dispatch:
     inputs:
       mode:
@@ -25,22 +40,17 @@ jobs:
       cycle_id: ${{ steps.resolve.outputs.cycle_id }}
       target_month: ${{ steps.resolve.outputs.target_month }}
       drop_id: ${{ steps.resolve.outputs.drop_id }}
+      redfin_pin: ${{ steps.resolve.outputs.redfin_pin }}
+      redfin_artifact_id: ${{ steps.resolve.outputs.redfin_artifact_id }}
       cycle_json: ${{ steps.resolve.outputs.cycle_json }}
     steps:
       - uses: actions/checkout@v4
       - id: resolve
         env:
-          MODE: ${{ inputs.mode }}
-          DROP_ID: ${{ inputs.redfin_drop_id }}
-          DROP_HASH: ${{ inputs.redfin_drop_content_hash }}
-          TARGET_MONTH: ${{ inputs.target_month }}
+          MODE: ${{ inputs.mode || 'normal' }}
           SUPPLIED_CYCLE: ${{ inputs.cycle_id }}
         run: |
           args=(--mode "$MODE" --output "$RUNNER_TEMP/cycle.json")
-          if [ -n "$DROP_ID$DROP_HASH$TARGET_MONTH" ]; then
-            jq -n --arg id "$DROP_ID" --arg hash "$DROP_HASH" --arg month "$TARGET_MONTH" '{drop_id:$id,drop_content_hash:$hash,target_month:$month,status:"validated",validation_status:"passed",complete_family_count:7,required_family_count:7,quarantined:false}' > "$RUNNER_TEMP/drop.json"
-            args+=(--drop-json "$RUNNER_TEMP/drop.json")
-          fi
           if [ -n "$SUPPLIED_CYCLE" ]; then args+=(--cycle-id "$SUPPLIED_CYCLE"); fi
           python -m jobs.monthly_refresh.cohort resolve "${args[@]}"
           cat "$RUNNER_TEMP/cycle.json" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -48,6 +58,8 @@ jobs:
           echo "cycle_id=$(jq -r '.cycle_id // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
           echo "target_month=$(jq -r '.target_month // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
           echo "drop_id=$(jq -r '.drop_id // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
+          echo "redfin_pin=$(jq -c '.redfin_candidate_pin // {}' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
+          echo "redfin_artifact_id=$(jq -r '.redfin_candidate_pin.candidate_artifact_id // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
           echo "cycle_json=$(jq -c . "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
   redfin:
     needs: resolve-cycle
@@ -57,6 +69,7 @@ jobs:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
       drop_id: ${{ needs.resolve-cycle.outputs.drop_id }}
       invocation_mode: ${{ inputs.mode }}
+      candidate_artifact_id: ${{ needs.resolve-cycle.outputs.redfin_artifact_id }}
   fred:
     needs: resolve-cycle
     if: needs.resolve-cycle.outputs.fan_out == 'true' && inputs.pinned_fred_result == ''

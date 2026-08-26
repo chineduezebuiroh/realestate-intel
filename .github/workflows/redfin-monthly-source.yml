@@ -5,6 +5,7 @@ on:
       cycle_id: {required: true, type: string}
       drop_id: {required: true, type: string}
       invocation_mode: {required: true, type: string}
+      candidate_artifact_id: {required: true, type: string}
     outputs:
       result_json:
         value: ${{ jobs.source.outputs.result_json }}
@@ -18,6 +19,7 @@ on:
         default: replay
         type: choice
         options: [replay, resume]
+      candidate_artifact_id: {description: Exact durable candidate artifact ID, required: true, type: string}
 permissions:
   contents: read
 jobs:
@@ -30,20 +32,9 @@ jobs:
       - id: result
         env:
           CYCLE_ID: ${{ inputs.cycle_id }}
-          DROP_ID: ${{ inputs.drop_id }}
-          MODE: ${{ inputs.invocation_mode }}
+          CANDIDATE_ARTIFACT_ID: ${{ inputs.candidate_artifact_id }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          python - <<'PY'
-          import json, os
-          catalog=json.load(open('config/artifact_catalog.json'))
-          accepted=catalog['accepted']['source'].get('redfin')
-          matches=[r for r in catalog['immutable_records'] if r['object_type']=='source' and r['metadata'].get('source_id')=='redfin' and r['metadata'].get('provider_release_id')==os.environ['DROP_ID'] and r['object_id']!=accepted]
-          if os.environ['MODE'] not in {'replay','resume'}:
-              raise SystemExit('hosted normal Redfin execution requires durable governed-drop byte transport; no success is fabricated')
-          if len(matches)!=1: raise SystemExit('registered-drop candidate did not resolve uniquely and exactly')
-          r=matches[0]; m=r['metadata']
-          result={'schema_version':'monthly_source_execution_result_v1','source_id':'redfin','cycle_id':os.environ['CYCLE_ID'],'status':'succeeded','candidate_artifact_id':r['object_id'],'artifact_content_hash':r['artifact_content_hash'],'package_sha256':r['package_sha256'],'publication_state':'published_verified','validation_status':'passed','provider_release_id':m['provider_release_id'],'observation_max':m['observation_max'],'prior_artifact_id':accepted,'source_change_detected':m['data_sha256']!=next(x['metadata']['data_sha256'] for x in catalog['immutable_records'] if x['object_id']==accepted),'retryability':'not_applicable','evidence_uri':r['logical_artifact_uri']}
-          value=json.dumps(result,separators=(',',':'),sort_keys=True)
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('result_json='+value+'\n')
-          print(value)
-          PY
+          python -m jobs.monthly_refresh.redfin_resolver --cycle-id "$CYCLE_ID" --candidate-artifact-id "$CANDIDATE_ARTIFACT_ID" --output "$RUNNER_TEMP/result.json"
+          echo "result_json=$(jq -c . "$RUNNER_TEMP/result.json")" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/result.json" | tee -a "$GITHUB_STEP_SUMMARY"

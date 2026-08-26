@@ -13,7 +13,8 @@ PYTHONPATH=. python -m jobs.monthly_refresh.redfin
 
 The command invokes the existing atomic registration, drop validation, durable
 reconciliation, artifact emission, artifact validation, deterministic package,
-GitHub Release remote verification, and production-catalog CAS primitives. It
+GitHub Release remote verification, and production-catalog CAS primitives. It then commits the
+small `config/monthly_refresh_readiness.json` catalyst record only after catalog verification and
 returns `monthly_source_execution_result_v1`. It never assembles or promotes a
 source set/market, builds serving, runs Macro Regime, promotes local state, or
 moves `accepted.source.redfin`.
@@ -87,7 +88,7 @@ remote identity on retry.
 
 Existing raw retention already requires the newest drop to be promoted,
 published, reconciled, and validated before older drops become eligible. A
-merely published Phase 3A candidate is not considered consumed or deletable.
+merely published Phase 3A candidate is not considered consumed or deletable. Neither readiness publication nor a Phase 3B barrier-ready result consumes it; consumption belongs exclusively to the later governed cohort-promotion commit.
 
 ## Local acceptance handoff
 

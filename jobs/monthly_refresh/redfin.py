@@ -7,6 +7,7 @@ the complete path can be exercised offline without weakening production mode.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import shutil
 import subprocess
@@ -21,6 +22,7 @@ from core.source_artifacts.hashing import sha256_file, sha256_json, write_canoni
 from core.source_artifacts.package import build_publication_package
 from core.source_artifacts.validation import validate_artifact
 from jobs.monthly_refresh.production import RESULT_VERSION, cycle_id, validate_source_result
+from jobs.monthly_refresh.readiness import add_readiness, empty_readiness, make_record
 from sources.redfin.governance import GovernanceError, RAW_ROOT
 from sources.redfin.inbox import register_incoming
 from sources.redfin.state import emit_artifact, reconcile_governed_drop
@@ -31,6 +33,7 @@ SOURCE_ID = "redfin"
 REPOSITORY = "chineduezebuiroh/realestate-intel"
 BRANCH = "monthly-refresh-orchestration"
 CATALOG_PATH = "config/artifact_catalog.json"
+READINESS_PATH = "config/monthly_refresh_readiness.json"
 POLICY_PATH = Path("config/monthly_refresh_policy.json")
 ACCEPTED_STATE = Path("data/redfin/state/canonical_redfin.duckdb")
 JULY_ARTIFACT_ID = "src__redfin__2026-07__r1__b10214595868c2ff"
@@ -148,6 +151,7 @@ def run(*, accepted_state: Path = ACCEPTED_STATE, raw_root: Path = RAW_ROOT,
         workspace_root: Path = WORKSPACE_ROOT, ledger_path: Path = LEDGER_PATH,
         evidence_root: Path = EVIDENCE_ROOT, policy_path: Path = POLICY_PATH,
         catalog: dict[str, Any], publisher: Callable[[Path, Path], dict[str, Any]],
+        readiness_writer: Callable[[dict[str, Any]], bool] | None = None,
         repository_root: Path = Path("."), git_sha: str = "unknown") -> dict[str, Any]:
     """Execute or resume one exact governed drop. ``publisher`` must publish and catalog."""
     prior = accepted_record(catalog)
@@ -216,6 +220,9 @@ def run(*, accepted_state: Path = ACCEPTED_STATE, raw_root: Path = RAW_ROOT,
         if pinned != manifest["artifact_id"]: raise GovernanceError("candidate artifact drift from ledger pin")
         publication = publisher(artifact, cycle_workspace / "publication")
         write_canonical_json(evidence / "publication_receipt.json", publication)
+        if readiness_writer is not None:
+            readiness_writer({"drop_id":drop_id, "drop_content_hash":content_hash,
+                "target_month":drop_id, "cycle_id":cycle, "candidate_artifact_id":manifest["artifact_id"]})
         source_changed = manifest["data_sha256"] != prior["metadata"]["data_sha256"]
         result = {"schema_version":RESULT_VERSION, "source_id":SOURCE_ID, "cycle_id":cycle,
             "status":"succeeded", "candidate_artifact_id":manifest["artifact_id"],
@@ -265,13 +272,34 @@ def main() -> int:
     def publish(artifact: Path, workspace: Path) -> dict[str, Any]:
         workspace.mkdir(parents=True, exist_ok=True)
         return publish_candidate(artifact, workspace, api, cas, git_sha)
+    def write_readiness(identity: dict[str, Any]) -> bool:
+        # Re-read the catalog after its CAS commit; it is authoritative for all
+        # publication fields duplicated in the tiny catalyst record.
+        current_catalog, _ = cas.read()
+        artifact = next((r for r in current_catalog["immutable_records"]
+            if r["object_id"] == identity["candidate_artifact_id"]), None)
+        if artifact is None: raise GovernanceError("catalog commit not visible; readiness cannot be advertised")
+        record = make_record(drop_id=identity["drop_id"], drop_content_hash=identity["drop_content_hash"],
+            target_month=identity["target_month"], cycle=identity["cycle_id"], artifact=artifact)
+        encoded = READINESS_PATH.replace("/", "%2F")
+        item, _ = api.request("GET", f"/contents/{encoded}?ref={args.branch}", expected=(200,404))
+        state = json.loads(base64.b64decode(item["content"])) if item else empty_readiness()
+        updated, changed = add_readiness(state, record, catalog=current_catalog, policy_path=POLICY_PATH)
+        if not changed: return False
+        payload = {"message":f"Record Redfin readiness {record['readiness_id']}",
+            "content":base64.b64encode((json.dumps(updated,sort_keys=True,separators=(",",":"))+"\n").encode()).decode(),
+            "branch":args.branch}
+        if item: payload["sha"] = item["sha"]
+        api.request("PUT", f"/contents/{encoded}", payload=payload, expected=(200,201))
+        return True
     if args.bootstrap_accepted_artifact:
         result = bootstrap_accepted(artifact=args.bootstrap_accepted_artifact,
             accepted_state=args.accepted_state, workspace=args.workspace / "bootstrap",
             api=api, cas=cas, git_sha=git_sha)
         print(json.dumps(result, sort_keys=True)); return 0
     result = run(accepted_state=args.accepted_state, raw_root=args.raw_root, workspace_root=args.workspace,
-        ledger_path=args.ledger, evidence_root=args.evidence_root, catalog=catalog, publisher=publish, git_sha=git_sha)
+        ledger_path=args.ledger, evidence_root=args.evidence_root, catalog=catalog, publisher=publish,
+        readiness_writer=write_readiness, git_sha=git_sha)
     print(json.dumps(result, sort_keys=True)); return 0
 
 

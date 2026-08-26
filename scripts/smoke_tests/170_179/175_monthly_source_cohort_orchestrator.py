@@ -7,16 +7,17 @@ from jobs.monthly_refresh.cohort import barrier_evidence, resolve_invocation, re
 from jobs.monthly_refresh.production import evaluate_barrier
 
 policy=Path('config/monthly_refresh_policy.json')
-drop={'drop_id':'2026-07','drop_content_hash':'a'*64,'target_month':'2026-07','status':'validated','validation_status':'passed','complete_family_count':7,'required_family_count':7,'quarantined':False}
-noop=resolve_invocation(mode='normal',policy_path=policy,drop=None,consumed_drop_ids=set())
+catalog=json.load(open('config/artifact_catalog.json')); readiness=json.load(open('config/monthly_refresh_readiness.json'))
+empty={'schema_version':'monthly_refresh_readiness_v1','records':[]}
+noop=resolve_invocation(mode='normal',policy_path=policy,readiness=empty,catalog=catalog)
 assert noop=={'status':'no_op','reason':'no_eligible_redfin_catalyst','fan_out':False,'invocation_mode':'normal'}
-ready=resolve_invocation(mode='normal',policy_path=policy,drop=drop,consumed_drop_ids=set())
+ready=resolve_invocation(mode='normal',policy_path=policy,readiness=readiness,catalog=catalog)
 assert ready['fan_out'] and ready['cycle_id'].startswith('monthly_cycle__2026-07__')
 for mode in ('resume','replay'):
-    try: resolve_invocation(mode=mode,policy_path=policy,drop=drop,consumed_drop_ids=set())
+    try: resolve_invocation(mode=mode,policy_path=policy,readiness=readiness,catalog=catalog)
     except ValueError as exc: assert 'cycle identity' in str(exc)
     else: raise AssertionError('explicit identity was not required')
-replay=resolve_invocation(mode='replay',policy_path=policy,drop=drop,consumed_drop_ids=set(),supplied_cycle_id=ready['cycle_id'])
+replay=resolve_invocation(mode='replay',policy_path=policy,readiness=readiness,catalog=catalog,supplied_cycle_id=ready['cycle_id'])
 
 def result(source,status='succeeded',retry='not_applicable'):
  return {'schema_version':'monthly_source_execution_result_v1','source_id':source,'cycle_id':ready['cycle_id'],'status':status,'candidate_artifact_id':'id-'+source,'artifact_content_hash':'b'*64,'package_sha256':'c'*64,'publication_state':'published_verified' if status=='succeeded' else 'not_published','validation_status':'passed' if status=='succeeded' else 'failed','provider_release_id':'release','observation_max':'2026-07-31','prior_artifact_id':'prior','source_change_detected':False,'retryability':retry,'evidence_uri':'artifact://evidence/'+source}
@@ -42,9 +43,11 @@ except ValueError as exc:assert 'drift' in str(exc)
 else:raise AssertionError('candidate drift accepted')
 workflow_text=Path('.github/workflows/monthly-refresh-production.yml').read_text(); workflow=yaml.safe_load(workflow_text)
 # PyYAML parses the YAML 1.1 key `on` as boolean True.
-triggers=workflow.get(True,workflow.get('on')); assert 'workflow_dispatch' in triggers and 'schedule' not in triggers
+triggers=workflow.get(True,workflow.get('on')); assert 'workflow_dispatch' in triggers and 'push' in triggers and 'schedule' not in triggers and 'pull_request' not in triggers
+assert triggers['push']['branches']==['monthly-refresh-orchestration'] and 1 <= len(triggers['push']['paths']) <= 12
 assert 'always()' in workflow['jobs']['barrier']['if']; assert set(workflow['jobs']['barrier']['needs'])=={'resolve-cycle','redfin','fred'}
 assert workflow['jobs']['redfin']['needs']=='resolve-cycle' and workflow['jobs']['fred']['needs']=='resolve-cycle'
+assert 'raw_files' not in Path('.github/workflows/redfin-monthly-source.yml').read_text()
 assert 'force:' not in workflow_text.lower() and 'force=true' not in workflow_text.lower()
 for path in ('data/market.duckdb','data/market_serving.duckdb','data/market_public.duckdb'):
  if Path(path).exists(): hashlib.sha256(Path(path).read_bytes()).hexdigest()

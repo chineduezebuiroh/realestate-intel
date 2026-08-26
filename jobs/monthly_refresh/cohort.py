@@ -6,35 +6,33 @@ import json
 from pathlib import Path
 from typing import Any
 
-from core.source_artifacts.hashing import sha256_file, write_canonical_json
-from jobs.monthly_refresh.production import cycle_id, evaluate_barrier, redfin_ready
+from core.source_artifacts.hashing import write_canonical_json
+from jobs.monthly_refresh.production import evaluate_barrier
+from jobs.monthly_refresh.readiness import eligible_record
 
 REQUIRED_SOURCES = ("redfin", "fred_macro")
 PIN_FIELDS = ("candidate_artifact_id", "artifact_content_hash", "package_sha256",
               "publication_state", "provider_release_id")
 
 
-def resolve_invocation(*, mode: str, policy_path: Path, drop: dict[str, Any] | None,
-                       consumed_drop_ids: set[str], supplied_cycle_id: str | None = None) -> dict[str, Any]:
+def resolve_invocation(*, mode: str, policy_path: Path, readiness: dict[str, Any],
+                       catalog: dict[str, Any], supplied_cycle_id: str | None = None) -> dict[str, Any]:
     if mode not in {"normal", "resume", "replay"}:
         raise ValueError("mode must be normal, resume, or replay")
-    if mode == "normal" and not redfin_ready(drop, consumed_drop_ids):
-        return {"status": "no_op", "reason": "no_eligible_redfin_catalyst", "fan_out": False,
-                "invocation_mode": mode}
-    if not drop:
-        raise ValueError(f"{mode} requires explicit governed Redfin drop identity")
-    required = ("drop_id", "drop_content_hash", "target_month")
-    if any(not drop.get(k) for k in required):
-        raise ValueError(f"{mode} requires explicit governed Redfin drop identity")
-    resolved = cycle_id(redfin_drop_id=drop["drop_id"], redfin_drop_hash=drop["drop_content_hash"],
-                        target_month=drop["target_month"], policy_sha256=sha256_file(policy_path))
     if mode in {"resume", "replay"} and not supplied_cycle_id:
         raise ValueError(f"{mode} requires explicit cycle identity")
-    if supplied_cycle_id and supplied_cycle_id != resolved:
-        raise ValueError("supplied cycle identity does not match governed drop identity")
-    return {"status": "cycle_ready", "cycle_id": resolved, "drop_id": drop["drop_id"],
-            "drop_content_hash": drop["drop_content_hash"], "target_month": drop["target_month"],
-            "fan_out": True, "invocation_mode": mode}
+    record = eligible_record(readiness, catalog=catalog, policy_path=policy_path,
+                             requested_cycle_id=supplied_cycle_id if mode in {"resume", "replay"} else None)
+    if mode == "normal" and record is None:
+        return {"status": "no_op", "reason": "no_eligible_redfin_catalyst", "fan_out": False,
+                "invocation_mode": mode}
+    if record is None: raise ValueError(f"{mode} governed Redfin readiness did not resolve")
+    pin = {k:record[k] for k in ("candidate_artifact_id", "artifact_content_hash", "package_sha256",
+        "publication_state", "release_id", "asset_id")}
+    return {"status":"cycle_ready", "cycle_id":record["cycle_id"], "drop_id":record["drop_id"],
+        "drop_content_hash":record["drop_content_hash"], "target_month":record["target_month"],
+        "readiness_id":record["readiness_id"], "redfin_candidate_pin":pin,
+        "fan_out":True, "invocation_mode":mode}
 
 
 def resume_plan(required: tuple[str, ...], previous_results: list[dict[str, Any]], *, expected_cycle_id: str) -> dict[str, Any]:
@@ -58,15 +56,17 @@ def barrier_evidence(*, cycle: dict[str, Any], results: list[dict[str, Any]],
 
 def main() -> int:
     parser = argparse.ArgumentParser(); sub = parser.add_subparsers(dest="command", required=True)
-    resolve = sub.add_parser("resolve"); resolve.add_argument("--mode", required=True); resolve.add_argument("--drop-json", type=Path)
+    resolve = sub.add_parser("resolve"); resolve.add_argument("--mode", required=True)
+    resolve.add_argument("--readiness", type=Path, default=Path("config/monthly_refresh_readiness.json"))
+    resolve.add_argument("--catalog", type=Path, default=Path("config/artifact_catalog.json"))
     resolve.add_argument("--cycle-id"); resolve.add_argument("--policy", type=Path, default=Path("config/monthly_refresh_policy.json")); resolve.add_argument("--output", type=Path, required=True)
     barrier = sub.add_parser("barrier"); barrier.add_argument("--cycle-json", type=Path, required=True)
     barrier.add_argument("--result", action="append", type=Path, default=[]); barrier.add_argument("--pins-json", type=Path); barrier.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "resolve":
-        drop = json.loads(args.drop_json.read_text()) if args.drop_json else None
-        value = resolve_invocation(mode=args.mode, policy_path=args.policy, drop=drop,
-                                   consumed_drop_ids=set(), supplied_cycle_id=args.cycle_id)
+        value = resolve_invocation(mode=args.mode, policy_path=args.policy,
+            readiness=json.loads(args.readiness.read_text()), catalog=json.loads(args.catalog.read_text()),
+            supplied_cycle_id=args.cycle_id)
     else:
         cycle = json.loads(args.cycle_json.read_text()); results = [json.loads(p.read_text()) for p in args.result]
         pins = json.loads(args.pins_json.read_text()) if args.pins_json else None

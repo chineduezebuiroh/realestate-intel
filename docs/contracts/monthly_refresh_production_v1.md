@@ -14,8 +14,9 @@ evidence only. Provider release IDs and per-source observation maxima remain ind
 eligibility means the source-specific freshness/revision policy passed for this cycle, not that all
 observation maxima equal Redfin's month.
 
-Redfin is ready only when one atomically registered seven-family drop has immutable file hashes,
-passes registration and validation, is not quarantined, and has no `consumed_successfully` record.
+Redfin is ready only when one atomically registered seven-family drop has produced a validated,
+durably verified immutable candidate recorded in `config/monthly_refresh_readiness.json`, and that
+record has not been marked consumed by the later promotion commit point.
 The minimum durable ledger is keyed by drop content identity and records `registered`, `validated`,
 `refresh_in_progress`, `failed_retryable`/`quarantined`, and `consumed_successfully`; “landed” remains
 inbox state. A consumed drop is a successful no-op. A failed cycle retains its identity and resumes.
@@ -120,12 +121,24 @@ commit path is governed and accepted. Adding a source consists of a reusable sou
 policy membership, the common result contract, and one sibling fan-out job; barrier logic remains
 provider-neutral.
 
-### Hosted Redfin transport limitation
+### Hosted Redfin durable candidate boundary
 
-A GitHub-hosted checkout cannot currently access the seven large files in the locally managed
-Redfin landing area or its local drop ledger. Phase 3B does not copy those bytes into Git. Hosted
-`replay`/`resume` can resolve the unique already-published registered-drop-lineage candidate in the
-durable catalog. Hosted `normal` can no-op safely, but an eligible new drop cannot execute there
-until an authenticated durable transport makes the registered metadata and exact seven immutable
-objects available to the reusable Redfin workflow. The workflow fails rather than fabricating
-source success at that boundary.
+Raw Redfin source files are processed locally and are not transported to GitHub-hosted runners.
+The local governed Redfin runner publishes a compact immutable source candidate and commits a small
+durable readiness record. Hosted orchestration consumes only that durable candidate/control-plane
+state. The readiness identity is `redfin_readiness__<cycle_id>` and pins the drop ID/hash, target
+month, cycle, artifact/content/package hashes, publication state, and numeric Release/asset IDs.
+The artifact catalog remains authoritative; repeated identical records are no-ops and conflicting
+cycle reuse fails closed. A publication that succeeds before catalog/readiness commit remains
+truthful orphan evidence but is not hosted-ready.
+
+`normal` requires exactly one unconsumed record; none is a successful no-op and multiple records are
+ambiguous. `replay` and `resume` use user input only to identify an exact readiness record and then
+revalidate it against the catalog. They cannot synthesize trust. Hosted Redfin downloads and checks
+only that compact package while FRED runs as a sibling. Barrier `ready` does not promote the cohort
+or consume its catalyst: consumption is written only by the later promotion transaction.
+
+The master temporarily has a path-filtered push trigger limited to
+`monthly-refresh-orchestration`, solely so the not-yet-default-branch workflow can receive hosted
+Phase 3B acceptance. Remove it once the workflow is registered on the default branch. No Saturday
+schedule is enabled. Future automated sources remain parallel reusable-workflow siblings.
