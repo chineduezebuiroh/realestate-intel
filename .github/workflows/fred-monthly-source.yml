@@ -1,0 +1,46 @@
+name: FRED governed cohort source
+on:
+  workflow_call:
+    inputs:
+      cycle_id: {required: true, type: string}
+      target_month: {required: true, type: string}
+    secrets:
+      FRED_API_KEY: {required: true}
+    outputs:
+      result_json:
+        value: ${{ jobs.source.outputs.result_json }}
+  workflow_dispatch:
+    inputs:
+      cycle_id: {description: Deterministic cycle ID, required: true, type: string}
+      target_month: {description: Governed target month, required: true, type: string}
+permissions:
+  contents: write
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    outputs:
+      result_json: ${{ steps.result.outputs.result_json }}
+    env: {PYTHONPATH: ., OUTPUT_ROOT: artifacts/source_artifacts/fred_macro/current_run}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - id: prior
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: python -m jobs.monthly_refresh.fred_durable resolve-prior --repository "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --workspace "$RUNNER_TEMP/prior" --output "$RUNNER_TEMP/prior.json" --github-output "$GITHUB_OUTPUT"
+      - env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python -m jobs.monthly_refresh.fred_macro --target-month '${{ inputs.target_month }}' --output-root "$OUTPUT_ROOT" --prior-artifact '${{ steps.prior.outputs.prior_artifact }}'
+      - env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: python -m jobs.monthly_refresh.fred_durable publish --repository "$GITHUB_REPOSITORY" --artifact "$OUTPUT_ROOT/artifact" --workspace "$RUNNER_TEMP/publication" --publisher-git-sha "$GITHUB_SHA" --output "$OUTPUT_ROOT/publication.json"
+      - id: result
+        env: {CYCLE_ID: '${{ inputs.cycle_id }}'}
+        run: |
+          python - <<'PY'
+          import json,os
+          run=json.load(open(os.environ['OUTPUT_ROOT']+'/run_report.json')); pub=json.load(open(os.environ['OUTPUT_ROOT']+'/publication.json')); manifest=json.load(open(os.environ['OUTPUT_ROOT']+'/artifact/manifest.json'))
+          result={'schema_version':'monthly_source_execution_result_v1','source_id':'fred_macro','cycle_id':os.environ['CYCLE_ID'],'status':'succeeded','candidate_artifact_id':run['resulting_artifact_id'],'artifact_content_hash':run['resulting_artifact_content_hash'],'package_sha256':pub['package_sha256'],'publication_state':'published_verified','validation_status':'passed','provider_release_id':manifest['provider_release_id'],'observation_max':run['observation_max'],'prior_artifact_id':run['prior_artifact_id'],'source_change_detected':run['source_change_detected'],'retryability':'not_applicable','evidence_uri':'artifact://source/fred_macro/'+run['resulting_artifact_id']}
+          value=json.dumps(result,separators=(',',':'),sort_keys=True)
+          open(os.environ['GITHUB_OUTPUT'],'a').write('result_json='+value+'\n'); print(value)
+          PY

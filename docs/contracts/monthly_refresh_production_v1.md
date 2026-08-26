@@ -95,3 +95,37 @@ Normal human work ends after downloading and landing the seven Redfin files. Reg
 validation, reconciliation, artifacts, automated acquisition, publication, barrier, assembly,
 promotion, projections, and downstream triggering are designed to be automatic. This contract does
 not implement those production effects.
+
+## Phase 3B executable cohort boundary
+
+The production master is permanently manually dispatchable with three explicit modes. `normal`
+performs production-equivalent governed Redfin readiness gating and returns the successful
+`no_op/no_eligible_redfin_catalyst` outcome before source acquisition. `resume` requires the exact
+drop and deterministic cycle identities and reuses only immutable successes whose artifact ID,
+content hash, package hash, publication state, and provider release still match their pins.
+`replay` requires those same identities; it is an acceptance operation over the registered lineage,
+not a force flag, never changes catalyst consumption, and never advances accepted pointers.
+
+After cycle resolution, the Redfin and FRED reusable workflows are independent sibling jobs. Their
+`monthly_source_execution_result_v1` outputs join at an `always()` barrier. The provider-neutral
+validator rejects missing, malformed, duplicate, wrong-source/wrong-cycle, unvalidated,
+unverified, or pin-drifted results. The evidence classification is `ready`,
+`incomplete_retryable`, or `failed_terminal`. Evidence pins the exact two candidates and records
+invocation and GitHub metadata. `ready` deliberately means only a complete Phase 3B source cohort:
+no Source Set v2, canonical assembly, promotion, serving/public build, Macro Regime run, accepted
+pointer activation, or Redfin consumption commit occurs.
+
+The Saturday readiness schedule remains intentionally disabled until the complete downstream
+commit path is governed and accepted. Adding a source consists of a reusable source workflow,
+policy membership, the common result contract, and one sibling fan-out job; barrier logic remains
+provider-neutral.
+
+### Hosted Redfin transport limitation
+
+A GitHub-hosted checkout cannot currently access the seven large files in the locally managed
+Redfin landing area or its local drop ledger. Phase 3B does not copy those bytes into Git. Hosted
+`replay`/`resume` can resolve the unique already-published registered-drop-lineage candidate in the
+durable catalog. Hosted `normal` can no-op safely, but an eligible new drop cannot execute there
+until an authenticated durable transport makes the registered metadata and exact seven immutable
+objects available to the reusable Redfin workflow. The workflow fails rather than fabricating
+source success at that boundary.
