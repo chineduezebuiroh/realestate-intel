@@ -1,0 +1,96 @@
+name: Governed monthly refresh production cohort
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Governed invocation mode (never a force bypass)
+        required: true
+        default: normal
+        type: choice
+        options: [normal, resume, replay]
+      redfin_drop_id: {description: Explicit registered drop ID (required for resume/replay), required: false, type: string}
+      redfin_drop_content_hash: {description: Explicit registered drop content SHA-256, required: false, type: string}
+      target_month: {description: Explicit target month YYYY-MM, required: false, type: string}
+      cycle_id: {description: Explicit deterministic cycle ID (required for resume/replay), required: false, type: string}
+      pinned_redfin_result: {description: Exact prior successful result JSON for resume reuse, required: false, type: string}
+      pinned_fred_result: {description: Exact prior successful result JSON for resume reuse, required: false, type: string}
+# Saturday readiness cron intentionally disabled until Phase 3C+ acceptance.
+permissions:
+  contents: read
+jobs:
+  resolve-cycle:
+    runs-on: ubuntu-latest
+    outputs:
+      fan_out: ${{ steps.resolve.outputs.fan_out }}
+      cycle_id: ${{ steps.resolve.outputs.cycle_id }}
+      target_month: ${{ steps.resolve.outputs.target_month }}
+      drop_id: ${{ steps.resolve.outputs.drop_id }}
+      cycle_json: ${{ steps.resolve.outputs.cycle_json }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: resolve
+        env:
+          MODE: ${{ inputs.mode }}
+          DROP_ID: ${{ inputs.redfin_drop_id }}
+          DROP_HASH: ${{ inputs.redfin_drop_content_hash }}
+          TARGET_MONTH: ${{ inputs.target_month }}
+          SUPPLIED_CYCLE: ${{ inputs.cycle_id }}
+        run: |
+          args=(--mode "$MODE" --output "$RUNNER_TEMP/cycle.json")
+          if [ -n "$DROP_ID$DROP_HASH$TARGET_MONTH" ]; then
+            jq -n --arg id "$DROP_ID" --arg hash "$DROP_HASH" --arg month "$TARGET_MONTH" '{drop_id:$id,drop_content_hash:$hash,target_month:$month,status:"validated",validation_status:"passed",complete_family_count:7,required_family_count:7,quarantined:false}' > "$RUNNER_TEMP/drop.json"
+            args+=(--drop-json "$RUNNER_TEMP/drop.json")
+          fi
+          if [ -n "$SUPPLIED_CYCLE" ]; then args+=(--cycle-id "$SUPPLIED_CYCLE"); fi
+          python -m jobs.monthly_refresh.cohort resolve "${args[@]}"
+          cat "$RUNNER_TEMP/cycle.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "fan_out=$(jq -r .fan_out "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
+          echo "cycle_id=$(jq -r '.cycle_id // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
+          echo "target_month=$(jq -r '.target_month // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
+          echo "drop_id=$(jq -r '.drop_id // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
+          echo "cycle_json=$(jq -c . "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
+  redfin:
+    needs: resolve-cycle
+    if: needs.resolve-cycle.outputs.fan_out == 'true' && inputs.pinned_redfin_result == ''
+    uses: ./.github/workflows/redfin-monthly-source.yml
+    with:
+      cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
+      drop_id: ${{ needs.resolve-cycle.outputs.drop_id }}
+      invocation_mode: ${{ inputs.mode }}
+  fred:
+    needs: resolve-cycle
+    if: needs.resolve-cycle.outputs.fan_out == 'true' && inputs.pinned_fred_result == ''
+    permissions: {contents: write}
+    uses: ./.github/workflows/fred-monthly-source.yml
+    with:
+      cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
+      target_month: ${{ needs.resolve-cycle.outputs.target_month }}
+    secrets: inherit
+  barrier:
+    if: always() && needs.resolve-cycle.outputs.fan_out == 'true'
+    needs: [resolve-cycle, redfin, fred]
+    runs-on: ubuntu-latest
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          CYCLE_JSON: ${{ needs.resolve-cycle.outputs.cycle_json }}
+          REDFIN_RESULT: ${{ needs.redfin.outputs.result_json }}
+          FRED_RESULT: ${{ needs.fred.outputs.result_json }}
+          PINNED_REDFIN: ${{ inputs.pinned_redfin_result }}
+          PINNED_FRED: ${{ inputs.pinned_fred_result }}
+        run: |
+          printf '%s' "$CYCLE_JSON" > "$RUNNER_TEMP/cycle.json"
+          args=(--cycle-json "$RUNNER_TEMP/cycle.json" --output "$RUNNER_TEMP/cohort.json")
+          REDFIN_RESULT="${REDFIN_RESULT:-$PINNED_REDFIN}"
+          FRED_RESULT="${FRED_RESULT:-$PINNED_FRED}"
+          if [ -n "$REDFIN_RESULT" ]; then printf '%s' "$REDFIN_RESULT" > "$RUNNER_TEMP/redfin.json"; args+=(--result "$RUNNER_TEMP/redfin.json"); fi
+          if [ -n "$FRED_RESULT" ]; then printf '%s' "$FRED_RESULT" > "$RUNNER_TEMP/fred.json"; args+=(--result "$RUNNER_TEMP/fred.json"); fi
+          python -m jobs.monthly_refresh.cohort barrier "${args[@]}"
+          cat "$RUNNER_TEMP/cohort.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: governed-monthly-cohort-${{ needs.resolve-cycle.outputs.cycle_id }}
+          path: ${{ runner.temp }}/cohort.json
+          if-no-files-found: error
+          retention-days: 90

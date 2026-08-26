@@ -55,6 +55,12 @@ class BarrierDecision:
     retry_source_ids: tuple[str, ...]
     candidates: tuple[dict[str, Any], ...]
 
+    @property
+    def status(self) -> str:
+        return {CycleState.SOURCE_SET_VALIDATED: "ready",
+                CycleState.FAILED_RETRYABLE: "incomplete_retryable",
+                CycleState.FAILED_TERMINAL: "failed_terminal"}[self.state]
+
 
 def validate_source_result(result: dict[str, Any], *, expected_cycle_id: str) -> dict[str, Any]:
     required = {"schema_version", "source_id", "cycle_id", "status", "candidate_artifact_id",
@@ -74,7 +80,7 @@ def validate_source_result(result: dict[str, Any], *, expected_cycle_id: str) ->
 
 
 def evaluate_barrier(*, expected_cycle_id: str, required_source_ids: Iterable[str],
-                     results: Iterable[dict[str, Any]], pinned_candidates: dict[str, str] | None = None) -> BarrierDecision:
+                     results: Iterable[dict[str, Any]], pinned_candidates: dict[str, Any] | None = None) -> BarrierDecision:
     """Validate the complete cohort, retaining exact successes for deterministic retry."""
     required = tuple(sorted(set(required_source_ids))); by_source: dict[str, dict[str, Any]] = {}
     for raw in results:
@@ -82,8 +88,12 @@ def evaluate_barrier(*, expected_cycle_id: str, required_source_ids: Iterable[st
         source = result["source_id"]
         if source in by_source or source not in required: raise ValueError("unexpected or duplicate source result")
         expected = (pinned_candidates or {}).get(source)
-        if expected and result.get("candidate_artifact_id") != expected:
-            raise ValueError(f"pinned candidate drift for {source}")
+        if isinstance(expected, str):
+            expected = {"candidate_artifact_id": expected}
+        for key in ("candidate_artifact_id", "artifact_content_hash", "package_sha256",
+                    "publication_state", "provider_release_id"):
+            if expected and expected.get(key) is not None and result.get(key) != expected[key]:
+                raise ValueError(f"pinned candidate drift for {source}: {key}")
         by_source[source] = result
     retry = tuple(s for s in required if s not in by_source or by_source[s]["status"] != "succeeded")
     reusable = tuple(s for s in required if s in by_source and by_source[s]["status"] == "succeeded")
