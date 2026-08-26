@@ -49,6 +49,26 @@ assert 'always()' in workflow['jobs']['barrier']['if']; assert set(workflow['job
 assert workflow['jobs']['redfin']['needs']=='resolve-cycle' and workflow['jobs']['fred']['needs']=='resolve-cycle'
 assert 'raw_files' not in Path('.github/workflows/redfin-monthly-source.yml').read_text()
 assert 'force:' not in workflow_text.lower() and 'force=true' not in workflow_text.lower()
+
+# Every hosted Phase 3B job must establish the same governed Python runtime used
+# by the repository's accepted source workflows before repository code executes.
+phase3b_workflows={
+ 'monthly-refresh-production.yml':('resolve-cycle','barrier'),
+ 'redfin-monthly-source.yml':('source',),
+ 'fred-monthly-source.yml':('source',),
+}
+for filename,job_names in phase3b_workflows.items():
+ parsed=yaml.safe_load(Path('.github/workflows',filename).read_text())
+ for job_name in job_names:
+  job=parsed['jobs'][job_name]; steps=job['steps']
+  python_steps=[i for i,step in enumerate(steps) if 'python' in str(step.get('run',''))]
+  assert python_steps, f'{filename}:{job_name} does not execute Python'
+  first_python=min(python_steps)
+  setup=[i for i,step in enumerate(steps) if step.get('uses')=='actions/setup-python@v5']
+  installs=[i for i,step in enumerate(steps) if step.get('run')=='pip install -r requirements.txt']
+  assert setup and setup[0] < first_python, f'{filename}:{job_name} sets up Python too late'
+  assert installs and installs[0] < first_python, f'{filename}:{job_name} installs governed dependencies too late'
+  assert job.get('env',{}).get('PYTHONPATH')=='.', f'{filename}:{job_name} lacks repository import path'
 for path in ('data/market.duckdb','data/market_serving.duckdb','data/market_public.duckdb'):
  if Path(path).exists(): hashlib.sha256(Path(path).read_bytes()).hexdigest()
 print('Smoke 175 monthly source cohort orchestrator passed')
