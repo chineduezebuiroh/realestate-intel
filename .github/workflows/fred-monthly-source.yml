@@ -25,7 +25,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.11', cache: pip}
-      - run: pip install -r requirements.txt
+      - name: Install governed dependencies
+        run: pip install -r requirements.txt
       - id: prior
         env: {GITHUB_TOKEN: '${{ github.token }}'}
         run: python -m jobs.monthly_refresh.fred_durable resolve-prior --repository "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --workspace "$RUNNER_TEMP/prior" --output "$RUNNER_TEMP/prior.json" --github-output "$GITHUB_OUTPUT"

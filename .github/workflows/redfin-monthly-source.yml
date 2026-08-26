@@ -25,10 +25,18 @@ permissions:
 jobs:
   source:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
     outputs:
       result_json: ${{ steps.result.outputs.result_json }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install governed dependencies
+        run: pip install -r requirements.txt
       - id: result
         env:
           CYCLE_ID: ${{ inputs.cycle_id }}

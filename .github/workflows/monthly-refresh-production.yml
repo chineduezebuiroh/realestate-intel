@@ -35,6 +35,8 @@ permissions:
 jobs:
   resolve-cycle:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
     outputs:
       fan_out: ${{ steps.resolve.outputs.fan_out }}
       cycle_id: ${{ steps.resolve.outputs.cycle_id }}
@@ -45,6 +47,12 @@ jobs:
       cycle_json: ${{ steps.resolve.outputs.cycle_json }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install governed dependencies
+        run: pip install -r requirements.txt
       - id: resolve
         env:
           MODE: ${{ inputs.mode || 'normal' }}
@@ -84,8 +92,16 @@ jobs:
     needs: [resolve-cycle, redfin, fred]
     runs-on: ubuntu-latest
     permissions: {contents: read}
+    env:
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install governed dependencies
+        run: pip install -r requirements.txt
       - env:
           CYCLE_JSON: ${{ needs.resolve-cycle.outputs.cycle_json }}
           REDFIN_RESULT: ${{ needs.redfin.outputs.result_json }}
