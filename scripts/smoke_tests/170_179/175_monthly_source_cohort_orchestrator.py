@@ -27,7 +27,21 @@ r,f=result('redfin'),result('fred_macro')
 f['observation_max']='2026-08-31'
 ev=barrier_evidence(cycle=replay,results=[r,f],pins=None,github={'run_id':'fixture'})
 assert ev['barrier_status']=='ready' and not ev['source_set_created'] and not ev['accepted_pointers_advanced'] and not ev['redfin_consumption_committed']
+assert ev['reused_source_ids']==[] and ev['retry_source_ids']==[]
 assert ev['cycle_id']==ready['cycle_id'] and next(x for x in ev['candidates'] if x['source_id']=='fred_macro')['observation_max']=='2026-08-31'
+# Reuse evidence follows the explicit validated resume-pin path, not unchanged
+# artifact content returned by a source job.
+fresh_unchanged_fred=dict(f); fresh_unchanged_fred['prior_artifact_id']=fresh_unchanged_fred['candidate_artifact_id']
+one_reused=barrier_evidence(cycle=replay,results=[fresh_unchanged_fred],reused_results=[r],pins=None,github={})
+assert one_reused['reused_source_ids']==['redfin'] and one_reused['retry_source_ids']==[]
+assert fresh_unchanged_fred['prior_artifact_id']==fresh_unchanged_fred['candidate_artifact_id']
+assert not fresh_unchanged_fred['source_change_detected']
+assert 'fred_macro' not in one_reused['reused_source_ids']
+both_reused=barrier_evidence(cycle=replay,results=[],reused_results=[r,f],pins=None,github={})
+assert both_reused['reused_source_ids']==['fred_macro','redfin']
+unchanged_redfin=dict(r); unchanged_redfin['prior_artifact_id']=unchanged_redfin['candidate_artifact_id']
+normal_unchanged=barrier_evidence(cycle=replay,results=[unchanged_redfin,f],pins=None,github={})
+assert normal_unchanged['reused_source_ids']==[]
 retry=result('fred_macro','failed','retryable'); assert evaluate_barrier(expected_cycle_id=ready['cycle_id'],required_source_ids=('redfin','fred_macro'),results=[r,retry]).status=='incomplete_retryable'
 terminal=result('redfin','failed','terminal'); assert evaluate_barrier(expected_cycle_id=ready['cycle_id'],required_source_ids=('redfin','fred_macro'),results=[terminal,f]).status=='failed_terminal'
 plan=resume_plan(('redfin','fred_macro'),[r,retry],expected_cycle_id=ready['cycle_id']); assert plan['reuse']==['redfin'] and plan['run']==['fred_macro']

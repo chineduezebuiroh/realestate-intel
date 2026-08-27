@@ -120,8 +120,11 @@ jobs:
         run: |
           printf '%s' "$CYCLE_JSON" > "$RUNNER_TEMP/cycle.json"
           args=(--cycle-json "$RUNNER_TEMP/cycle.json" --output "$RUNNER_TEMP/cohort.json")
-          REDFIN_RESULT="${REDFIN_RESULT:-$RESUME_REDFIN}"
-          if [ -n "$REDFIN_RESULT" ]; then printf '%s' "$REDFIN_RESULT" > "$RUNNER_TEMP/redfin.json"; args+=(--result "$RUNNER_TEMP/redfin.json"); fi
+          if [ -n "$REDFIN_RESULT" ]; then
+            printf '%s' "$REDFIN_RESULT" > "$RUNNER_TEMP/redfin.json"; args+=(--result "$RUNNER_TEMP/redfin.json")
+          elif [ -n "$RESUME_REDFIN" ]; then
+            printf '%s' "$RESUME_REDFIN" > "$RUNNER_TEMP/resume-redfin.json"; args+=(--reused-result "$RUNNER_TEMP/resume-redfin.json")
+          fi
           if [ -n "$FRED_RESULT" ]; then printf '%s' "$FRED_RESULT" > "$RUNNER_TEMP/fred.json"; args+=(--result "$RUNNER_TEMP/fred.json"); fi
           python -m jobs.monthly_refresh.cohort barrier "${args[@]}"
           cat "$RUNNER_TEMP/cohort.json" >> "$GITHUB_STEP_SUMMARY"
