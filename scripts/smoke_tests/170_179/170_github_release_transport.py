@@ -12,7 +12,8 @@ from core.source_artifacts.github_release import (GitHubAPI, GitHubCatalogCAS, G
     GitHubReleaseArtifactResolver)
 from core.source_artifacts.hashing import sha256_file
 from core.source_artifacts.package import build_publication_package
-from core.source_artifacts.publication import IdentityCollisionError, PublicationError
+from core.source_artifacts.publication import (IdentityCollisionError, PublicationError,
+    TransientPublicationError)
 from core.source_artifacts.validation import ArtifactValidationError
 
 
@@ -170,5 +171,11 @@ assert signed_request[0].get_header("Authorization") is None
 class RateOpener:
     def open(self,request): raise urllib.error.HTTPError(request.full_url,403,"rate limit",Message(),io.BytesIO(b'{"message":"rate limit"}'))
 expect(PublicationError,lambda:GitHubAPI("fixture/repo","secret-token",opener=RateOpener()).request("GET","/releases/1"))
+class UnavailableOpener:
+    def open(self,request): raise urllib.error.HTTPError(request.full_url,503,"unavailable",Message(),io.BytesIO())
+expect(TransientPublicationError,lambda:GitHubAPI("fixture/repo","secret-token",opener=UnavailableOpener()).request("GET","/releases/1"))
+class NetworkOpener:
+    def open(self,request): raise urllib.error.URLError("offline")
+expect(TransientPublicationError,lambda:GitHubAPI("fixture/repo","secret-token",opener=NetworkOpener()).request("GET","/releases/1"))
 
 print("Smoke 170 GitHub Release transport passed")

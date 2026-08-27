@@ -22,6 +22,10 @@ class PublicationError(RuntimeError):
     pass
 
 
+class TransientPublicationError(PublicationError):
+    """A remote publication operation may succeed when safely retried."""
+
+
 class IdentityCollisionError(PublicationError):
     pass
 

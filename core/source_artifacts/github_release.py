@@ -21,7 +21,7 @@ from .catalog import activate_source, add_record, empty_catalog, validate_catalo
 from .hashing import canonical_json_bytes, sha256_file
 from .package import extract_publication_package
 from .publication import (ArtifactPublisher, IdentityCollisionError, PublicationError,
-                          RemoteInspection, create_receipt, transition)
+                          RemoteInspection, TransientPublicationError, create_receipt, transition)
 from .storage import ArtifactResolver
 from .validation import validate_artifact
 
@@ -58,7 +58,11 @@ class GitHubAPI:
                 if exc.code == 404:
                     return None, dict(exc.headers)
                 return (json.loads(body) if body else None), dict(exc.headers)
-            raise PublicationError(f"GitHub API {method} failed with HTTP {exc.code}: {body[:300]}") from exc
+            rate_limited = exc.code == 403 and "rate limit" in body.lower()
+            error = TransientPublicationError if rate_limited or exc.code in {408, 429} or exc.code >= 500 else PublicationError
+            raise error(f"GitHub API {method} failed with HTTP {exc.code}: {body[:300]}") from exc
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            raise TransientPublicationError(f"GitHub API {method} transport failed: {exc}") from exc
         with response:
             status = response.getcode(); body = response.read()
             if status not in expected:
@@ -74,7 +78,9 @@ class GitHubAPI:
             response = self.opener.open(request)
         except urllib.error.HTTPError as exc:
             if exc.code != 302:
-                exc.close(); raise PublicationError(f"GitHub asset download failed with HTTP {exc.code}") from exc
+                code = exc.code; exc.close()
+                error = TransientPublicationError if code in {408, 429} or code >= 500 else PublicationError
+                raise error(f"GitHub asset download failed with HTTP {code}") from exc
             location = exc.headers.get("Location"); exc.close()
         else:
             status = response.getcode()
@@ -89,8 +95,9 @@ class GitHubAPI:
             # headers cross the signed-download trust boundary.
             with urllib.request.urlopen(urllib.request.Request(location)) as source, destination.open("wb") as output:
                 shutil.copyfileobj(source, output)
-        except Exception:
-            destination.unlink(missing_ok=True); raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            destination.unlink(missing_ok=True)
+            raise TransientPublicationError(f"GitHub signed asset download transport failed: {exc}") from exc
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -286,7 +293,10 @@ class GitHubCatalogCAS:
         if oid is not None: payload["sha"] = oid
         encoded = urllib.parse.quote(self.path, safe="/")
         try: self.api.request("PUT", f"/contents/{encoded}", payload=payload, expected=(200, 201))
-        except PublicationError as exc: raise PublicationError("catalog compare-and-swap update failed; refresh and retry") from exc
+        except TransientPublicationError as exc:
+            raise TransientPublicationError("catalog compare-and-swap transport failed; retry") from exc
+        except PublicationError as exc:
+            raise PublicationError("catalog compare-and-swap update failed; refresh and retry") from exc
 
     def add(self, record: dict[str, Any], receipt: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         catalog, oid = self.read(); updated = add_record(catalog, record, receipt)

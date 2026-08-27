@@ -11,6 +11,7 @@ from core.source_artifacts.github_release import (GitHubAPI, GitHubCatalogCAS,
     GitHubReleaseArtifactPublisher, GitHubReleaseArtifactResolver)
 from core.source_artifacts.hashing import sha256_file, write_canonical_json
 from core.source_artifacts.package import build_publication_package
+from core.source_artifacts.publication import TransientPublicationError
 from core.source_artifacts.validation import validate_artifact
 from jobs.monthly_refresh import fred_prior_actions
 
@@ -107,8 +108,19 @@ def main() -> int:
         with args.github_output.open("a") as stream: stream.write(f"prior_artifact={serial['path'] or ''}\nresolution={serial['resolution']}\n")
     else:
         args.workspace.mkdir(parents=True, exist_ok=True)
-        serial = publish(artifact=args.artifact, api=api, cas=cas, workspace=args.workspace,
-            publisher_git_sha=args.publisher_git_sha, activate=args.activate); write_canonical_json(args.output, serial)
+        try:
+            serial = publish(artifact=args.artifact, api=api, cas=cas, workspace=args.workspace,
+                publisher_git_sha=args.publisher_git_sha, activate=args.activate)
+        except Exception as exc:
+            # Identity/catalog/validation/governance defects are deterministic.
+            # Only explicitly typed remote transport/API failures are retryable.
+            write_canonical_json(args.output.with_name("publication_failure.json"), {
+                "error": f"{type(exc).__name__}: {exc}",
+                "retryability": "retryable" if isinstance(exc, TransientPublicationError) else "terminal",
+                "schema_version": "fred_publication_failure_v1",
+            })
+            raise
+        write_canonical_json(args.output, serial)
     print(json.dumps({k: v for k, v in serial.items() if k != "path"}, sort_keys=True)); return 0
 
 
