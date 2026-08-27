@@ -56,6 +56,52 @@ def publication_metadata(artifact: Path, package_info: dict[str, Any], publisher
         "contract_versions": [manifest["artifact_contract_version"], package_info["package_contract_version"]]}
 
 
+def _published_candidate(catalog: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any] | None:
+    """Find an already-cataloged instance of this exact semantic artifact.
+
+    Accepted pointers are deliberately irrelevant here: a successfully published
+    candidate may be awaiting governance activation.  Object identity is unique
+    in a validated catalog, so more than one match is corruption.
+    """
+    matches = [record for record in catalog["immutable_records"]
+               if record["object_type"] == "source"
+               and record["object_id"] == manifest["artifact_id"]
+               and record["metadata"].get("source_id") == SOURCE_ID]
+    if len(matches) > 1:
+        raise RuntimeError("catalog contains duplicate FRED candidate identity")
+    if not matches:
+        return None
+    record = matches[0]
+    if record["artifact_content_hash"] != manifest["artifact_content_hash"]:
+        raise RuntimeError("cataloged FRED candidate content identity conflicts")
+    return record
+
+
+def resolve_published_candidate(*, artifact: Path, api: GitHubAPI, cas: GitHubCatalogCAS,
+                                workspace: Path) -> tuple[Path, bool]:
+    """Return authoritative published bytes when a semantic candidate exists.
+
+    Acquisition timestamps and the executing Git SHA are run evidence.  Legacy
+    v1 manifests include them, however, so reconstructing unchanged source truth
+    can produce a different manifest/package under the same semantic artifact ID.
+    The catalog is the commit point: resolve and verify its immutable bytes rather
+    than attempting to upload a conflicting reconstruction.
+    """
+    local = validate_artifact(artifact, expected_source_id=SOURCE_ID)["manifest"]
+    catalog, _ = cas.read()
+    record = _published_candidate(catalog, local)
+    if record is None:
+        return artifact, False
+    resolved = GitHubReleaseArtifactResolver(catalog, api, workspace / "published-candidate").resolve(
+        record["logical_artifact_uri"])
+    remote = validate_artifact(resolved, expected_source_id=SOURCE_ID)["manifest"]
+    immutable_fields = ("artifact_id", "artifact_content_hash", "data_sha256", "lineage_sha256",
+                        "validation_sha256", "provider_release_id", "target_month", "config_hashes")
+    if any(local.get(field) != remote.get(field) for field in immutable_fields):
+        raise RuntimeError("cataloged FRED candidate differs in immutable artifact evidence")
+    return resolved, True
+
+
 def catalog_record(manifest: dict[str, Any], receipt: dict[str, Any]) -> dict[str, Any]:
     return {"object_type": "source", "object_id": manifest["artifact_id"],
         "logical_artifact_uri": manifest["artifact_uri"], "remote_repository": receipt["remote_repository"],
@@ -69,6 +115,9 @@ def catalog_record(manifest: dict[str, Any], receipt: dict[str, Any]) -> dict[st
 
 def publish(*, artifact: Path, api: GitHubAPI, cas: GitHubCatalogCAS, workspace: Path,
             publisher_git_sha: str, activate: bool = False) -> dict[str, Any]:
+    workspace.mkdir(parents=True, exist_ok=True)
+    artifact, reused_published_candidate = resolve_published_candidate(
+        artifact=artifact, api=api, cas=cas, workspace=workspace)
     manifest = validate_artifact(artifact, expected_source_id=SOURCE_ID)["manifest"]
     package = workspace / f"{manifest['artifact_id']}.tar"
     info = build_publication_package(artifact, package)
@@ -89,6 +138,7 @@ def publish(*, artifact: Path, api: GitHubAPI, cas: GitHubCatalogCAS, workspace:
         "release_id": receipt["release_id"], "asset_id": receipt["asset_id"],
         "asset_filename": receipt["asset_filename"], "publication_receipt_id": receipt["receipt_id"],
         "publication_state": receipt["publication_state"], "catalog_changed": catalog_changed,
+        "existing_immutable_asset_reused": reused_published_candidate,
         "accepted_pointer_changed": pointer_changed, "durable_resolution_passed": True,
         "publication_receipt": receipt}
 

@@ -1,10 +1,18 @@
 """Offline Phase 2B FRED durable-registry policy smoke."""
 from __future__ import annotations
 import copy
+import tempfile
+from pathlib import Path
+
+import pandas as pd
 
 from core.source_artifacts.catalog import (activate_source, add_record, empty_catalog,
     validate_catalog_namespace)
+from core.source_artifacts.artifact import create_artifact
+from core.source_artifacts.hashing import sha256_file
+from core.source_artifacts.package import build_publication_package
 from core.source_artifacts.publication import PublicationError, create_receipt
+from jobs.monthly_refresh import fred_durable
 from jobs.monthly_refresh.fred_durable import SOURCE_ID, accepted_uri, catalog_record
 
 
@@ -73,5 +81,60 @@ expect(PublicationError, lambda: validate_catalog_namespace(fixture, fixture=Fal
 expect(PublicationError, lambda: validate_catalog_namespace(catalog, fixture=True))
 corrupt = copy.deepcopy(active); corrupt["immutable_records"] = []
 expect(RuntimeError, lambda: accepted_uri(corrupt))
+
+# Legacy v1 manifests prove the hosted defect deterministically: execution
+# provenance changes manifest/package bytes without changing semantic identity.
+# Durable publication must resolve the catalog commit point before upload.
+with tempfile.TemporaryDirectory() as td:
+    root = Path(td)
+    data = pd.DataFrame([{"geo_id":"united_states__nation","metric_id":"fred_gs10",
+        "date":"2026-08-31","property_type_id":"all","value":4.0,
+        "source_id":SOURCE_ID,"property_type":"all"}])
+    common = dict(source_id=SOURCE_ID, source_family="FRED", source_type="revisionary_current_truth",
+        provider="Federal Reserve Bank of St. Louis", distribution_channel="FRED API",
+        provider_release_id="ordinary-current:fixed", provider_release_timestamp_or_date=None,
+        target_month="2026-08", source_request_identity="fixed",
+        source_urls_or_endpoint_identity=["api.stlouisfed.org/fred/series/observations"])
+    first = create_artifact(root/"first", data, retrieved_at="2026-08-27T16:00:00Z",
+        artifact_created_at="2026-08-27T16:00:01Z", git_sha="commit-a", **common)
+    second = create_artifact(root/"second", data, retrieved_at="2026-08-27T17:00:00Z",
+        artifact_created_at="2026-08-27T17:00:01Z", git_sha="commit-b", **common)
+    first_package, second_package = root/"first.tar", root/"second.tar"
+    first_info = build_publication_package(root/"first", first_package)
+    second_info = build_publication_package(root/"second", second_package)
+    assert first["artifact_id"] == second["artifact_id"]
+    assert first["artifact_content_hash"] == second["artifact_content_hash"]
+    assert first["data_sha256"] == second["data_sha256"]
+    assert first["validation_sha256"] == second["validation_sha256"]
+    assert sha256_file(root/"first/manifest.json") != sha256_file(root/"second/manifest.json")
+    assert first_info["package_sha256"] != second_info["package_sha256"]
+    differences = {key for key in first if first.get(key) != second.get(key)}
+    assert differences == {"retrieved_at", "artifact_created_at", "git_sha"}
+
+    published_record = {"object_type":"source", "object_id":first["artifact_id"],
+        "logical_artifact_uri":first["artifact_uri"], "remote_repository":"owner/repo",
+        "release_tag":"source-artifact/fred_macro/"+first["artifact_id"], "release_id":1,
+        "asset_id":2, "asset_filename":first["artifact_id"]+".tar",
+        "package_sha256":first_info["package_sha256"],
+        "artifact_content_hash":first["artifact_content_hash"], "publication_receipt_id":"receipt",
+        "publication_state":"published_immutable_verified", "metadata":{"source_id":SOURCE_ID,
+        "data_sha256":first["data_sha256"], "provider_release_id":first["provider_release_id"],
+        "observation_max":first["observation_max"]}}
+    durable_catalog = empty_catalog(); durable_catalog["immutable_records"] = [published_record]
+    class CAS:
+        def read(self): return durable_catalog, "oid"
+    class Resolver:
+        def __init__(self, catalog, api, workspace): pass
+        def resolve(self, uri): return root/"first"
+    original_resolver = fred_durable.GitHubReleaseArtifactResolver
+    fred_durable.GitHubReleaseArtifactResolver = Resolver
+    try:
+        resolved, reused = fred_durable.resolve_published_candidate(
+            artifact=root/"second", api=object(), cas=CAS(), workspace=root/"reuse")
+    finally:
+        fred_durable.GitHubReleaseArtifactResolver = original_resolver
+    assert reused and resolved == root/"first"
+    rebuilt = root/"rebuilt.tar"; rebuilt_info = build_publication_package(resolved, rebuilt)
+    assert rebuilt_info["package_sha256"] == first_info["package_sha256"]
 
 print("Smoke 171 FRED durable registry passed")

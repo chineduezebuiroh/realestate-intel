@@ -187,6 +187,16 @@ On no new release:
 * record `monthly_status=reused` or `no_new_release_expected` in the source-set manifest;
 * preserve the original provider release and artifact hashes.
 
+For revisionary live sources, a cataloged candidate is also authoritative even
+when it has not been activated. A rerun that reconstructs the same semantic
+`artifact_id` must resolve and validate that cataloged package and publish it
+idempotently; it must not upload a reconstruction whose v1 manifest differs only
+in acquisition, construction, or executing-Git evidence. Those fields describe
+an execution and belong in run/publication evidence. This compatibility rule
+preserves already-published v1 packages without rewriting assets or changing
+historical artifact IDs. A genuinely different immutable member under the same
+URI remains an identity collision.
+
 ## Validation contract
 
 Before publication verify canonical schema/types/order, source ID constancy, exact key uniqueness, finite values/source-specific null contract, authorized metrics and geographies, observation bounds, source-specific coverage/revision/absence rules, row-lineage reconciliation, prior-artifact hashes, deterministic rerun hash, and all declared files. Any failure yields no governed artifact.
