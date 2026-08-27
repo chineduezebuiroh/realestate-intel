@@ -14,6 +14,15 @@ evidence only. Provider release IDs and per-source observation maxima remain ind
 eligibility means the source-specific freshness/revision policy passed for this cycle, not that all
 observation maxima equal Redfin's month.
 
+The cycle `target_month` is specifically the Redfin catalyst/drop month and is cohort identity
+evidence; it is not a universal acquisition cutoff or observation-vintage instruction. Each
+automated source resolves its truthful provider state under its own governed acquisition contract.
+For FRED, an omitted source target means acquire the complete governed current response and derive
+the artifact target from its canonical `observation_max` (`inferred_observation_max`). Thus a July
+2026 Redfin cycle may validly pin a FRED artifact with `observation_max=2026-08-31` without changing
+the Redfin-derived cycle ID. Source Set v2 ultimately pins those exact immutable, potentially
+different-vintage artifacts; it does not infer membership from matching calendar months.
+
 Redfin is ready only when one atomically registered seven-family drop has produced a validated,
 durably verified immutable candidate recorded in `config/monthly_refresh_readiness.json`, and that
 record has not been marked consumed by the later promotion commit point.
@@ -52,6 +61,22 @@ On retry, the durable ledger pins each successful candidate's artifact ID and bo
 resolved candidates are reused; only absent/failed/expired-policy nodes rerun. Any cycle mismatch,
 hash mismatch, pointer drift, or changed candidate for a pinned success fails closed. The exact same
 complete entries produce one semantic Source Set v2 identity. A new Actions attempt is not a cycle.
+
+`reused_source_ids` means a source execution was skipped because an already-successful cycle pin was
+revalidated and supplied to the barrier. It does **not** mean a source workflow executed and found
+unchanged provider data; that case is a newly returned successful result with
+`source_change_detected=false`. Phase 3B resume reconstructs the Redfin result only from the exact
+validated readiness/catalog pin and reruns FRED. It accepts no caller-supplied result JSON. Drift in
+the Redfin artifact/content/package/publication identity fails before fan-out. If FRED has not yet
+returned a successful pinned result, its retry may truthfully resolve a newer current provider state
+under the same source policy; a successfully pinned FRED candidate could not be silently replaced.
+
+FRED acquisition uses three total attempts with bounded 2- and 5-second backoffs. HTTP 5xx, 408,
+429, URL/transport, timeout, and connection failures are transient. Exhaustion is surfaced as an
+explicit transient acquisition failure, leaving the missing source retryable at the cohort barrier.
+Validation, schema, semantic-data, identity, catalog, and publication failures are not acquisition
+retries and remain terminal at their owning boundary. Acquisition failure never selects stale data
+as a substitute.
 
 Commit points are deliberately separate: (1) truthful immutable source publication/cataloging;
 (2) validated candidate pinning; (3) complete Source Set v2 publication/acceptance; (4) validated
@@ -115,6 +140,12 @@ unverified, or pin-drifted results. The evidence classification is `ready`,
 invocation and GitHub metadata. `ready` deliberately means only a complete Phase 3B source cohort:
 no Source Set v2, canonical assembly, promotion, serving/public build, Macro Regime run, accepted
 pointer activation, or Redfin consumption commit occurs.
+
+The master passes FRED the logical `cycle_id` but intentionally omits a source target month, so the
+standalone governed FRED runner retains its `inferred_observation_max` selection rule. Its result
+attaches the independently resolved provider release, observation maximum, artifact/content/package
+hashes, and prior identity to that unchanged cycle. Barrier readiness remains mandatory before any
+downstream progression.
 
 The Saturday readiness schedule remains intentionally disabled until the complete downstream
 commit path is governed and accepted. Adding a source consists of a reusable source workflow,

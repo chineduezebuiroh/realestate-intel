@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core.source_artifacts.hashing import write_canonical_json
-from jobs.monthly_refresh.production import evaluate_barrier
+from jobs.monthly_refresh.production import evaluate_barrier, validate_source_result
 from jobs.monthly_refresh.readiness import eligible_record
 
 REQUIRED_SOURCES = ("redfin", "fred_macro")
@@ -33,6 +33,30 @@ def resolve_invocation(*, mode: str, policy_path: Path, readiness: dict[str, Any
         "drop_content_hash":record["drop_content_hash"], "target_month":record["target_month"],
         "readiness_id":record["readiness_id"], "redfin_candidate_pin":pin,
         "fan_out":True, "invocation_mode":mode}
+
+
+def durable_redfin_result(*, cycle: dict[str, Any], catalog: dict[str, Any]) -> dict[str, Any]:
+    """Reconstruct a resume pin only from the validated readiness/catalog record."""
+    pin = cycle["redfin_candidate_pin"]
+    matches = [r for r in catalog["immutable_records"] if r["object_type"] == "source"
+               and r["object_id"] == pin["candidate_artifact_id"]]
+    if len(matches) != 1:
+        raise ValueError("pinned Redfin artifact does not resolve exactly once")
+    item = matches[0]
+    for key in ("artifact_content_hash", "package_sha256", "publication_state", "release_id", "asset_id"):
+        if item[key] != pin[key]:
+            raise ValueError(f"pinned Redfin durable identity drift: {key}")
+    accepted = catalog["accepted"]["source"].get("redfin")
+    prior = next((r for r in catalog["immutable_records"] if r["object_id"] == accepted), None)
+    result = {"schema_version":"monthly_source_execution_result_v1","source_id":"redfin",
+        "cycle_id":cycle["cycle_id"],"status":"succeeded","candidate_artifact_id":item["object_id"],
+        "artifact_content_hash":item["artifact_content_hash"],"package_sha256":item["package_sha256"],
+        "publication_state":"published_verified","validation_status":"passed",
+        "provider_release_id":item["metadata"]["provider_release_id"],
+        "observation_max":item["metadata"]["observation_max"],"prior_artifact_id":accepted,
+        "source_change_detected":prior is None or item["metadata"]["data_sha256"] != prior["metadata"]["data_sha256"],
+        "retryability":"not_applicable","evidence_uri":item["logical_artifact_uri"]}
+    return validate_source_result(result, expected_cycle_id=cycle["cycle_id"])
 
 
 def resume_plan(required: tuple[str, ...], previous_results: list[dict[str, Any]], *, expected_cycle_id: str) -> dict[str, Any]:

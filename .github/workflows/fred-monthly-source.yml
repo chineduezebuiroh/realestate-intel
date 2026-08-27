@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       cycle_id: {required: true, type: string}
-      target_month: {required: true, type: string}
+      source_target_month: {required: false, type: string, default: ''}
     secrets:
       FRED_API_KEY: {required: true}
     outputs:
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       cycle_id: {description: Deterministic cycle ID, required: true, type: string}
-      target_month: {description: Governed target month, required: true, type: string}
+      source_target_month: {description: Optional explicit FRED artifact vintage; omit to infer from observation maximum, required: false, type: string}
 permissions:
   contents: write
 jobs:
@@ -30,18 +30,30 @@ jobs:
       - id: prior
         env: {GITHUB_TOKEN: '${{ github.token }}'}
         run: python -m jobs.monthly_refresh.fred_durable resolve-prior --repository "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --workspace "$RUNNER_TEMP/prior" --output "$RUNNER_TEMP/prior.json" --github-output "$GITHUB_OUTPUT"
-      - env:
+      - id: acquire
+        continue-on-error: true
+        env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-        run: python -m jobs.monthly_refresh.fred_macro --target-month '${{ inputs.target_month }}' --output-root "$OUTPUT_ROOT" --prior-artifact '${{ steps.prior.outputs.prior_artifact }}'
-      - env: {GITHUB_TOKEN: '${{ github.token }}'}
+          SOURCE_TARGET_MONTH: ${{ inputs.source_target_month }}
+        run: |
+          args=(--output-root "$OUTPUT_ROOT" --prior-artifact '${{ steps.prior.outputs.prior_artifact }}')
+          if [ -n "$SOURCE_TARGET_MONTH" ]; then args+=(--target-month "$SOURCE_TARGET_MONTH"); fi
+          python -m jobs.monthly_refresh.fred_macro "${args[@]}"
+      - if: steps.acquire.outcome == 'success'
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
         run: python -m jobs.monthly_refresh.fred_durable publish --repository "$GITHUB_REPOSITORY" --artifact "$OUTPUT_ROOT/artifact" --workspace "$RUNNER_TEMP/publication" --publisher-git-sha "$GITHUB_SHA" --output "$OUTPUT_ROOT/publication.json"
       - id: result
+        if: always()
         env: {CYCLE_ID: '${{ inputs.cycle_id }}'}
         run: |
           python - <<'PY'
           import json,os
-          run=json.load(open(os.environ['OUTPUT_ROOT']+'/run_report.json')); pub=json.load(open(os.environ['OUTPUT_ROOT']+'/publication.json')); manifest=json.load(open(os.environ['OUTPUT_ROOT']+'/artifact/manifest.json'))
-          result={'schema_version':'monthly_source_execution_result_v1','source_id':'fred_macro','cycle_id':os.environ['CYCLE_ID'],'status':'succeeded','candidate_artifact_id':run['resulting_artifact_id'],'artifact_content_hash':run['resulting_artifact_content_hash'],'package_sha256':pub['package_sha256'],'publication_state':'published_verified','validation_status':'passed','provider_release_id':manifest['provider_release_id'],'observation_max':run['observation_max'],'prior_artifact_id':run['prior_artifact_id'],'source_change_detected':run['source_change_detected'],'retryability':'not_applicable','evidence_uri':'artifact://source/fred_macro/'+run['resulting_artifact_id']}
+          root=os.environ['OUTPUT_ROOT']; run=json.load(open(root+'/run_report.json'))
+          if run['run_status']=='failed':
+            result={'schema_version':'monthly_source_execution_result_v1','source_id':'fred_macro','cycle_id':os.environ['CYCLE_ID'],'status':'failed','candidate_artifact_id':None,'artifact_content_hash':None,'package_sha256':None,'publication_state':'not_published','validation_status':'failed','provider_release_id':None,'observation_max':None,'prior_artifact_id':None,'source_change_detected':False,'retryability':run['retryability'],'evidence_uri':'actions://fred_macro/run_report.json'}
+          else:
+            pub=json.load(open(root+'/publication.json')); manifest=json.load(open(root+'/artifact/manifest.json'))
+            result={'schema_version':'monthly_source_execution_result_v1','source_id':'fred_macro','cycle_id':os.environ['CYCLE_ID'],'status':'succeeded','candidate_artifact_id':run['resulting_artifact_id'],'artifact_content_hash':run['resulting_artifact_content_hash'],'package_sha256':pub['package_sha256'],'publication_state':'published_verified','validation_status':'passed','provider_release_id':manifest['provider_release_id'],'observation_max':run['observation_max'],'prior_artifact_id':run['prior_artifact_id'],'source_change_detected':run['source_change_detected'],'retryability':'not_applicable','evidence_uri':'artifact://source/fred_macro/'+run['resulting_artifact_id']}
           value=json.dumps(result,separators=(',',':'),sort_keys=True)
           open(os.environ['GITHUB_OUTPUT'],'a').write('result_json='+value+'\n'); print(value)
           PY
