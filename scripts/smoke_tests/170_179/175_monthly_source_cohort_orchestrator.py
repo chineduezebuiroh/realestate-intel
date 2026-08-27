@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 import yaml
 from jobs.monthly_refresh.cohort import barrier_evidence, durable_redfin_result, resolve_invocation, resume_plan
 from jobs.monthly_refresh.fred_macro import TransientFREDAcquisitionError, acquire_with_retry
+from jobs.monthly_refresh.fred_result import build_result
 from jobs.monthly_refresh.production import evaluate_barrier
 
 policy=Path('config/monthly_refresh_policy.json')
@@ -84,6 +85,40 @@ def deterministic_failure():
 try: acquire_with_retry(deterministic_failure,backoff_seconds=(0,0),sleep=lambda _:None)
 except ValueError: assert len(attempts)==1
 else: raise AssertionError('deterministic acquisition failure succeeded')
+
+# Actions outcomes are authoritative and missing/malformed evidence always
+# becomes a governed failure rather than escaping from the result step.
+with TemporaryDirectory() as td:
+ root=Path(td); (root/'artifact').mkdir()
+ run={'run_status':'refreshed','resulting_artifact_id':'fred-id','resulting_artifact_content_hash':'b'*64,
+      'observation_max':'2026-08-31','prior_artifact_id':'prior','source_change_detected':True}
+ manifest={'provider_release_id':'ordinary-current:fixture'}
+ (root/'run_report.json').write_text(json.dumps(run)); (root/'artifact/manifest.json').write_text(json.dumps(manifest))
+ (root/'publication.json').write_text(json.dumps({'package_sha256':'c'*64,'publication_state':'published_immutable_verified'}))
+ success=build_result(root=root,cycle_id=ready['cycle_id'],acquire_outcome='success',publish_outcome='success')
+ assert success['status']=='succeeded' and success['retryability']=='not_applicable'
+ (root/'run_report.json').write_text(json.dumps({'run_status':'failed','retryability':'retryable'}))
+ transient=build_result(root=root,cycle_id=ready['cycle_id'],acquire_outcome='failure',publish_outcome='skipped')
+ assert transient['status']=='failed' and transient['retryability']=='retryable'
+ (root/'run_report.json').write_text(json.dumps({'run_status':'failed','retryability':'terminal'}))
+ deterministic=build_result(root=root,cycle_id=ready['cycle_id'],acquire_outcome='failure',publish_outcome='skipped')
+ assert deterministic['retryability']=='terminal'
+ (root/'run_report.json').write_text(json.dumps(run))
+ (root/'publication_failure.json').write_text(json.dumps({'retryability':'retryable'}))
+ publication_transient=build_result(root=root,cycle_id=ready['cycle_id'],acquire_outcome='success',publish_outcome='failure')
+ assert publication_transient['status']=='failed' and publication_transient['retryability']=='retryable' and publication_transient['publication_state']=='not_published'
+ (root/'publication_failure.json').write_text(json.dumps({'retryability':'terminal'}))
+ publication_terminal=build_result(root=root,cycle_id=ready['cycle_id'],acquire_outcome='success',publish_outcome='failure')
+ assert publication_terminal['retryability']=='terminal'
+ (root/'publication.json').unlink()
+ missing_publication=build_result(root=root,cycle_id=ready['cycle_id'],acquire_outcome='success',publish_outcome='success')
+ assert missing_publication['status']=='failed' and missing_publication['retryability']=='terminal'
+ (root/'run_report.json').unlink()
+ missing_run=build_result(root=root,cycle_id=ready['cycle_id'],acquire_outcome='success',publish_outcome='success')
+ assert missing_run['status']=='failed' and missing_run['retryability']=='terminal'
+ resume_failure=barrier_evidence(cycle=replay,results=[publication_transient],reused_results=[r],pins=None,github={})
+ assert resume_failure['barrier_status']=='incomplete_retryable'
+ assert resume_failure['reused_source_ids']==['redfin'] and resume_failure['retry_source_ids']==['fred_macro']
 workflow_text=Path('.github/workflows/monthly-refresh-production.yml').read_text(); workflow=yaml.safe_load(workflow_text)
 # PyYAML parses the YAML 1.1 key `on` as boolean True.
 triggers=workflow.get(True,workflow.get('on')); assert 'workflow_dispatch' in triggers and 'push' in triggers and 'schedule' not in triggers and 'pull_request' not in triggers
@@ -96,6 +131,11 @@ assert 'pinned_redfin_result' not in triggers['workflow_dispatch']['inputs']
 fred_workflow=yaml.safe_load(Path('.github/workflows/fred-monthly-source.yml').read_text())
 fred_inputs=fred_workflow.get(True,fred_workflow.get('on'))['workflow_call']['inputs']
 assert not fred_inputs['source_target_month']['required'] and fred_inputs['source_target_month']['default']==''
+fred_steps=fred_workflow['jobs']['source']['steps']; fred_by_id={step.get('id'):step for step in fred_steps}
+assert fred_by_id['acquire']['continue-on-error'] and fred_by_id['publish']['continue-on-error']
+assert fred_by_id['publish']['if']=="steps.acquire.outcome == 'success'"
+assert fred_by_id['result']['env']['ACQUIRE_OUTCOME']=="${{ steps.acquire.outcome }}"
+assert fred_by_id['result']['env']['PUBLISH_OUTCOME']=="${{ steps.publish.outcome }}"
 assert 'raw_files' not in Path('.github/workflows/redfin-monthly-source.yml').read_text()
 assert 'force:' not in workflow_text.lower() and 'force=true' not in workflow_text.lower()
 
