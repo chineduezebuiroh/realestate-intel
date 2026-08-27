@@ -56,6 +56,10 @@ The provenance clocks and periods are deliberately distinct:
 * `provider_release_id` is the governed provider release identity (for example, Redfin `2026-07`).
 * `provider_release_timestamp_or_date` is an authoritative provider publication time/date and is `null` when governed metadata does not supply one. A monthly ID must never become a fabricated first-of-month date.
 * `observation_min` and `observation_max` bound canonical observations; neither is a publication or acquisition timestamp.
+* `target_month` is source-artifact identity selected under the individual source contract. A
+  cohort's catalyst month must not be copied into every source artifact. Governed FRED current-truth
+  acquisition derives it from the acquired canonical observation maximum when no explicit
+  source-specific target is supplied.
 * `retrieved_at` is actual source acquisition time when known. Live FRED acquisition records it. Historical Redfin bootstrap may use `null` with `acquisition_time_status=historical_not_recorded`.
 * `registered_at` is when manually obtained files entered the governed system. It is not represented as browser-download time. A managed Redfin drop without reliable download time uses `retrieved_at=null`, its governed `registered_at`, and `acquisition_time_status=registration_time_only`.
 * `artifact_created_at` is package emission time and is always present; it is not source provenance.

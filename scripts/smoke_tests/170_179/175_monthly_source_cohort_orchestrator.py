@@ -1,9 +1,11 @@
 """Smoke 175: governed Phase 3B cohort control plane and workflow safety."""
 import hashlib, json
+from urllib.error import HTTPError
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import yaml
-from jobs.monthly_refresh.cohort import barrier_evidence, resolve_invocation, resume_plan
+from jobs.monthly_refresh.cohort import barrier_evidence, durable_redfin_result, resolve_invocation, resume_plan
+from jobs.monthly_refresh.fred_macro import TransientFREDAcquisitionError, acquire_with_retry
 from jobs.monthly_refresh.production import evaluate_barrier
 
 policy=Path('config/monthly_refresh_policy.json')
@@ -22,11 +24,16 @@ replay=resolve_invocation(mode='replay',policy_path=policy,readiness=readiness,c
 def result(source,status='succeeded',retry='not_applicable'):
  return {'schema_version':'monthly_source_execution_result_v1','source_id':source,'cycle_id':ready['cycle_id'],'status':status,'candidate_artifact_id':'id-'+source,'artifact_content_hash':'b'*64,'package_sha256':'c'*64,'publication_state':'published_verified' if status=='succeeded' else 'not_published','validation_status':'passed' if status=='succeeded' else 'failed','provider_release_id':'release','observation_max':'2026-07-31','prior_artifact_id':'prior','source_change_detected':False,'retryability':retry,'evidence_uri':'artifact://evidence/'+source}
 r,f=result('redfin'),result('fred_macro')
+f['observation_max']='2026-08-31'
 ev=barrier_evidence(cycle=replay,results=[r,f],pins=None,github={'run_id':'fixture'})
 assert ev['barrier_status']=='ready' and not ev['source_set_created'] and not ev['accepted_pointers_advanced'] and not ev['redfin_consumption_committed']
+assert ev['cycle_id']==ready['cycle_id'] and next(x for x in ev['candidates'] if x['source_id']=='fred_macro')['observation_max']=='2026-08-31'
 retry=result('fred_macro','failed','retryable'); assert evaluate_barrier(expected_cycle_id=ready['cycle_id'],required_source_ids=('redfin','fred_macro'),results=[r,retry]).status=='incomplete_retryable'
 terminal=result('redfin','failed','terminal'); assert evaluate_barrier(expected_cycle_id=ready['cycle_id'],required_source_ids=('redfin','fred_macro'),results=[terminal,f]).status=='failed_terminal'
 plan=resume_plan(('redfin','fred_macro'),[r,retry],expected_cycle_id=ready['cycle_id']); assert plan['reuse']==['redfin'] and plan['run']==['fred_macro']
+resume_redfin=durable_redfin_result(cycle=ready,catalog=catalog)
+assert resume_redfin['candidate_artifact_id']==ready['redfin_candidate_pin']['candidate_artifact_id']
+assert resume_redfin['artifact_content_hash']==ready['redfin_candidate_pin']['artifact_content_hash']
 evaluate_barrier(expected_cycle_id=ready['cycle_id'],required_source_ids=('redfin','fred_macro'),results=[r,f],pinned_candidates=plan['pins'])
 for mutation,message in [(('cycle_id','wrong'),'cycle'),(('source_id','other'),'unexpected')]:
  bad=dict(r);bad[mutation[0]]=mutation[1]
@@ -41,12 +48,40 @@ pins={'redfin':{k:r[k] for k in ('candidate_artifact_id','artifact_content_hash'
 try:evaluate_barrier(expected_cycle_id=ready['cycle_id'],required_source_ids=('redfin','fred_macro'),results=[drift,f],pinned_candidates=pins)
 except ValueError as exc:assert 'drift' in str(exc)
 else:raise AssertionError('candidate drift accepted')
+
+# FRED retries provider/transport failures only: transient success, exhaustion,
+# and deterministic failure all remain offline and test exact attempt counts.
+attempts=[]
+def transient_then_success():
+ attempts.append(1)
+ if len(attempts)==1: raise HTTPError('https://fred.test',502,'Bad Gateway',{},None)
+ return 'current'
+assert acquire_with_retry(transient_then_success,backoff_seconds=(0,0),sleep=lambda _:None)=='current'
+assert len(attempts)==2
+attempts=[]
+def always_transient():
+ attempts.append(1); raise HTTPError('https://fred.test',503,'Unavailable',{},None)
+try: acquire_with_retry(always_transient,backoff_seconds=(0,0),sleep=lambda _:None)
+except TransientFREDAcquisitionError: assert len(attempts)==3
+else: raise AssertionError('exhausted transient acquisition succeeded')
+attempts=[]
+def deterministic_failure():
+ attempts.append(1); raise ValueError('schema mismatch')
+try: acquire_with_retry(deterministic_failure,backoff_seconds=(0,0),sleep=lambda _:None)
+except ValueError: assert len(attempts)==1
+else: raise AssertionError('deterministic acquisition failure succeeded')
 workflow_text=Path('.github/workflows/monthly-refresh-production.yml').read_text(); workflow=yaml.safe_load(workflow_text)
 # PyYAML parses the YAML 1.1 key `on` as boolean True.
 triggers=workflow.get(True,workflow.get('on')); assert 'workflow_dispatch' in triggers and 'push' in triggers and 'schedule' not in triggers and 'pull_request' not in triggers
 assert triggers['push']['branches']==['monthly-refresh-orchestration'] and 1 <= len(triggers['push']['paths']) <= 12
 assert 'always()' in workflow['jobs']['barrier']['if']; assert set(workflow['jobs']['barrier']['needs'])=={'resolve-cycle','redfin','fred'}
 assert workflow['jobs']['redfin']['needs']=='resolve-cycle' and workflow['jobs']['fred']['needs']=='resolve-cycle'
+assert "inputs.mode != 'resume'" in workflow['jobs']['redfin']['if']
+assert 'source_target_month' not in workflow['jobs']['fred'].get('with',{})
+assert 'pinned_redfin_result' not in triggers['workflow_dispatch']['inputs']
+fred_workflow=yaml.safe_load(Path('.github/workflows/fred-monthly-source.yml').read_text())
+fred_inputs=fred_workflow.get(True,fred_workflow.get('on'))['workflow_call']['inputs']
+assert not fred_inputs['source_target_month']['required'] and fred_inputs['source_target_month']['default']==''
 assert 'raw_files' not in Path('.github/workflows/redfin-monthly-source.yml').read_text()
 assert 'force:' not in workflow_text.lower() and 'force=true' not in workflow_text.lower()
 

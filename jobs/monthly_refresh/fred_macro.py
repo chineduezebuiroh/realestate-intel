@@ -1,9 +1,10 @@
 """Cloud-facing FRED check -> reconcile -> governed artifact boundary."""
 from __future__ import annotations
-import argparse, json, os, re, shutil, subprocess
+import argparse, json, os, re, shutil, subprocess, time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.error import HTTPError, URLError
 import pandas as pd
 from core.source_artifacts.artifact import artifact_package_sha256, canonicalize
 from core.source_artifacts.hashing import sha256_json, write_canonical_json
@@ -12,6 +13,41 @@ from core.source_artifacts.validation import validate_artifact
 from sources.fred_macro.artifact import acquire_current, governed_config_hashes, produce
 from sources.fred_macro.ingest import FRED_SERIES, SPREAD_SERIES_META
 SOURCE_ID = "fred_macro"
+ACQUISITION_MAX_ATTEMPTS = 3
+ACQUISITION_BACKOFF_SECONDS = (2.0, 5.0)
+
+
+class TransientFREDAcquisitionError(RuntimeError):
+    """A bounded FRED provider/transport failure that is safe to retry later."""
+
+
+def is_transient_acquisition_error(exc: BaseException) -> bool:
+    """Classify only provider availability and transport failures as transient."""
+    if isinstance(exc, HTTPError):
+        return 500 <= exc.code <= 599 or exc.code in {408, 429}
+    return isinstance(exc, (URLError, TimeoutError, ConnectionError))
+
+
+def acquire_with_retry(acquire: Callable[[], pd.DataFrame], *,
+                       max_attempts: int = ACQUISITION_MAX_ATTEMPTS,
+                       backoff_seconds: tuple[float, ...] = ACQUISITION_BACKOFF_SECONDS,
+                       sleep: Callable[[float], None] = time.sleep) -> pd.DataFrame:
+    """Acquire current FRED truth with an explicit, bounded transient-only retry."""
+    if max_attempts < 1 or len(backoff_seconds) < max_attempts - 1:
+        raise ValueError("invalid FRED acquisition retry policy")
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return acquire()
+        except Exception as exc:
+            if not is_transient_acquisition_error(exc):
+                raise
+            if attempt == max_attempts:
+                raise TransientFREDAcquisitionError(
+                    f"FRED acquisition exhausted {max_attempts} transient attempts: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+            sleep(backoff_seconds[attempt - 1])
+    raise AssertionError("unreachable")
 
 def _content_identity(frame: pd.DataFrame) -> str:
     data=canonicalize(frame); data["date"]=data.date.map(str)
@@ -71,7 +107,7 @@ def run(*,target_month:str|None=None,output_root:Path,prior_artifact:Path|None=N
         if target_month not in (None, ""):
             if re.fullmatch(r"\d{4}-\d{2}", target_month) is None: raise ValueError("target_month must use YYYY-MM")
             datetime.strptime(target_month,"%Y-%m")
-        current=_validate_acquired(acquire()); target_month,resolution=_resolve_target_month(target_month,current)
+        current=_validate_acquired(acquire_with_retry(acquire)); target_month,resolution=_resolve_target_month(target_month,current)
         acquired=source_diagnostics(current); prior=None; prior_manifest=None
         if prior_artifact is not None:
             prior_manifest=validate_artifact(prior_artifact,expected_source_id=SOURCE_ID)["manifest"]
@@ -101,7 +137,9 @@ def run(*,target_month:str|None=None,output_root:Path,prior_artifact:Path|None=N
     except Exception as exc:
         write_canonical_json(report_path,{"schema_version":"fred_monthly_source_run_v1","source_id":SOURCE_ID,"run_status":"failed",
             "git_sha":git_sha or _git_sha(),"target_month":target_month,"target_month_resolution":resolution,
-            "validation_status":"failed","error":f"{type(exc).__name__}: {exc}"})
+            "validation_status":"failed",
+            "retryability":"retryable" if isinstance(exc, TransientFREDAcquisitionError) else "terminal",
+            "error":f"{type(exc).__name__}: {exc}"})
         raise
 
 def main() -> int:
