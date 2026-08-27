@@ -67,12 +67,18 @@ def resume_plan(required: tuple[str, ...], previous_results: list[dict[str, Any]
 
 
 def barrier_evidence(*, cycle: dict[str, Any], results: list[dict[str, Any]],
-                     pins: dict[str, Any] | None, github: dict[str, Any]) -> dict[str, Any]:
+                     pins: dict[str, Any] | None, github: dict[str, Any],
+                     reused_results: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    reused = [validate_source_result(result, expected_cycle_id=cycle["cycle_id"])
+              for result in (reused_results or [])]
+    if any(result["status"] != "succeeded" for result in reused):
+        raise ValueError("reused source result must be a successful cycle pin")
     decision = evaluate_barrier(expected_cycle_id=cycle["cycle_id"], required_source_ids=REQUIRED_SOURCES,
-                                results=results, pinned_candidates=pins)
+                                results=[*results, *reused], pinned_candidates=pins)
     return {"schema_version": "monthly_source_cohort_evidence_v1", "cycle_id": cycle["cycle_id"],
             "invocation_mode": cycle["invocation_mode"], "barrier_status": decision.status,
-            "candidates": list(decision.candidates), "reused_source_ids": list(decision.reusable_source_ids),
+            "candidates": list(decision.candidates),
+            "reused_source_ids": sorted(result["source_id"] for result in reused),
             "retry_source_ids": list(decision.retry_source_ids), "github": github,
             "source_set_created": False, "accepted_pointers_advanced": False,
             "redfin_consumption_committed": False}
@@ -85,7 +91,9 @@ def main() -> int:
     resolve.add_argument("--catalog", type=Path, default=Path("config/artifact_catalog.json"))
     resolve.add_argument("--cycle-id"); resolve.add_argument("--policy", type=Path, default=Path("config/monthly_refresh_policy.json")); resolve.add_argument("--output", type=Path, required=True)
     barrier = sub.add_parser("barrier"); barrier.add_argument("--cycle-json", type=Path, required=True)
-    barrier.add_argument("--result", action="append", type=Path, default=[]); barrier.add_argument("--pins-json", type=Path); barrier.add_argument("--output", type=Path, required=True)
+    barrier.add_argument("--result", action="append", type=Path, default=[])
+    barrier.add_argument("--reused-result", action="append", type=Path, default=[])
+    barrier.add_argument("--pins-json", type=Path); barrier.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "resolve":
         value = resolve_invocation(mode=args.mode, policy_path=args.policy,
@@ -93,8 +101,10 @@ def main() -> int:
             supplied_cycle_id=args.cycle_id)
     else:
         cycle = json.loads(args.cycle_json.read_text()); results = [json.loads(p.read_text()) for p in args.result]
+        reused_results = [json.loads(p.read_text()) for p in args.reused_result]
         pins = json.loads(args.pins_json.read_text()) if args.pins_json else None
-        value = barrier_evidence(cycle=cycle, results=results, pins=pins, github={})
+        value = barrier_evidence(cycle=cycle, results=results, reused_results=reused_results,
+                                 pins=pins, github={})
     write_canonical_json(args.output, value); print(json.dumps(value, sort_keys=True)); return 0
 
 

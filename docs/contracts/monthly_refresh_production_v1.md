@@ -65,7 +65,10 @@ complete entries produce one semantic Source Set v2 identity. A new Actions atte
 `reused_source_ids` means a source execution was skipped because an already-successful cycle pin was
 revalidated and supplied to the barrier. It does **not** mean a source workflow executed and found
 unchanged provider data; that case is a newly returned successful result with
-`source_change_detected=false`. Phase 3B resume reconstructs the Redfin result only from the exact
+`source_change_detected=false`. Immutable artifact reuse, equal prior/candidate artifact identities,
+and idempotent publication are likewise not execution reuse. The barrier derives this evidence only
+from successful results supplied through its explicit revalidated resume-pin path, never from
+candidate content or source-change fields. Phase 3B resume reconstructs the Redfin result only from the exact
 validated readiness/catalog pin and reruns FRED. It accepts no caller-supplied result JSON. Drift in
 the Redfin artifact/content/package/publication identity fails before fan-out. If FRED has not yet
 returned a successful pinned result, its retry may truthfully resolve a newer current provider state
