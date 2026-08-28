@@ -192,18 +192,31 @@ def _group_counts(frame: pd.DataFrame, field: str) -> dict[str, dict[str, int]]:
 def acceptance_gates(frame: pd.DataFrame, diagnostics: Mapping[str, Any],
                      equivalence: Mapping[str, Any]) -> dict[str, Any]:
     checks = {
-        "exact_metric_scope": sorted(frame.metric_id.unique()) == sorted(GOVERNED_METRICS),
-        "all_mandatory_series_present": not diagnostics["missing_mandatory_series"]
-            and len(diagnostics["mandatory_series"]) == 50,
-        "mandatory_target_resolved": diagnostics["target_month"] is not None,
-        "no_provider_membership_omission": not diagnostics["missing_request_memberships"],
-        "canonical_unique": not frame.duplicated(KEY).any(),
-        "canonical_finite": pd.to_numeric(frame.value).map(lambda value: pd.notna(value) and abs(value) != float("inf")).all(),
-        "unit_contract": diagnostics["unit"] == UNIT and diagnostics["scale_transform"] == SCALE_TRANSFORM,
-        "unit_scale_supported": not equivalence["unit_scale"]["unit_scale_mismatch"],
-        "no_identity_mismatch": equivalence["identity_mismatch_count"] == 0,
-        "no_unexplained_numeric_mismatch": equivalence["unexplained_numeric_mismatch_count"] == 0,
-        "no_unexplained_mandatory_history_truncation": equivalence["unexplained_legacy_prior_only_count"] == 0,
+        "exact_metric_scope": bool(sorted(frame.metric_id.unique()) == sorted(GOVERNED_METRICS)),
+        "all_mandatory_series_present": bool(
+            not diagnostics["missing_mandatory_series"]
+            and len(diagnostics["mandatory_series"]) == 50
+        ),
+        "mandatory_target_resolved": bool(diagnostics["target_month"] is not None),
+        "no_provider_membership_omission": bool(not diagnostics["missing_request_memberships"]),
+        "canonical_unique": bool(not frame.duplicated(KEY).any()),
+        "canonical_finite": bool(
+            pd.to_numeric(frame.value)
+            .map(lambda value: pd.notna(value) and abs(value) != float("inf"))
+            .all()
+        ),
+        "unit_contract": bool(
+            diagnostics["unit"] == UNIT
+            and diagnostics["scale_transform"] == SCALE_TRANSFORM
+        ),
+        "unit_scale_supported": bool(not equivalence["unit_scale"]["unit_scale_mismatch"]),
+        "no_identity_mismatch": bool(equivalence["identity_mismatch_count"] == 0),
+        "no_unexplained_numeric_mismatch": bool(
+            equivalence["unexplained_numeric_mismatch_count"] == 0
+        ),
+        "no_unexplained_mandatory_history_truncation": bool(
+            equivalence["unexplained_legacy_prior_only_count"] == 0
+        ),
     }
     return {"schema_version": "ces_bootstrap_acceptance_v1", "status": "passed" if all(checks.values()) else "failed",
             "checks": checks, "failed_checks": sorted(key for key, value in checks.items() if not value)}
