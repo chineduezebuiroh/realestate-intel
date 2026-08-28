@@ -28,7 +28,7 @@ def resolve(*, cycle: str, expected_artifact_id: str, catalog: dict, readiness: 
         "validation_status":"passed","provider_release_id":item["metadata"]["provider_release_id"],
         "observation_max":item["metadata"]["observation_max"],"prior_artifact_id":accepted,
         "source_change_detected":item["metadata"]["data_sha256"] != prior["metadata"]["data_sha256"],
-        "retryability":"not_applicable","evidence_uri":item["logical_artifact_uri"]}
+        "retryability":"not_applicable","accepted_pointer_changed":False,"evidence_uri":item["logical_artifact_uri"]}
     return validate_source_result(result, expected_cycle_id=cycle)
 
 def main() -> int:

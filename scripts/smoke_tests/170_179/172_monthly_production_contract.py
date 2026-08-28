@@ -14,7 +14,7 @@ def result(source, cycle, status="succeeded", artifact=None, retry="retryable"):
         "package_sha256":"b"*64,"publication_state":"published_verified" if status=="succeeded" else "not_published",
         "validation_status":"passed" if status=="succeeded" else "failed","provider_release_id":"release-fixture",
         "observation_max":"2026-08-31","prior_artifact_id":None,"source_change_detected":True,
-        "retryability":retry,"evidence_uri":f"evidence://{source}"}
+        "retryability":retry,"accepted_pointer_changed":False,"evidence_uri":f"evidence://{source}"}
 
 def main():
     drop={"drop_id":"2026-08","status":"validated","validation_status":"passed",

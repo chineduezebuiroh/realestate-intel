@@ -45,3 +45,17 @@ assert gate['status']=='passed'
 bad_gate=acceptance_gates(provider[provider.date.eq(pd.Timestamp('2024-01-31').date())],diagnostics,unexplained)
 assert bad_gate['status']=='failed' and 'no_unexplained_numeric_mismatch' in bad_gate['failed_checks']
 print('Smoke 177 CES bootstrap equivalence passed')
+
+# Acceptance evidence stays JSON-native at its actual canonical writer boundary.
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from argparse import Namespace
+from core.source_artifacts.hashing import write_canonical_json
+from jobs.monthly_refresh.ces_bootstrap import recover
+assert all(type(value) is bool for value in gate['checks'].values())
+json.dumps(gate)
+with TemporaryDirectory() as td:
+ evidence=Path(td)
+ write_canonical_json(evidence/'acceptance-boundary.json',gate)
+ assert json.loads((evidence/'acceptance-boundary.json').read_text())==gate
