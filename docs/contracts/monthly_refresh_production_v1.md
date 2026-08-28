@@ -57,7 +57,7 @@ PROMOTION_COMMIT → COMPLETE`. Only the listed transitions are legal. An incomp
 create/accept Source Set v2, assemble/promote canonical market, advance serving, or trigger Macro
 Regime.
 
-On retry, the durable ledger pins each successful candidate's artifact ID and both hashes. Valid,
+On retry, the durable cycle-result registry pins each successful candidate's artifact ID and both hashes. Valid,
 resolved candidates are reused; only absent/failed/expired-policy nodes rerun. Any cycle mismatch,
 hash mismatch, pointer drift, or changed candidate for a pinned success fails closed. The exact same
 complete entries produce one semantic Source Set v2 identity. A new Actions attempt is not a cycle.
@@ -68,8 +68,11 @@ unchanged provider data; that case is a newly returned successful result with
 `source_change_detected=false`. Immutable artifact reuse, equal prior/candidate artifact identities,
 and idempotent publication are likewise not execution reuse. The barrier derives this evidence only
 from successful results supplied through its explicit revalidated resume-pin path, never from
-candidate content or source-change fields. Phase 3B resume reconstructs the Redfin result only from the exact
-validated readiness/catalog pin and reruns FRED. It accepts no caller-supplied result JSON. Drift in
+candidate content or source-change fields. Resume reconstructs Redfin only from the exact validated
+readiness/catalog pin. Automated sources use the common `monthly_source_cycle_results_v1` registry:
+each record embeds its complete successful result contract plus cycle, source, and policy compatibility,
+and is revalidated against the immutable catalog before fan-out. Missing catalog evidence selects only
+that source for rerun; contradictory durable identity fails closed. It accepts no caller-supplied result JSON. Drift in
 the Redfin artifact/content/package/publication identity fails before fan-out. If FRED has not yet
 returned a successful pinned result, its retry may truthfully resolve a newer current provider state
 under the same source policy; a successfully pinned FRED candidate could not be silently replaced.

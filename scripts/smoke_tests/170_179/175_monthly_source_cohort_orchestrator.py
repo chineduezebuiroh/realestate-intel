@@ -125,7 +125,7 @@ triggers=workflow.get(True,workflow.get('on')); assert 'workflow_dispatch' in tr
 assert triggers['push']['branches']==['monthly-refresh-orchestration'] and 1 <= len(triggers['push']['paths']) <= 12
 assert 'always()' in workflow['jobs']['barrier']['if']; assert set(workflow['jobs']['barrier']['needs'])=={'resolve-cycle','redfin','fred','ces'}
 assert workflow['jobs']['redfin']['needs']=='resolve-cycle' and workflow['jobs']['fred']['needs']=='resolve-cycle' and workflow['jobs']['ces']['needs']=='resolve-cycle'
-assert "inputs.mode != 'resume'" in workflow['jobs']['redfin']['if']
+assert "run_redfin == 'true'" in workflow['jobs']['redfin']['if']
 assert 'source_target_month' not in workflow['jobs']['fred'].get('with',{})
 assert 'pinned_redfin_result' not in triggers['workflow_dispatch']['inputs']
 fred_workflow=yaml.safe_load(Path('.github/workflows/fred-monthly-source.yml').read_text())

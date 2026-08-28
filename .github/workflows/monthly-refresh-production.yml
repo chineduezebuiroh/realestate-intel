@@ -14,6 +14,7 @@ on:
       - 'jobs/monthly_refresh/redfin_resolver.py'
       - 'config/monthly_refresh_readiness.json'
       - 'config/monthly_refresh_policy.json'
+      - 'config/monthly_source_cycle_results.json'
       - 'docs/contracts/monthly_refresh_production_v1.md'
       - 'scripts/smoke_tests/170_179/175_monthly_source_cohort_orchestrator.py'
   workflow_dispatch:
@@ -43,7 +44,13 @@ jobs:
       drop_id: ${{ steps.resolve.outputs.drop_id }}
       redfin_pin: ${{ steps.resolve.outputs.redfin_pin }}
       redfin_artifact_id: ${{ steps.resolve.outputs.redfin_artifact_id }}
-      resume_redfin_result: ${{ steps.resolve.outputs.resume_redfin_result }}
+      resume_redfin_result: ${{ steps.plan.outputs.resume_redfin_result }}
+      resume_fred_result: ${{ steps.plan.outputs.resume_fred_result }}
+      resume_ces_result: ${{ steps.plan.outputs.resume_ces_result }}
+      run_redfin: ${{ steps.plan.outputs.run_redfin }}
+      run_fred: ${{ steps.plan.outputs.run_fred }}
+      run_ces: ${{ steps.plan.outputs.run_ces }}
+      pins_json: ${{ steps.plan.outputs.pins_json }}
       cycle_json: ${{ steps.resolve.outputs.cycle_json }}
     steps:
       - uses: actions/checkout@v4
@@ -68,22 +75,21 @@ jobs:
           echo "drop_id=$(jq -r '.drop_id // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
           echo "redfin_pin=$(jq -c '.redfin_candidate_pin // {}' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
           echo "redfin_artifact_id=$(jq -r '.redfin_candidate_pin.candidate_artifact_id // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
-          if [ "$MODE" = resume ]; then
-            python - <<'PY'
-          import json, os
-          from jobs.monthly_refresh.cohort import durable_redfin_result
-          cycle=json.load(open(os.environ['RUNNER_TEMP']+'/cycle.json'))
-          catalog=json.load(open('config/artifact_catalog.json'))
-          value=json.dumps(durable_redfin_result(cycle=cycle,catalog=catalog),sort_keys=True,separators=(',',':'))
-          open(os.environ['GITHUB_OUTPUT'],'a').write('resume_redfin_result='+value+'\n')
-          PY
-          else
-            echo "resume_redfin_result=" >> "$GITHUB_OUTPUT"
-          fi
           echo "cycle_json=$(jq -c . "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
+      - id: plan
+        if: steps.resolve.outputs.fan_out == 'true'
+        run: |
+          python -m jobs.monthly_refresh.cohort resume-plan --cycle-json "$RUNNER_TEMP/cycle.json" --output "$RUNNER_TEMP/plan.json"
+          for source in redfin fred_macro ces; do
+            key="$source"; [ "$source" = fred_macro ] && key=fred
+            echo "run_${key}=$(jq -r --arg s "$source" '.run | contains([$s])' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
+            echo "resume_${key}_result=$(jq -c --arg s "$source" '.results[]? | select(.source_id==$s)' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
+          done
+          echo "pins_json=$(jq -c .pins "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/plan.json" >> "$GITHUB_STEP_SUMMARY"
   redfin:
     needs: resolve-cycle
-    if: needs.resolve-cycle.outputs.fan_out == 'true' && inputs.mode != 'resume'
+    if: needs.resolve-cycle.outputs.fan_out == 'true' && needs.resolve-cycle.outputs.run_redfin == 'true'
     uses: ./.github/workflows/redfin-monthly-source.yml
     with:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
@@ -92,7 +98,7 @@ jobs:
       candidate_artifact_id: ${{ needs.resolve-cycle.outputs.redfin_artifact_id }}
   fred:
     needs: resolve-cycle
-    if: needs.resolve-cycle.outputs.fan_out == 'true'
+    if: needs.resolve-cycle.outputs.fan_out == 'true' && needs.resolve-cycle.outputs.run_fred == 'true'
     permissions: {contents: write}
     uses: ./.github/workflows/fred-monthly-source.yml
     with:
@@ -100,12 +106,12 @@ jobs:
     secrets: inherit
   ces:
     needs: resolve-cycle
-    if: needs.resolve-cycle.outputs.fan_out == 'true'
+    if: needs.resolve-cycle.outputs.fan_out == 'true' && needs.resolve-cycle.outputs.run_ces == 'true'
     permissions: {contents: write}
     uses: ./.github/workflows/ces-monthly-source.yml
     with:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
-      request_end_year: ${{ needs.resolve-cycle.outputs.target_month }}
+      target_month: ${{ needs.resolve-cycle.outputs.target_month }}
     secrets: inherit
   barrier:
     if: always() && needs.resolve-cycle.outputs.fan_out == 'true'
@@ -128,6 +134,9 @@ jobs:
           FRED_RESULT: ${{ needs.fred.outputs.result_json }}
           CES_RESULT: ${{ needs.ces.outputs.result_json }}
           RESUME_REDFIN: ${{ needs.resolve-cycle.outputs.resume_redfin_result }}
+          RESUME_FRED: ${{ needs.resolve-cycle.outputs.resume_fred_result }}
+          RESUME_CES: ${{ needs.resolve-cycle.outputs.resume_ces_result }}
+          PINS_JSON: ${{ needs.resolve-cycle.outputs.pins_json }}
         run: |
           printf '%s' "$CYCLE_JSON" > "$RUNNER_TEMP/cycle.json"
           args=(--cycle-json "$RUNNER_TEMP/cycle.json" --output "$RUNNER_TEMP/cohort.json")
@@ -136,6 +145,9 @@ jobs:
           elif [ -n "$RESUME_REDFIN" ]; then
             printf '%s' "$RESUME_REDFIN" > "$RUNNER_TEMP/resume-redfin.json"; args+=(--reused-result "$RUNNER_TEMP/resume-redfin.json")
           fi
+          if [ -n "$RESUME_FRED" ]; then printf '%s' "$RESUME_FRED" > "$RUNNER_TEMP/resume-fred.json"; args+=(--reused-result "$RUNNER_TEMP/resume-fred.json"); fi
+          if [ -n "$RESUME_CES" ]; then printf '%s' "$RESUME_CES" > "$RUNNER_TEMP/resume-ces.json"; args+=(--reused-result "$RUNNER_TEMP/resume-ces.json"); fi
+          if [ -n "$PINS_JSON" ]; then printf '%s' "$PINS_JSON" > "$RUNNER_TEMP/pins.json"; args+=(--pins-json "$RUNNER_TEMP/pins.json"); fi
           if [ -n "$FRED_RESULT" ]; then printf '%s' "$FRED_RESULT" > "$RUNNER_TEMP/fred.json"; args+=(--result "$RUNNER_TEMP/fred.json"); fi
           if [ -n "$CES_RESULT" ]; then printf '%s' "$CES_RESULT" > "$RUNNER_TEMP/ces.json"; args+=(--result "$RUNNER_TEMP/ces.json"); fi
           python -m jobs.monthly_refresh.cohort barrier "${args[@]}"
