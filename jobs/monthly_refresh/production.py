@@ -66,11 +66,13 @@ def validate_source_result(result: dict[str, Any], *, expected_cycle_id: str) ->
     required = {"schema_version", "source_id", "cycle_id", "status", "candidate_artifact_id",
         "artifact_content_hash", "package_sha256", "publication_state", "validation_status",
         "provider_release_id", "observation_max", "prior_artifact_id", "source_change_detected",
-        "retryability", "evidence_uri"}
+        "retryability", "evidence_uri", "accepted_pointer_changed"}
     if set(result) != required or result.get("schema_version") != RESULT_VERSION:
         raise ValueError("source execution result schema mismatch")
     if result["cycle_id"] != expected_cycle_id:
         raise ValueError("source result cycle identity mismatch")
+    if result.get("accepted_pointer_changed") is not False:
+        raise ValueError("routine source result advanced accepted pointer")
     if result["status"] == "succeeded":
         if result["validation_status"] != "passed" or result["publication_state"] != "published_verified":
             raise ValueError("successful candidate is not validated and durably verified")

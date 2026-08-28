@@ -230,7 +230,7 @@ def run(*, accepted_state: Path = ACCEPTED_STATE, raw_root: Path = RAW_ROOT,
             "publication_state":"published_verified", "validation_status":"passed",
             "provider_release_id":manifest["provider_release_id"], "observation_max":manifest["observation_max"],
             "prior_artifact_id":prior["object_id"], "source_change_detected":source_changed,
-            "retryability":"not_applicable", "evidence_uri":str(evidence / "source_execution_result.json")}
+            "retryability":"not_applicable", "accepted_pointer_changed":False, "evidence_uri":str(evidence / "source_execution_result.json")}
         validate_source_result(result, expected_cycle_id=cycle)
         write_canonical_json(evidence / "source_execution_result.json", result)
         _update(ledger_path, cycle, state="candidate_ready", package_sha256=publication["package_sha256"],

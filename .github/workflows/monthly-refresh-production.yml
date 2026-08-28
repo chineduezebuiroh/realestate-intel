@@ -8,6 +8,7 @@ on:
       - '.github/workflows/monthly-refresh-production.yml'
       - '.github/workflows/redfin-monthly-source.yml'
       - '.github/workflows/fred-monthly-source.yml'
+      - '.github/workflows/ces-monthly-source.yml'
       - 'jobs/monthly_refresh/cohort.py'
       - 'jobs/monthly_refresh/readiness.py'
       - 'jobs/monthly_refresh/redfin_resolver.py'
@@ -97,9 +98,18 @@ jobs:
     with:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
     secrets: inherit
+  ces:
+    needs: resolve-cycle
+    if: needs.resolve-cycle.outputs.fan_out == 'true'
+    permissions: {contents: write}
+    uses: ./.github/workflows/ces-monthly-source.yml
+    with:
+      cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
+      request_end_year: ${{ needs.resolve-cycle.outputs.target_month }}
+    secrets: inherit
   barrier:
     if: always() && needs.resolve-cycle.outputs.fan_out == 'true'
-    needs: [resolve-cycle, redfin, fred]
+    needs: [resolve-cycle, redfin, fred, ces]
     runs-on: ubuntu-latest
     permissions: {contents: read}
     env:
@@ -116,6 +126,7 @@ jobs:
           CYCLE_JSON: ${{ needs.resolve-cycle.outputs.cycle_json }}
           REDFIN_RESULT: ${{ needs.redfin.outputs.result_json }}
           FRED_RESULT: ${{ needs.fred.outputs.result_json }}
+          CES_RESULT: ${{ needs.ces.outputs.result_json }}
           RESUME_REDFIN: ${{ needs.resolve-cycle.outputs.resume_redfin_result }}
         run: |
           printf '%s' "$CYCLE_JSON" > "$RUNNER_TEMP/cycle.json"
@@ -126,6 +137,7 @@ jobs:
             printf '%s' "$RESUME_REDFIN" > "$RUNNER_TEMP/resume-redfin.json"; args+=(--reused-result "$RUNNER_TEMP/resume-redfin.json")
           fi
           if [ -n "$FRED_RESULT" ]; then printf '%s' "$FRED_RESULT" > "$RUNNER_TEMP/fred.json"; args+=(--result "$RUNNER_TEMP/fred.json"); fi
+          if [ -n "$CES_RESULT" ]; then printf '%s' "$CES_RESULT" > "$RUNNER_TEMP/ces.json"; args+=(--result "$RUNNER_TEMP/ces.json"); fi
           python -m jobs.monthly_refresh.cohort barrier "${args[@]}"
           cat "$RUNNER_TEMP/cohort.json" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4

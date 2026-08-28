@@ -1,0 +1,64 @@
+name: CES governed cohort source
+on:
+  workflow_call:
+    inputs:
+      cycle_id: {required: true, type: string}
+      request_end_year: {required: true, type: string}
+    secrets:
+      BLS_API_KEY: {required: true}
+    outputs:
+      result_json:
+        value: ${{ jobs.source.outputs.result_json }}
+  workflow_dispatch:
+    inputs:
+      cycle_id: {description: Deterministic cycle ID, required: true, type: string}
+      request_end_year: {description: Explicit inclusive ordinary request end year, required: true, type: string}
+permissions:
+  contents: write
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    outputs:
+      result_json: ${{ steps.result.outputs.result_json }}
+    env: {PYTHONPATH: ., OUTPUT_ROOT: artifacts/source_artifacts/ces/current_run}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - name: Install governed dependencies
+        run: pip install -r requirements.txt
+      - id: prior
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: python -m jobs.monthly_refresh.ces_durable resolve-prior --repository "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --workspace "$RUNNER_TEMP/prior" --output "$RUNNER_TEMP/prior.json" --github-output "$GITHUB_OUTPUT"
+      - id: acquire
+        continue-on-error: true
+        env:
+          BLS_API_KEY: ${{ secrets.BLS_API_KEY }}
+          REQUEST_END_YEAR: ${{ inputs.request_end_year }}
+        run: |
+          request_end_year="${REQUEST_END_YEAR%%-*}"
+          test "$request_end_year" -ge 1900
+          start_year=$((request_end_year - 2))
+          python -m jobs.monthly_refresh.ces_monthly --output-root "$OUTPUT_ROOT" \
+            --prior-artifact '${{ steps.prior.outputs.prior_artifact }}' \
+            --start-year "$start_year" --end-year "$request_end_year"
+      - id: publish
+        if: steps.acquire.outcome == 'success'
+        continue-on-error: true
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: python -m jobs.monthly_refresh.ces_durable publish --repository "$GITHUB_REPOSITORY" --artifact "$OUTPUT_ROOT/artifact" --workspace "$RUNNER_TEMP/publication" --publisher-git-sha "$GITHUB_SHA" --output "$OUTPUT_ROOT/publication.json"
+      - id: result
+        if: always()
+        env:
+          CYCLE_ID: '${{ inputs.cycle_id }}'
+          ACQUIRE_OUTCOME: '${{ steps.acquire.outcome }}'
+          PUBLISH_OUTCOME: '${{ steps.publish.outcome }}'
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          from jobs.monthly_refresh.ces_result import build_result
+          result=build_result(root=Path(os.environ['OUTPUT_ROOT']),cycle_id=os.environ['CYCLE_ID'],acquire_outcome=os.environ['ACQUIRE_OUTCOME'],publish_outcome=os.environ['PUBLISH_OUTCOME'])
+          value=json.dumps(result,separators=(',',':'),sort_keys=True)
+          open(os.environ['GITHUB_OUTPUT'],'a').write('result_json='+value+'\n'); print(value)
+          PY

@@ -10,7 +10,7 @@ from core.source_artifacts.hashing import write_canonical_json
 from jobs.monthly_refresh.production import evaluate_barrier, validate_source_result
 from jobs.monthly_refresh.readiness import eligible_record
 
-REQUIRED_SOURCES = ("redfin", "fred_macro")
+REQUIRED_SOURCES = ("redfin", "fred_macro", "ces")
 PIN_FIELDS = ("candidate_artifact_id", "artifact_content_hash", "package_sha256",
               "publication_state", "provider_release_id")
 
@@ -55,7 +55,7 @@ def durable_redfin_result(*, cycle: dict[str, Any], catalog: dict[str, Any]) -> 
         "provider_release_id":item["metadata"]["provider_release_id"],
         "observation_max":item["metadata"]["observation_max"],"prior_artifact_id":accepted,
         "source_change_detected":prior is None or item["metadata"]["data_sha256"] != prior["metadata"]["data_sha256"],
-        "retryability":"not_applicable","evidence_uri":item["logical_artifact_uri"]}
+        "retryability":"not_applicable","accepted_pointer_changed":False,"evidence_uri":item["logical_artifact_uri"]}
     return validate_source_result(result, expected_cycle_id=cycle["cycle_id"])
 
 

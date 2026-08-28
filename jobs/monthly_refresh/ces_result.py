@@ -1,4 +1,4 @@
-"""Fail-closed construction of the FRED monthly source execution result."""
+"""Fail-closed construction of the CES monthly source execution result."""
 from __future__ import annotations
 
 import json
@@ -21,12 +21,12 @@ def build_result(*, root: Path, cycle_id: str, acquire_outcome: str,
     manifest = _read_object(root / "artifact" / "manifest.json")
     publication = _read_object(root / "publication.json")
     failure = _read_object(root / "publication_failure.json")
-    result = {"schema_version": "monthly_source_execution_result_v1", "source_id": "fred_macro",
+    result = {"schema_version": "monthly_source_execution_result_v1", "source_id": "ces",
         "cycle_id": cycle_id, "status": "failed", "candidate_artifact_id": None,
         "artifact_content_hash": None, "package_sha256": None, "publication_state": "not_published",
         "validation_status": "failed", "provider_release_id": None, "observation_max": None,
         "prior_artifact_id": None, "source_change_detected": False, "retryability": "terminal",
-        "accepted_pointer_changed": False, "evidence_uri": "actions://fred_macro/run_report.json"}
+        "accepted_pointer_changed": False, "evidence_uri": "actions://ces/run_report.json"}
 
     if run:
         result.update(candidate_artifact_id=run.get("resulting_artifact_id"),
@@ -63,5 +63,5 @@ def build_result(*, root: Path, cycle_id: str, acquire_outcome: str,
     result.update(status="succeeded", package_sha256=publication["package_sha256"],
         publication_state="published_verified", validation_status="passed",
         retryability="not_applicable",
-        evidence_uri="artifact://source/fred_macro/" + run["resulting_artifact_id"])
+        evidence_uri="artifact://source/ces/" + run["resulting_artifact_id"])
     return result

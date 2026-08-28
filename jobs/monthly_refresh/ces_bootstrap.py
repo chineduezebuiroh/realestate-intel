@@ -230,7 +230,7 @@ def provider_release_id(plan: Mapping[str, Any], frame: pd.DataFrame) -> str:
 
 def create_bootstrap_artifact(output: Path, frame: pd.DataFrame, plan: Mapping[str, Any],
                               diagnostics: Mapping[str, Any], *, retrieved_at: str,
-                              artifact_created_at: str | None = None) -> dict[str, Any]:
+                              artifact_created_at: str | None = None, lineage_contract: str = "ces_bootstrap_v1") -> dict[str, Any]:
     release_id = provider_release_id(plan, frame)
     manifest = create_artifact(output, frame, source_id=SOURCE_ID,
         source_family="BLS Current Employment Statistics — State and Metro Area",
@@ -240,7 +240,7 @@ def create_bootstrap_artifact(output: Path, frame: pd.DataFrame, plan: Mapping[s
         artifact_created_at=artifact_created_at, target_month=diagnostics["target_month"],
         source_request_identity=plan["source_request_identity"],
         source_urls_or_endpoint_identity=[BLS_API_ENDPOINT], config_hashes=plan["config_hashes"],
-        git_sha=git_sha(), raw_source_lineage={"bootstrap_contract": "ces_bootstrap_v1",
+        git_sha=git_sha(), raw_source_lineage={"ces_contract": lineage_contract,
             "provider_response_identity": release_id.split(":", 1)[1]})
     return validate_artifact(output, expected_source_id=SOURCE_ID)["manifest"]
 
@@ -329,6 +329,50 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
             "target_month": diagnostics["target_month"], "provider_release_id": manifest["provider_release_id"]}
 
 
+def recover(args: argparse.Namespace) -> dict[str, Any]:
+    """Resume only the post-acquisition bootstrap boundary from immutable evidence."""
+    root = args.output_root
+    required = ("preflight.json", "request_plan.json", "acquisition.json", "canonical.parquet",
+                "completeness.json", "equivalence.json", "equivalence_detail.parquet",
+                "secondary_equivalence.json")
+    missing = [name for name in required if not (root / name).is_file()]
+    if missing:
+        raise RuntimeError(f"CES recovery evidence incomplete: {missing}")
+    if (root / "artifact").exists() or (root / "acceptance.json").exists():
+        raise RuntimeError("CES recovery refuses to overwrite post-audit outputs")
+    pre = json.loads((root / "preflight.json").read_text())
+    plan = json.loads((root / "request_plan.json").read_text())
+    acquisition = json.loads((root / "acquisition.json").read_text())
+    diagnostics = json.loads((root / "completeness.json").read_text())
+    equivalence = json.loads((root / "equivalence.json").read_text())
+    secondary = json.loads((root / "secondary_equivalence.json").read_text())
+    frame = pd.read_parquet(root / "canonical.parquet")
+    detail = pd.read_parquet(root / "equivalence_detail.parquet")
+    if not isinstance(secondary, dict) or plan.get("acquisition_mode") != "deep_reconciliation":
+        raise RuntimeError("CES recovery evidence contract mismatch")
+    if (pre.get("series_count") != 59 or pre.get("mandatory_series_count") != 50
+            or len(plan.get("series", [])) != 59
+            or sum(bool(item.get("mandatory_for_target")) for item in plan.get("series", [])) != 50
+            or acquisition.get("source_request_identity") != plan.get("source_request_identity")
+            or acquisition.get("row_count") != len(frame)
+            or acquisition.get("target_month") != diagnostics.get("target_month")):
+        raise RuntimeError("CES recovery evidence is internally inconsistent")
+    counts = Counter(detail["comparison_category"])
+    for category in CATEGORIES:
+        if int(counts.get(category, 0)) != int(equivalence.get(category.lower() + "_count", 0)):
+            raise RuntimeError("CES recovery equivalence detail disagrees with summary")
+    gates = acceptance_gates(frame, diagnostics, equivalence)
+    write_canonical_json(root / "acceptance.json", gates)
+    if gates["status"] != "passed":
+        raise RuntimeError(f"CES bootstrap recovery acceptance failed: {gates['failed_checks']}")
+    manifest = create_bootstrap_artifact(root / "artifact", frame, plan, diagnostics,
+        retrieved_at=args.retrieved_at or utc_now())
+    write_canonical_json(root / "artifact_validation.json", {"status":"passed",
+        "artifact_id":manifest["artifact_id"], "data_sha256":manifest["data_sha256"]})
+    return {"status":"recovery_passed", "artifact_id":manifest["artifact_id"],
+            "target_month":diagnostics["target_month"], "provider_release_id":manifest["provider_release_id"]}
+
+
 def publish(args: argparse.Namespace) -> dict[str, Any]:
     root = args.output_root; acceptance = json.loads((root / "acceptance.json").read_text())
     if acceptance.get("status") != "passed": raise RuntimeError("CES bootstrap audit has not passed")
@@ -413,8 +457,9 @@ def main() -> int:
     audit_parser.add_argument("--legacy-serving", type=Path, default=Path("data/market_serving.duckdb"))
     audit_parser.add_argument("--legacy-secondary", action="append", type=Path,
                               default=[Path("data/market_public.duckdb"), Path("data/market.duckdb")])
+    recovery = sub.add_parser("recover", parents=[common]); recovery.add_argument("--retrieved-at")
     sub.add_parser("publish", parents=[common]); sub.add_parser("activate", parents=[common]); sub.add_parser("verify", parents=[common])
-    args = parser.parse_args(); result = {"audit": audit, "publish": publish, "activate": activate, "verify": verify}[args.command](args)
+    args = parser.parse_args(); result = {"audit": audit, "recover": recover, "publish": publish, "activate": activate, "verify": verify}[args.command](args)
     print(json.dumps(result, sort_keys=True)); return 0
 
 

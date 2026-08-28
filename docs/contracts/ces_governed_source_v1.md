@@ -154,3 +154,25 @@ and geography, observation range, per-series maxima, mandatory common maximum,
 target month, optional lag, and duplicate/invalid counts.  CES-A does not publish,
 so later publication thresholds beyond these fail-closed invariants remain a
 CES-C decision.
+
+## Routine hosted monthly integration (CES-C)
+
+Routine production resolves the accepted CES artifact exclusively from the durable
+catalog/Release registry, plans an explicit three-inclusive-year
+`ordinary_overlap` request from the governed cycle context, and reconciles by
+letting provider overlap win while retaining prior-only governed facts. Mandatory
+membership and non-regressing mandatory target month fail closed. The resulting
+immutable candidate is cataloged and durably verified, but routine execution never
+activates `accepted.source.ces`.
+
+CES participates as an independent sibling of Redfin and FRED in the common
+`monthly_source_execution_result_v1` cohort barrier. The barrier remains a
+pre-promotion boundary: it creates no Source Set, advances no accepted pointer,
+and does not consume Redfin readiness. Transient BLS/transport and typed remote
+publication failures are retryable; identity, membership, schema, validation,
+collision, and governance failures are terminal.
+
+The controlled bootstrap additionally exposes an explicit `recover` operation for
+a late post-acquisition failure. Recovery refuses overwrite, requires and
+cross-validates the complete persisted audit evidence set, re-evaluates acceptance,
+and reconstructs the deterministic artifact without invoking BLS.
