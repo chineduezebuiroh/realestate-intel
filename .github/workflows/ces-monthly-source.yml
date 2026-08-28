@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       cycle_id: {required: true, type: string}
-      request_end_year: {required: true, type: string}
+      target_month: {required: true, type: string}
     secrets:
       BLS_API_KEY: {required: true}
     outputs:
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       cycle_id: {description: Deterministic cycle ID, required: true, type: string}
-      request_end_year: {description: Explicit inclusive ordinary request end year, required: true, type: string}
+      target_month: {description: Explicit governed cycle target month YYYY-MM, required: true, type: string}
 permissions:
   contents: write
 jobs:
@@ -34,9 +34,9 @@ jobs:
         continue-on-error: true
         env:
           BLS_API_KEY: ${{ secrets.BLS_API_KEY }}
-          REQUEST_END_YEAR: ${{ inputs.request_end_year }}
+          TARGET_MONTH: ${{ inputs.target_month }}
         run: |
-          request_end_year="${REQUEST_END_YEAR%%-*}"
+          request_end_year="${TARGET_MONTH%%-*}"
           test "$request_end_year" -ge 1900
           start_year=$((request_end_year - 2))
           python -m jobs.monthly_refresh.ces_monthly --output-root "$OUTPUT_ROOT" \
