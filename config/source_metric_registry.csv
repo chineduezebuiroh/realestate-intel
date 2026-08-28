@@ -26,9 +26,9 @@ laus_unemployment_rate,laus,laus_unemployment_rate_nsa,LAUS Unemployment Rate,Se
 
 fred_unemployment_rate,fred_unemp,fred_unemployment_rate_sa,FRED Unemployment Rate,Unemployment rate from FRED,nation|state,monthly,Percent,SA,true,
 
-ces_total_nonfarm,ces,ces_total_nonfarm_sa,CES Total Nonfarm Employment,Seasonally adjusted total nonfarm employment,state|cbsa_metro,monthly,Jobs,SA,true,
-ces_total_private,ces,ces_total_private_sa,CES Total Private Employment,Seasonally adjusted total private employment,state|cbsa_metro,monthly,Jobs,SA,true,
-ces_construction,ces,ces_construction_sa,CES Construction Employment,Seasonally adjusted construction employment,state|cbsa_metro,monthly,Jobs,SA,true,
+ces_total_nonfarm,ces,ces_total_nonfarm_sa,CES Total Nonfarm Employment,Seasonally adjusted total nonfarm employment,state|cbsa_metro,monthly,thousands_of_jobs,SA,true,
+ces_total_private,ces,ces_total_private_sa,CES Total Private Employment,Seasonally adjusted total private employment,state|cbsa_metro,monthly,thousands_of_jobs,SA,true,
+ces_construction,ces,ces_construction_sa,CES Construction Employment,Seasonally adjusted construction employment,state|cbsa_metro,monthly,thousands_of_jobs,SA,true,
 
 bps_total_units,census_bps,census_bp_total_units,Building Permits Total Units,Total permitted housing units,state|county|place,monthly,Units,NSA,true,
 bps_total_buildings,census_bps,census_bp_total_bldgs,Building Permits Total Buildings,Total permitted buildings,state|county|place,monthly,Buildings,NSA,true,
