@@ -17,11 +17,11 @@ from jobs.monthly_refresh.cohort import RESULT_CONTRACT, RESULT_REGISTRY_VERSION
 from jobs.monthly_refresh.production import validate_source_result
 
 RECORD_ROOT = "config/monthly_source_cycle_results"
-SEMANTIC_FIELDS = ("schema_version", "cycle_id", "source_id", "status", "validation_status",
-                   "publication_state", "accepted_pointer_changed", "candidate_artifact_id",
-                   "artifact_content_hash", "package_sha256", "provider_release_id",
-                   "observation_max", "prior_artifact_id", "source_change_detected",
-                   "retryability", "evidence_uri")
+IDENTITY_FIELDS = ("cycle_id", "source_id", "candidate_artifact_id", "artifact_content_hash",
+                   "package_sha256", "provider_release_id", "prior_artifact_id")
+SUCCESS_INVARIANTS = {"schema_version": RESULT_CONTRACT, "status": "succeeded",
+                      "validation_status": "passed", "publication_state": "published_verified",
+                      "accepted_pointer_changed": False}
 
 
 def _component(value: str, label: str) -> str:
@@ -69,14 +69,36 @@ def governed_record(result: Mapping[str, Any], policy: Mapping[str, Any],
 
 
 def semantic_identity(record: Mapping[str, Any]) -> tuple[Any, ...]:
+    """Return immutable candidate identity, excluding execution diagnostics."""
     return (record.get("cycle_id"), record.get("source_id"), record.get("result_contract"),
             record.get("policy_schema_version"),
-            *(record.get("result", {}).get(field) for field in SEMANTIC_FIELDS))
+            *(record.get("result", {}).get(field) for field in IDENTITY_FIELDS))
+
+
+def _validate_record_invariants(record: Mapping[str, Any]) -> None:
+    """Reject malformed or contradictory success records before identity reuse."""
+    if record.get("schema_version") != "monthly_source_cycle_result_v1":
+        raise ValueError("incompatible durable cycle-result schema")
+    if record.get("result_contract") != RESULT_CONTRACT or not record.get("policy_schema_version"):
+        raise ValueError("incompatible durable cycle-result contract")
+    result = record.get("result")
+    if not isinstance(result, Mapping):
+        raise ValueError("durable cycle-result is missing its result")
+    if result.get("cycle_id") != record.get("cycle_id") or result.get("source_id") != record.get("source_id"):
+        raise ValueError("durable cycle-result key contradiction")
+    for field, expected in SUCCESS_INVARIANTS.items():
+        if result.get(field) != expected:
+            raise ValueError(f"durable cycle-result success invariant contradiction: {field}")
+    for field in (value for value in IDENTITY_FIELDS if value != "prior_artifact_id"):
+        if result.get(field) in (None, ""):
+            raise ValueError(f"durable cycle-result missing identity: {field}")
 
 
 def add_record(existing: Mapping[str, Any] | None, proposed: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
+    _validate_record_invariants(proposed)
     if existing is None:
         return dict(proposed), True
+    _validate_record_invariants(existing)
     if semantic_identity(existing) == semantic_identity(proposed):
         return dict(existing), False
     raise IdentityCollisionError(

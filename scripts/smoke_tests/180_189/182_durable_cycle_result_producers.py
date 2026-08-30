@@ -18,6 +18,32 @@ for source in ("fred_macro","ces"):
  except IdentityCollisionError as exc: assert "collision" in str(exc)
  else: raise AssertionError("contradictory repeat did not fail closed")
 
+# Execution diagnostics may differ across replays of the same governed candidate.
+ces=records["ces"]
+for stored_change,fresh_change in ((True,False),(False,True)):
+ stored=copy.deepcopy(ces); stored["result"]["source_change_detected"]=stored_change
+ fresh=copy.deepcopy(ces); fresh["result"]["source_change_detected"]=fresh_change
+ fresh["result"].update({"retryability":"terminal","observation_max":"2099-12-31",
+                         "evidence_uri":"artifact://execution/another-receipt"})
+ same,changed=add_record(stored,fresh)
+ assert not changed and same==stored
+
+for field in ("candidate_artifact_id","artifact_content_hash","package_sha256",
+              "provider_release_id","prior_artifact_id"):
+ conflict=copy.deepcopy(ces)
+ conflict["result"][field]="different-governed-identity"
+ try: add_record(ces,conflict)
+ except IdentityCollisionError: pass
+ else: raise AssertionError(f"{field} mismatch did not collide")
+
+for field,value in (("status","failed"),("validation_status","failed"),
+                    ("publication_state","not_published"),("accepted_pointer_changed",True),
+                    ("schema_version","incompatible")):
+ contradiction=copy.deepcopy(ces); contradiction["result"][field]=value
+ try: add_record(ces,contradiction)
+ except ValueError: pass
+ else: raise AssertionError(f"{field} success invariant was not enforced")
+
 fred,ces=records["fred_macro"],records["ces"]
 for order in ((fred,ces),(ces,fred)):
  store={}
