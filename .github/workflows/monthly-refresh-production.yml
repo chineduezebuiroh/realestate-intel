@@ -6,15 +6,15 @@ on:
     branches: [monthly-refresh-orchestration]
     paths:
       - '.github/workflows/monthly-refresh-production.yml'
-      - '.github/workflows/redfin-monthly-source.yml'
-      - '.github/workflows/fred-monthly-source.yml'
-      - '.github/workflows/ces-monthly-source.yml'
+      - '.github/workflows/*-monthly-source.yml'
       - 'jobs/monthly_refresh/cohort.py'
+      - 'jobs/monthly_refresh/cycle_results.py'
       - 'jobs/monthly_refresh/readiness.py'
       - 'jobs/monthly_refresh/redfin_resolver.py'
       - 'config/monthly_refresh_readiness.json'
       - 'config/monthly_refresh_policy.json'
       - 'config/monthly_source_cycle_results.json'
+      - 'config/monthly_source_cycle_results/**'
       - 'docs/contracts/monthly_refresh_production_v1.md'
       - 'scripts/smoke_tests/170_179/175_monthly_source_cohort_orchestrator.py'
   workflow_dispatch:

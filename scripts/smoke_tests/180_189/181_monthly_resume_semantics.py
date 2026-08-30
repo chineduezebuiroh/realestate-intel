@@ -3,11 +3,12 @@ import copy, json
 from pathlib import Path
 import yaml
 from jobs.monthly_refresh.cohort import barrier_evidence, resolve_invocation, resolve_resume_results
+from jobs.monthly_refresh.cycle_results import load_registry
 
 catalog=json.loads(Path("config/artifact_catalog.json").read_text())
 readiness=json.loads(Path("config/monthly_refresh_readiness.json").read_text())
 policy=json.loads(Path("config/monthly_refresh_policy.json").read_text())
-registry=json.loads(Path("config/monthly_source_cycle_results.json").read_text())
+registry=load_registry(Path("config/monthly_source_cycle_results.json"))
 cycle=resolve_invocation(mode="resume",policy_path=Path("config/monthly_refresh_policy.json"),readiness=readiness,catalog=catalog,supplied_cycle_id="monthly_cycle__2026-07__7cab1c5df177a1e4")
 plan=resolve_resume_results(cycle=cycle,catalog=catalog,registry=registry,policy=policy)
 assert plan["reuse"]==["ces","fred_macro","redfin"] and plan["run"]==[]

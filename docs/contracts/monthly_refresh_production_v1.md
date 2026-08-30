@@ -84,6 +84,42 @@ Validation, schema, semantic-data, identity, catalog, and publication failures a
 retries and remain terminal at their owning boundary. Acquisition failure never selects stale data
 as a substitute.
 
+### Durable automated-source cycle-result authority
+
+The authoritative producer record is one immutable tracked JSON object at
+`config/monthly_source_cycle_results/<cycle_id>/<source_id>.json`. Its semantic key is the exact
+`(cycle_id, source_id)` pair. `config/monthly_source_cycle_results.json` is only the versioned registry
+root/bootstrap index, not a runtime aggregate writer. The accepted July 2026 FRED and CES seeds were
+deterministically moved, without changing embedded artifact, content, package, provider, or cycle
+identity, into this authoritative layout.
+
+An automated workflow creates its record only after acquisition/reconciliation, artifact validation,
+immutable publication and remote resolution, and successful common-result construction. Immediately
+before creation it reads the durable catalog and revalidates cycle/source identity, successful/passed
+states, unchanged accepted pointer, verified publication, artifact ID, content hash, package SHA,
+provider release identity, and catalog source. Missing or contradictory evidence fails closed. A
+workflow exposes successful output to the cohort only after the durable write succeeds. Transient
+transport or exhausted ref-contention retries fail the source job; contract and identity collisions
+are terminal.
+
+Run IDs, timestamps, attempts, and publisher SHAs do not participate in semantic identity. Repeating
+identical governed evidence is an idempotent no-op. Different governed evidence for the same key is an
+identity collision and never overwrites the first success. Each source writes a different path, so
+parallel automated-source completions share no mutable aggregate. Contents creation is atomic and
+bounded read-after-conflict retries distinguish an exact repeat from a contradiction. Barrier-owned
+aggregation was rejected because sibling failure before the barrier would lose an already-published
+success and force unnecessary reacquisition.
+
+Resume loads the immutable records plus bootstrap index and revalidates compatible entries against the
+catalog, allowing either automated sibling to be reused after the other fails. Replay deliberately
+ignores pins and executes all sources; an exact producer write is a no-op and contradictory evidence
+collides. Normal fan-out remains parallel. This lifecycle creates no Source Set, advances no accepted
+pointer, and does not consume Redfin readiness.
+
+Redfin intentionally does not write this registry. Its local/manual boundary already commits durable
+readiness plus catalog evidence, and the hosted resolver reconstructs the common result from that pin.
+Duplicating that authority merely for symmetry would create two control-plane truths.
+
 Commit points are deliberately separate: (1) truthful immutable source publication/cataloging;
 (2) validated candidate pinning; (3) complete Source Set v2 publication/acceptance; (4) validated
 canonical artifact publication/acceptance; and (5) source-pointer advancement. Successful source
