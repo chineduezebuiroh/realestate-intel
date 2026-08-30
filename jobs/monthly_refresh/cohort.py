@@ -160,8 +160,9 @@ def main() -> int:
             readiness=json.loads(args.readiness.read_text()), catalog=json.loads(args.catalog.read_text()),
             supplied_cycle_id=args.cycle_id)
     elif args.command == "resume-plan":
+        from jobs.monthly_refresh.cycle_results import load_registry
         value = resolve_resume_results(cycle=json.loads(args.cycle_json.read_text()),
-            catalog=json.loads(args.catalog.read_text()), registry=json.loads(args.registry.read_text()),
+            catalog=json.loads(args.catalog.read_text()), registry=load_registry(args.registry),
             policy=json.loads(args.policy.read_text()))
     else:
         cycle = json.loads(args.cycle_json.read_text()); results = [json.loads(p.read_text()) for p in args.result]

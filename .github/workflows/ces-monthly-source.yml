@@ -19,7 +19,7 @@ jobs:
   source:
     runs-on: ubuntu-latest
     outputs:
-      result_json: ${{ steps.result.outputs.result_json }}
+      result_json: ${{ steps.final.outputs.result_json }}
     env: {PYTHONPATH: ., OUTPUT_ROOT: artifacts/source_artifacts/ces/current_run}
     steps:
       - uses: actions/checkout@v4
@@ -62,3 +62,27 @@ jobs:
           value=json.dumps(result,separators=(',',':'),sort_keys=True)
           open(os.environ['GITHUB_OUTPUT'],'a').write('result_json='+value+'\n'); print(value)
           PY
+      - id: record
+        name: Durably record governed successful cycle result
+        if: steps.acquire.outcome == 'success' && steps.publish.outcome == 'success'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RESULT_JSON: ${{ steps.result.outputs.result_json }}
+        run: |
+          printf '%s' "$RESULT_JSON" > "$RUNNER_TEMP/source-result.json"
+          python -m jobs.monthly_refresh.cycle_results --repository "$GITHUB_REPOSITORY" \
+            --branch "$GITHUB_REF_NAME" --token "$GITHUB_TOKEN" --result "$RUNNER_TEMP/source-result.json" \
+            --output "$OUTPUT_ROOT/cycle-result-recording.json"
+      - id: final
+        name: Publish result only after required durable recording
+        if: always()
+        env:
+          RESULT_JSON: ${{ steps.result.outputs.result_json }}
+          RECORD_OUTCOME: ${{ steps.record.outcome }}
+        run: |
+          test -n "$RESULT_JSON"
+          if [ "$(jq -r .status <<<"$RESULT_JSON")" = succeeded ] && [ "$RECORD_OUTCOME" != success ]; then
+            echo 'Successful source result was not durably recorded' >&2; exit 1
+          fi
+          echo "result_json=$RESULT_JSON" >> "$GITHUB_OUTPUT"
