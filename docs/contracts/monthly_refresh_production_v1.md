@@ -102,9 +102,32 @@ workflow exposes successful output to the cohort only after the durable write su
 transport or exhausted ref-contention retries fail the source job; contract and identity collisions
 are terminal.
 
-Run IDs, timestamps, attempts, and publisher SHAs do not participate in semantic identity. Repeating
-identical governed evidence is an idempotent no-op. Different governed evidence for the same key is an
-identity collision and never overwrites the first success. Each source writes a different path, so
+The collision-bearing identity is cycle ID, source ID, candidate artifact ID, artifact content hash,
+package SHA, provider release ID, and prior artifact ID, together with compatible durable-result,
+execution-result, and policy schema contracts. `prior_artifact_id` is identity-bearing because it pins
+the reconciliation baseline from which the governed candidate was deterministically established; a
+different baseline is incompatible lineage even when candidate bytes happen to match.
+
+The fields of `monthly_source_execution_result_v1` are classified as follows:
+
+| Classification | Fields |
+|---|---|
+| Semantic identity / collision-bearing | `cycle_id`, `source_id`, `candidate_artifact_id`, `artifact_content_hash`, `package_sha256`, `provider_release_id`, `prior_artifact_id` |
+| Required governed invariant, not identity-bearing | `schema_version`, `status`, `validation_status`, `publication_state`, `accepted_pointer_changed` |
+| Receipt/execution metadata | `retryability`, `evidence_uri` |
+| Derived diagnostic | `observation_max`, `source_change_detected` |
+
+Successful, passed, remotely verified publication and an unchanged accepted pointer are required
+governed state invariants. They are validated before either creation or reuse rather than used to
+distinguish two valid immutable candidates. Execution/result diagnostics (`source_change_detected`,
+`retryability`, `observation_max`, and `evidence_uri`) do not participate in immutable candidate
+identity. In particular, source-change detection describes the relationship observed by one
+acquisition/reconciliation execution, so differing true/false values do not contradict an otherwise
+identical governed candidate. The first authoritative record is preserved; diagnostic differences do
+not merge or rewrite it. Run IDs, timestamps, attempts, publisher SHAs, Actions metadata, and recording
+receipts are outside the execution-result record and also do not participate in semantic identity.
+Repeating the same governed identity is an idempotent no-op. Different governed identity for the same
+key is an identity collision and never overwrites the first success. Each source writes a different path, so
 parallel automated-source completions share no mutable aggregate. Contents creation is atomic and
 bounded read-after-conflict retries distinguish an exact repeat from a contradiction. Barrier-owned
 aggregation was rejected because sibling failure before the barrier would lose an already-published
