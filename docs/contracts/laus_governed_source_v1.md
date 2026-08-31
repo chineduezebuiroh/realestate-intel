@@ -272,15 +272,21 @@ must not replace content identity.
 LAUS-B should perform full deterministic provider reconstruction into an isolated
 candidate, then a read-only comparison to both checked-in databases as legacy
 evidence. Classify every mapped key as exact match, provider revision, provider
-newer, provider historical-only, legacy prior-only, identity mismatch,
-unexplained numeric mismatch, or unit-scale mismatch.
+newer, provider historical-only, legacy prior-only, legacy out of governed scope,
+governed identity conflict, unexplained numeric mismatch, or unit-scale mismatch.
 
 Acceptable with counts/examples and reviewed explanation: exact, provider revision
 on identical series/key/unit, provider newer, provider historical-only, and legacy
-prior-only preserved by policy. Hard failures: identity mismatch, duplicate or
-ambiguous mapping, unit-scale mismatch, unexplained numeric mismatch, required
-membership failure, target regression, invalid values, or non-reproducible output.
-Legacy coverage differences never weaken gates.
+prior-only preserved by policy. A legacy-only row whose `(geo_id, metric_id)` is
+absent from the exact frozen registry is retained, counted, and audited as
+`LEGACY_OUT_OF_GOVERNED_SCOPE`; it is migration evidence and does not block
+governed bootstrap acceptance or expand governed membership. A contradiction
+inside configured identity space--including a legacy row denying a configured
+pair or claiming an unknown pair as configured--is a
+`GOVERNED_IDENTITY_CONFLICT` and remains fatal. Duplicate or ambiguous mapping,
+unit-scale mismatch, unexplained numeric mismatch, required membership failure,
+target regression, invalid values, or non-reproducible output also remain hard
+failures. Legacy coverage differences never weaken gates or override the registry.
 
 After review: immutable LAUS-only publication, catalog registration and remote
 verification, explicit compare-and-swap activation of only

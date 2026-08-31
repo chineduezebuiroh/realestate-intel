@@ -48,7 +48,22 @@ def main():
     empty=pd.DataFrame(columns=KEY+["value","source_id","identity_configured"])
     _,summary=equivalence_audit(provider_one,empty,plan); assert summary["provider_historical_only_count"]==1
     drift=pd.DataFrame([legacy_row(row,configured=False)])
-    _,summary=equivalence_audit(provider_one,drift,plan); assert summary["identity_mismatch_count"]==1
+    _,summary=equivalence_audit(provider_one,drift,plan)
+    assert summary["governed_identity_conflict_count"]==1
+    conflict=acceptance_gates(frame,{**diag,"missing_series":[]},summary)
+    assert not conflict["checks"]["no_governed_identity_conflict"] and conflict["status"]=="failed"
+    outside=legacy_row(row,configured=False); outside["geo_id"]="legacy_geo"
+    outside_frame=pd.DataFrame([outside])
+    detail,summary=equivalence_audit(provider_one,outside_frame,plan)
+    assert summary["legacy_out_of_governed_scope_count"]==1
+    outside_detail=detail[detail.comparison_category.eq("LEGACY_OUT_OF_GOVERNED_SCOPE")]
+    assert len(outside_detail)==1 and outside_detail.iloc[0]["_merge"]=="right_only"
+    allowed=acceptance_gates(frame,{**diag,"missing_series":[]},summary)
+    assert allowed["checks"]["no_governed_identity_conflict"]
+    # The same classification is used for secondary evidence, while only the
+    # primary summary is supplied to acceptance_gates.
+    _,secondary=equivalence_audit(provider_one,outside_frame,plan)
+    assert secondary["legacy_out_of_governed_scope_count"]==1 and allowed["status"]=="passed"
     many=frame.iloc[:5].copy(); scaled=pd.DataFrame([legacy_row(r,value=r.value*1000) for r in many.itertuples(index=False)])
     _,summary=equivalence_audit(many,scaled,plan); assert summary["unit_scale_mismatch_count"]==5 and summary["unit_scale"]["unit_scale_mismatch"]
     bad=acceptance_gates(many,{**diag,"missing_series":[]},summary); assert bad["status"]=="failed"
