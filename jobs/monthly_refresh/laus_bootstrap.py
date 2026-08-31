@@ -178,7 +178,7 @@ def validate_workspace(root: Path, *, expected_end_year: int | None = None) -> t
 
 
 def persist_acquisition(root: Path, plan: Mapping[str, Any], frame: pd.DataFrame,
-                        diagnostics: Mapping[str, Any], observations: list[dict[str, str]]) -> None:
+                        diagnostics: Mapping[str, Any], observations: list[dict[str, Any]]) -> None:
     frame.to_parquet(root/"canonical.parquet", index=False)
     write_canonical_json(root/"provider_observations.json", observations)
     write_canonical_json(root/"completeness.json", diagnostics)
@@ -254,7 +254,21 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def recover(args: argparse.Namespace) -> dict[str, Any]:
-    plan, frame, diagnostics = validate_workspace(args.output_root, expected_end_year=args.end_year)
+    root = args.output_root
+    if (root/"acquisition.json").is_file():
+        plan, frame, diagnostics = validate_workspace(root, expected_end_year=args.end_year)
+    else:
+        required = ("preflight.json", "request_plan.json", "acquired.json")
+        missing = [name for name in required if not (root/name).is_file()]
+        if missing: raise RuntimeError(f"LAUS recovery evidence incomplete: {missing}")
+        plan = _load_json(root/"request_plan.json")
+        if (plan.get("acquisition_mode") != "bootstrap" or plan.get("end_year") != args.end_year
+                or not plan.get("source_request_identity")):
+            raise RuntimeError("LAUS recovery request identity/end_year contradiction")
+        # Recovery deliberately has no transport path: persisted responses are decoded,
+        # membership-checked and canonicalized again before downstream evidence is written.
+        frame, diagnostics, observations = canonicalize(plan, _load_json(root/"acquired.json"))
+        persist_acquisition(root, plan, frame, diagnostics, observations)
     return complete_post_acquisition(args.output_root, plan, frame, diagnostics, args.legacy_serving,
                                      args.legacy_secondary, retrieved_at=args.retrieved_at or utc_now())
 

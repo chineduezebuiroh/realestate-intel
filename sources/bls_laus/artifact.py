@@ -205,11 +205,38 @@ def _numeric(value: Any) -> tuple[float, str]:
     return number, json.dumps(number, allow_nan=False, separators=(",", ":"))
 
 
+def _footnote_codes(raw: Mapping[str, Any]) -> tuple[str, ...]:
+    footnotes = raw.get("footnotes")
+    if footnotes is None:
+        return ()
+    if not isinstance(footnotes, list):
+        raise ValueError("invalid BLS LAUS footnotes")
+    codes = []
+    for footnote in footnotes:
+        if not isinstance(footnote, Mapping):
+            raise ValueError("invalid BLS LAUS footnote")
+        code = str(footnote.get("code") or "").strip()
+        if code:
+            codes.append(code)
+    return tuple(sorted(set(codes)))
+
+
+def _classify_observation(raw: Mapping[str, Any]) -> tuple[str, float | None, str | None, tuple[str, ...]]:
+    """Classify a datum before parsing; only BLS marker '-' plus stable code X is unavailable."""
+    codes = _footnote_codes(raw)
+    value = raw.get("value")
+    if value == "-" and "X" in codes:
+        return "provider_unavailable", None, None, codes
+    number, rendered = _numeric(value)
+    return "numeric", number, rendered, codes
+
+
 def canonicalize(plan: Mapping[str, Any], acquired: Sequence[Mapping[str, Any]], *,
-                 prior_target_month: str | None = None) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, str]]]:
+                 prior_target_month: str | None = None) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
     metadata = {item["series_id"]: item for item in plan["series"]}
     planned = {(r["start_year"], r["end_year"], r["batch_index"]): r for r in plan["requests"]}
     seen_requests = set(); returned = set(); observations = []; rows = []; m13_count = 0
+    unavailable = []; periods_by_series: dict[str, set[tuple[int, int]]] = {}
     per_series_min: dict[str, date] = {}; per_series_max: dict[str, date] = {}
     for acquired_item in acquired:
         request = acquired_item.get("request")
@@ -243,19 +270,27 @@ def canonicalize(plan: Mapping[str, Any], acquired: Sequence[Mapping[str, Any]],
                 except (KeyError, TypeError, ValueError) as exc: raise ValueError("invalid BLS LAUS year") from exc
                 if not int(request["start_year"]) <= year <= int(request["end_year"]):
                     raise ValueError(f"BLS LAUS observation outside request: {sid}")
-                value, rendered = _numeric(raw.get("value")); month = int(period[1:])
+                status, value, rendered, codes = _classify_observation(raw); month = int(period[1:])
                 observed = pd.Timestamp(year=year, month=month, day=1).to_period("M").end_time.date()
-                per_series_min[sid] = min(observed, per_series_min.get(sid, observed)); per_series_max[sid] = max(observed, per_series_max.get(sid, observed))
-                rows.append({"geo_id": meta["geo_id"], "metric_id": meta["metric_id"], "date": observed,
-                             "property_type_id": "all", "value": value, "source_id": SOURCE_ID, "property_type": "all"})
-                observations.append({"series_id": sid, "year": str(year), "period": period, "value": rendered})
+                periods_by_series.setdefault(sid, set()).add((year, month))
+                evidence = {"series_id": sid, "year": str(year), "period": period, "status": status}
+                if status == "numeric":
+                    per_series_min[sid] = min(observed, per_series_min.get(sid, observed)); per_series_max[sid] = max(observed, per_series_max.get(sid, observed))
+                    rows.append({"geo_id": meta["geo_id"], "metric_id": meta["metric_id"], "date": observed,
+                                 "property_type_id": "all", "value": value, "source_id": SOURCE_ID, "property_type": "all"})
+                    evidence["value"] = rendered
+                else:
+                    evidence.update({"provider_marker": "-", "footnote_codes": list(codes)})
+                    unavailable.append({"series_id": sid, "period": f"{year}-{month:02d}",
+                                        "metric_id": meta["metric_id"], "classification": meta["classification"], "codes": codes})
+                observations.append(evidence)
     if seen_requests != set(planned):
         raise ValueError("missing acquired LAUS request")
     frame = pd.DataFrame(rows, columns=CANONICAL_COLUMNS)
     if frame.duplicated(KEY).any():
         raise ValueError("duplicate LAUS canonical observation")
     frame = frame.sort_values(KEY, kind="mergesort").reset_index(drop=True)
-    observations.sort(key=lambda item: (item["series_id"], item["year"], item["period"], item["value"]))
+    observations.sort(key=lambda item: (item["series_id"], item["year"], item["period"], item["status"]))
     required = [item["series_id"] for item in plan["series"] if item["target_controlling"]]
     missing_required = sorted(sid for sid in required if sid not in per_series_max)
     if missing_required:
@@ -276,6 +311,13 @@ def canonicalize(plan: Mapping[str, Any], acquired: Sequence[Mapping[str, Any]],
         lag = None if maximum is None else (common.year-maximum.year)*12 + common.month-maximum.month
         diagnostic_lag.append({"series_id": item["series_id"], "observation_max": str(maximum) if maximum else None, "lag_months": lag})
     identity = provider_release_identity(plan, observations)
+    omitted_interior = {}
+    for sid, present in periods_by_series.items():
+        if len(present) < 2: continue
+        first = min(y * 12 + m - 1 for y, m in present); last = max(y * 12 + m - 1 for y, m in present)
+        missing = [f"{index // 12:04d}-{index % 12 + 1:02d}" for index in range(first, last + 1)
+                   if (index // 12, index % 12 + 1) not in present]
+        if missing: omitted_interior[sid] = missing
     diagnostics = {
         "requested_series_count": len(metadata), "returned_series_count": len(returned), "missing_series": sorted(set(metadata)-returned),
         "required_series_count": len(required), "diagnostic_series_count": len(metadata)-len(required),
@@ -285,6 +327,15 @@ def canonicalize(plan: Mapping[str, Any], acquired: Sequence[Mapping[str, Any]],
         "observation_min": str(frame.date.min()), "observation_max": str(frame.date.max()),
         "required_common_max": str(common), "target_month": target_month, "diagnostic_lag": diagnostic_lag,
         "m13_discarded_count": m13_count, "invalid_count": 0, "duplicate_count": 0,
+        "provider_unavailable_count": len(unavailable),
+        "provider_unavailable_series_count": len({item["series_id"] for item in unavailable}),
+        "provider_unavailable_by_period": dict(sorted(Counter(item["period"] for item in unavailable).items())),
+        "provider_unavailable_by_metric": dict(sorted(Counter(item["metric_id"] for item in unavailable).items())),
+        "provider_unavailable_by_classification": dict(sorted(Counter(item["classification"] for item in unavailable).items())),
+        "recognized_unavailable_codes": sorted({code for item in unavailable for code in item["codes"]}),
+        "omitted_interior_period_count": sum(map(len, omitted_interior.values())),
+        "omitted_interior_series_count": len(omitted_interior),
+        "omitted_interior_periods_by_series": dict(sorted(omitted_interior.items())),
         "source_request_identity": plan["source_request_identity"], "provider_release_id": identity,
         "unit_by_metric": dict(sorted({item["metric_id"]: item["unit"] for item in plan["series"]}.items())),
         "scale_transform": "none",
@@ -292,7 +343,7 @@ def canonicalize(plan: Mapping[str, Any], acquired: Sequence[Mapping[str, Any]],
     return frame, diagnostics, observations
 
 
-def provider_release_identity(plan: Mapping[str, Any], observations: Sequence[Mapping[str, str]]) -> str:
+def provider_release_identity(plan: Mapping[str, Any], observations: Sequence[Mapping[str, Any]]) -> str:
     payload = json.dumps(list(observations), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     plan_bytes = json.dumps({k: v for k, v in plan.items() if k != "source_request_identity"}, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     digest = hashlib.sha256(plan_bytes + b"\n" + payload).hexdigest()

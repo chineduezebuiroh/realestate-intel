@@ -66,6 +66,31 @@ def main():
     expect_error(lambda:canonicalize(ordinary,duplicate),"duplicate")
     expect_error(lambda:canonicalize(ordinary,acquired,prior_target_month="2026-08"),"regression")
 
+    unavailable=copy.deepcopy(acquired)
+    for item in unavailable:
+        for block in item["response"]["Results"]["series"]:
+            block["data"].insert(0,{"year":"2026","period":"M05","value":"-",
+                "footnotes":[{"code":"X","text":"Data unavailable due to a lapse in appropriations."}]})
+    hole_frame,hole_diag,hole_obs=canonicalize(ordinary,unavailable)
+    assert len(hole_frame)==820 and hole_diag["target_month"]=="2026-07"
+    assert hole_diag["provider_unavailable_count"]==820
+    assert hole_diag["provider_unavailable_series_count"]==820
+    assert hole_diag["provider_unavailable_by_period"]=={"2026-05":820}
+    assert hole_diag["recognized_unavailable_codes"]==["X"]
+    assert sum(item["status"]=="provider_unavailable" for item in hole_obs)==820
+    assert hole_diag["provider_release_id"]!=diag["provider_release_id"]
+    bare=copy.deepcopy(acquired); bare[0]["response"]["Results"]["series"][0]["data"][0]["value"]="-"
+    expect_error(lambda:canonicalize(ordinary,bare),"numeric")
+    frontier=copy.deepcopy(acquired)
+    for item in frontier:
+        for block in item["response"]["Results"]["series"]:
+            meta=next(row for row in ordinary["series"] if row["series_id"]==block["seriesID"])
+            if meta["target_controlling"]:
+                block["data"]=[{"year":"2026","period":"M05","value":"123.4"},
+                    {"year":"2026","period":"M06","value":"-","footnotes":[{"code":"X"}]}]
+    _,frontier_diag,_=canonicalize(ordinary,frontier)
+    assert frontier_diag["target_month"]=="2026-05"  # unavailable M06 cannot advance target
+
     calls=[]
     def transport(url,*,json,timeout):
         calls.append(json); return {"status":"REQUEST_SUCCEEDED","Results":{"series":[]}}
