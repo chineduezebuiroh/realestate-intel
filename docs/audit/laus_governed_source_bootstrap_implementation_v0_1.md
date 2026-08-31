@@ -33,12 +33,14 @@ can resume without another provider call. Workspace request/end-year, catalog
 preflight, hashes, required diagnostics and internal identities fail closed.
 
 The equivalence report classifies exact match, provider revision, provider newer,
-provider historical-only, legacy prior-only, identity mismatch, unexplained
-numeric mismatch and systematic 1000x unit mismatch at a fixed `1e-12` technical
-tolerance. Provider revision is permitted only for the same configured identity,
-canonical key, unit and transform under the explicit bootstrap revision policy.
-Identity, scale, unexplained numeric, completeness, uniqueness and numeric gates
-block candidate construction.
+provider historical-only, legacy prior-only, legacy out of governed scope,
+governed identity conflict, unexplained numeric mismatch and systematic 1000x
+unit mismatch at a fixed `1e-12` technical tolerance. Provider revision is
+permitted only for the same configured identity, canonical key, unit and
+transform under the explicit bootstrap revision policy. Governed identity
+conflict, scale, unexplained numeric, completeness, uniqueness and numeric gates
+block candidate construction. Out-of-scope legacy footprint remains visible but
+is not a governed data-quality failure.
 
 Publication is separately gated by passed audit, common artifact validation, and
 an explicit authenticated remote-inventory completion flag. Activation is
@@ -71,23 +73,48 @@ Read-only extraction (with file hashes unchanged) found:
 | `data/market_serving.duckdb` | 210,348 | 196,008 | 14,340 |
 | `data/market_public.duckdb` | 36,256 | 0 | 36,256 |
 
-These are structural preflight counts, not live provider equivalence results.
-They predict hard identity-review work for the legacy public aliases; no gate was
-weakened and neither database was modified.
+The persisted live recovery subsequently produced the following equivalence
+evidence before the taxonomy correction:
+
+| primary serving category | rows |
+|---|---:|
+| exact match | 195,385 |
+| provider revision | 623 |
+| provider newer | 1,640 |
+| provider historical only | 164,080 |
+| old identity mismatch | 14,340 |
+| unexplained numeric mismatch | 0 |
+| unit-scale mismatch | 0 |
+
+All 14,340 old identity-mismatch rows were `right_only`, had
+`identity_configured=False`, and had no configured `series_id`. They comprise 15
+legacy geography IDs by four governed metric names by 239 monthly observations
+(2006-05 through 2026-04). Thus they are legacy footprint outside the frozen
+governed registry, not competing provider identities or numeric/unit
+disagreements. The 15 IDs are `alexandria_city`, `arlington_county_va`,
+`arlington_msd`, `baltimore_city`, `baltimore_city_county`, `baltimore_county`,
+`bowie_city`, `dc_city`, `dc_county`, `dc_csa`, `dc_msd`,
+`montgomery_county_md`, `prince_georges_county_md`,
+`prince_william_county_va`, and `rockville_city`. Each of the four metrics
+(`laus_employment_nsa`, `laus_labor_force_nsa`, `laus_unemployment_nsa`, and
+`laus_unemployment_rate_nsa`) contributes 3,585 rows; each geography contributes
+956 rows.
+
+The secondary `market_public.duckdb` comparison reported zero exact matches,
+36,256 old identity mismatches, zero configured overlap, 361,728
+provider-historical-only rows, and zero numeric or unit-scale mismatches. It
+remains secondary migration evidence
+and cannot define or override governed membership. Both comparisons now derive
+`LEGACY_OUT_OF_GOVERNED_SCOPE` for a legacy-only unconfigured pair and reserve
+`GOVERNED_IDENTITY_CONFLICT` for contradictions involving configured identity
+space. The LAUS-local `laus_bootstrap_equivalence_v1` and
+`laus_bootstrap_acceptance_v1` schema versions are retained: their generic
+category/count and check maps carry the unambiguous replacement names, and no
+accepted or published LAUS artifact depends on the former semantics.
 
 ## Human execution command
 
-After authenticated remote tag inventory confirms no collision and a registered
-BLS key is available, run audit/equivalence only:
-
-```bash
-BLS_API_KEY='<registered-key>' PYTHONPATH=. python -m jobs.monthly_refresh.laus_bootstrap audit \
-  --end-year 2026 \
-  --output-root artifacts/bootstrap/laus/laus-bootstrap-1976-2026
-```
-
-If a post-acquisition local phase fails, replay from persisted evidence without
-BLS access:
+Replay only from the authoritative persisted acquisition, without BLS access:
 
 ```bash
 PYTHONPATH=. python -m jobs.monthly_refresh.laus_bootstrap recover \
@@ -103,10 +130,11 @@ new human authorization.
 ## Remaining OPEN items
 
 * authenticated read-only inventory of governed/historical LAUS Release tags;
-* live BLS bootstrap/equivalence evidence and resolution of any hard legacy
-  identity/equivalence findings;
+* local transport-free recovery and human review of the corrected live
+  equivalence evidence;
 * exact annual deep-reconciliation production calendar month (LAUS-C or later).
 
-The next action is human execution/review of the LAUS-B audit command above. Only
-after acceptance should a separately authorized publication/activation exercise
-occur. Routine hosted LAUS orchestration remains LAUS-C and is not implemented.
+The next action is human execution/review of the LAUS-B `recover` command above.
+Only after acceptance should a separately authorized publication/activation
+exercise occur. Routine hosted LAUS orchestration remains LAUS-C and is not
+implemented.

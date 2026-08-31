@@ -27,7 +27,8 @@ CATALOG_PATH = "config/artifact_catalog.json"
 BRANCH = "monthly-refresh-orchestration"
 TECHNICAL_TOLERANCE = 1e-12
 CATEGORIES = ("EXACT_MATCH", "PROVIDER_REVISION", "PROVIDER_NEWER", "PROVIDER_HISTORICAL_ONLY",
-              "LEGACY_PRIOR_ONLY", "IDENTITY_MISMATCH", "UNEXPLAINED_NUMERIC_MISMATCH", "UNIT_SCALE_MISMATCH")
+              "LEGACY_PRIOR_ONLY", "LEGACY_OUT_OF_GOVERNED_SCOPE", "GOVERNED_IDENTITY_CONFLICT",
+              "UNEXPLAINED_NUMERIC_MISMATCH", "UNIT_SCALE_MISMATCH")
 REQUIRED_EVIDENCE = ("preflight.json", "request_plan.json", "acquired.json", "provider_observations.json", "canonical.parquet",
                      "completeness.json", "acquisition.json")
 
@@ -111,7 +112,15 @@ def equivalence_audit(provider: pd.DataFrame, legacy: pd.DataFrame, plan: Mappin
     for _, row in merged.iterrows():
         configured = bool(row.get("identity_configured", True))
         pair = (row.geo_id, row.metric_id)
-        if not configured or pair not in pair_to_series: category = "IDENTITY_MISMATCH"
+        # A legacy-only identity absent from the frozen registry is migration
+        # footprint, not a contradiction inside governed identity space.
+        if row["_merge"] == "right_only" and not configured and pair not in pair_to_series:
+            category = "LEGACY_OUT_OF_GOVERNED_SCOPE"
+        # Every other registry-membership contradiction is fail-closed: this
+        # includes a legacy row denying a configured pair or claiming that an
+        # unknown pair is configured.
+        elif not configured or pair not in pair_to_series:
+            category = "GOVERNED_IDENTITY_CONFLICT"
         elif row["_merge"] == "left_only":
             maximum = legacy_max.get(pair); category = "PROVIDER_NEWER" if maximum and row.date > maximum else "PROVIDER_HISTORICAL_ONLY"
         elif row["_merge"] == "right_only": category = "LEGACY_PRIOR_ONLY"
@@ -135,7 +144,7 @@ def acceptance_gates(frame: pd.DataFrame, diagnostics: Mapping[str, Any], equiva
               "required_complete": diagnostics.get("required_series_count") == 615 and not diagnostics.get("missing_series"),
               "target_resolved": bool(diagnostics.get("target_month")), "canonical_unique": not frame.duplicated(KEY).any(),
               "canonical_finite": pd.to_numeric(frame.value).map(lambda x: pd.notna(x) and abs(x) != float("inf")).all(),
-              "no_identity_mismatch": equivalence.get("identity_mismatch_count", 0) == 0,
+              "no_governed_identity_conflict": equivalence.get("governed_identity_conflict_count", 0) == 0,
               "no_unit_scale_mismatch": not equivalence.get("unit_scale", {}).get("unit_scale_mismatch", True),
               "no_unexplained_numeric_mismatch": equivalence.get("unexplained_numeric_mismatch_count", 0) == 0}
     checks = {key: bool(value) for key, value in checks.items()}
