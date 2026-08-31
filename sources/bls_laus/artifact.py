@@ -88,7 +88,7 @@ def revision_bounds(mode: str, end_year: int) -> tuple[int, int]:
     end = int(end_year)
     if mode == "ordinary_overlap":
         return end - 2, end
-    if mode in {"deep_reconciliation", "bootstrap"}:
+    if mode in {"annual_deep", "deep_reconciliation", "bootstrap"}:
         if end < FULL_HISTORY_START_YEAR:
             raise ValueError("LAUS full-history end_year precedes 1976")
         return FULL_HISTORY_START_YEAR, end

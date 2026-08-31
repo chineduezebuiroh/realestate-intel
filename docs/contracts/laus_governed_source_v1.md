@@ -307,3 +307,51 @@ revision bounds/reconciliation inputs, identity payload, and bootstrap equivalen
 The smallest seam is a pure adapter returning canonical rows, provider identity,
 target month and diagnostics to the same artifact/result runner pattern used by
 CES. No common orchestration redesign is authorized.
+
+## 10. Annual-processing detector addendum (LAUS-C1)
+
+The former calendar-year cadence is superseded by the LAUS-specific hybrid policy
+in `config/laus_annual_processing_policy_v1.json`. A month or release-calendar
+event cannot authorize deep acquisition. Official BLS release evidence says when
+to watch; readiness requires official BLS publication evidence explicitly marking
+both governed processing classes complete. Exact area-code structure classifies
+`ST` as `model_based_state`, and `MT` plus `CN` as
+`substate_nonmodeled`; display names are never parsed.
+
+The states are `NOT_EXPECTED`, `WATCHING`, `READY_FOR_ANNUAL_DEEP`, and
+`ANNUAL_DEEP_SATISFIED`. Only READY selects `annual_deep`, whose bounds are
+`1976..explicit end_year`. Every other state selects the unchanged
+`ordinary_overlap` bounds `end_year-2..end_year`. The semantic vintage is
+`bls-laus-annual-processing-v1:<BLS annual reference year>` and excludes run,
+Git, retrieval, publication-platform, and wall-clock identities.
+
+API observation values and footnotes are diagnostic-only for annual readiness.
+In particular, numeric change cannot authorize READY, numeric no-change cannot
+block class-complete official evidence, and footnote `X` remains solely the
+independent `provider_unavailable` observation classification. Contradictory
+year/class/provenance evidence fails evaluation; incomplete class evidence stays
+WATCHING.
+
+Satisfaction is not detector output. It is created only from a successful,
+validated, remotely verified immutable LAUS result explicitly acquired as
+`annual_deep`. Its record binds the vintage and detector evidence to artifact
+ID/content/package/provider/cycle identities. A CAS store must use the supplied
+exact-idempotent/conflict-fail primitive. Failed or unpublished attempts create no
+record and therefore remain eligible on the next evaluation. C1 does not collect
+notices, execute a hosted run, publish an artifact, or alter an accepted pointer.
+
+## 11. Annual-publication raw capture boundary (LAUS-C1b)
+
+Authoritative publication bytes must be captured and archived before parsing.
+The source and every redirect target must be HTTPS on `bls.gov`; exact response
+bytes are content-addressed by SHA-256 with a separate retrieval receipt. Live
+runtime captures belong under `artifacts/laus_annual_processing` and are not
+committed as arbitrary webpage dumps.
+
+The C1b environment could not retrieve official BLS bytes and the repository had
+no archived official notice fixture. Therefore no deterministic provider parser
+or release identity was defensibly frozen. The raw collector raises a distinct
+parser-contract-unavailable governance failure and cannot emit normalized C1
+evidence, NOT_EXPECTED, or READY. Synthetic transport fixtures cannot establish
+provider semantics. Automatic READY and C2 integration remain blocked until
+reviewed official captures support class/year/status parsing and drift tests.
