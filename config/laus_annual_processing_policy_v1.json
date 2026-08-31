@@ -1,0 +1,17 @@
+{
+  "schema_version": "laus_annual_processing_policy_v1",
+  "source_id": "laus",
+  "enabled": true,
+  "authoritative_provider_hosts": ["bls.gov", "www.bls.gov"],
+  "authoritative_evidence_type": "official_bls_publication",
+  "required_processing_classes": ["model_based_state", "substate_nonmodeled"],
+  "series_prefix_processing_class": {
+    "CN": "substate_nonmodeled",
+    "MT": "substate_nonmodeled",
+    "ST": "model_based_state"
+  },
+  "ordinary_mode": "ordinary_overlap",
+  "annual_deep_mode": "annual_deep",
+  "annual_deep_start_year": 1976,
+  "notes": "Official BLS release information starts watching. Only normalized, class-specific official BLS publication evidence can establish readiness; observation footnotes and numeric changes cannot."
+}
