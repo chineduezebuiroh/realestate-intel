@@ -6,6 +6,7 @@ import shutil
 import tempfile
 from pathlib import Path
 import pandas as pd
+import jobs.monthly_refresh.laus_bootstrap as bootstrap_module
 
 from core.source_artifacts.hashing import write_canonical_json
 from jobs.monthly_refresh.laus_bootstrap import (
@@ -67,6 +68,16 @@ def main():
         expect_error(lambda:validate_workspace(corrupt,expected_end_year=2026),"corrupt")
         missing=Path(td)/"missing"; shutil.copytree(root,missing); (missing/"completeness.json").unlink()
         expect_error(lambda:validate_workspace(missing,expected_end_year=2026),"incomplete")
+        raw=Path(td)/"raw"; raw.mkdir()
+        write_canonical_json(raw/"preflight.json",preflight(catalog)); write_canonical_json(raw/"request_plan.json",plan)
+        write_canonical_json(raw/"acquired.json",fixture(plan))
+        raw_args=argparse.Namespace(output_root=raw,end_year=2026,legacy_serving=Path(td)/"none.duckdb",
+            legacy_secondary=[],retrieved_at="2026-08-30T00:00:00Z")
+        original=bootstrap_module.acquire
+        bootstrap_module.acquire=lambda *a,**k: (_ for _ in ()).throw(AssertionError("transport invoked"))
+        try: recovered=recover(raw_args)
+        finally: bootstrap_module.acquire=original
+        assert recovered["status"]=="audit_passed" and (raw/"acquisition.json").is_file()
     print("Smoke 185 passed: LAUS equivalence and workspace recovery fail closed.")
 
 if __name__=="__main__": main()

@@ -46,6 +46,17 @@ separate, resolves exactly one cataloged LAUS artifact, protects CES/FRED/Redfin
 pointers, and uses the common catalog CAS. Verification performs fresh durable
 resolution. None of these remote phases was executed here.
 
+## Persisted live acquisition corrective finding (2026-08-31)
+
+Unlike fixture evidence, the already-persisted live bootstrap responses contain
+820 explicit provider-unavailable observations: exactly one for every governed
+series, all at `2025-10`. Every datum has provider marker `"-"`, BLS footnote code
+`X`, and the explanation “Data unavailable due to the 2025 lapse in
+appropriations.” Inspection found zero series with an entirely omitted interior
+month. The corrective adapter preserves these facts in provider identity and
+diagnostics while omitting them from numeric canonical rows; it does not treat
+omitted periods or unexplained nonnumeric content as this state.
+
 ## Preflight findings
 
 The local artifact catalog still has no immutable LAUS record and no

@@ -101,8 +101,11 @@ is permitted.
 The normalized response uses `Results.series[].seriesID/data[]` and each datum's
 `year`, `period`, and `value`. `M01` through `M12` are monthly. `M13` is annual
 average and is always discarded; it must never become December. Missing/null,
-non-numeric, or non-finite values are invalid, not zero. Observation footnotes are
-diagnostic only unless a later reviewed contract assigns semantics.
+non-numeric, or non-finite values are invalid, not zero, with one narrow provider
+state: marker `"-"` accompanied by BLS footnote code `X` is an explicit
+`provider_unavailable` observation. A bare `"-"`, `NA`, `N/A`, blank, arbitrary
+text, or non-finite/malformed number remains fatal. Stable code, rather than
+free-form prose or a hard-coded date, controls recognition.
 
 LAUS-B must retain a fixture for the actual response/error schema, but API limits
 are no longer an open contract decision. If official documentation differs when
@@ -129,6 +132,13 @@ unexpected later period is retained only inside explicit bounds and cannot selec
 target. Target regression is fatal. A discontinued required series blocks until
 reviewed registry change; there is no implicit substitution.
 
+An explicit provider-unavailable observation is not a numeric target row and
+cannot satisfy target-month completeness. It may remain as an interior historical
+hole when later valid observations establish a complete common frontier; values
+are never filled, interpolated, or synthesized. A period omitted entirely remains
+distinct and is surfaced as an interior-omission diagnostic under the existing
+fail-closed completeness policy.
+
 Diagnostics contain requested/returned/missing series, rows per metric/geography,
 per-series minima/maxima, common maximum, target month, diagnostic lag, invalid,
 duplicate and M13 counts, and request/config identities.
@@ -147,6 +157,8 @@ Canonical key is `(geo_id, metric_id, date, property_type_id)`. Duplicate keys,
 conflicting duplicates, null keys/values, observations outside request bounds, or
 unknown mappings fail closed. Output is stable-sorted by key (then source/property
 compatibility columns); response and batch order cannot affect bytes.
+Explicit provider-unavailable observations emit no canonical row, so the market
+table remains strictly numeric.
 
 ## 6. Revision and reconciliation
 
@@ -242,13 +254,17 @@ provider_release_id = "laus-ordinary-current:" + sha256(
 )
 ```
 
-Canonical provider observations are stable-sorted tuples
-`(series_id, year, period, canonical_numeric_value)` for M01--M12, before geo
-mapping but after strict validation; numeric serialization must be one specified
+Canonical provider observations are stable-sorted records containing series,
+year, period, status, and (for `numeric`) canonical numeric value. An unavailable
+record instead contains status `provider_unavailable`, provider marker `"-"`, and
+stable sorted recognized footnote codes (currently `X`), but no numeric value or
+free-form prose. These records cover M01--M12, before geo mapping but after strict
+validation; numeric serialization must be one specified
 locale-independent representation. Include exact requested membership/bounds,
 not response order, footnote order, retrieval time, Actions run ID, publisher SHA,
 secret, or wall clock. Identical provider truth under the same plan reproduces the
-identity. A future proven immutable BLS release ID may be additional metadata but
+identity. Numeric-to-unavailable, unavailable-to-numeric, and omitted-to-explicitly
+unavailable changes therefore change provider identity. A future proven immutable BLS release ID may be additional metadata but
 must not replace content identity.
 
 ## 8. Bootstrap equivalence and activation
