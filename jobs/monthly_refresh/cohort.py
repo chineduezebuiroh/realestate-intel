@@ -10,7 +10,7 @@ from core.source_artifacts.hashing import write_canonical_json
 from jobs.monthly_refresh.production import evaluate_barrier, validate_source_result
 from jobs.monthly_refresh.readiness import eligible_record
 
-REQUIRED_SOURCES = ("redfin", "fred_macro", "ces")
+REQUIRED_SOURCES = ("redfin", "fred_macro", "ces", "laus")
 PIN_FIELDS = ("candidate_artifact_id", "artifact_content_hash", "package_sha256",
               "publication_state", "provider_release_id")
 RESULT_REGISTRY_VERSION = "monthly_source_cycle_results_v1"
