@@ -10,9 +10,13 @@ Reconnaissance was performed on 2026-08-31. The separately supplied production-s
 capture proves `https://www.bls.gov/feed/laus.rss` returned HTTP 200,
 `application/rss+xml`, 8,056 bytes, and SHA-256
 `64ff95bd1a6c60860dd4d49b06ca1bac10d19c1121d1901443a9fe2fef295631`.
-The supplied retrieval receipt time is `2026-08-31T18:14:34.371823Z`; the exact
-response body itself was not supplied inside this repository environment.
-It identified feed `bls.gov:feed:laus`, title `State Employment and Unemployment
+The supplied retrieval receipt time is `2026-08-31T18:14:34.371823Z`. The exact
+captured response body was subsequently promoted byte-for-byte into the repository
+test fixture
+`scripts/smoke_tests/fixtures/bls_laus/laus_rss_20260821.xml`. The committed
+fixture remains exactly 8,056 bytes with SHA-256
+`64ff95bd1a6c60860dd4d49b06ca1bac10d19c1121d1901443a9fe2fef295631`.
+It identifies feed `bls.gov:feed:laus`, title `State Employment and Unemployment
 (Monthly)`, and the January 2026 entry `laus-2026_04_08__10_00_00`, published
 2026-04-08, linking to the BLS LAUS archive.
 
@@ -62,13 +66,23 @@ separate governed BLS applicability record before it can normalize a C1 event;
 without one it raises a distinct governance error. With such evidence, the C1
 object still has `processing_classes=[]` and evaluates to `WATCHING`.
 
-The repository does not contain the 8,056 official bytes, so Smoke 189 honestly
-labels its minimized Atom as a **synthetic parser fixture mirroring the reviewed
-structural facts**, including the actual headline, content, link form, and category.
-It is not an official capture. `verify_official_capture_fixture` accepts future
-bytes only at exactly 8,056 bytes and SHA-256
-`64ff95bd1a6c60860dd4d49b06ca1bac10d19c1121d1901443a9fe2fef295631` before
-parsing. Exact-byte official fixture validation remains pending.
+The repository now contains the exact 8,056-byte official BLS RSS response as
+`scripts/smoke_tests/fixtures/bls_laus/laus_rss_20260821.xml`.
+`verify_official_capture_fixture` accepts it only at exactly 8,056 bytes and
+SHA-256
+`64ff95bd1a6c60860dd4d49b06ca1bac10d19c1121d1901443a9fe2fef295631`
+before parsing. Smoke 189 uses those exact official bytes as the positive
+provider-contract path and validates the feed identity, feed timestamp, actual
+January 2026 entry, publication identity, January reference-release
+classification, and derived annual reference year 2026.
+
+The minimized Atom remains in Smoke 189 only as a **synthetic mutation fixture**
+for negative/parser-drift tests; it fails the official-capture identity verifier.
+A one-byte mutation of the official fixture likewise fails that verifier.
+Exact-byte official RSS fixture validation is therefore complete. This validates
+the RSS provider contract and January reference-release discovery only; it does
+not establish annual-processing applicability or either processing-class
+completion.
 
 ## 3. API fields and footnote inventory
 
@@ -139,10 +153,11 @@ No annual deep was executed, candidate built/published, accepted pointer moved,
 or satisfaction created. Ordinary overlap remains three inclusive years and
 annual deep remains 1976 through explicit reviewed end year.
 
-The next action is a bounded provider-contract investigation with BLS: identify an
-official machine-readable publication/status endpoint (or documented immutable
-version marker) that explicitly covers final loading for all non-modeled metro **and**
-county areas. Capture and commit minimized official bytes only when licensing and
+With the exact RSS provider contract now validated, the next action is a bounded
+provider-contract investigation with BLS: identify an official machine-readable
+publication/status endpoint (or documented immutable version marker) that explicitly
+covers annual-processing applicability and final loading for all non-modeled metro
+**and** county areas. Capture and commit minimized official bytes only when licensing and
 repository policy permit, then test 2025/2026 staged transitions. Do not start C2
 unless that contract independently establishes both classes; absent such a BLS
 surface, governance requires leaving automatic READY unresolved rather than adding
