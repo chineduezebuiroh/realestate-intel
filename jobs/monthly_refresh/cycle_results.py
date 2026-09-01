@@ -35,7 +35,8 @@ def record_path(cycle_id: str, source_id: str) -> str:
 
 
 def governed_record(result: Mapping[str, Any], policy: Mapping[str, Any],
-                    catalog: Mapping[str, Any]) -> dict[str, Any]:
+                    catalog: Mapping[str, Any], *,
+                    source_evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Validate a published result and bind it to its exact durable catalog entry."""
     value = validate_source_result(dict(result), expected_cycle_id=result.get("cycle_id"))
     source_id = value["source_id"]
@@ -62,16 +63,26 @@ def governed_record(result: Mapping[str, Any], policy: Mapping[str, Any],
     for field, expected in checks.items():
         if value.get(field) != expected:
             raise ValueError(f"cycle result catalog identity mismatch: {field}")
-    return {"schema_version": "monthly_source_cycle_result_v1",
+    record = {"schema_version": "monthly_source_cycle_result_v1",
             "cycle_id": value["cycle_id"], "source_id": source_id,
             "result_contract": RESULT_CONTRACT,
             "policy_schema_version": policy["schema_version"], "result": value}
+    if source_evidence is not None:
+        if source_id != "laus" or source_evidence.get("schema_version") != "laus_cycle_execution_evidence_v1":
+            raise ValueError("unsupported source-specific cycle execution evidence")
+        if source_evidence.get("cycle_id") != value["cycle_id"]:
+            raise ValueError("source execution evidence cycle contradiction")
+        if source_evidence.get("acquisition_mode") not in {"ordinary_overlap", "annual_deep"}:
+            raise ValueError("invalid LAUS durable acquisition mode")
+        record["source_evidence"] = dict(source_evidence)
+    return record
 
 
 def semantic_identity(record: Mapping[str, Any]) -> tuple[Any, ...]:
     """Return immutable candidate identity, excluding execution diagnostics."""
     return (record.get("cycle_id"), record.get("source_id"), record.get("result_contract"),
             record.get("policy_schema_version"),
+            json.dumps(record.get("source_evidence"), sort_keys=True, separators=(",", ":")),
             *(record.get("result", {}).get(field) for field in IDENTITY_FIELDS))
 
 
@@ -164,12 +175,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(); parser.add_argument("--repository", required=True)
     parser.add_argument("--branch", required=True); parser.add_argument("--token", required=True)
     parser.add_argument("--result", type=Path, required=True)
+    parser.add_argument("--source-evidence", type=Path)
     parser.add_argument("--policy", type=Path, default=Path("config/monthly_refresh_policy.json"))
     parser.add_argument("--catalog-path", default="config/artifact_catalog.json")
     parser.add_argument("--output", type=Path, required=True); args = parser.parse_args()
     api = GitHubAPI(args.repository, args.token)
     catalog, _ = GitHubCatalogCAS(api, args.catalog_path, args.branch).read()
-    record = governed_record(json.loads(args.result.read_text()), json.loads(args.policy.read_text()), catalog)
+    evidence = json.loads(args.source_evidence.read_text()) if args.source_evidence else None
+    record = governed_record(json.loads(args.result.read_text()), json.loads(args.policy.read_text()), catalog,
+                             source_evidence=evidence)
     stored, changed = GitHubCycleResultStore(api, args.branch).put(record)
     receipt = {"schema_version": "monthly_source_cycle_result_recording_receipt_v1",
                "cycle_id": stored["cycle_id"], "source_id": stored["source_id"],

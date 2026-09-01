@@ -10,6 +10,7 @@ import hashlib
 import json
 import base64
 import time
+from datetime import date
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Iterable, Mapping
@@ -66,6 +67,35 @@ def annual_vintage_id(annual_reference_year: int) -> str:
     if year < 1976:
         raise ValueError("invalid LAUS annual reference year")
     return f"bls-laus-annual-processing-v1:{year}"
+
+
+def select_routine(*, cycle_date: date, annual_reference_year: int,
+                   satisfactions: Iterable[Mapping[str, Any]] = ()) -> AnnualDecision:
+    """C2 production authority: July not-before plus exact-vintage satisfaction.
+
+    Provider publication evidence remains diagnostic and is deliberately not an
+    authorization input to this deterministic routine decision.
+    """
+    year = int(annual_reference_year)
+    if cycle_date.year != year:
+        raise ValueError("LAUS cycle date/reference year contradiction")
+    vintage = annual_vintage_id(year)
+    matches = [dict(item) for item in satisfactions
+               if item.get("annual_vintage_id") == vintage]
+    if matches:
+        first = matches[0]
+        if any(_semantic_satisfaction(item) != _semantic_satisfaction(first)
+               for item in matches[1:]):
+            raise ValueError("conflicting durable annual satisfaction records")
+        validate_satisfaction(first)
+    evidence = {"selection_authority": "c2_july_not_before_and_satisfaction",
+                "cycle_date": cycle_date.isoformat(),
+                "provider_completion_evidence_required": False}
+    if cycle_date < date(year, 7, 1):
+        return AnnualDecision(AnnualState.NOT_EXPECTED, "ordinary_overlap", vintage, year, evidence)
+    if matches:
+        return AnnualDecision(AnnualState.ANNUAL_DEEP_SATISFIED, "ordinary_overlap", vintage, year, evidence)
+    return AnnualDecision(AnnualState.READY_FOR_ANNUAL_DEEP, "annual_deep", vintage, year, evidence)
 
 
 def _official_url(url: str, allowed_hosts: set[str]) -> bool:

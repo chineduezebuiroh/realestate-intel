@@ -62,11 +62,11 @@ for field in ("artifact_content_hash","package_sha256","provider_release_id"):
 wrong=copy.deepcopy(catalog); next(r for r in wrong["immutable_records"] if r["object_id"]==fred["result"]["candidate_artifact_id"])["metadata"]["source_id"]="ces"; reject(fred["result"],wrong)
 
 cycle=resolve_invocation(mode="resume",policy_path=Path("config/monthly_refresh_policy.json"),readiness=readiness,catalog=catalog,supplied_cycle_id=cycle_id)
-for retained,reuse,run in ((fred,["fred_macro","redfin"],["ces"]),(ces,["ces","redfin"],["fred_macro"])):
+for retained,reuse,run in ((fred,["fred_macro","redfin"],["ces","laus"]),(ces,["ces","redfin"],["fred_macro","laus"])):
  plan=resolve_resume_results(cycle=cycle,catalog=catalog,registry={"schema_version":"monthly_source_cycle_results_v1","records":[retained]},policy=policy)
  assert plan["reuse"]==reuse and plan["run"]==run
 replay=resolve_resume_results(cycle=dict(cycle,invocation_mode="replay"),catalog=catalog,registry=registry,policy=policy)
-assert replay["reuse"]==[] and replay["run"]==["redfin","fred_macro","ces"]
+assert replay["reuse"]==[] and replay["run"]==["redfin","fred_macro","ces","laus"]
 
 for path in (Path(".github/workflows/fred-monthly-source.yml"),Path(".github/workflows/ces-monthly-source.yml")):
  workflow=yaml.safe_load(path.read_text()); steps=workflow["jobs"]["source"]["steps"]; ids=[s.get("id") for s in steps]

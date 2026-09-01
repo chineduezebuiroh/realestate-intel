@@ -1,0 +1,84 @@
+name: LAUS governed cohort source
+on:
+  workflow_call:
+    inputs:
+      cycle_id: {required: true, type: string}
+      target_month: {required: true, type: string}
+      invocation_mode: {required: true, type: string}
+    secrets:
+      BLS_API_KEY: {required: true}
+    outputs:
+      result_json: {value: '${{ jobs.source.outputs.result_json }}'}
+  workflow_dispatch:
+    inputs:
+      cycle_id: {required: true, type: string}
+      target_month: {required: true, type: string}
+      invocation_mode: {required: true, type: choice, options: [normal, resume, replay]}
+permissions: {contents: write}
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    outputs: {result_json: '${{ steps.final.outputs.result_json }}'}
+    env: {PYTHONPATH: ., OUTPUT_ROOT: artifacts/source_artifacts/laus/current_run}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - id: select
+        run: |
+          python -m jobs.monthly_refresh.laus_routine select --target-month '${{ inputs.target_month }}' --output "$RUNNER_TEMP/selection.json"
+          echo "mode=$(jq -r .acquisition_mode "$RUNNER_TEMP/selection.json")" >> "$GITHUB_OUTPUT"
+      - id: prior
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: python -m jobs.monthly_refresh.laus_durable resolve-prior --repository "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --workspace "$RUNNER_TEMP/prior" --output "$RUNNER_TEMP/prior.json" --github-output "$GITHUB_OUTPUT"
+      - id: acquire
+        continue-on-error: true
+        env: {BLS_API_KEY: '${{ secrets.BLS_API_KEY }}'}
+        run: |
+          end_year='${{ inputs.target_month }}'; end_year="${end_year%%-*}"
+          python -m jobs.monthly_refresh.laus_monthly --output-root "$OUTPUT_ROOT" --prior-artifact '${{ steps.prior.outputs.prior_artifact }}' --acquisition-mode '${{ steps.select.outputs.mode }}' --end-year "$end_year"
+      - id: publish
+        if: steps.acquire.outcome == 'success'
+        continue-on-error: true
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: python -m jobs.monthly_refresh.laus_durable publish --repository "$GITHUB_REPOSITORY" --artifact "$OUTPUT_ROOT/artifact" --workspace "$RUNNER_TEMP/publication" --publisher-git-sha "$GITHUB_SHA" --output "$OUTPUT_ROOT/publication.json"
+      - id: result
+        if: always()
+        env: {CYCLE_ID: '${{ inputs.cycle_id }}', ACQUIRE_OUTCOME: '${{ steps.acquire.outcome }}', PUBLISH_OUTCOME: '${{ steps.publish.outcome }}', ACQUISITION_MODE: '${{ steps.select.outputs.mode }}'}
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          from jobs.monthly_refresh.laus_result import build_result
+          r=build_result(root=Path(os.environ['OUTPUT_ROOT']),cycle_id=os.environ['CYCLE_ID'],acquire_outcome=os.environ['ACQUIRE_OUTCOME'],publish_outcome=os.environ['PUBLISH_OUTCOME'],acquisition_mode=os.environ['ACQUISITION_MODE'])
+          v=json.dumps(r,separators=(',',':'),sort_keys=True); open(os.environ['GITHUB_OUTPUT'],'a').write('result_json='+v+'\n'); print(v)
+          PY
+      - id: record
+        if: inputs.invocation_mode != 'replay' && steps.acquire.outcome == 'success' && steps.publish.outcome == 'success'
+        continue-on-error: true
+        env: {GITHUB_TOKEN: '${{ github.token }}', RESULT_JSON: '${{ steps.result.outputs.result_json }}'}
+        run: |
+          printf '%s' "$RESULT_JSON" > "$RUNNER_TEMP/source-result.json"
+          executed_mode="$(jq -r .acquisition_mode "$OUTPUT_ROOT/run_report.json")"
+          test "$executed_mode" = '${{ steps.select.outputs.mode }}'
+          jq -n --arg cycle '${{ inputs.cycle_id }}' --arg target '${{ inputs.target_month }}' \
+            --arg mode "$executed_mode" \
+            --arg vintage "$(jq -r .annual_vintage_id "$RUNNER_TEMP/selection.json")" \
+            --argjson year "$(jq -r .annual_reference_year "$RUNNER_TEMP/selection.json")" \
+            '{schema_version:"laus_cycle_execution_evidence_v1",cycle_id:$cycle,target_month:$target,annual_reference_year:$year,annual_vintage_id:$vintage,acquisition_mode:$mode}' \
+            > "$RUNNER_TEMP/laus-cycle-evidence.json"
+          python -m jobs.monthly_refresh.cycle_results --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" --token "$GITHUB_TOKEN" --result "$RUNNER_TEMP/source-result.json" --source-evidence "$RUNNER_TEMP/laus-cycle-evidence.json" --output "$OUTPUT_ROOT/cycle-result-recording.json"
+      - id: satisfy
+        if: inputs.invocation_mode != 'replay' && steps.select.outputs.mode == 'annual_deep' && steps.record.outcome == 'success'
+        env: {GITHUB_TOKEN: '${{ github.token }}', RESULT_JSON: '${{ steps.result.outputs.result_json }}'}
+        run: |
+          python -m jobs.monthly_refresh.laus_routine satisfy --target-month '${{ inputs.target_month }}' --cycle-id '${{ inputs.cycle_id }}' --invocation-mode '${{ inputs.invocation_mode }}' --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME"
+      - id: final
+        if: always()
+        env: {RESULT_JSON: '${{ steps.result.outputs.result_json }}', RECORD_OUTCOME: '${{ steps.record.outcome }}', SATISFY_OUTCOME: '${{ steps.satisfy.outcome }}', INVOCATION_MODE: '${{ inputs.invocation_mode }}', ACQUISITION_MODE: '${{ steps.select.outputs.mode }}'}
+        run: |
+          test -n "$RESULT_JSON"
+          if [ "$(jq -r .status <<<"$RESULT_JSON")" = succeeded ] && [ "$INVOCATION_MODE" != replay ] && [ "$RECORD_OUTCOME" != success ]; then exit 1; fi
+          if [ "$(jq -r .status <<<"$RESULT_JSON")" = succeeded ] && [ "$INVOCATION_MODE" != replay ] && [ "$ACQUISITION_MODE" = annual_deep ] && [ "$SATISFY_OUTCOME" != success ]; then exit 1; fi
+          echo "result_json=$RESULT_JSON" >> "$GITHUB_OUTPUT"

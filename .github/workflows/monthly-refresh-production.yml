@@ -47,9 +47,11 @@ jobs:
       resume_redfin_result: ${{ steps.plan.outputs.resume_redfin_result }}
       resume_fred_result: ${{ steps.plan.outputs.resume_fred_result }}
       resume_ces_result: ${{ steps.plan.outputs.resume_ces_result }}
+      resume_laus_result: ${{ steps.plan.outputs.resume_laus_result }}
       run_redfin: ${{ steps.plan.outputs.run_redfin }}
       run_fred: ${{ steps.plan.outputs.run_fred }}
       run_ces: ${{ steps.plan.outputs.run_ces }}
+      run_laus: ${{ steps.plan.outputs.run_laus }}
       pins_json: ${{ steps.plan.outputs.pins_json }}
       cycle_json: ${{ steps.resolve.outputs.cycle_json }}
     steps:
@@ -80,7 +82,7 @@ jobs:
         if: steps.resolve.outputs.fan_out == 'true'
         run: |
           python -m jobs.monthly_refresh.cohort resume-plan --cycle-json "$RUNNER_TEMP/cycle.json" --output "$RUNNER_TEMP/plan.json"
-          for source in redfin fred_macro ces; do
+          for source in redfin fred_macro ces laus; do
             key="$source"; [ "$source" = fred_macro ] && key=fred
             echo "run_${key}=$(jq -r --arg s "$source" '.run | contains([$s])' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
             echo "resume_${key}_result=$(jq -c --arg s "$source" '.results[]? | select(.source_id==$s)' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
@@ -113,9 +115,32 @@ jobs:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
       target_month: ${{ needs.resolve-cycle.outputs.target_month }}
     secrets: inherit
+  laus:
+    needs: resolve-cycle
+    if: needs.resolve-cycle.outputs.fan_out == 'true' && needs.resolve-cycle.outputs.run_laus == 'true'
+    permissions: {contents: write}
+    uses: ./.github/workflows/laus-monthly-source.yml
+    with:
+      cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
+      target_month: ${{ needs.resolve-cycle.outputs.target_month }}
+      invocation_mode: ${{ inputs.mode || 'normal' }}
+    secrets: inherit
+  laus-satisfaction-repair:
+    needs: resolve-cycle
+    if: inputs.mode == 'resume' && needs.resolve-cycle.outputs.resume_laus_result != ''
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: python -m jobs.monthly_refresh.laus_routine satisfy --target-month '${{ needs.resolve-cycle.outputs.target_month }}' --cycle-id '${{ needs.resolve-cycle.outputs.cycle_id }}' --invocation-mode resume --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME"
   barrier:
     if: always() && needs.resolve-cycle.outputs.fan_out == 'true'
-    needs: [resolve-cycle, redfin, fred, ces]
+    needs: [resolve-cycle, redfin, fred, ces, laus, laus-satisfaction-repair]
     runs-on: ubuntu-latest
     permissions: {contents: read}
     env:
@@ -133,11 +158,14 @@ jobs:
           REDFIN_RESULT: ${{ needs.redfin.outputs.result_json }}
           FRED_RESULT: ${{ needs.fred.outputs.result_json }}
           CES_RESULT: ${{ needs.ces.outputs.result_json }}
+          LAUS_RESULT: ${{ needs.laus.outputs.result_json }}
           RESUME_REDFIN: ${{ needs.resolve-cycle.outputs.resume_redfin_result }}
           RESUME_FRED: ${{ needs.resolve-cycle.outputs.resume_fred_result }}
           RESUME_CES: ${{ needs.resolve-cycle.outputs.resume_ces_result }}
+          RESUME_LAUS: ${{ needs.resolve-cycle.outputs.resume_laus_result }}
           PINS_JSON: ${{ needs.resolve-cycle.outputs.pins_json }}
         run: |
+          test '${{ needs.laus-satisfaction-repair.result }}' != failure
           printf '%s' "$CYCLE_JSON" > "$RUNNER_TEMP/cycle.json"
           args=(--cycle-json "$RUNNER_TEMP/cycle.json" --output "$RUNNER_TEMP/cohort.json")
           if [ -n "$REDFIN_RESULT" ]; then
@@ -146,10 +174,12 @@ jobs:
             printf '%s' "$RESUME_REDFIN" > "$RUNNER_TEMP/resume-redfin.json"; args+=(--reused-result "$RUNNER_TEMP/resume-redfin.json")
           fi
           if [ -n "$RESUME_FRED" ]; then printf '%s' "$RESUME_FRED" > "$RUNNER_TEMP/resume-fred.json"; args+=(--reused-result "$RUNNER_TEMP/resume-fred.json"); fi
+          if [ -n "$RESUME_LAUS" ]; then printf '%s' "$RESUME_LAUS" > "$RUNNER_TEMP/resume-laus.json"; args+=(--reused-result "$RUNNER_TEMP/resume-laus.json"); fi
           if [ -n "$RESUME_CES" ]; then printf '%s' "$RESUME_CES" > "$RUNNER_TEMP/resume-ces.json"; args+=(--reused-result "$RUNNER_TEMP/resume-ces.json"); fi
           if [ -n "$PINS_JSON" ]; then printf '%s' "$PINS_JSON" > "$RUNNER_TEMP/pins.json"; args+=(--pins-json "$RUNNER_TEMP/pins.json"); fi
           if [ -n "$FRED_RESULT" ]; then printf '%s' "$FRED_RESULT" > "$RUNNER_TEMP/fred.json"; args+=(--result "$RUNNER_TEMP/fred.json"); fi
           if [ -n "$CES_RESULT" ]; then printf '%s' "$CES_RESULT" > "$RUNNER_TEMP/ces.json"; args+=(--result "$RUNNER_TEMP/ces.json"); fi
+          if [ -n "$LAUS_RESULT" ]; then printf '%s' "$LAUS_RESULT" > "$RUNNER_TEMP/laus.json"; args+=(--result "$RUNNER_TEMP/laus.json"); fi
           python -m jobs.monthly_refresh.cohort barrier "${args[@]}"
           cat "$RUNNER_TEMP/cohort.json" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
