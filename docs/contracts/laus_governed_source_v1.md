@@ -355,3 +355,18 @@ parser-contract-unavailable governance failure and cannot emit normalized C1
 evidence, NOT_EXPECTED, or READY. Synthetic transport fixtures cannot establish
 provider semantics. Automatic READY and C2 integration remain blocked until
 reviewed official captures support class/year/status parsing and drift tests.
+
+## 12. Machine-readable hybrid stop boundary (LAUS-C1b.2)
+
+The separately supplied capture facts validate the LAUS Atom surface for
+reference-release discovery; exact-byte fixture validation remains pending. A
+corroborated January title/content identifies the reference month, but RSS alone
+does not establish annual-processing applicability. Separately governed BLS
+applicability evidence may begin `WATCHING`; RSS supplies no processing-class
+completion. No reviewed API v2 observation or time-series flat-file annual-vintage
+or provisional/final loading marker has been established. They cannot automatically complete
+either `model_based_state` or `substate_nonmodeled`; numeric/availability state
+remains diagnostic only. Transport, parser, or schema failure is a governance
+error rather than `NOT_EXPECTED`. Automatic READY remains blocked pending a
+BLS-controlled machine-readable final-loading signal covering both MT and CN as
+well as model-based states.

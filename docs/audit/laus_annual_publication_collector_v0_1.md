@@ -111,5 +111,9 @@ whose release identity binds source, year, class, status, and raw SHA. Tests mus
 cover harmless prose variation, structural/semantic drift, revised bytes,
 contradictions, 2025 staging, and 2026 delay before the parser may feed C1.
 
-Until that reviewed continuation passes, automatic READY is not trustworthy and
-LAUS-C2 is unsafe.
+C1b.2 subsequently received reviewed structural facts from a separate official
+LAUS RSS capture and added a dedicated narrow Atom parser outside this raw capture
+module. The exact 8,056 bytes remain unavailable for fixture validation. No
+reviewed class-completion metadata is established; automatic READY remains
+untrustworthy and LAUS-C2 remains unsafe. See
+`docs/audit/laus_hybrid_annual_processing_evidence_v0_1.md`.

@@ -13,5 +13,5 @@
   "ordinary_mode": "ordinary_overlap",
   "annual_deep_mode": "annual_deep",
   "annual_deep_start_year": 1976,
-  "notes": "Official BLS release information starts watching. Only normalized, class-specific official BLS publication evidence can establish readiness; observation footnotes and numeric changes cannot."
+  "notes": "The official BLS LAUS Atom surface provides January reference-release facts. RSS alone does not establish annual-processing applicability or class completion. Separately governed applicability may start WATCHING; only normalized class-specific official BLS completion evidence may establish readiness. No reviewed API or download completion marker has been established."
 }
