@@ -154,7 +154,10 @@ durable-record contract, and fixture smoke coverage. It does not add LAUS to a
 hosted workflow, change the production schedule, consume Redfin readiness,
 publish a candidate, or move `accepted.source.laus`.
 
-Before C2, execute the C1b raw collector outside the blocked environment, review
-the archived official bytes, and implement the still-missing class-specific parser
-with official fixtures and drift tests. Only after that gate passes should C2 bind
-the pure selector and CAS-backed satisfaction store into the monthly source runner.
+The corrected C1b.2 review validates supplied RSS structural facts as
+reference-release discovery; the exact 8,056-byte fixture remains unavailable.
+RSS requires separately governed annual applicability before a C1 expectation is
+formed, and no reviewed API/download class-completion marker is established. See
+`docs/audit/laus_hybrid_annual_processing_evidence_v0_1.md`. Before C2, establish
+a BLS-controlled machine-readable final-loading signal covering state and all
+non-modeled metro/county data; RSS alone must not manufacture applicability.
