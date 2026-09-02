@@ -116,3 +116,17 @@ Census release month, retain the diagnostic artifact, and review its hashes,
 schema/token inventory, 168-row coverage, two equivalence summaries, and
 official Census documentation before changing this migration state. Do not
 publish or accept during that review.
+
+## 2026-09-02 BPS-C evidence amendment
+
+This amendment supersedes the earlier blocked compiled conclusions while retaining that execution history.
+
+**OBSERVED / PROVEN.** Census Compiled Data Documentation distinguishes estimate-with-imputation `TOTAL_UNITS` from reported-only `TOTAL_UNITS_REP`; the governed total is the former. Pinned 2026-04 evidence is URL/member/hashes/raw count recorded in the contract. Its governed output covers 1988-01 through 2026-04, all 168 configured geographies are present, and variable per-geography starts are provider behavior. Twenty-four duplicated canonical keys have identical values and no conflict. Compiled legacy equivalence is 29,840 exact, 0 revisions, 0 prior-only, 10,664 provider-only, and 0 identity conflicts.
+
+**CONTRACT DECISION.** The compiled artifact is a complete historical snapshot. `FIPS_COUNTY_5_DIGITS` is the county identifier; three-digit `COUNTY_CODE` is excluded. Identical duplicates collapse observably; conflicting duplicates fail. Missing history is neither a zero nor a reason for an annual ingestion subsystem. Serving comparison's 167 May prior-only governed rows and 50 out-of-registry metro identity rows belong to the provisional overlay and do not gate compiled acceptance.
+
+**PROVISIONAL OBSERVATION.** Reconnaissance resolved a coherent historical pin `2607` across state, county, and CBSA URLs. The read-only verifier freezes the known headerless layouts, estimate-side unit-band total, identifier mapping, one-month/release coherence, token inventory, duplicates, coverage, out-of-governance inventory, hashes/HTTP metadata, and optional legacy comparison. The release is fixture/evidence, not a current default. Direct Census access in this implementation environment again failed with proxy HTTP 403, so exact live counts/hashes/footprint and equivalence are explicitly not claimed here.
+
+**UNRESOLVED.** First-party meaning for any nonnumeric token and provider omission/retraction semantics remain open. A successful retained live verification output must answer those and freeze the exact provisional evidence before publication is considered.
+
+**FUTURE PRODUCTION-INTEGRATION REQUIREMENT.** New-cohort discovery and immutable pinning precede execution. Resume/replay reuse pins. Compiled and provisional retain independent releases and artifacts while later joining the common governed-source publication/promotion/barrier lifecycle. No production integration occurred in this pass.
