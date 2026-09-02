@@ -58,7 +58,10 @@ def rejected(rows, message):
     try: canonicalize(plan, rows)
     except ValueError as exc: assert message in str(exc)
     else: raise AssertionError("invalid BPS provider truth was accepted")
-rejected([provider(nation, 1), provider(nation, 2)], "duplicate")
+# Identical provider duplication collapses; conflicting values fail closed.
+deduped, dedupe_diagnostics = canonicalize(plan, [provider(nation, 1), provider(nation, 1)])
+assert len(deduped) == 1 and dedupe_diagnostics["row_count"] == 1
+rejected([provider(nation, 1), provider(nation, 2)], "conflicting duplicate")
 rejected([{"period":"Monthly","location_type":"Place","place_fips":"1150000","year":2026,"month":4,"total_units":1}], "unexpected")
 rejected([provider(nation, "not-a-number")], "malformed")
 rejected([provider(nation, -1)], "invalid")

@@ -1,0 +1,230 @@
+"""Read-only verification of one coherently pinned Census BPS provisional state.
+
+This provider adapter deliberately stops at evidence and canonical comparison.
+It has no artifact publication, accepted-pointer, cohort, or database-write API.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Mapping
+from urllib.parse import unquote, urlparse
+
+import pandas as pd
+import requests
+
+from core.source_artifacts.hashing import write_canonical_json
+from jobs.monthly_refresh.bps_bootstrap import equivalence, read_legacy
+from sources.census_bps.artifact import CANONICAL_COLUMNS, KEY, REQUIRED_METRIC, load_registry
+from sources.census_bps_provisional.ingest import (
+    PROVISIONAL_COLUMNS_BY_LEVEL, discover_latest_provisional_urls,
+)
+
+SCHEMA_VERSION = "bps_provisional_verification_v1"
+LEVELS = ("state", "county", "cbsa_metro")
+PREFIXES = {"state": "st", "county": "co", "cbsa_metro": "cbsa"}
+UNIT_FIELDS = ("units_1", "units_2", "units_3_4", "units_5plus")
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def release_from_url(level: str, url: str) -> str:
+    if level not in PREFIXES:
+        raise ValueError(f"unknown provisional level: {level}")
+    filename = Path(unquote(urlparse(url).path)).name
+    match = re.fullmatch(rf"{PREFIXES[level]}(\d{{4}})c\.txt", filename, re.IGNORECASE)
+    if not match:
+        raise ValueError(f"unrecognized {level} provisional URL: {url}")
+    yymm = match.group(1)
+    month = int(yymm[2:])
+    if not 1 <= month <= 12:
+        raise ValueError(f"invalid provisional release identifier: {yymm}")
+    return yymm
+
+
+def resolve_inputs(urls: Mapping[str, str]) -> tuple[str, dict[str, str]]:
+    if set(urls) != set(LEVELS):
+        raise ValueError(f"provisional inputs must contain exactly {LEVELS}")
+    normalized = {level: str(urls[level]) for level in LEVELS}
+    releases = {level: release_from_url(level, url) for level, url in normalized.items()}
+    if len(set(releases.values())) != 1:
+        raise ValueError(f"mixed provisional releases fail closed: {releases}")
+    return next(iter(releases.values())), normalized
+
+
+def acquire(url: str, path: Path, *, timeout: float = 120) -> dict[str, Any]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with requests.get(url, stream=True, timeout=timeout) as response:
+        response.raise_for_status()
+        with path.open("wb") as stream:
+            for chunk in response.iter_content(1 << 20):
+                if chunk:
+                    stream.write(chunk)
+        return {"http_status": response.status_code, "etag": response.headers.get("ETag"),
+                "last_modified": response.headers.get("Last-Modified"),
+                "content_type": response.headers.get("Content-Type")}
+
+
+def read_member(path: Path, level: str) -> tuple[pd.DataFrame, dict[str, Any]]:
+    expected = PROVISIONAL_COLUMNS_BY_LEVEL[level]
+    # Census files have three descriptive heading lines and no machine header.
+    frame = pd.read_csv(path, sep=",", header=None, skiprows=3, dtype=str,
+                        keep_default_na=False, encoding="latin1", engine="python")
+    frame = frame.dropna(how="all")
+    if frame.shape[1] != len(expected):
+        raise ValueError(f"{level} provisional layout has {frame.shape[1]} fields; expected {len(expected)}")
+    frame.columns = expected
+    return frame, {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                   "size_bytes": path.stat().st_size, "raw_row_count": len(frame),
+                   "raw_columns": expected}
+
+
+def _number(raw: Any) -> float:
+    text = str(raw).strip()
+    if not text:
+        raise ValueError("<BLANK>")
+    try:
+        value = float(text.replace(",", ""))
+    except ValueError as exc:
+        raise ValueError(text) from exc
+    if not pd.notna(value) or value < 0:
+        raise ValueError(text)
+    return value
+
+
+def _identity(level: str, row: Mapping[str, Any]) -> tuple[str, str]:
+    if level == "state":
+        return "State", str(row["state_fips"]).strip().zfill(2)
+    if level == "county":
+        return "County", str(row["state_fips"]).strip().zfill(2) + str(row["county_fips_3"]).strip().zfill(3)
+    return "Metro", str(row["cbsa_code"]).strip().zfill(5)
+
+
+def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
+    if set(frames) != set(LEVELS):
+        raise ValueError("all three provisional members are required")
+    registry = load_registry()
+    bindings = {(row["provider_location_type"], row["provider_identifier"]): row for row in registry}
+    tokens: Counter[str] = Counter()
+    examples: dict[str, dict[str, str]] = {}
+    raw_inventory = []
+    canonical_rows = []
+    dates = set()
+    for level in LEVELS:
+        for _, series in frames[level].iterrows():
+            row = series.to_dict()
+            identity = _identity(level, row)
+            raw_inventory.append({"level": level, "provider_location_type": identity[0],
+                                  "provider_identifier": identity[1], "geo_name": row["geo_name"]})
+            stamp = str(row["survey_date"]).strip()
+            if not re.fullmatch(r"\d{6}", stamp):
+                raise ValueError(f"malformed provisional survey date: {stamp!r}")
+            observed = pd.Timestamp(year=int(stamp[:4]), month=int(stamp[4:]), day=1).date()
+            dates.add(observed)
+            values = []
+            invalid = False
+            for field in UNIT_FIELDS:
+                try:
+                    values.append(_number(row[field]))
+                except ValueError as exc:
+                    token = str(exc)
+                    tokens[token] += 1
+                    examples.setdefault(token, {"level": level, "field": field, "raw_value": str(row[field]),
+                                                "provider_identifier": identity[1], "survey_date": stamp})
+                    invalid = True
+            binding = bindings.get(identity)
+            if binding is not None and not invalid:
+                canonical_rows.append({"geo_id": binding["geo_id"], "metric_id": REQUIRED_METRIC,
+                    "date": observed, "property_type_id": "all", "value": sum(values),
+                    "source_id": "bps", "property_type": "all"})
+    if len(dates) != 1:
+        raise ValueError(f"provisional members must represent exactly one common observation month: {sorted(map(str, dates))}")
+    expected_date = pd.Timestamp(year=2000 + int(release_id[:2]), month=int(release_id[2:]), day=1).date()
+    if dates != {expected_date}:
+        raise ValueError(f"release {release_id} does not match survey date {dates}")
+    canonical = pd.DataFrame(canonical_rows, columns=CANONICAL_COLUMNS)
+    duplicate_mask = canonical.duplicated(KEY, keep=False)
+    duplicate_rows = int(duplicate_mask.sum())
+    duplicate_keys = int(canonical.loc[duplicate_mask, KEY].drop_duplicates().shape[0])
+    if duplicate_rows:
+        conflicts = canonical.groupby(KEY).value.nunique().reset_index(name="values").query("values > 1")
+        if not conflicts.empty:
+            raise ValueError("conflicting duplicate provisional observations")
+        canonical = canonical.sort_values(KEY, kind="mergesort").drop_duplicates(KEY).reset_index(drop=True)
+    else:
+        canonical = canonical.sort_values(KEY, kind="mergesort").reset_index(drop=True)
+    inventory = pd.DataFrame(raw_inventory).drop_duplicates().sort_values(["level", "provider_identifier"])
+    governed = set(bindings)
+    present = set(zip(inventory.provider_location_type, inventory.provider_identifier)) & governed
+    coverage = pd.DataFrame([{**item, "present_in_release": (item["provider_location_type"], item["provider_identifier"]) in present}
+                             for item in registry]).sort_values("geo_id")
+    outside = inventory[~inventory.apply(lambda r: (r.provider_location_type, r.provider_identifier) in governed, axis=1)]
+    diagnostics = {"schema_version": SCHEMA_VERSION, "provider_release_id": release_id,
+        "observation_min": str(min(dates)), "observation_max": str(max(dates)),
+        "current_month_only": True, "authoritative_total_semantics": "sum of estimate UNIT fields for 1, 2, 3-4, and 5+ unit structures",
+        "total_encoding_consistent_across_members": True, "legitimate_numeric_zero": True,
+        "nonnumeric_or_unavailable_token_counts": dict(sorted(tokens.items())),
+        "configured_geography_count": len(registry), "present_governed_geography_count": len(present),
+        "out_of_governance_geography_count": len(outside), "canonical_row_count": len(canonical),
+        "identical_duplicate_row_count": duplicate_rows, "identical_duplicate_key_count": duplicate_keys,
+        "identical_duplicate_excess_row_count": duplicate_rows - duplicate_keys,
+        "conflicting_duplicate_key_count": 0,
+        "omission_semantics": "unresolved_do_not_interpret_as_zero_or_retraction",
+        "contract_gate": "blocked_if_tokens_or_incomplete_governed_coverage" if tokens or len(present) != len(registry) else "provider_layout_and_mapping_verified"}
+    return canonical, coverage, outside.reset_index(drop=True), diagnostics, [examples[k] for k in sorted(examples)]
+
+
+def run(args: argparse.Namespace) -> None:
+    root: Path = args.output
+    root.mkdir(parents=True, exist_ok=False)
+    explicit = {level: getattr(args, f"{level}_url") for level in LEVELS}
+    if any(explicit.values()) and not all(explicit.values()):
+        raise ValueError("explicit provisional pin requires all three member URLs")
+    urls = explicit if all(explicit.values()) else discover_latest_provisional_urls()
+    release_id, urls = resolve_inputs(urls)
+    frames = {}; members = {}
+    for level in LEVELS:
+        path = getattr(args, f"{level}_file")
+        http = None
+        if path is None:
+            path = root / Path(unquote(urlparse(urls[level]).path)).name
+            http = acquire(urls[level], path)
+        frames[level], evidence = read_member(path, level)
+        members[level] = {"url": urls[level], "retrieved_at": args.retrieved_at or utc_now(), "http": http, **evidence}
+    canonical, coverage, outside, diagnostics, examples = verify(frames, release_id=release_id)
+    write_canonical_json(root / "raw_evidence_manifest.json", {"schema_version": SCHEMA_VERSION,
+                         "provider_release_id": release_id, "members": members})
+    write_canonical_json(root / "provider_contract_diagnostics.json", diagnostics)
+    write_canonical_json(root / "nonnumeric_examples.json", examples)
+    canonical.to_parquet(root / "canonical_provider.parquet", index=False)
+    coverage.to_csv(root / "geography_coverage.csv", index=False)
+    outside.to_csv(root / "out_of_governance_geographies.csv", index=False)
+    if args.legacy:
+        legacy = read_legacy(args.legacy, include_provisional=True)
+        legacy = legacy[legacy.source_id.eq("census_bps_provisional")]
+        detail, summary = equivalence(canonical, legacy)
+        detail.to_parquet(root / "equivalence_provisional.parquet", index=False)
+        write_canonical_json(root / "equivalence_provisional.json", summary)
+    print(json.dumps({"output": str(root), **diagnostics}, sort_keys=True))
+
+
+def parser() -> argparse.ArgumentParser:
+    value = argparse.ArgumentParser(description=__doc__)
+    for level in LEVELS:
+        value.add_argument(f"--{level.replace('_', '-')}-url")
+        value.add_argument(f"--{level.replace('_', '-')}-file", type=Path)
+    value.add_argument("--legacy", type=Path)
+    value.add_argument("--output", type=Path, required=True)
+    value.add_argument("--retrieved-at")
+    return value
+
+
+if __name__ == "__main__":
+    run(parser().parse_args())

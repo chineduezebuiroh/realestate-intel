@@ -29,7 +29,9 @@ COLUMN_ALIASES = {
     "period": ("period",), "year": ("year", "yr"), "month": ("month", "mo"),
     "location_type": ("location_type", "location"),
     "state_fips": ("state_fips", "state_code", "state"),
-    "county_fips": ("county_fips", "fips_county_5_digits", "county_code", "county"),
+    # COUNTY_CODE is only the three-digit component.  The compiled data
+    # dictionary identifies FIPS_COUNTY_5_DIGITS as the global county key.
+    "county_fips": ("county_fips", "fips_county_5_digits"),
 }
 KEY = ["geo_id", "metric_id", "date", "property_type_id"]
 
@@ -142,7 +144,12 @@ def verify(frame: pd.DataFrame, *, release_month: str) -> tuple[pd.DataFrame, pd
                 examples.setdefault(raw, {key: str(row.get(value, "")) for key, value in columns.items()} | {"raw_total": raw})
         per_geo.setdefault(binding["geo_id"], []).append((observed, available))
     canonical = pd.DataFrame(canonical_rows, columns=KEY + ["value", "source_id", "property_type"])
+    duplicate_row_count = 0
+    duplicate_key_count = 0
     if not canonical.empty:
+        duplicate_mask = canonical.duplicated(KEY, keep=False)
+        duplicate_row_count = int(duplicate_mask.sum())
+        duplicate_key_count = int(canonical.loc[duplicate_mask, KEY].drop_duplicates().shape[0])
         conflicts = canonical.groupby(KEY).value.nunique().reset_index(name="values").query("values > 1")
         if not conflicts.empty: raise ValueError("conflicting duplicate compiled observations")
         canonical = canonical.sort_values(KEY, kind="mergesort").drop_duplicates(KEY).reset_index(drop=True)
@@ -157,12 +164,17 @@ def verify(frame: pd.DataFrame, *, release_month: str) -> tuple[pd.DataFrame, pd
     coverage = pd.DataFrame(coverage_rows).sort_values("geo_id").reset_index(drop=True)
     diagnostics = {"schema_version": SCHEMA_VERSION, "release_month": release_month,
       "monthly_row_count": len(monthly), "governed_raw_row_count": len(governed),
-      "authoritative_total_field": total_field, "authoritative_total_field_proven": False,
+      "authoritative_total_field": total_field, "authoritative_total_field_proven": total_field == "total_units",
+      "authoritative_total_field_basis": "Census Compiled Data Documentation defines TOTAL_UNITS as Total units, Estimates With Imputation; TOTAL_UNITS_REP is reported-only data",
+      "identical_duplicate_row_count": duplicate_row_count,
+      "identical_duplicate_key_count": duplicate_key_count,
+      "identical_duplicate_excess_row_count": duplicate_row_count - duplicate_key_count,
       "nonnumeric_token_counts": dict(sorted(token_counts.items())),
       "configured_geography_count": len(registry), "present_geography_count": int(coverage.present_in_release.sum()),
       "canonical_row_count": len(canonical), "observation_min": str(canonical.date.min()) if not canonical.empty else None,
       "observation_max": str(canonical.date.max()) if not canonical.empty else None,
-      "contract_gate": "blocked_pending_documentation"}
+      "history_semantics": "complete_historical_snapshot_with_provider_variable_geography_coverage_no_synthetic_fill",
+      "contract_gate": "compiled_contract_proven" if total_field == "total_units" else "blocked_authoritative_total_field_absent"}
     return canonical, coverage, diagnostics, [examples[key] for key in sorted(examples)]
 
 

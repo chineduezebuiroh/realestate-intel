@@ -3,13 +3,16 @@ from __future__ import annotations
 import argparse, hashlib, json, tempfile, zipfile
 from pathlib import Path
 import pandas as pd
-from jobs.monthly_refresh.bps_bootstrap import equivalence, inspect_zip, release_url, run, verify
+from jobs.monthly_refresh.bps_bootstrap import _resolve_columns, equivalence, inspect_zip, release_url, run, verify
 from sources.census_bps.artifact import _numeric, load_registry
 
 fixture=Path('tests/fixtures/census_bps/pinned_compiled_fixture.csv')
 manifest=json.loads(Path('tests/fixtures/census_bps/pinned_evidence_manifest.json').read_text())
 assert hashlib.sha256(fixture.read_bytes()).hexdigest()==manifest['fixture_csv_sha256']
 assert release_url('2026-04').endswith('BPS_Compiled_File_202604.zip')
+try: _resolve_columns(['period','year','month','location_type','state_fips','county_code','total_units'])
+except ValueError as exc: assert 'county_fips exactly once' in str(exc)
+else: raise AssertionError('three-digit county component accepted as full FIPS')
 try: release_url('latest')
 except ValueError: pass
 else: raise AssertionError('mutable latest accepted')
@@ -22,7 +25,8 @@ with tempfile.TemporaryDirectory() as tmp:
  assert raw['selected_csv_sha256']==manifest['fixture_csv_sha256']
  assert diagnostics['authoritative_total_field']=='total_units'
  assert diagnostics['nonnumeric_token_counts']=={'D':1}
- assert diagnostics['contract_gate']=='blocked_pending_documentation'
+ assert diagnostics['authoritative_total_field_proven'] is True
+ assert diagnostics['contract_gate']=='compiled_contract_proven'
  assert len(canonical)==3 and set(canonical.value)=={0.,17.,1234.}
  assert set(map(str,canonical.date))=={'2026-04-01'}
  assert len(coverage)==len(load_registry())==168

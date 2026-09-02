@@ -129,8 +129,12 @@ def canonicalize(plan: Mapping[str, Any], observations: Iterable[Mapping[str, An
         output.append({"geo_id": binding["geo_id"], "metric_id": REQUIRED_METRIC, "date": normalized_date, "property_type_id": "all", "value": value, "source_id": SOURCE_ID, "property_type": "all"})
     frame = pd.DataFrame(output, columns=CANONICAL_COLUMNS)
     if frame.duplicated(KEY).any():
-        raise ValueError("duplicate governed BPS observation identity")
-    frame = frame.sort_values(KEY, kind="mergesort").reset_index(drop=True)
+        conflicts = frame.groupby(KEY, dropna=False).value.nunique().reset_index(name="values").query("values > 1")
+        if not conflicts.empty:
+            raise ValueError("conflicting duplicate governed BPS observation identity")
+        frame = frame.sort_values(KEY, kind="mergesort").drop_duplicates(KEY).reset_index(drop=True)
+    else:
+        frame = frame.sort_values(KEY, kind="mergesort").reset_index(drop=True)
     observation_max = frame.date.max() if not frame.empty else None
     diagnostics = {"provider_release_id": plan["provider_release_id"], "row_count": len(frame), "geography_count": int(frame.geo_id.nunique()) if not frame.empty else 0, "metric_count": int(frame.metric_id.nunique()) if not frame.empty else 0, "unavailable_observation_count": len(unavailable), "unavailable_identities": [list(map(str, item)) for item in sorted(unavailable)], "observation_min": str(frame.date.min()) if not frame.empty else None, "observation_max": str(observation_max) if observation_max else None, "target_month": observation_max.strftime("%Y-%m") if observation_max else None, "unit": "housing_units", "seasonal_adjustment": "NSA"}
     return frame, diagnostics
