@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory() as tmp:
  legacy=pd.concat([legacy,pd.DataFrame([{**canonical.iloc[0].to_dict(),'date':pd.Timestamp('2026-03-01').date()}])],ignore_index=True)
  detail,summary=equivalence(canonical,legacy)
  assert summary=={'exact_match_count':2,'provider_revision_count':1,'provider_only_count':0,
-                  'prior_only_count':1,'identity_conflict_count':0}
+                  'prior_only_count':1,'identity_conflict_count':0,'out_of_governance_count':0}
  assert list(detail.comparison_category).count('PRIOR_ONLY')==1
 for token in ('D','(X)',''):
  try: _numeric(token)

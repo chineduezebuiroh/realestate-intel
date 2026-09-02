@@ -20,7 +20,7 @@ The Codex environment could not reach Census (`CONNECT tunnel failed, response 4
 
 ## Governed v1 footprint
 
-The exact geography registry is `config/bps_governed_geographies_v1.csv`. It freezes 168 identities already present in the best local production truth: one nation, five states, and 162 counties. Provider binding is exact `(location_type, provider identifier)` to canonical `geo_id`; name matching is prohibited. `franklin_city_county_va__county` is enabled in the broader generated manifest but absent from the accepted local BPS truth and is excluded pending provider verification. All 64 configured CBSA identities are out of v1 because compiled/local coverage was not proven. Thus v1 has one metric, 168 geographies, and 168 configured metric/geography identities (temporal missingness is legitimate and no per-month Cartesian completeness is asserted).
+The exact geography registry is `config/bps_governed_geographies_v1.csv`. It freezes 168 compiled-applicable identities already present in the best local production truth: one nation, five states, and 162 counties. Provisional applicability is the 167 state/county identities; the nation is compiled/final-only because the proven provisional family has state, county, and CBSA members but no national member. Provider binding is exact `(location_type, provider identifier)` to canonical `geo_id`; name matching is prohibited. `franklin_city_county_va__county` is enabled in the broader generated manifest but absent from the accepted local BPS truth and is excluded pending provider verification. All 64 configured CBSA identities are out of v1. A provisional coverage gate therefore requires 167/167, never manufactures a national row, and must fail if any applicable state or county is absent. Temporal missingness remains legitimate and no per-month Cartesian completeness is asserted.
 
 | Metric ID | Provider measure | Description | Unit / scaling | SA | Frequency | Class | Downstream consumers |
 |---|---|---|---|---|---|---|---|
@@ -101,9 +101,28 @@ The compiled artifact is a complete-history snapshot; no LAUS-style annual/deep-
 
 `jobs.monthly_refresh.bps_provisional_verification` is read-only evidence tooling. It uses existing dynamic discovery or requires a complete explicit three-URL pin, records URLs, retrieval times, HTTP metadata, byte sizes, SHA-256 hashes, schemas/counts, coverage, token and duplicate diagnostics, canonical bounds, and optional read-only legacy comparison. It cannot publish or mutate a pointer/database.
 
+### LIVE 2607 CLOSURE EVIDENCE
+
+Dynamic discovery resolved coherently to official members `State/st2607c.txt`,
+`County/co2607c.txt`, and `CBSA (beginning Jan 2024)/cbsa2607c.txt`, all release
+ID `2607` and sole observation month 2026-07-01. The retained diagnostics found
+167 of 168 compiled-governed identities: all five states and all 162 counties,
+with only `united_states__nation` absent. Canonical output was 167 rows; 3,837
+distinct provider geographies were out of governance. There were no observed
+nonnumeric/unavailable tokens, identical duplicate keys, or conflicting
+duplicate keys. The estimate-side four-unit-band encoding was consistent in all
+members and numeric zero occurred legitimately.
+
+Legacy provisional comparison produced 0 exact matches, 167 prior-only May
+rows, 167 provider-only July rows, 0 provider revisions, and 50 out-of-governance
+CBSA rows. Because the governed months do not overlap, this is expected and is
+not failed equivalence. Out-of-governance rows are labeled separately from
+governed identity conflicts; governed identity-conflict checking remains
+fail-closed.
+
 ### UNRESOLVED
 
-No nonnumeric token is assigned suppression, nonresponse, or unavailable semantics without first-party evidence. Provisional omission cannot yet be classified as retraction; it must not be interpreted as zero. A retained successful live output is still needed to freeze exact 2607 counts, hashes, full geography footprint, governed coverage, out-of-governance CBSA inventory, token vocabulary, duplicates, and legacy equivalence. Direct Census transport in this implementation environment returned proxy HTTP 403, so those values are not invented.
+No nonnumeric token is assigned suppression, nonresponse, or unavailable semantics without first-party evidence. The absence of such tokens in 2607 is not proof that they never occur. Provisional omission cannot yet be classified as retraction; it must not be interpreted as zero. These token meanings and omission/retraction semantics remain unresolved and must stay conservative.
 
 ### FUTURE PRODUCTION-INTEGRATION REQUIREMENT
 
