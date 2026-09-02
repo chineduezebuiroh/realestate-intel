@@ -31,6 +31,11 @@ PREFIXES = {"state": "st", "county": "co", "cbsa_metro": "cbsa"}
 UNIT_FIELDS = ("units_1", "units_2", "units_3_4", "units_5plus")
 
 
+def provisional_applicable_registry(registry: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Return identities physically exposed by the provisional provider family."""
+    return [item for item in registry if item["provider_location_type"] in {"State", "County"}]
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -111,6 +116,7 @@ def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
     if set(frames) != set(LEVELS):
         raise ValueError("all three provisional members are required")
     registry = load_registry()
+    applicable_registry = provisional_applicable_registry(registry)
     bindings = {(row["provider_location_type"], row["provider_identifier"]): row for row in registry}
     tokens: Counter[str] = Counter()
     examples: dict[str, dict[str, str]] = {}
@@ -162,8 +168,15 @@ def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
         canonical = canonical.sort_values(KEY, kind="mergesort").reset_index(drop=True)
     inventory = pd.DataFrame(raw_inventory).drop_duplicates().sort_values(["level", "provider_identifier"])
     governed = set(bindings)
+    provisional_applicable = {
+        (item["provider_location_type"], item["provider_identifier"])
+        for item in applicable_registry
+    }
     present = set(zip(inventory.provider_location_type, inventory.provider_identifier)) & governed
-    coverage = pd.DataFrame([{**item, "present_in_release": (item["provider_location_type"], item["provider_identifier"]) in present}
+    present_applicable = present & provisional_applicable
+    coverage = pd.DataFrame([{**item,
+                              "provisional_applicable": (item["provider_location_type"], item["provider_identifier"]) in provisional_applicable,
+                              "present_in_release": (item["provider_location_type"], item["provider_identifier"]) in present}
                              for item in registry]).sort_values("geo_id")
     outside = inventory[~inventory.apply(lambda r: (r.provider_location_type, r.provider_identifier) in governed, axis=1)]
     diagnostics = {"schema_version": SCHEMA_VERSION, "provider_release_id": release_id,
@@ -171,13 +184,18 @@ def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
         "current_month_only": True, "authoritative_total_semantics": "sum of estimate UNIT fields for 1, 2, 3-4, and 5+ unit structures",
         "total_encoding_consistent_across_members": True, "legitimate_numeric_zero": True,
         "nonnumeric_or_unavailable_token_counts": dict(sorted(tokens.items())),
-        "configured_geography_count": len(registry), "present_governed_geography_count": len(present),
+        "configured_geography_count": len(registry),
+        "provisional_applicable_geography_count": len(applicable_registry),
+        "present_governed_geography_count": len(present),
+        "present_provisional_applicable_geography_count": len(present_applicable),
+        "missing_provisional_applicable_geography_count": len(provisional_applicable - present_applicable),
         "out_of_governance_geography_count": len(outside), "canonical_row_count": len(canonical),
         "identical_duplicate_row_count": duplicate_rows, "identical_duplicate_key_count": duplicate_keys,
         "identical_duplicate_excess_row_count": duplicate_rows - duplicate_keys,
         "conflicting_duplicate_key_count": 0,
         "omission_semantics": "unresolved_do_not_interpret_as_zero_or_retraction",
-        "contract_gate": "blocked_if_tokens_or_incomplete_governed_coverage" if tokens or len(present) != len(registry) else "provider_layout_and_mapping_verified"}
+        "contract_gate": "blocked_if_tokens_or_incomplete_provisional_applicable_coverage"
+        if tokens or present_applicable != provisional_applicable else "provider_layout_and_mapping_verified"}
     return canonical, coverage, outside.reset_index(drop=True), diagnostics, [examples[k] for k in sorted(examples)]
 
 

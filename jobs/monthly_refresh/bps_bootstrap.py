@@ -201,7 +201,9 @@ def equivalence(provider: pd.DataFrame, legacy: pd.DataFrame) -> tuple[pd.DataFr
     categories = []
     governed_geographies = {item["geo_id"] for item in load_registry()}
     for _, row in merged.iterrows():
-        if row.geo_id not in governed_geographies or row.metric_id != REQUIRED_METRIC:
+        if row.geo_id not in governed_geographies:
+            category = "OUT_OF_GOVERNANCE"
+        elif row.metric_id != REQUIRED_METRIC:
             category = "IDENTITY_CONFLICT"
         elif row._merge == "left_only": category = "PROVIDER_ONLY"
         elif row._merge == "right_only": category = "PRIOR_ONLY"
@@ -212,7 +214,7 @@ def equivalence(provider: pd.DataFrame, legacy: pd.DataFrame) -> tuple[pd.DataFr
     counts = Counter(categories)
     summary = {key.lower() + "_count": int(counts[key]) for key in
                ("EXACT_MATCH", "PROVIDER_REVISION", "PROVIDER_ONLY", "PRIOR_ONLY",
-                "IDENTITY_CONFLICT")}
+                "IDENTITY_CONFLICT", "OUT_OF_GOVERNANCE")}
     return merged.sort_values(KEY, kind="mergesort").reset_index(drop=True), summary
 
 

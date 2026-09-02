@@ -130,3 +130,32 @@ This amendment supersedes the earlier blocked compiled conclusions while retaini
 **UNRESOLVED.** First-party meaning for any nonnumeric token and provider omission/retraction semantics remain open. A successful retained live verification output must answer those and freeze the exact provisional evidence before publication is considered.
 
 **FUTURE PRODUCTION-INTEGRATION REQUIREMENT.** New-cohort discovery and immutable pinning precede execution. Resume/replay reuse pins. Compiled and provisional retain independent releases and artifacts while later joining the common governed-source publication/promotion/barrier lifecycle. No production integration occurred in this pass.
+
+## 2026-09-02 live provisional 2607 closure
+
+Successful live local verification supersedes the remaining provisional
+coverage/equivalence blocker. Dynamic discovery selected `st2607c.txt`,
+`co2607c.txt`, and `cbsa2607c.txt`; every member resolved to release `2607` and
+observation 2026-07-01. Diagnostics recorded 168 compiled-applicable identities,
+167 provisional-applicable identities, 167 present governed identities, 167
+canonical rows, and 3,837 out-of-governance identities. The sole absent compiled
+identity was `united_states__nation`; all five governed states and 162 governed
+counties were present. The nation is consequently compiled/final-only, not a
+required provisional identity and never a derived or synthetic provisional row.
+
+The four estimate-side unit bands encoded totals consistently across the three
+members. Numeric zero was observed as legitimate. No nonnumeric/unavailable
+tokens and no identical or conflicting duplicate keys were observed. This does
+not establish a universal token vocabulary: unknown tokens remain nonnumeric,
+and omission remains neither zero nor a retraction.
+
+Legacy comparison found 0 exact, 167 prior-only, 167 provider-only, 0 revisions,
+and 50 out-of-governance CBSA rows. The governed legacy snapshot was May while
+the provider snapshot was July, so no governed observation month overlapped.
+The CBSA inventory is now reported as out-of-governance rather than as governed
+identity conflict; real governed identity conflicts still fail closed.
+
+This closure changed no catalog, accepted pointer, database, Source Set,
+production fan-out, Redfin readiness, or schedule. Production integration
+remains a separate phase using common dynamic-discovery-then-pinning lifecycle
+contracts and independent compiled/provisional artifacts.
