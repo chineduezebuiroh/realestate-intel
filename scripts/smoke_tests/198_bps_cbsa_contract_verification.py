@@ -67,6 +67,10 @@ for forbidden in ("discover_latest", "artifact_catalog", "duckdb", "redfin", "So
 workflow = Path(".github/workflows/bps-cbsa-contract-verification.yml").read_text()
 assert "workflow_dispatch:" in workflow and "schedule:" not in workflow
 assert "contents: read" in workflow
+job_env = workflow.split("    env:\n", 1)[1].split("    steps:\n", 1)[0]
+assert "${{ runner.temp }}" not in job_env  # invalid context makes workflow_dispatch unparsable
+assert 'INPUT_ROOT="$RUNNER_TEMP/bps-cbsa-contract-inputs"' in workflow
+assert 'EVIDENCE_ROOT="$RUNNER_TEMP/bps-cbsa-contract-evidence"' in workflow
 assert "monthly_source_input_pins/$CYCLE_ID" in workflow
 assert '.provider_release_id == "202604"' in workflow
 assert '.provider_release_id == "2607"' in workflow
