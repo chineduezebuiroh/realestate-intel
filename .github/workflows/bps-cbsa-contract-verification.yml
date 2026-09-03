@@ -17,8 +17,6 @@ jobs:
     timeout-minutes: 60
     env:
       CYCLE_ID: ${{ inputs.cycle_id }}
-      EVIDENCE_ROOT: ${{ runner.temp }}/bps-cbsa-contract-evidence
-      INPUT_ROOT: ${{ runner.temp }}/bps-cbsa-contract-inputs
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,6 +49,7 @@ jobs:
           PROVISIONAL_PIN: ${{ steps.pins.outputs.provisional_pin }}
         run: |
           set -euo pipefail
+          INPUT_ROOT="$RUNNER_TEMP/bps-cbsa-contract-inputs"
           mkdir -p "$INPUT_ROOT"
           compiled_url="$(jq -er '.members.compiled_zip.url' "$COMPILED_PIN")"
           provisional_url="$(jq -er '.members.cbsa_metro.url' "$PROVISIONAL_PIN")"
@@ -65,6 +64,8 @@ jobs:
           COMPILED_PIN: ${{ steps.pins.outputs.compiled_pin }}
           PROVISIONAL_PIN: ${{ steps.pins.outputs.provisional_pin }}
         run: |
+          INPUT_ROOT="$RUNNER_TEMP/bps-cbsa-contract-inputs"
+          EVIDENCE_ROOT="$RUNNER_TEMP/bps-cbsa-contract-evidence"
           PYTHONPATH=. python -m jobs.monthly_refresh.bps_cbsa_verification \
             --compiled-pin "$COMPILED_PIN" \
             --provisional-pin "$PROVISIONAL_PIN" \
@@ -75,6 +76,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          EVIDENCE_ROOT="$RUNNER_TEMP/bps-cbsa-contract-evidence"
           echo '## BPS CBSA hosted exact-pin verification' >> "$GITHUB_STEP_SUMMARY"
           echo "Cycle: \`$CYCLE_ID\`" >> "$GITHUB_STEP_SUMMARY"
           if test -f "$EVIDENCE_ROOT/diagnostics.json"; then
