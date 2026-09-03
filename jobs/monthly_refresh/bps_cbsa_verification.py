@@ -7,6 +7,7 @@ sole crosswalk authority.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import zipfile
@@ -21,6 +22,7 @@ from jobs.monthly_refresh.bps_provisional_verification import read_member
 
 SCHEMA_VERSION = "bps_cbsa_contract_verification_v1"
 KEY = ["provider_cbsa_id", "observation_date"]
+CONFLICT_SAMPLE_LIMIT = 25
 
 
 def canonical_cbsa(path: Path) -> pd.DataFrame:
@@ -60,11 +62,13 @@ def compiled_inventory(path: Path) -> tuple[pd.DataFrame, dict]:
         if total != "total_units" or "cbsa_code" not in normalized:
             raise ValueError("compiled CBSA verification requires authoritative total_units and cbsa_code")
         original = dict(zip(normalized, header.columns))
-        needed = [columns[name] for name in ("period", "year", "month", "location_type")] + ["cbsa_code", total]
-        usecols = [original[name] for name in needed]
+        # Retain the complete provider row for Metro observations.  The provider
+        # schema has changed over the compiled history and preselecting guessed
+        # identity columns is precisely what this diagnostic must not do.
+        provider_columns = list(header.columns)
         rows, tokens, raw_count = [], Counter(), 0
         with archive.open(members[0]) as stream:
-            for chunk in pd.read_csv(stream, dtype=str, keep_default_na=False, usecols=usecols,
+            for chunk in pd.read_csv(stream, dtype=str, keep_default_na=False,
                                      chunksize=100_000, low_memory=False):
                 raw_count += len(chunk)
                 chunk.columns = [str(value).strip().lower() for value in chunk.columns]
@@ -79,12 +83,17 @@ def compiled_inventory(path: Path) -> tuple[pd.DataFrame, dict]:
                     value, token = _numeric(row[total])
                     if token is not None:
                         tokens[token] += 1
+                    raw = {f"provider_raw__{name}": str(row[name]) for name in normalized}
+                    fingerprint_payload = json.dumps(raw, sort_keys=True, separators=(",", ":"))
                     rows.append({"provider_cbsa_id": code,
-                                 "provider_name": "",  # compiled snapshot has no authoritative name requirement
                                  "observation_date": f"{int(row[columns['year']]):04d}-{int(row[columns['month']]):02d}-01",
-                                 "total_units": value})
+                                 "total_units": value,
+                                 "provider_row_fingerprint": hashlib.sha256(
+                                     fingerprint_payload.encode("utf-8")).hexdigest(), **raw})
     return pd.DataFrame(rows), {"raw_row_count": raw_count, "metro_row_count": len(rows),
-        "nonnumeric_token_counts": dict(sorted(tokens.items())), "authoritative_total_field": total}
+        "nonnumeric_token_counts": dict(sorted(tokens.items())), "authoritative_total_field": total,
+        "provider_columns": provider_columns,
+        "retained_provider_identity_columns": [f"provider_raw__{name}" for name in normalized]}
 
 
 def provisional_inventory(path: Path) -> tuple[pd.DataFrame, dict]:
@@ -107,20 +116,54 @@ def provisional_inventory(path: Path) -> tuple[pd.DataFrame, dict]:
         "authoritative_total_semantics": "sum of all four estimate-side unit fields"}
 
 
-def diagnose(frame: pd.DataFrame, source: str) -> tuple[pd.DataFrame, dict]:
+def diagnose(frame: pd.DataFrame, source: str) -> tuple[pd.DataFrame, dict, pd.DataFrame, pd.DataFrame]:
     duplicate = frame.duplicated(KEY, keep=False)
-    conflicts = frame.loc[duplicate].groupby(KEY, dropna=False).total_units.nunique(dropna=False)
-    if (conflicts > 1).any():
-        raise ValueError(f"conflicting duplicate {source} CBSA observations")
-    result = frame.sort_values(KEY, kind="mergesort").drop_duplicates(KEY).reset_index(drop=True)
+    value_counts = frame.loc[duplicate].groupby(KEY, dropna=False).total_units.nunique(dropna=False)
+    conflict_index = value_counts[value_counts > 1].index
+    conflict_mask = pd.MultiIndex.from_frame(frame[KEY]).isin(conflict_index)
+    evidence_order = KEY + ["total_units"]
+    if "provider_row_fingerprint" in frame:
+        evidence_order.append("provider_row_fingerprint")
+    conflict_rows = frame.loc[conflict_mask].sort_values(
+        evidence_order, kind="mergesort", na_position="first").reset_index(drop=True)
+    provider_evidence = [column for column in frame if column.startswith("provider_raw__")]
+    differing_fields_by_key = {}
+    for key, rows_for_key in conflict_rows.groupby(KEY, dropna=False):
+        differing_fields_by_key[key] = [column for column in provider_evidence
+            if rows_for_key[column].nunique(dropna=False) > 1]
+    conflict_keys = (conflict_rows.groupby(KEY, as_index=False, dropna=False)
+        .agg(differing_total_units=("total_units", lambda values: "|".join(
+            sorted({"<NA>" if pd.isna(value) else format(float(value), ".15g") for value in values}))),
+             conflicting_row_count=("total_units", "size")))
+    if len(conflict_keys):
+        conflict_keys["differing_provider_fields"] = conflict_keys.apply(
+            lambda row: "|".join(differing_fields_by_key[
+                (row.provider_cbsa_id, row.observation_date)]), axis=1)
+    # Identical duplicates are safe to collapse for inventory purposes.  A
+    # differing key is deliberately retained in full and never reduced to a
+    # chosen observation.
+    result = frame.loc[~conflict_mask].sort_values(KEY, kind="mergesort").drop_duplicates(KEY).reset_index(drop=True)
     counts = result.groupby("provider_cbsa_id").size() if not result.empty else pd.Series(dtype=int)
-    return result, {"provider_identity_count": int(result.provider_cbsa_id.nunique()) if not result.empty else 0,
-        "observation_min": result.observation_date.min() if not result.empty else None,
-        "observation_max": result.observation_date.max() if not result.empty else None,
+    by_cbsa = conflict_keys.provider_cbsa_id.value_counts().sort_index().to_dict() if len(conflict_keys) else {}
+    years = conflict_keys.observation_date.str[:4].value_counts().sort_index().to_dict() if len(conflict_keys) else {}
+    diagnostics = {"provider_identity_count": int(frame.provider_cbsa_id.nunique()) if not frame.empty else 0,
+        "observation_min": frame.observation_date.min() if not frame.empty else None,
+        "observation_max": frame.observation_date.max() if not frame.empty else None,
         "observations_per_identity_min": int(counts.min()) if len(counts) else 0,
         "observations_per_identity_max": int(counts.max()) if len(counts) else 0,
-        "identical_duplicate_excess_row_count": int(duplicate.sum() - conflicts.size),
-        "conflicting_duplicate_key_count": 0}
+        "identical_duplicate_excess_row_count": int(sum(
+            size - 1 for key, size in frame.loc[duplicate].groupby(KEY, dropna=False).size().items()
+            if key not in conflict_index)),
+        "conflicting_duplicate_key_count": len(conflict_keys),
+        "conflicting_duplicate_row_count": len(conflict_rows),
+        "affected_cbsa_identity_count": int(conflict_rows.provider_cbsa_id.nunique()),
+        "conflict_observation_min": conflict_rows.observation_date.min() if len(conflict_rows) else None,
+        "conflict_observation_max": conflict_rows.observation_date.max() if len(conflict_rows) else None,
+        "conflicts_by_cbsa_id": by_cbsa, "conflicts_by_year": years,
+        "conflict_distinguishing_provider_fields": sorted({field
+            for fields in differing_fields_by_key.values() for field in fields}),
+        "conflicting_rows_sample": conflict_rows.head(CONFLICT_SAMPLE_LIMIT).to_dict("records")}
+    return result, diagnostics, conflict_keys, conflict_rows
 
 
 def crosswalk(compiled: pd.DataFrame, provisional: pd.DataFrame, canonical: pd.DataFrame) -> pd.DataFrame:
@@ -159,11 +202,15 @@ def history_distribution(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def governance_decision(compiled: pd.DataFrame, provisional: pd.DataFrame,
-                        canonical: pd.DataFrame, *, has_tokens: bool) -> tuple[str, str]:
+                        canonical: pd.DataFrame, *, has_tokens: bool,
+                        has_conflicts: bool = False) -> tuple[str, str]:
     """Return a provider-evidence decision; inability to execute is never rejection."""
     compiled_ids = set(compiled.provider_cbsa_id)
     provisional_ids = set(provisional.provider_cbsa_id)
     missing = set(canonical.provider_cbsa_id) - (compiled_ids | provisional_ids)
+    if has_conflicts:
+        return ("CBSA_GOVERNANCE_DECISION_DEFERRED",
+                "compiled provider identity/value conflicts require semantic review; no observation was selected")
     if missing:
         return "BLOCK_CBSA", f"{len(missing)} canonical CBSA identities are absent from both physical parents"
     if has_tokens:
@@ -185,15 +232,15 @@ def run(args: argparse.Namespace) -> None:
     provisional_pin = json.loads(args.provisional_pin.read_text())
     verify_pin(args.compiled_zip, compiled_pin["members"]["compiled_zip"]["sha256"], "compiled ZIP")
     verify_pin(args.provisional_cbsa, provisional_pin["members"]["cbsa_metro"]["sha256"], "provisional CBSA")
-    compiled, compiled_raw = compiled_inventory(args.compiled_zip)
+    compiled_all, compiled_raw = compiled_inventory(args.compiled_zip)
     provisional, provisional_raw = provisional_inventory(args.provisional_cbsa)
-    compiled, compiled_diag = diagnose(compiled, "compiled")
-    provisional, provisional_diag = diagnose(provisional, "provisional")
+    compiled, compiled_diag, compiled_conflict_keys, compiled_conflict_rows = diagnose(compiled_all, "compiled")
+    provisional, provisional_diag, _, _ = diagnose(provisional, "provisional")
     canonical = canonical_cbsa(args.geo_manifest)
-    mapping = crosswalk(compiled, provisional, canonical)
+    mapping = crosswalk(compiled_all, provisional, canonical)
     compiled_history = history_distribution(compiled)
     canonical_coverage = canonical.copy()
-    canonical_coverage["compiled_present"] = canonical_coverage.provider_cbsa_id.isin(set(compiled.provider_cbsa_id))
+    canonical_coverage["compiled_present"] = canonical_coverage.provider_cbsa_id.isin(set(compiled_all.provider_cbsa_id))
     canonical_coverage["provisional_present"] = canonical_coverage.provider_cbsa_id.isin(set(provisional.provider_cbsa_id))
     canonical_coverage["mapping_status"] = canonical_coverage.apply(
         lambda row: "EXACT_MATCH" if row.compiled_present and row.provisional_present
@@ -204,14 +251,17 @@ def run(args: argparse.Namespace) -> None:
     mapping.to_csv(root / "compiled_provisional_cbsa_crosswalk.csv", index=False)
     canonical_coverage.to_csv(root / "canonical_mapping_coverage.csv", index=False)
     compiled_history.to_csv(root / "compiled_cbsa_history_distribution.csv", index=False)
+    compiled_conflict_keys.to_csv(root / "compiled_cbsa_conflicting_keys.csv", index=False)
+    compiled_conflict_rows.to_csv(root / "compiled_cbsa_conflicting_rows.csv", index=False)
     statuses = mapping.mapping_status.value_counts().sort_index().to_dict()
     unresolved = int((~canonical_coverage.compiled_present & ~canonical_coverage.provisional_present).sum())
     has_tokens = bool(compiled_raw["nonnumeric_token_counts"] or provisional_raw["nonnumeric_token_counts"])
     recommendation, recommendation_basis = governance_decision(
-        compiled, provisional, canonical, has_tokens=has_tokens)
+        compiled_all, provisional, canonical, has_tokens=has_tokens,
+        has_conflicts=bool(compiled_diag["conflicting_duplicate_key_count"]))
     applicability = {
         "compiled": {"nation": True, "state": True, "county": True,
-                     "cbsa_metro": bool(len(compiled))},
+                     "cbsa_metro": bool(len(compiled_all))},
         "provisional": {"nation": False, "state": True, "county": True,
                         "cbsa_metro": bool(len(provisional))},
         "logical_bps_family": {"nation": True, "state": True, "county": True,
