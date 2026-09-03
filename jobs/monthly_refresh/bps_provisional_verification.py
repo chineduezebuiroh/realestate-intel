@@ -33,7 +33,7 @@ UNIT_FIELDS = ("units_1", "units_2", "units_3_4", "units_5plus")
 
 def provisional_applicable_registry(registry: list[dict[str, str]]) -> list[dict[str, str]]:
     """Return identities physically exposed by the provisional provider family."""
-    return [item for item in registry if item["provider_location_type"] in {"State", "County"}]
+    return [item for item in registry if item["provider_location_type"] in {"State", "County", "Metro"}]
 
 
 def utc_now() -> str:

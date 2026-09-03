@@ -1,6 +1,6 @@
 # Governed Census BPS source contract v1
 
-**Status:** Compiled provider contract verified; provisional read-only verification implemented. Publication, acceptance, source-set membership, master fan-out, and scheduling are not authorized.
+**Status:** Compiled and provisional provider contracts verified; provider-compatible CBSA subset promoted. Family resolution, acceptance, source-set membership, and scheduling changes are not authorized by this contract-closure pass.
 
 ## Provider and acquisition
 
@@ -20,7 +20,7 @@ The Codex environment could not reach Census (`CONNECT tunnel failed, response 4
 
 ## Governed v1 footprint
 
-The exact geography registry is `config/bps_governed_geographies_v1.csv`. It freezes 168 compiled-applicable identities already present in the best local production truth: one nation, five states, and 162 counties. Provisional applicability is the 167 state/county identities; the nation is compiled/final-only because the proven provisional family has state, county, and CBSA members but no national member. Provider binding is exact `(location_type, provider identifier)` to canonical `geo_id`; name matching is prohibited. `franklin_city_county_va__county` is enabled in the broader generated manifest but absent from the accepted local BPS truth and is excluded pending provider verification. All 64 configured CBSA identities are out of v1. A provisional coverage gate therefore requires 167/167, never manufactures a national row, and must fail if any applicable state or county is absent. Temporal missingness remains legitimate and no per-month Cartesian completeness is asserted.
+The exact geography registry is `config/bps_governed_geographies_v1.csv`. It freezes 221 compiled-applicable identities: one nation, five states, 162 counties, and 53 provider-compatible canonical CBSA identities. Provisional applicability is the 220 state/county/CBSA identities; the nation is compiled/final-only because the provisional family has no national member. Provider binding is exact `(location_type, provider identifier)` to canonical `geo_id`; name matching is prohibited. `franklin_city_county_va__county` is enabled in the broader generated manifest but absent from the accepted local BPS truth and is excluded pending provider verification. Eleven configured `cbsa_metro` identities are intentionally unsupported as classified below. A provisional coverage gate therefore requires 220/220, never manufactures a national row, and must fail if any applicable state or county is absent. Temporal missingness remains legitimate and no per-month Cartesian completeness is asserted.
 
 | Metric ID | Provider measure | Description | Unit / scaling | SA | Frequency | Class | Downstream consumers |
 |---|---|---|---|---|---|---|---|
@@ -127,3 +127,38 @@ No nonnumeric token is assigned suppression, nonresponse, or unavailable semanti
 ### FUTURE PRODUCTION-INTEGRATION REQUIREMENT
 
 BPS must not own a parallel lifecycle. A new cohort dynamically discovers compiled and provisional states independently and then immutably pins their release IDs, physical URLs, and hashes. Execution, resume, and replay consume those pins and never rediscover. Later production work must reuse common candidate publication, durable results, promotion, and barrier contracts while keeping compiled and provisional artifacts separate. This verification pass performs none of those production steps.
+
+## 2026-09-03 CBSA canonical-concept closure
+
+The exact-pinned hosted CBSA verification closes the deferred geography gate.
+The canonical `cbsa_metro` namespace is intentionally heterogeneous; its 64
+identities comprise 43 Metropolitan Statistical Areas, 11 Micropolitan
+Statistical Areas, and 10 Metropolitan Divisions.  The machine-readable concept
+classification and rationale are frozen in
+`config/bps_cbsa_canonical_concepts_v1.csv`; a display label is never concept
+evidence.
+
+BPS admits the 53 exact-code identities observed in at least one pinned parent:
+all 43 Metropolitan Statistical Areas and 10 current provider-supported
+Micropolitan Statistical Areas.  Ten Metropolitan Divisions are unsupported
+because BPS does not publish them as CBSA product identities.  Historical Big
+Stone Gap code `13720` is also unsupported because it is absent from both exact
+pins and is not a current governable BPS identity.  Unsupported concepts remain
+absent: BPS performs no synthesis, aggregation, decomposition, fuzzy match, or
+metro-division derivation.
+
+Compiled provider code `9999`, normalized to `09999`, is
+`NON_GOVERNABLE_PROVIDER_PLACEHOLDER`.  Its reuse across unrelated names and
+values in every month from 1988 through 2003 proves that it cannot identify one
+canonical geography.  It is excluded before canonical identity and duplicate
+formation; no temporal crosswalk is created.  A differing-value duplicate for
+any other, governable five-digit code continues to fail closed.
+
+The final applicability is compiled nation/state/county plus the
+provider-compatible canonical CBSA subset; provisional state/county plus that
+CBSA subset (and no nation); and logical BPS nation/state/county plus that CBSA
+subset.  `PROMOTE_CBSA` means exact-code mapping to a compatible concept,
+settled `TOTAL_UNITS` semantics, no unresolved tokens, no conflict on a
+governable provider code, explicit placeholder exclusion, and unsupported
+canonical concepts left absent.  It does not require BPS to cover every concept
+stored under the shared `cbsa_metro` level.

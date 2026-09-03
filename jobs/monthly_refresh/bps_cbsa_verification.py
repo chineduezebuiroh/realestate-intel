@@ -23,6 +23,8 @@ from jobs.monthly_refresh.bps_provisional_verification import read_member
 SCHEMA_VERSION = "bps_cbsa_contract_verification_v1"
 KEY = ["provider_cbsa_id", "observation_date"]
 CONFLICT_SAMPLE_LIMIT = 25
+NON_GOVERNABLE_PROVIDER_PLACEHOLDERS = {"09999"}
+CONCEPT_REGISTRY = Path("config/bps_cbsa_canonical_concepts_v1.csv")
 
 
 def canonical_cbsa(path: Path) -> pd.DataFrame:
@@ -34,9 +36,21 @@ def canonical_cbsa(path: Path) -> pd.DataFrame:
     duplicates = frame.groupby("provider_cbsa_id").geo_slug.nunique()
     if (duplicates > 1).any():
         raise ValueError(f"ambiguous canonical CBSA identifiers fail closed: {duplicates[duplicates > 1].index.tolist()}")
-    return frame[["provider_cbsa_id", "geo_slug", "geo_name"]].rename(
+    result = frame[["provider_cbsa_id", "geo_slug", "geo_name"]].rename(
         columns={"geo_slug": "canonical_geo_id", "geo_name": "canonical_geo_name"}
     ).sort_values("provider_cbsa_id").reset_index(drop=True)
+    concepts = pd.read_csv(CONCEPT_REGISTRY, dtype=str, keep_default_na=False).rename(
+        columns={"census_code": "provider_cbsa_id"})
+    if set(result.provider_cbsa_id) == set(concepts.provider_cbsa_id):
+        result = result.merge(concepts[["provider_cbsa_id", "canonical_concept",
+            "bps_compatibility", "reason"]], on="provider_cbsa_id", validate="one_to_one")
+    return result
+
+
+def exclude_provider_placeholders(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Exclude provider sentinels before canonical identity or conflict formation."""
+    placeholder = frame.provider_cbsa_id.isin(NON_GOVERNABLE_PROVIDER_PLACEHOLDERS)
+    return frame.loc[~placeholder].copy(), frame.loc[placeholder].copy()
 
 
 def _numeric(raw: object) -> tuple[float | None, str | None]:
@@ -167,6 +181,8 @@ def diagnose(frame: pd.DataFrame, source: str) -> tuple[pd.DataFrame, dict, pd.D
 
 
 def crosswalk(compiled: pd.DataFrame, provisional: pd.DataFrame, canonical: pd.DataFrame) -> pd.DataFrame:
+    compiled, _ = exclude_provider_placeholders(compiled)
+    provisional, _ = exclude_provider_placeholders(provisional)
     compiled_ids = set(compiled.provider_cbsa_id); provisional_ids = set(provisional.provider_cbsa_id)
     canon = canonical.set_index("provider_cbsa_id").to_dict("index")
     rows = []
@@ -205,19 +221,25 @@ def governance_decision(compiled: pd.DataFrame, provisional: pd.DataFrame,
                         canonical: pd.DataFrame, *, has_tokens: bool,
                         has_conflicts: bool = False) -> tuple[str, str]:
     """Return a provider-evidence decision; inability to execute is never rejection."""
+    compiled, _ = exclude_provider_placeholders(compiled)
+    provisional, _ = exclude_provider_placeholders(provisional)
     compiled_ids = set(compiled.provider_cbsa_id)
     provisional_ids = set(provisional.provider_cbsa_id)
-    missing = set(canonical.provider_cbsa_id) - (compiled_ids | provisional_ids)
+    compatible = canonical
+    if "bps_compatibility" in canonical:
+        compatible = canonical[canonical.bps_compatibility.eq("compatible")]
+    missing = set(compatible.provider_cbsa_id) - (compiled_ids | provisional_ids)
     if has_conflicts:
-        return ("CBSA_GOVERNANCE_DECISION_DEFERRED",
-                "compiled provider identity/value conflicts require semantic review; no observation was selected")
+        return ("BLOCK_CBSA",
+                "a governable provider identity has conflicting values; no observation may be selected")
     if missing:
         return "BLOCK_CBSA", f"{len(missing)} canonical CBSA identities are absent from both physical parents"
     if has_tokens:
         return "CBSA_GOVERNANCE_DECISION_DEFERRED", "unresolved nonnumeric provider tokens require review"
     if not compiled_ids and not provisional_ids:
         return "BLOCK_CBSA", "neither physical parent contains CBSA observations"
-    return "PROMOTE_CBSA", "all canonical CBSA identities map by exact five-digit code to at least one physical parent"
+    return ("PROMOTE_CBSA", "all admitted provider identities map by exact five-digit code to a "
+            "compatible canonical concept; unsupported canonical concepts remain absent")
 
 
 def verify_pin(path: Path, expected: str, label: str) -> None:
@@ -234,6 +256,8 @@ def run(args: argparse.Namespace) -> None:
     verify_pin(args.provisional_cbsa, provisional_pin["members"]["cbsa_metro"]["sha256"], "provisional CBSA")
     compiled_all, compiled_raw = compiled_inventory(args.compiled_zip)
     provisional, provisional_raw = provisional_inventory(args.provisional_cbsa)
+    compiled_all, compiled_placeholders = exclude_provider_placeholders(compiled_all)
+    provisional, provisional_placeholders = exclude_provider_placeholders(provisional)
     compiled, compiled_diag, compiled_conflict_keys, compiled_conflict_rows = diagnose(compiled_all, "compiled")
     provisional, provisional_diag, _, _ = diagnose(provisional, "provisional")
     canonical = canonical_cbsa(args.geo_manifest)
@@ -272,7 +296,12 @@ def run(args: argparse.Namespace) -> None:
         "compiled_pin_id": compiled_pin["pin_id"], "provisional_pin_id": provisional_pin["pin_id"],
         "compiled": {**compiled_raw, **compiled_diag}, "provisional": {**provisional_raw, **provisional_diag},
         "canonical_identity_count": len(canonical), "crosswalk_status_counts": statuses,
-        "identity_authority": "exact five-digit code only; provider names diagnostic; no fuzzy matching",
+        "identity_authority": "exact five-digit code only; provider names diagnostic; no fuzzy or derived matching",
+        "excluded_provider_placeholders": {
+            "identities": sorted(NON_GOVERNABLE_PROVIDER_PLACEHOLDERS),
+            "compiled_row_count": len(compiled_placeholders),
+            "provisional_row_count": len(provisional_placeholders),
+            "classification": "NON_GOVERNABLE_PROVIDER_PLACEHOLDER"},
         "unresolved_identity_count": unresolved, "ambiguous_identity_count": 0,
         "applicability_matrix": applicability, "recommendation": recommendation,
         "recommendation_basis": recommendation_basis})

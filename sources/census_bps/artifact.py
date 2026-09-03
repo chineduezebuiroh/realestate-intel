@@ -23,7 +23,7 @@ REQUIRED_METRIC = "census_bp_total_units"
 # No textual token is admitted until a pinned payload and Census documentation
 # establish its meaning.  Actual nulls remain diagnosable unavailable values.
 UNAVAILABLE_TOKENS: set[str] = set()
-EXPECTED_GEOGRAPHIES = 168
+EXPECTED_GEOGRAPHIES = 221
 GOVERNED_CONFIG_PATHS = ("config/bps_governed_geographies_v1.csv", "config/geo_manifest.generated.csv", "config/source_metric_registry.csv", "config/source_refresh_revision_policy_v0_2.json")
 
 
@@ -53,7 +53,7 @@ def load_registry(path: Path = REGISTRY_PATH) -> list[dict[str, str]]:
         {row["scale_transform"] for row in rows} != {"none"} or
         {row["seasonal_adjustment"] for row in rows} != {"NSA"} or
         {row["classification"] for row in rows} != {"GOVERNED_REQUIRED"} or
-        {row["level"] for row in rows} != {"nation", "state", "county"}):
+        {row["level"] for row in rows} != {"nation", "state", "county", "cbsa_metro"}):
         raise ValueError("governed BPS metric/geography contract contradiction")
     return rows
 
@@ -78,7 +78,7 @@ def _provider_key(row: Mapping[str, Any]) -> tuple[str, str]:
     location = str(row.get("location_type") or "").strip()
     if location == "Country":
         return location, "00"
-    field = {"State": "state_fips", "County": "county_fips"}.get(location)
+    field = {"State": "state_fips", "County": "county_fips", "Metro": "cbsa_code"}.get(location)
     if field is None:
         raise ValueError(f"unexpected BPS geography type: {location!r}")
     value = str(row.get(field) or "").strip()

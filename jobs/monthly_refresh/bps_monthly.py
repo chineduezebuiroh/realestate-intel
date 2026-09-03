@@ -96,13 +96,13 @@ def compiled_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], out
           elapsed_seconds=round(time.monotonic() - started, 3))
     if diagnostics["authoritative_total_field"] != "total_units" or examples:
         raise ValueError("compiled authoritative TOTAL_UNITS contains unsafe values")
-    if diagnostics["present_geography_count"] != 168:
-        raise ValueError("compiled current release does not cover 168 governed geographies")
+    if diagnostics["present_geography_count"] != 221:
+        raise ValueError("compiled current release does not cover 221 governed geographies")
     target = str(diagnostics["observation_max"])[:7]
     evidence = {"schema_version": "bps_compiled_candidate_evidence_v1",
                 "physical_source_id": COMPILED_SOURCE_ID, "logical_source_id": LOGICAL_SOURCE_ID,
                 "cycle_id": cycle_id, "provider_pin": dict(pin), "zip": zip_evidence,
-                "coverage": {"applicable": 168, "present": int(coverage.present_in_release.sum())},
+                "coverage": {"applicable": 221, "present": int(coverage.present_in_release.sum())},
                 "duplicate_diagnostics": {k: diagnostics[k] for k in diagnostics if "duplicate" in k},
                 "provider_diagnostics": diagnostics}
     # The governed metric belongs to logical family ``bps``, while immutable
@@ -129,15 +129,15 @@ def provisional_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], 
         frames, release_id=str(pin["provider_release_id"]))
     if examples or diagnostics["nonnumeric_or_unavailable_token_counts"]:
         raise ValueError("provisional required unit component contains an unsafe token")
-    if diagnostics["present_provisional_applicable_geography_count"] != 167 or len(canonical) != 167:
-        raise ValueError("provisional release does not cover exactly 167 applicable geographies")
+    if diagnostics["present_provisional_applicable_geography_count"] != 220 or len(canonical) != 220:
+        raise ValueError("provisional release does not cover exactly 220 applicable geographies")
     if "united_states__nation" in set(canonical.geo_id):
         raise ValueError("provisional candidate must not synthesize a national observation")
     target = str(diagnostics["observation_max"])[:7]
     evidence = {"schema_version": "bps_provisional_candidate_evidence_v1",
                 "physical_source_id": PROVISIONAL_SOURCE_ID, "logical_source_id": LOGICAL_SOURCE_ID,
                 "cycle_id": cycle_id, "provider_pin": dict(pin),
-                "coverage": {"applicable": 167, "present": 167},
+                "coverage": {"applicable": 220, "present": 220},
                 "out_of_governance": {"classification": "OUT_OF_GOVERNANCE",
                                       "count": len(outside),
                                       "inventory": outside.to_dict(orient="records")},

@@ -88,6 +88,8 @@ def inspect_zip(path: Path, *, chunk_rows: int = COMPILED_CHUNK_ROWS) -> tuple[p
             raise ValueError("compiled CSV contains duplicate normalized headers")
         original_by_normalized = dict(zip(raw_columns, header.columns))
         resolved, total_field = _resolve_columns(raw_columns)
+        if "cbsa_code" in raw_columns:
+            resolved["cbsa_code"] = "cbsa_code"
         required = set(resolved.values())
         if total_field:
             required.add(total_field)
@@ -152,11 +154,16 @@ def _provider_key(row: Mapping[str, Any], columns: Mapping[str, str]) -> tuple[s
     if location == "Country": return location, "00"
     if location == "State": return location, _code(row[columns["state_fips"]], 2) or ""
     if location == "County": return location, _code(row[columns["county_fips"]], 5) or ""
+    if location == "Metro":
+        field = columns.get("cbsa_code")
+        return location, _code(row[field], 5) if field else ""
     return location, ""
 
 
 def verify(frame: pd.DataFrame, *, release_month: str) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
     columns, total_field = _resolve_columns(list(frame.columns))
+    if "cbsa_code" in frame.columns:
+        columns["cbsa_code"] = "cbsa_code"
     inspection = frame.attrs.get("compiled_inspection", {})
     monthly = frame[frame[columns["period"]].str.strip().str.lower().eq("monthly")].copy()
     registry = load_registry()
