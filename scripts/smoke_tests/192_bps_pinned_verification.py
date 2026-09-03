@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory() as tmp:
  assert diagnostics['contract_gate']=='compiled_contract_proven'
  assert len(canonical)==3 and set(canonical.value)=={0.,17.,1234.}
  assert set(map(str,canonical.date))=={'2026-04-01'}
- assert len(coverage)==len(load_registry())==168
+ assert len(coverage)==len(load_registry())==221
  assert coverage.present_in_release.sum()==3
  assert examples[0]['raw_total']=='D'
  # Deterministic verification output and byte-identical catalog.

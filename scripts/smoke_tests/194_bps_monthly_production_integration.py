@@ -22,7 +22,8 @@ def _compiled(root: Path) -> Path:
         rows.append({"period": "Monthly", "year": "1988" if location == "Country" else "2026",
                      "month": "1", "location_type": location,
                      "state_fips": identifier if location == "State" else "",
-                     "county_fips": identifier if location == "County" else "", "total_units": "0"})
+                     "county_fips": identifier if location == "County" else "",
+                     "cbsa_code": identifier if location == "Metro" else "", "total_units": "0"})
     rows.append(dict(rows[0]))  # deterministic identical duplicate
     csv = pd.DataFrame(rows).to_csv(index=False).encode()
     path = root / "BPS_Compiled_File_202604.zip"
@@ -36,13 +37,14 @@ def _provisional(root: Path) -> dict[str, Path]:
     for item in load_registry():
         if item["provider_location_type"] == "Country":
             continue
-        level = "state" if item["provider_location_type"] == "State" else "county"
+        level = {"State": "state", "County": "county", "Metro": "cbsa_metro"}[item["provider_location_type"]]
         row = {column: "0" for column in PROVISIONAL_COLUMNS_BY_LEVEL[level]}
         row.update({"survey_date": "202607", "geo_name": item["geo_id"]})
         if level == "state": row["state_fips"] = item["provider_identifier"]
-        else:
+        elif level == "county":
             row["state_fips"] = item["provider_identifier"][:2]
             row["county_fips_3"] = item["provider_identifier"][2:]
+        else: row["cbsa_code"] = item["provider_identifier"]
         by_level[level].append(row)
     cbsa = {column: "0" for column in PROVISIONAL_COLUMNS_BY_LEVEL["cbsa_metro"]}
     cbsa.update({"survey_date": "202607", "cbsa_code": "99999", "geo_name": "outside"})
@@ -86,10 +88,10 @@ def main() -> None:
             output=root/"compiled-artifact", cycle_id=cycle, repository_root=Path("."))
         provisional = provisional_candidate(pin=provisional_pin, paths=provisional_paths,
             output=root/"provisional-artifact", cycle_id=cycle, repository_root=Path("."))
-        assert compiled["manifest"]["geography_count"] == 168
+        assert compiled["manifest"]["geography_count"] == 221
         assert compiled["manifest"]["observation_min"] == "1988-01-01"
-        assert provisional["manifest"]["geography_count"] == 167
-        assert provisional["manifest"]["row_count"] == 167
+        assert provisional["manifest"]["geography_count"] == 220
+        assert provisional["manifest"]["row_count"] == 220
         assert provisional["evidence"]["out_of_governance"]["classification"] == "OUT_OF_GOVERNANCE"
         assert compiled["manifest"]["artifact_id"] != provisional["manifest"]["artifact_id"]
         print(json.dumps({"compiled": compiled["manifest"]["artifact_id"],

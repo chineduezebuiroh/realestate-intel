@@ -25,8 +25,8 @@ canonical,coverage,outside,diagnostics,examples=verify(frames,release_id=release
 assert len(canonical)==2 and set(canonical.value)=={8.}
 assert set(canonical.geo_id)=={'california__state','alameda_county_ca__county'}
 assert diagnostics['present_governed_geography_count']==2
-assert diagnostics['configured_geography_count']==168
-assert diagnostics['provisional_applicable_geography_count']==167
+assert diagnostics['configured_geography_count']==221
+assert diagnostics['provisional_applicable_geography_count']==220
 assert diagnostics['present_provisional_applicable_geography_count']==2
 assert diagnostics['out_of_governance_geography_count']==1
 assert diagnostics['nonnumeric_or_unavailable_token_counts']=={}
@@ -34,22 +34,22 @@ assert diagnostics['current_month_only'] is True and examples==[]
 assert list(map(str,canonical.date))==['2026-07-01','2026-07-01']
 # The physical provisional family covers every governed state/county, not nation.
 registry=load_registry(); applicable=provisional_applicable_registry(registry)
-assert len(registry)==168 and len(applicable)==167
+assert len(registry)==221 and len(applicable)==220
 assert {r['geo_id'] for r in registry}-{r['geo_id'] for r in applicable}=={'united_states__nation'}
 expanded={level: frames[level].iloc[0:0].copy() for level in LEVELS}
 for item in applicable:
- level='state' if item['provider_location_type']=='State' else 'county'
+ level={'State':'state','County':'county','Metro':'cbsa_metro'}[item['provider_location_type']]
  row=frames[level].iloc[0].copy()
  if level=='state': row['state_fips']=item['provider_identifier']
- else:
+ elif level=='county':
   row['state_fips']=item['provider_identifier'][:2]
   row['county_fips_3']=item['provider_identifier'][2:]
+ else: row['cbsa_code']=item['provider_identifier']
  expanded[level]=pd.concat([expanded[level],row.to_frame().T],ignore_index=True)
-expanded['cbsa_metro']=frames['cbsa_metro']
 full,full_coverage,full_outside,full_diagnostics,_=verify(expanded,release_id=release)
-assert len(full)==167 and 'united_states__nation' not in set(full.geo_id)
+assert len(full)==220 and 'united_states__nation' not in set(full.geo_id)
 assert full_diagnostics['contract_gate']=='provider_layout_and_mapping_verified'
-assert full_diagnostics['present_provisional_applicable_geography_count']==167
+assert full_diagnostics['present_provisional_applicable_geography_count']==220
 assert not full_coverage.loc[full_coverage.geo_id.eq('united_states__nation'),'provisional_applicable'].item()
 missing_one={**expanded,'county':expanded['county'].iloc[1:].reset_index(drop=True)}
 assert verify(missing_one,release_id=release)[3]['contract_gate'].startswith('blocked_')

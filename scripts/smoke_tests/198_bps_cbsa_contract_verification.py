@@ -10,7 +10,7 @@ import pandas as pd
 
 from jobs.monthly_refresh.bps_cbsa_verification import (
     canonical_cbsa, compiled_inventory, crosswalk, diagnose, governance_decision,
-    history_distribution,
+    exclude_provider_placeholders, history_distribution,
 )
 
 assert len(canonical_cbsa(Path("config/geo_manifest.generated.csv"))) == 64
@@ -50,7 +50,23 @@ assert conflict_diag["affected_cbsa_identity_count"] == 1
 assert set(conflict_rows.total_units) == {1.0, 9.0}
 assert "provider_raw__name" in conflict_rows
 assert governance_decision(usable, provisional, canonical, has_tokens=False,
-                           has_conflicts=True)[0] == "CBSA_GOVERNANCE_DECISION_DEFERRED"
+                           has_conflicts=True)[0] == "BLOCK_CBSA"
+
+# 09999 is a provider sentinel, not hundreds of temporal CBSA identities.  It is
+# removed before duplicate governance, while the real 12345 conflict above fails.
+placeholder = pd.DataFrame([
+    {"provider_cbsa_id": "09999", "provider_name": "Elmira NY", "observation_date": "1990-01-01", "total_units": 1.0},
+    {"provider_cbsa_id": "09999", "provider_name": "Wausau WI", "observation_date": "1990-01-01", "total_units": 9.0},
+])
+governable, excluded = exclude_provider_placeholders(placeholder)
+assert governable.empty and len(excluded) == 2
+assert crosswalk(placeholder, provisional, canonical).provider_compiled_cbsa_id.ne("09999").all()
+
+# Canonical concepts outside the provider product do not become a completeness
+# requirement and may not be synthesized from an MSA or division relationship.
+conceptual = canonical.assign(canonical_concept=["metropolitan_statistical_area", "metropolitan_division"],
+                              bps_compatibility=["compatible", "unsupported"])
+assert governance_decision(compiled.iloc[:1], provisional, conceptual, has_tokens=False)[0] == "PROMOTE_CBSA"
 
 fixture = Path("/tmp/bps_cbsa_ambiguous_manifest.csv")
 pd.DataFrame([
@@ -72,22 +88,15 @@ assert "place" not in set(pd.read_csv("config/bps_governed_geographies_v1.csv").
 source = Path("jobs/monthly_refresh/bps_cbsa_verification.py").read_text()
 for forbidden in ("discover_latest", "artifact_catalog", "duckdb", "redfin", "Source Set", "accepted_pointer"):
     assert forbidden not in source
-workflow = Path(".github/workflows/bps-cbsa-contract-verification.yml").read_text()
-assert "workflow_dispatch:" in workflow and "schedule:" not in workflow
-assert "contents: read" in workflow
-job_env = workflow.split("    env:\n", 1)[1].split("    steps:\n", 1)[0]
-assert "${{ runner.temp }}" not in job_env  # invalid context makes workflow_dispatch unparsable
-assert 'INPUT_ROOT="$RUNNER_TEMP/bps-cbsa-contract-inputs"' in workflow
-assert 'EVIDENCE_ROOT="$RUNNER_TEMP/bps-cbsa-contract-evidence"' in workflow
-assert "PROVIDER_CONTRACT_REVIEW_REQUIRED" in workflow and "INFRASTRUCTURE_BLOCKER" in workflow
-assert "monthly_source_input_pins/$CYCLE_ID" in workflow
-assert '.provider_release_id == "202604"' in workflow
-assert '.provider_release_id == "2607"' in workflow
-assert ".members.compiled_zip.url" in workflow and ".members.cbsa_metro.url" in workflow
-assert workflow.count("sha256sum --check --strict") == 2
-assert "jobs.monthly_refresh.bps_cbsa_verification" in workflow
-for forbidden in ("discover_latest", "artifact_catalog", "duckdb", "redfin", "source-set", "accepted_pointer", "schedule:"):
-    assert forbidden not in workflow.lower()
+assert not Path(".github/workflows/bps-cbsa-contract-verification.yml").exists()
+monthly_workflow = Path(".github/workflows/monthly-refresh-production.yml").read_text().lower()
+assert "bps-cbsa" not in monthly_workflow  # no CBSA-specific source member/job
+registry = pd.read_csv("config/bps_governed_geographies_v1.csv", dtype=str)
+assert "place" not in set(registry.level)
+assert set(registry[registry.level.eq("cbsa_metro")].provider_identifier) == set(
+    pd.read_csv("config/bps_cbsa_canonical_concepts_v1.csv", dtype=str)
+      .query("bps_compatibility == 'compatible'").census_code)
+assert len(registry[registry.level.eq("cbsa_metro")]) == 53
 
 # End-to-end fixture proves semantic conflicts still produce complete evidence.
 with tempfile.TemporaryDirectory() as temporary:

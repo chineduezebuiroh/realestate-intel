@@ -30,7 +30,7 @@ ces_total_nonfarm,ces,ces_total_nonfarm_sa,CES Total Nonfarm Employment,Seasonal
 ces_total_private,ces,ces_total_private_sa,CES Total Private Employment,Seasonally adjusted total private employment,state|cbsa_metro,monthly,thousands_of_jobs,SA,true,
 ces_construction,ces,ces_construction_sa,CES Construction Employment,Seasonally adjusted construction employment,state|cbsa_metro,monthly,thousands_of_jobs,SA,true,
 
-bps_total_units,census_bps,census_bp_total_units,Building Permits Total Units,Total permitted housing units,state|county|place,monthly,Units,NSA,true,
+bps_total_units,census_bps,census_bp_total_units,Building Permits Total Units,Total permitted housing units,nation|state|county|cbsa_metro,monthly,Units,NSA,true,
 bps_total_buildings,census_bps,census_bp_total_bldgs,Building Permits Total Buildings,Total permitted buildings,state|county|place,monthly,Buildings,NSA,true,
 bps_total_value,census_bps,census_bp_total_value,Building Permits Total Value,Total permitted construction value,state|county|place,monthly,USD,NSA,true,
 bps_1_unit,census_bps,census_bp_1_unit,Building Permits 1-Unit,Permitted single-family units,state|county|place,monthly,Units,NSA,true,
