@@ -1,0 +1,95 @@
+name: BPS CBSA exact-pin contract verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      cycle_id:
+        description: Persisted monthly cycle containing the exact BPS input pins
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CYCLE_ID: ${{ inputs.cycle_id }}
+      EVIDENCE_ROOT: ${{ runner.temp }}/bps-cbsa-contract-evidence
+      INPUT_ROOT: ${{ runner.temp }}/bps-cbsa-contract-inputs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Validate persisted acceptance pins
+        id: pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$CYCLE_ID" in
+            monthly_cycle__*) ;;
+            *) echo "invalid cycle_id" >&2; exit 2 ;;
+          esac
+          case "$CYCLE_ID" in *[!A-Za-z0-9_.-]*) echo "unsafe cycle_id" >&2; exit 2 ;; esac
+          pin_root="config/monthly_source_input_pins/$CYCLE_ID"
+          compiled_pin="$pin_root/census_bps.json"
+          provisional_pin="$pin_root/census_bps_provisional.json"
+          test -f "$compiled_pin" && test -f "$provisional_pin"
+          jq -e '.source_id == "census_bps" and .provider_release_id == "202604"' "$compiled_pin"
+          jq -e '.source_id == "census_bps_provisional" and .provider_release_id == "2607"' "$provisional_pin"
+          echo "compiled_pin=$compiled_pin" >> "$GITHUB_OUTPUT"
+          echo "provisional_pin=$provisional_pin" >> "$GITHUB_OUTPUT"
+      - name: Retrieve and hash exact pinned members
+        shell: bash
+        env:
+          COMPILED_PIN: ${{ steps.pins.outputs.compiled_pin }}
+          PROVISIONAL_PIN: ${{ steps.pins.outputs.provisional_pin }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$INPUT_ROOT"
+          compiled_url="$(jq -er '.members.compiled_zip.url' "$COMPILED_PIN")"
+          provisional_url="$(jq -er '.members.cbsa_metro.url' "$PROVISIONAL_PIN")"
+          curl --fail --location --retry 4 --retry-all-errors --output "$INPUT_ROOT/compiled.zip" -- "$compiled_url"
+          curl --fail --location --retry 4 --retry-all-errors --output "$INPUT_ROOT/cbsa2607c.txt" -- "$provisional_url"
+          printf '%s  %s\n' "$(jq -er '.members.compiled_zip.sha256' "$COMPILED_PIN")" "$INPUT_ROOT/compiled.zip" |
+            sha256sum --check --strict
+          printf '%s  %s\n' "$(jq -er '.members.cbsa_metro.sha256' "$PROVISIONAL_PIN")" "$INPUT_ROOT/cbsa2607c.txt" |
+            sha256sum --check --strict
+      - name: Verify BPS CBSA contract read-only
+        env:
+          COMPILED_PIN: ${{ steps.pins.outputs.compiled_pin }}
+          PROVISIONAL_PIN: ${{ steps.pins.outputs.provisional_pin }}
+        run: |
+          PYTHONPATH=. python -m jobs.monthly_refresh.bps_cbsa_verification \
+            --compiled-pin "$COMPILED_PIN" \
+            --provisional-pin "$PROVISIONAL_PIN" \
+            --compiled-zip "$INPUT_ROOT/compiled.zip" \
+            --provisional-cbsa "$INPUT_ROOT/cbsa2607c.txt" \
+            --output "$EVIDENCE_ROOT"
+      - name: Verification summary
+        if: always()
+        shell: bash
+        run: |
+          echo '## BPS CBSA hosted exact-pin verification' >> "$GITHUB_STEP_SUMMARY"
+          echo "Cycle: \`$CYCLE_ID\`" >> "$GITHUB_STEP_SUMMARY"
+          if test -f "$EVIDENCE_ROOT/diagnostics.json"; then
+            echo '### Decision evidence' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            jq '{recommendation,recommendation_basis,compiled,provisional,canonical_identity_count,crosswalk_status_counts,unresolved_identity_count,ambiguous_identity_count,applicability_matrix}' \
+              "$EVIDENCE_ROOT/diagnostics.json" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '**INFRASTRUCTURE BLOCKER:** exact-pin verification did not produce diagnostics; CBSA is not rejected.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bps-cbsa-contract-${{ inputs.cycle_id }}
+          path: ${{ runner.temp }}/bps-cbsa-contract-evidence/
+          if-no-files-found: warn
+          retention-days: 30
