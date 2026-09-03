@@ -78,12 +78,12 @@ with tempfile.TemporaryDirectory() as value:
     else: raise AssertionError("execution began without durable persistence")
 
 policy = json.loads(Path("config/monthly_source_execution_registry.json").read_text())
-assert required_sources(policy) == ("redfin", "fred_macro", "ces", "laus")
+assert required_sources(policy) == ("redfin", "fred_macro", "ces", "laus", "census_bps", "census_bps_provisional")
 by_id = {item["source_id"]: item for item in policy["members"]}
 for source in ("fred_macro", "ces", "laus"):
     assert by_id[source]["provider_input_policy"] == "legacy_candidate_evidence"
 for source in ("census_bps", "census_bps_provisional"):
-    assert not by_id[source]["hosted_cohort_enabled"]
+    assert by_id[source]["hosted_cohort_enabled"]
     assert by_id[source]["provider_input_policy"] == "durable_raw_input_pin"
 assert by_id["census_bps_provisional"]["dependencies"] == []
 print("Smoke 195 durable source-input lifecycle passed")

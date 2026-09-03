@@ -32,14 +32,14 @@
     {
       "source_id": "census_bps",
       "required": true,
-      "hosted_cohort_enabled": false,
+      "hosted_cohort_enabled": true,
       "provider_input_policy": "durable_raw_input_pin",
       "dependencies": []
     },
     {
       "source_id": "census_bps_provisional",
       "required": true,
-      "hosted_cohort_enabled": false,
+      "hosted_cohort_enabled": true,
       "provider_input_policy": "durable_raw_input_pin",
       "dependencies": []
     }

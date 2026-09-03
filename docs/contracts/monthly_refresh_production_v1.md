@@ -176,6 +176,37 @@ source-set, and participating source pointers to exactly the pinned identities, 
 consumed. Until a multi-object transactional registry primitive exists, the implementation must use
 a prepared promotion record plus ordered CAS operations and recover idempotently; downstream readers
 must follow the canonical pointer, so partial bookkeeping cannot expose an incomplete cohort.
+
+### Hosted BPS physical members
+
+`census_bps` and `census_bps_provisional` are independent required execution
+members. Each runs through `discover_persist_execute`, a cycle/source-scoped
+GitHub Contents pin, its existing governed adapter, the common immutable GitHub
+Release publication backend, and its own durable cycle result. Compiled owns a
+single exact ZIP pin and 168-geography complete-history candidate; provisional
+owns a coherent state/county/CBSA pin and 167-geography current-month candidate
+with no national row and CBSA retained only as `OUT_OF_GOVERNANCE` evidence.
+Their release IDs are independent. The barrier requires both physical source
+IDs and does not resolve them into logical family `bps`. Family resolution and
+BPS acceptance are explicitly outside this contract stage.
+
+### Source completion authority on re-entry
+
+Normal is an invocation mode, not permission to replace a completed member.
+Before source fan-out, both normal re-entry and resume resolve successful
+`(cycle_id, physical source_id)` results from durable authority. Valid completed
+results are passed to the barrier as reused results; their acquisition,
+canonicalization, publication, and result-recording steps are not invoked. A
+missing raw-pin result executes from its existing pin without discovery, while
+normal may discover only when neither result nor required pin exists. Thus the
+authority order is durable successful result, then durable provider-input pin,
+then new discovery. Replay retains its separately governed evidence semantics.
+
+Contradictory durable-result writes remain terminal identity collisions. A
+candidate published before such a collision is immutable evidence but is not
+the authoritative result for that completed cohort/source key; it is neither
+deleted nor promoted by orchestration.
+
 Source-local activation remains only migration, investigation, or explicit recovery behavior.
 
 Automatic promotion additionally requires ownership/geography/metric, revision/change, package,

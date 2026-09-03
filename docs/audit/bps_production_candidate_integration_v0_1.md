@@ -1,8 +1,8 @@
 # BPS production-candidate integration v0.1
 
-**Status:** provider-family contract **CLOSED**; candidate adapter and common
-durable provider-input lifecycle implemented; BPS hosted registration
-**NOT YET IMPLEMENTED**; family resolution/promotion **NOT IMPLEMENTED**.
+**Status:** provider-family contract **CLOSED**; durable pin architecture
+**COMPLETE**; hosted BPS physical-member registration **IMPLEMENTED**; family
+resolution **NOT YET IMPLEMENTED**; BPS acceptance **NOT YET PERFORMED**.
 
 ## Reconciliation with common automation
 
@@ -35,8 +35,10 @@ UNIT fields, rejects unsafe tokens/conflicting duplicates, excludes the nation,
 and records CBSA evidence as `OUT_OF_GOVERNANCE`. It creates a separate
 current-month-only candidate with its own identity and evidence.
 
-Both candidates keep canonical row `source_id=bps`; their evidence records the
-independent physical source identity. They are deliberately not combined.
+Both candidates retain logical governed family `bps` in evidence, while their
+artifact, canonical row, catalog, and cycle-result identities are respectively
+`census_bps` and `census_bps_provisional`. They are independently addressable,
+independently published candidates and are deliberately not combined.
 
 ## Source-agnostic hosted pin lifecycle
 
@@ -57,6 +59,32 @@ discovery callback. A newer provider release therefore cannot replace a
 historical selection. Missing pin, failed persistence/read-back, malformed
 member inventory, contradictory identity, and byte mismatch all fail closed.
 
+Before that provider-input lifecycle is entered, the cohort planner applies a
+source-agnostic authority order: a validated durable successful cycle result
+wins over a durable provider pin, which wins over new discovery. Normal-mode
+re-entry and explicit resume therefore reuse completed physical members and fan
+out only missing members. For a raw-pin member with no result, execution still
+uses its existing historical pin without discovery; only a member with neither
+authority may discover in normal mode.
+
+## Normal re-entry corrective evidence
+
+A live re-entry into `monthly_cycle__2026-07__7cab1c5df177a1e4` exposed that the
+former planner treated every normal invocation as a new fan-out. FRED and LAUS
+each acquired and published a valid new immutable candidate before attempting
+to write a second, contradictory result for an already-complete physical
+cycle/source key. `GitHubCycleResultStore` correctly rejected both writes with
+`IdentityCollisionError`; this was not a storage failure. The planner now reads
+and validates durable completion before source execution in both normal and
+resume modes, preventing acquisition, canonicalization, publication, and result
+recording for completed members.
+
+The resulting FRED candidate
+`src__fred_macro__2026-08__r1__b5d6104a9b8bd99e` and the corresponding LAUS
+candidate remain valid immutable catalog evidence, but neither supersedes the
+durable result for the completed July cohort. They are intentionally retained;
+this correction adds no deletion, garbage collection, or candidate cleanup.
+
 ## Policy inventory and compatibility
 
 Hosted barrier membership now resolves from the compact
@@ -64,9 +92,10 @@ Hosted barrier membership now resolves from the compact
 `required && hosted_cohort_enabled` entries rather than a runtime constant.
 It is separate from cohort identity policy so introducing lifecycle metadata
 does not invalidate already-durable Redfin readiness/cycle identities.
-This keeps the currently implemented Redfin/FRED/CES/LAUS cohort unchanged and
-allows two independent BPS physical execution identities later. BPS entries
-declare `durable_raw_input_pin` but remain disabled from hosted membership.
+The required hosted cohort is now Redfin, FRED, CES, LAUS, `census_bps`, and
+`census_bps_provisional`. Both BPS entries declare `durable_raw_input_pin` and
+are enabled as independent barrier requirements. A result for one cannot
+satisfy the other, and their provider release identities need not agree.
 
 FRED, CES, and LAUS retain `legacy_candidate_evidence` compatibility. Their
 existing workflows acquire and publish under their already accepted semantics;
@@ -86,11 +115,21 @@ Redfin readiness was read or consumed; no DuckDB was opened or changed; and no
 cron was enabled. The offline smoke uses bounded generated provider-shaped
 fixtures and makes no live-provider claim.
 
-The next bounded step is to add the two thin BPS reusable workflows. Each must
-invoke its provider adapter through the common durable lifecycle, publish via
-the existing GitHub Release backend, record the normal cycle result, and then
-enable its already-declared policy entry. The master still has explicit job
-edges because GitHub reusable workflows cannot be dynamically selected from
-repository JSON; this is workflow topology, not barrier membership or provider
-semantics. Hosted cohort validation follows. BPS family resolution and
-controlled acceptance remain a later, separate phase.
+The common reusable BPS workflow selects one physical member and calls
+`bps_hosted.execute_member`. For compiled, normal discovery retrieves the
+discovered ZIP, persists and reads back its one-member pin, builds the governed
+168-geography complete-history artifact, publishes it through the existing
+GitHub Release backend, and writes the physical cycle result. For provisional,
+the same path coherently discovers and persists state/county/CBSA, builds the
+167-geography current-month artifact while retaining CBSA as
+`OUT_OF_GOVERNANCE`, then publishes and records its separate physical result.
+Resume/replay require and reuse each member's historical pin; exact pinned URLs
+are retrieved and hash-verified, and discovery is prohibited.
+
+The master has two explicit reusable-workflow job edges because GitHub workflow
+topology cannot be dynamically selected from repository JSON; barrier
+membership itself remains registry-driven. No live candidate publication was
+performed by this implementation pass; fixtures validate publication handoff
+and durable-result ordering offline. The next bounded phase is BPS family
+resolution, followed separately by controlled candidate acceptance. Neither is
+implemented here.
