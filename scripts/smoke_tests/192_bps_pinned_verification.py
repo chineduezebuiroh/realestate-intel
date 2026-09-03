@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse, hashlib, json, tempfile, zipfile
 from pathlib import Path
 import pandas as pd
+from core.source_artifacts.hashing import sha256_file
 from jobs.monthly_refresh.bps_bootstrap import _resolve_columns, equivalence, inspect_zip, release_url, run, verify
 from sources.census_bps.artifact import _numeric, load_registry
 
@@ -20,9 +21,21 @@ with tempfile.TemporaryDirectory() as tmp:
  root=Path(tmp); archive=root/'fixture.zip'
  with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as z:
   z.writestr('compiled.csv',fixture.read_bytes())
- frame,raw=inspect_zip(archive)
+ frame,raw=inspect_zip(archive,chunk_rows=2)
  canonical,coverage,diagnostics,examples=verify(frame,release_month='2026-04')
+ # The streaming member/file digests retain the prior whole-byte semantics.
+ assert sha256_file(fixture)==hashlib.sha256(fixture.read_bytes()).hexdigest()
+ assert sha256_file(archive)==hashlib.sha256(archive.read_bytes()).hexdigest()
  assert raw['selected_csv_sha256']==manifest['fixture_csv_sha256']
+ assert frame.attrs['compiled_inspection']['chunk_count'] > 1
+ assert frame.attrs['compiled_inspection']['governed_raw_row_count']==4
+ # Chunk filtering is exactly equivalent to the former full-frame verifier.
+ full=pd.read_csv(fixture,dtype=str,keep_default_na=False,low_memory=False)
+ full.columns=[str(column).strip().lower() for column in full.columns]
+ expected,expected_coverage,expected_diagnostics,expected_examples=verify(full,release_month='2026-04')
+ pd.testing.assert_frame_equal(canonical,expected)
+ pd.testing.assert_frame_equal(coverage,expected_coverage)
+ assert diagnostics==expected_diagnostics and examples==expected_examples
  assert diagnostics['authoritative_total_field']=='total_units'
  assert diagnostics['nonnumeric_token_counts']=={'D':1}
  assert diagnostics['authoritative_total_field_proven'] is True

@@ -1,7 +1,6 @@
 """Immutable provider-input pins shared by governed monthly source adapters."""
 from __future__ import annotations
 
-import hashlib
 import base64
 import json
 import urllib.parse
@@ -9,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from core.source_artifacts.hashing import sha256_json, write_canonical_json
+from core.source_artifacts.hashing import sha256_file, sha256_json, write_canonical_json
 from core.source_artifacts.publication import (IdentityCollisionError, PublicationError,
                                                TransientPublicationError)
 from core.source_artifacts.github_release import GitHubAPI
@@ -84,7 +83,7 @@ def verify_member_bytes(pin: Mapping[str, Any], paths: Mapping[str, Path]) -> No
     if set(paths) != set(pin["members"]):
         raise ValueError("retrieved provider member inventory differs from pin")
     for name, path in paths.items():
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        actual = sha256_file(path)
         if actual != pin["members"][name]["sha256"]:
             raise ValueError(f"raw/provider pin mismatch: {name}")
 
