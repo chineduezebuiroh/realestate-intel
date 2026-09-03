@@ -1,0 +1,47 @@
+{
+  "schema_version": "monthly_source_execution_registry_v1",
+  "members": [
+    {
+      "source_id": "redfin",
+      "required": true,
+      "hosted_cohort_enabled": true,
+      "provider_input_policy": "manual_durable_readiness",
+      "dependencies": []
+    },
+    {
+      "source_id": "fred_macro",
+      "required": true,
+      "hosted_cohort_enabled": true,
+      "provider_input_policy": "legacy_candidate_evidence",
+      "dependencies": []
+    },
+    {
+      "source_id": "ces",
+      "required": true,
+      "hosted_cohort_enabled": true,
+      "provider_input_policy": "legacy_candidate_evidence",
+      "dependencies": []
+    },
+    {
+      "source_id": "laus",
+      "required": true,
+      "hosted_cohort_enabled": true,
+      "provider_input_policy": "legacy_candidate_evidence",
+      "dependencies": []
+    },
+    {
+      "source_id": "census_bps",
+      "required": true,
+      "hosted_cohort_enabled": false,
+      "provider_input_policy": "durable_raw_input_pin",
+      "dependencies": []
+    },
+    {
+      "source_id": "census_bps_provisional",
+      "required": true,
+      "hosted_cohort_enabled": false,
+      "provider_input_policy": "durable_raw_input_pin",
+      "dependencies": []
+    }
+  ]
+}

@@ -11,22 +11,22 @@ policy=json.loads(Path("config/monthly_refresh_policy.json").read_text())
 registry=load_registry(Path("config/monthly_source_cycle_results.json"))
 cycle=resolve_invocation(mode="resume",policy_path=Path("config/monthly_refresh_policy.json"),readiness=readiness,catalog=catalog,supplied_cycle_id="monthly_cycle__2026-07__7cab1c5df177a1e4")
 plan=resolve_resume_results(cycle=cycle,catalog=catalog,registry=registry,policy=policy)
-assert plan["reuse"]==["ces","fred_macro","redfin"] and plan["run"]==["laus"]
+assert plan["reuse"]==["ces","fred_macro","laus","redfin"] and plan["run"]==[]
 evidence=barrier_evidence(cycle=cycle,results=[],reused_results=plan["results"],pins=plan["pins"],github={})
-assert evidence["barrier_status"]=="incomplete_retryable" and evidence["reused_source_ids"]==["ces","fred_macro","redfin"] and evidence["retry_source_ids"]==["laus"]
+assert evidence["barrier_status"]=="ready" and evidence["reused_source_ids"]==["ces","fred_macro","laus","redfin"] and evidence["retry_source_ids"]==[]
 assert not evidence["accepted_pointers_advanced"] and not evidence["source_set_created"] and not evidence["redfin_consumption_committed"]
 
 def without(source_id):
  changed=copy.deepcopy(registry); changed["records"]=[r for r in changed["records"] if r["source_id"]!=source_id]
  return resolve_resume_results(cycle=cycle,catalog=catalog,registry=changed,policy=policy)
-fred_failed=without("fred_macro"); assert fred_failed["reuse"]==["ces","redfin"] and fred_failed["run"]==["fred_macro","laus"]
-ces_failed=without("ces"); assert ces_failed["reuse"]==["fred_macro","redfin"] and ces_failed["run"]==["ces","laus"]
+fred_failed=without("fred_macro"); assert fred_failed["reuse"]==["ces","laus","redfin"] and fred_failed["run"]==["fred_macro"]
+ces_failed=without("ces"); assert ces_failed["reuse"]==["fred_macro","laus","redfin"] and ces_failed["run"]==["ces"]
 
 missing_catalog=copy.deepcopy(catalog)
 fred_id=next(r["result"]["candidate_artifact_id"] for r in registry["records"] if r["source_id"]=="fred_macro")
 missing_catalog["immutable_records"]=[r for r in missing_catalog["immutable_records"] if r["object_id"]!=fred_id]
 missing=resolve_resume_results(cycle=cycle,catalog=missing_catalog,registry=registry,policy=policy)
-assert missing["reuse"]==["ces","redfin"] and missing["run"]==["fred_macro","laus"]
+assert missing["reuse"]==["ces","laus","redfin"] and missing["run"]==["fred_macro"]
 drift=copy.deepcopy(registry); drift["records"][0]["result"]["package_sha256"]="0"*64
 try: resolve_resume_results(cycle=cycle,catalog=catalog,registry=drift,policy=policy)
 except ValueError as exc: assert "identity drift" in str(exc)

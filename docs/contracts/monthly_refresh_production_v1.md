@@ -139,6 +139,28 @@ ignores pins and executes all sources; an exact producer write is a no-op and co
 collides. Normal fan-out remains parallel. This lifecycle creates no Source Set, advances no accepted
 pointer, and does not consume Redfin readiness.
 
+### Durable provider-input pins
+
+The preceding replay statement describes legacy candidate-result pins. Sources
+whose execution registry policy is `durable_raw_input_pin` additionally use
+`monthly_source_input_pin_v1` at
+`config/monthly_source_input_pins/<cycle_id>/<source_id>.json`. Normal first
+reads that authority, discovers/retrieves only when absent, immutably creates
+the record through the existing GitHub Contents backend, and re-reads it before
+provider-dependent execution. Resume and replay require and execute from that
+record without discovery. A source may therefore fail after pinning and resume
+against exactly the same bytes before any candidate exists. Missing evidence,
+member/hash drift, contradictory create, or failed durable read-back is
+terminal. `legacy_candidate_evidence` sources preserve their established
+behavior until their truthful raw replay material is separately governed.
+
+Hosted barrier membership comes from
+`config/monthly_source_execution_registry.json`; `required=true` and
+`hosted_cohort_enabled=true` selects an execution member. This registry is not
+cycle identity policy, so lifecycle metadata does not invalidate an existing
+Redfin readiness identity. It can represent multiple physical execution
+members without implying family resolution or Source Set membership.
+
 Redfin intentionally does not write this registry. Its local/manual boundary already commits durable
 readiness plus catalog evidence, and the hosted resolver reconstructs the common result from that pin.
 Duplicating that authority merely for symmetry would create two control-plane truths.
