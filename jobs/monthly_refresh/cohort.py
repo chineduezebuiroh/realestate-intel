@@ -10,6 +10,26 @@ from core.source_artifacts.hashing import write_canonical_json
 from jobs.monthly_refresh.production import evaluate_barrier, validate_source_result
 from jobs.monthly_refresh.readiness import eligible_record
 
+EXECUTION_REGISTRY = Path("config/monthly_source_execution_registry.json")
+
+
+def required_sources(policy: dict[str, Any] | None = None) -> tuple[str, ...]:
+    """Resolve the implemented hosted barrier inventory from governed policy."""
+    registry = policy
+    if registry is None or registry.get("schema_version") != "monthly_source_execution_registry_v1":
+        registry = json.loads(EXECUTION_REGISTRY.read_text())
+    sources = registry.get("members")
+    if not isinstance(sources, list):
+        raise ValueError("monthly policy source inventory is missing")
+    enabled = [str(item.get("source_id") or "") for item in sources
+               if item.get("required") is True and item.get("hosted_cohort_enabled") is True]
+    if not enabled or any(not source for source in enabled) or len(enabled) != len(set(enabled)):
+        raise ValueError("monthly policy hosted source inventory is invalid")
+    return tuple(enabled)
+
+
+# Compatibility export for source-specific smoke/tooling. Runtime paths resolve
+# membership from policy rather than this value.
 REQUIRED_SOURCES = ("redfin", "fred_macro", "ces", "laus")
 PIN_FIELDS = ("candidate_artifact_id", "artifact_content_hash", "package_sha256",
               "publication_state", "provider_release_id")
@@ -68,6 +88,7 @@ def durable_automated_results(*, cycle: dict[str, Any], catalog: dict[str, Any],
         raise ValueError("unsupported monthly source cycle-result registry")
     if policy.get("source_execution_result_schema") != RESULT_CONTRACT:
         raise ValueError("source result contract is not compatible with durable pins")
+    required = set(required_sources(policy))
     automated = {s["source_id"] for s in policy["sources"] if s.get("acquisition_mode") == "automated"}
     resolved = []
     records = [r for r in registry.get("records", []) if r.get("cycle_id") == cycle["cycle_id"]]
@@ -75,7 +96,7 @@ def durable_automated_results(*, cycle: dict[str, Any], catalog: dict[str, Any],
         raise ValueError("duplicate durable source result for cycle")
     for record in records:
         source_id = record.get("source_id")
-        if source_id not in automated or source_id not in REQUIRED_SOURCES:
+        if source_id not in automated or source_id not in required:
             continue
         if record.get("result_contract") != RESULT_CONTRACT or record.get("policy_schema_version") != policy.get("schema_version"):
             continue  # explicitly incompatible/expired evidence is selected for rerun
@@ -107,11 +128,12 @@ def durable_automated_results(*, cycle: dict[str, Any], catalog: dict[str, Any],
 def resolve_resume_results(*, cycle: dict[str, Any], catalog: dict[str, Any],
                            registry: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
     """Classify every source generically; replay and normal never use resume pins."""
+    required = required_sources(policy)
     if cycle["invocation_mode"] != "resume":
-        return {"reuse": [], "run": list(REQUIRED_SOURCES), "results": [], "pins": {}}
+        return {"reuse": [], "run": list(required), "results": [], "pins": {}}
     results = [durable_redfin_result(cycle=cycle, catalog=catalog),
                *durable_automated_results(cycle=cycle, catalog=catalog, registry=registry, policy=policy)]
-    plan = resume_plan(REQUIRED_SOURCES, results, expected_cycle_id=cycle["cycle_id"])
+    plan = resume_plan(required, results, expected_cycle_id=cycle["cycle_id"])
     return {**plan, "results": results}
 
 
@@ -124,12 +146,15 @@ def resume_plan(required: tuple[str, ...], previous_results: list[dict[str, Any]
 
 def barrier_evidence(*, cycle: dict[str, Any], results: list[dict[str, Any]],
                      pins: dict[str, Any] | None, github: dict[str, Any],
-                     reused_results: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                     reused_results: list[dict[str, Any]] | None = None,
+                     policy: dict[str, Any] | None = None) -> dict[str, Any]:
     reused = [validate_source_result(result, expected_cycle_id=cycle["cycle_id"])
               for result in (reused_results or [])]
     if any(result["status"] != "succeeded" for result in reused):
         raise ValueError("reused source result must be a successful cycle pin")
-    decision = evaluate_barrier(expected_cycle_id=cycle["cycle_id"], required_source_ids=REQUIRED_SOURCES,
+    if policy is None:
+        policy = json.loads(Path("config/monthly_refresh_policy.json").read_text())
+    decision = evaluate_barrier(expected_cycle_id=cycle["cycle_id"], required_source_ids=required_sources(policy),
                                 results=[*results, *reused], pinned_candidates=pins)
     return {"schema_version": "monthly_source_cohort_evidence_v1", "cycle_id": cycle["cycle_id"],
             "invocation_mode": cycle["invocation_mode"], "barrier_status": decision.status,
@@ -153,7 +178,9 @@ def main() -> int:
     barrier = sub.add_parser("barrier"); barrier.add_argument("--cycle-json", type=Path, required=True)
     barrier.add_argument("--result", action="append", type=Path, default=[])
     barrier.add_argument("--reused-result", action="append", type=Path, default=[])
-    barrier.add_argument("--pins-json", type=Path); barrier.add_argument("--output", type=Path, required=True)
+    barrier.add_argument("--pins-json", type=Path)
+    barrier.add_argument("--policy", type=Path, default=Path("config/monthly_refresh_policy.json"))
+    barrier.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "resolve":
         value = resolve_invocation(mode=args.mode, policy_path=args.policy,
@@ -169,7 +196,7 @@ def main() -> int:
         reused_results = [json.loads(p.read_text()) for p in args.reused_result]
         pins = json.loads(args.pins_json.read_text()) if args.pins_json else None
         value = barrier_evidence(cycle=cycle, results=results, reused_results=reused_results,
-                                 pins=pins, github={})
+                                 pins=pins, github={}, policy=json.loads(args.policy.read_text()))
     write_canonical_json(args.output, value); print(json.dumps(value, sort_keys=True)); return 0
 
 
