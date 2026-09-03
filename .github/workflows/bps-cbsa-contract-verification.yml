@@ -59,6 +59,7 @@ jobs:
             sha256sum --check --strict
           printf '%s  %s\n' "$(jq -er '.members.cbsa_metro.sha256' "$PROVISIONAL_PIN")" "$INPUT_ROOT/cbsa2607c.txt" |
             sha256sum --check --strict
+          touch "$INPUT_ROOT/exact-inputs-verified"
       - name: Verify BPS CBSA contract read-only
         env:
           COMPILED_PIN: ${{ steps.pins.outputs.compiled_pin }}
@@ -86,7 +87,12 @@ jobs:
               "$EVIDENCE_ROOT/diagnostics.json" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           else
-            echo '**INFRASTRUCTURE BLOCKER:** exact-pin verification did not produce diagnostics; CBSA is not rejected.' >> "$GITHUB_STEP_SUMMARY"
+            INPUT_ROOT="$RUNNER_TEMP/bps-cbsa-contract-inputs"
+            if test -f "$INPUT_ROOT/exact-inputs-verified"; then
+              echo '**PROVIDER_CONTRACT_REVIEW_REQUIRED:** exact inputs were acquired and SHA-verified, but semantic verification did not produce diagnostics; CBSA remains deferred.' >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo '**INFRASTRUCTURE_BLOCKER:** retrieval, hashing, or the execution environment prevented provider inspection; CBSA is not rejected.' >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
       - uses: actions/upload-artifact@v4
         if: always()
