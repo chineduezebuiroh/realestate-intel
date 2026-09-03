@@ -1,0 +1,32 @@
+name: Governed BPS monthly physical member
+on:
+  workflow_call:
+    inputs:
+      source_id: {required: true, type: string}
+      cycle_id: {required: true, type: string}
+      invocation_mode: {required: true, type: string}
+    outputs:
+      result_json: {value: '${{ jobs.execute.outputs.result_json }}'}
+permissions: {contents: write}
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    outputs:
+      result_json: '${{ steps.result.outputs.result_json }}'
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - id: result
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: |
+          python -m jobs.monthly_refresh.bps_hosted \
+            --source-id '${{ inputs.source_id }}' \
+            --cycle-id '${{ inputs.cycle_id }}' \
+            --mode '${{ inputs.invocation_mode }}' \
+            --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" \
+            --workspace "$RUNNER_TEMP/bps" --output "$RUNNER_TEMP/result.json"
+          echo "result_json=$(jq -c . "$RUNNER_TEMP/result.json")" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/result.json" >> "$GITHUB_STEP_SUMMARY"

@@ -90,7 +90,10 @@ def compiled_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], out
                 "coverage": {"applicable": 168, "present": int(coverage.present_in_release.sum())},
                 "duplicate_diagnostics": {k: diagnostics[k] for k in diagnostics if "duplicate" in k},
                 "provider_diagnostics": diagnostics}
-    manifest = create_artifact(output, canonical, source_id=LOGICAL_SOURCE_ID,
+    # The governed metric belongs to logical family ``bps``, while immutable
+    # publication and cycle-result identities belong to this physical member.
+    canonical = canonical.assign(source_id=COMPILED_SOURCE_ID)
+    manifest = create_artifact(output, canonical, source_id=COMPILED_SOURCE_ID,
         source_family="census_bps", source_type="government_survey", provider="U.S. Census Bureau",
         distribution_channel="compiled_master_zip", provider_release_id=f"bps-compiled:{release_id}",
         provider_release_timestamp_or_date=f"{release_id[:4]}-{release_id[4:]}",
@@ -124,7 +127,8 @@ def provisional_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], 
                 "token_diagnostics": diagnostics["nonnumeric_or_unavailable_token_counts"],
                 "duplicate_diagnostics": {k: diagnostics[k] for k in diagnostics if "duplicate" in k},
                 "provider_diagnostics": diagnostics}
-    manifest = create_artifact(output, canonical, source_id=LOGICAL_SOURCE_ID,
+    canonical = canonical.assign(source_id=PROVISIONAL_SOURCE_ID)
+    manifest = create_artifact(output, canonical, source_id=PROVISIONAL_SOURCE_ID,
         source_family="census_bps_provisional", source_type="government_survey",
         provider="U.S. Census Bureau", distribution_channel="current_provisional_files",
         provider_release_id=f"bps-provisional:{pin['provider_release_id']}",

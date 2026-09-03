@@ -67,7 +67,7 @@ def main():
     assert 'laus' in REQUIRED_SOURCES
     master=Path('.github/workflows/monthly-refresh-production.yml').read_text()
     workflow=Path('.github/workflows/laus-monthly-source.yml').read_text()
-    assert 'needs: [resolve-cycle, redfin, fred, ces, laus, laus-satisfaction-repair]' in master and 'LAUS_RESULT' in master
+    assert 'needs: [resolve-cycle, redfin, fred, ces, laus, census-bps, census-bps-provisional, laus-satisfaction-repair]' in master and 'LAUS_RESULT' in master
     assert "inputs.invocation_mode != 'replay'" in workflow
     assert "executed_mode" in workflow and "laus-satisfaction-repair" in master and 'steps.record.outcome == \'success\'' in workflow
     assert 'accepted_pointer_changed' in Path('jobs/monthly_refresh/laus_monthly.py').read_text()
