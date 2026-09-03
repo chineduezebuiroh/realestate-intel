@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import json
 import re
 import zipfile
@@ -60,23 +59,68 @@ def acquire(url: str, output: Path, *, timeout: float = 120) -> dict[str, Any]:
                 "content_type": response.headers.get("Content-Type")}
 
 
-def inspect_zip(path: Path) -> tuple[pd.DataFrame, dict[str, Any]]:
+COMPILED_CHUNK_ROWS = 100_000
+
+
+def inspect_zip(path: Path, *, chunk_rows: int = COMPILED_CHUNK_ROWS) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Inspect a compiled snapshot while retaining only governed monthly rows.
+
+    The CSV member is never materialized as bytes or as one provider-wide
+    DataFrame.  Provider-wide row diagnostics are accumulated per chunk; only
+    the columns needed by :func:`verify` and rows capable of matching the
+    governed registry survive.
+    """
     with zipfile.ZipFile(path) as archive:
         members = sorted(item for item in archive.namelist() if not item.endswith("/"))
         csv_members = [item for item in members if item.lower().endswith(".csv")]
         if len(csv_members) != 1:
             raise ValueError(f"expected exactly one CSV member, found {csv_members}")
         selected = csv_members[0]
-        raw = archive.read(selected)
-    frame = pd.read_csv(io.BytesIO(raw), dtype=str, keep_default_na=False, low_memory=False)
+        info = archive.getinfo(selected)
+        digest = hashlib.sha256()
+        with archive.open(selected) as stream:
+            for block in iter(lambda: stream.read(1 << 20), b""):
+                digest.update(block)
+        with archive.open(selected) as stream:
+            header = pd.read_csv(stream, dtype=str, keep_default_na=False, nrows=0)
+        raw_columns = [str(column).strip().lower() for column in header.columns]
+        if len(raw_columns) != len(set(raw_columns)):
+            raise ValueError("compiled CSV contains duplicate normalized headers")
+        original_by_normalized = dict(zip(raw_columns, header.columns))
+        resolved, total_field = _resolve_columns(raw_columns)
+        required = set(resolved.values())
+        if total_field:
+            required.add(total_field)
+        usecols = [original_by_normalized[name] for name in raw_columns if name in required]
+        bindings = {(row["provider_location_type"], row["provider_identifier"])
+                    for row in load_registry()}
+        retained, raw_row_count, monthly_row_count, chunk_count = [], 0, 0, 0
+        with archive.open(selected) as stream:
+            chunks = pd.read_csv(stream, dtype=str, keep_default_na=False, usecols=usecols,
+                                 chunksize=chunk_rows, low_memory=False)
+            for chunk in chunks:
+                chunk_count += 1; raw_row_count += len(chunk)
+                chunk.columns = [str(column).strip().lower() for column in chunk.columns]
+                monthly_mask = chunk[resolved["period"]].str.strip().str.lower().eq("monthly")
+                monthly_row_count += int(monthly_mask.sum())
+                monthly = chunk.loc[monthly_mask].copy()
+                keys = [_provider_key(row, resolved) for _, row in monthly.iterrows()]
+                keep = pd.Series([key in bindings for key in keys], index=monthly.index)
+                if keep.any():
+                    retained.append(monthly.loc[keep])
+    frame = pd.concat(retained, ignore_index=True) if retained else pd.DataFrame(columns=usecols)
     frame.columns = [str(column).strip().lower() for column in frame.columns]
     if len(frame.columns) != len(set(frame.columns)):
         raise ValueError("compiled CSV contains duplicate normalized headers")
+    frame.attrs["compiled_inspection"] = {
+        "raw_row_count": raw_row_count, "monthly_row_count": monthly_row_count,
+        "governed_raw_row_count": len(frame), "chunk_count": chunk_count,
+    }
     evidence = {"zip_sha256": sha256_file(path), "zip_size_bytes": path.stat().st_size,
                 "member_filenames": members, "selected_csv_filename": selected,
-                "selected_csv_sha256": hashlib.sha256(raw).hexdigest(),
-                "selected_csv_size_bytes": len(raw), "raw_row_count": len(frame),
-                "raw_columns": list(frame.columns)}
+                "selected_csv_sha256": digest.hexdigest(),
+                "selected_csv_size_bytes": info.file_size, "raw_row_count": raw_row_count,
+                "raw_columns": raw_columns}
     return frame, evidence
 
 
@@ -113,6 +157,7 @@ def _provider_key(row: Mapping[str, Any], columns: Mapping[str, str]) -> tuple[s
 
 def verify(frame: pd.DataFrame, *, release_month: str) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
     columns, total_field = _resolve_columns(list(frame.columns))
+    inspection = frame.attrs.get("compiled_inspection", {})
     monthly = frame[frame[columns["period"]].str.strip().str.lower().eq("monthly")].copy()
     registry = load_registry()
     bindings = {(row["provider_location_type"], row["provider_identifier"]): row for row in registry}
@@ -163,7 +208,8 @@ def verify(frame: pd.DataFrame, *, release_month: str) -> tuple[pd.DataFrame, pd
           "latest_value_available": bool(entries and max(entries)[1])})
     coverage = pd.DataFrame(coverage_rows).sort_values("geo_id").reset_index(drop=True)
     diagnostics = {"schema_version": SCHEMA_VERSION, "release_month": release_month,
-      "monthly_row_count": len(monthly), "governed_raw_row_count": len(governed),
+      "monthly_row_count": inspection.get("monthly_row_count", len(monthly)),
+      "governed_raw_row_count": len(governed),
       "authoritative_total_field": total_field, "authoritative_total_field_proven": total_field == "total_units",
       "authoritative_total_field_basis": "Census Compiled Data Documentation defines TOTAL_UNITS as Total units, Estimates With Imputation; TOTAL_UNITS_REP is reported-only data",
       "identical_duplicate_row_count": duplicate_row_count,

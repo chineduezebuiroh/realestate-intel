@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -89,15 +90,27 @@ def execute_member(*, source_id: str, mode: str, cycle_id: str, workspace: Path,
     cached: dict[str, Path] = {}
     required = {"compiled_zip"} if source_id == COMPILED_SOURCE_ID else set(LEVELS)
 
+    def stage(name: str, **measurements: Any) -> None:
+        if source_id == COMPILED_SOURCE_ID:
+            print(json.dumps({"bps_compiled_stage": name, **measurements}, sort_keys=True), flush=True)
+
     def discovery() -> dict:
         pin, paths = discover(); cached.update(paths); return pin
 
     def execution(pin: Mapping[str, Any]) -> dict[str, Any]:
+        stage("PIN_RESOLVED", provider_release_id=pin["provider_release_id"])
+        started = time.monotonic()
+        stage("PINNED_INPUT_RETRIEVAL_START", cached=bool(cached))
         paths = cached or _retrieve_pin_members(pin, workspace / "pinned-input", retrieve)
+        stage("PINNED_INPUT_RETRIEVAL_COMPLETE",
+              input_bytes=sum(p.stat().st_size for p in paths.values() if p.is_file()),
+              elapsed_seconds=round(time.monotonic() - started, 3))
         artifact = workspace / "artifact"
         if artifact.exists(): shutil.rmtree(artifact)
         built = build(pin=pin, paths=paths, output=artifact, cycle_id=cycle_id)
+        started = time.monotonic(); stage("PUBLICATION_START")
         publication = dict(publish(artifact, source_id))
+        stage("PUBLICATION_COMPLETE", elapsed_seconds=round(time.monotonic() - started, 3))
         item = publication["record"]
         result = {"schema_version": "monthly_source_execution_result_v1", "source_id": source_id,
             "cycle_id": cycle_id, "status": "succeeded", "candidate_artifact_id": item["object_id"],
@@ -107,7 +120,9 @@ def execute_member(*, source_id: str, mode: str, cycle_id: str, workspace: Path,
             "observation_max": item["metadata"]["observation_max"], "prior_artifact_id": None,
             "source_change_detected": True, "retryability": "not_applicable",
             "accepted_pointer_changed": False, "evidence_uri": item["logical_artifact_uri"]}
+        stage("DURABLE_RESULT_RECORD_START")
         record(result, publication["catalog"])
+        stage("DURABLE_RESULT_RECORD_COMPLETE")
         return {"result": result, "pin": dict(pin), "candidate": built, "publication": publication}
 
     return discover_persist_execute(mode=mode, store=pin_store, cycle_id=cycle_id,

@@ -5,14 +5,16 @@ It produces the two physical BPS candidates independently from exact pins.
 """
 from __future__ import annotations
 
-import hashlib
+import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.parse import unquote, urlparse
 
 from core.source_artifacts.artifact import create_artifact
+from core.source_artifacts.hashing import sha256_file
 from jobs.monthly_refresh.bps_bootstrap import acquire as acquire_compiled
 from jobs.monthly_refresh.bps_bootstrap import inspect_zip, verify as verify_compiled
 from jobs.monthly_refresh.bps_provisional_verification import (
@@ -49,7 +51,7 @@ def discover_compiled_pin(*, cycle_id: str, workspace: Path,
     http = dict(retrieve(url, path))
     stamp = retrieved_at or _now()
     member = {"url": url, "retrieved_at": stamp,
-              "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "http": http,
+              "sha256": sha256_file(path), "http": http,
               "size_bytes": path.stat().st_size}
     return provider_pin(cycle_id=cycle_id, source_id=COMPILED_SOURCE_ID,
                         provider_release_id=release_id, members={"compiled_zip": member}), {"compiled_zip": path}
@@ -66,7 +68,7 @@ def discover_provisional_pin(*, cycle_id: str, workspace: Path,
         http = dict(retrieve(urls[level], path))
         paths[level] = path
         members[level] = {"url": urls[level], "retrieved_at": retrieved_at or _now(),
-                          "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "http": http,
+                          "sha256": sha256_file(path), "http": http,
                           "size_bytes": path.stat().st_size}
     return provider_pin(cycle_id=cycle_id, source_id=PROVISIONAL_SOURCE_ID,
                         provider_release_id=release_id, members=members), paths
@@ -74,11 +76,24 @@ def discover_provisional_pin(*, cycle_id: str, workspace: Path,
 
 def compiled_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], output: Path,
                        cycle_id: str, git_sha: str = "unknown", repository_root: Path = Path(".")) -> dict[str, Any]:
+    def stage(name: str, **measurements: Any) -> None:
+        print(json.dumps({"bps_compiled_stage": name, **measurements}, sort_keys=True), flush=True)
+
     verify_member_bytes(pin, paths)
+    stage("PIN_HASH_VERIFIED", input_bytes=paths["compiled_zip"].stat().st_size)
     release_id = str(pin["provider_release_id"])
+    started = time.monotonic(); stage("COMPILED_ZIP_INSPECTION_START")
     frame, zip_evidence = inspect_zip(paths["compiled_zip"])
+    inspection = frame.attrs["compiled_inspection"]
+    stage("COMPILED_ZIP_INSPECTION_COMPLETE", raw_rows=zip_evidence["raw_row_count"],
+          chunk_count=inspection["chunk_count"], governed_retained_rows=len(frame),
+          elapsed_seconds=round(time.monotonic() - started, 3))
+    started = time.monotonic(); stage("COMPILED_VERIFY_START")
     canonical, coverage, diagnostics, examples = verify_compiled(
         frame, release_month=f"{release_id[:4]}-{release_id[4:]}")
+    stage("COMPILED_VERIFY_COMPLETE", canonical_rows=len(canonical),
+          governed_retained_rows=diagnostics["governed_raw_row_count"],
+          elapsed_seconds=round(time.monotonic() - started, 3))
     if diagnostics["authoritative_total_field"] != "total_units" or examples:
         raise ValueError("compiled authoritative TOTAL_UNITS contains unsafe values")
     if diagnostics["present_geography_count"] != 168:
@@ -93,6 +108,7 @@ def compiled_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], out
     # The governed metric belongs to logical family ``bps``, while immutable
     # publication and cycle-result identities belong to this physical member.
     canonical = canonical.assign(source_id=COMPILED_SOURCE_ID)
+    stage("ARTIFACT_CREATE_START")
     manifest = create_artifact(output, canonical, source_id=COMPILED_SOURCE_ID,
         source_family="census_bps", source_type="government_survey", provider="U.S. Census Bureau",
         distribution_channel="compiled_master_zip", provider_release_id=f"bps-compiled:{release_id}",
@@ -101,6 +117,7 @@ def compiled_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], out
         source_request_identity=pin["pin_id"],
         source_urls_or_endpoint_identity=[pin["members"]["compiled_zip"]["url"]],
         raw_source_lineage=evidence, config_hashes=governed_config_hashes(repository_root), git_sha=git_sha)
+    stage("ARTIFACT_CREATE_COMPLETE", artifact_bytes=sum(p.stat().st_size for p in output.iterdir() if p.is_file()))
     return {"manifest": manifest, "evidence": evidence}
 
 

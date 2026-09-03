@@ -8,8 +8,14 @@ from jobs.monthly_refresh.cycle_results import load_registry
 catalog=json.loads(Path("config/artifact_catalog.json").read_text())
 readiness=json.loads(Path("config/monthly_refresh_readiness.json").read_text())
 policy=json.loads(Path("config/monthly_refresh_policy.json").read_text())
-registry=load_registry(Path("config/monthly_source_cycle_results.json"))
+loaded_registry=load_registry(Path("config/monthly_source_cycle_results.json"))
 cycle=resolve_invocation(mode="resume",policy_path=Path("config/monthly_refresh_policy.json"),readiness=readiness,catalog=catalog,supplied_cycle_id="monthly_cycle__2026-07__7cab1c5df177a1e4")
+# Isolate this classification fixture from additional durable records that may
+# legitimately be checked in after the smoke was written.
+fixture_sources={"fred_macro","ces","laus"}
+registry={"schema_version":loaded_registry["schema_version"],
+          "records":[copy.deepcopy(record) for record in loaded_registry["records"]
+                     if record["cycle_id"]==cycle["cycle_id"] and record["source_id"] in fixture_sources]}
 plan=resolve_resume_results(cycle=cycle,catalog=catalog,registry=registry,policy=policy)
 assert plan["reuse"]==["ces","fred_macro","laus","redfin"] and plan["run"]==["census_bps","census_bps_provisional"]
 evidence=barrier_evidence(cycle=cycle,results=[],reused_results=plan["results"],pins=plan["pins"],github={})

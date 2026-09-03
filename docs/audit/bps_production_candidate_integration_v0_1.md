@@ -133,3 +133,35 @@ performed by this implementation pass; fixtures validate publication handoff
 and durable-result ordering offline. The next bounded phase is BPS family
 resolution, followed separately by controlled candidate acceptance. Neither is
 implemented here.
+
+## Hosted compiled-execution corrective pass
+
+The live cycle `monthly_cycle__2026-07__7cab1c5df177a1e4` has a reproducible
+compiled-member cancellation.  In run 1 the compiled input pin was durably
+persisted, the provisional member completed, and the compiled member was
+cancelled before a durable result.  In run 2 the five completed sources
+(`redfin`, `fred_macro`, `ces`, `laus`, and `census_bps_provisional`) were
+reused, only `census_bps` was scheduled, and its exact existing compiled pin
+was reused; compiled execution was cancelled again.  This is neither a
+provider-contract failure nor a durable-pin failure.  GitHub marked the Python
+step cancelled without a Python traceback, so resource exhaustion remains a
+suspected cause rather than a proven one.
+
+Inspection found concrete avoidable amplification: the approximately 459 MB
+ZIP member was expanded into one `bytes` object and then parsed into one
+provider-wide DataFrame, while pin hashing separately loaded the ZIP wholly
+into memory.  Compiled inspection now hashes the CSV member incrementally,
+reads only contract-required columns in bounded chunks, accumulates
+provider-wide row counts incrementally, and retains only governed monthly rows
+for the unchanged verifier.  Pin creation and verification use the repository's
+single streaming SHA-256 helper.  Stage markers bracket pin resolution,
+retrieval, hash verification, ZIP inspection, verification, artifact creation,
+publication, and durable-result recording without entering artifact evidence.
+
+The publication package contains only the governed canonical artifact (168
+geographies and provider-observed history), not the provider ZIP or unfiltered
+CSV.  Consequently its existing `read_bytes()` handoff is not the material
+amplification identified here; the common GitHub Release publisher is unchanged
+in this bounded pass.  A further hosted retry of the exact durable pin is the
+next bounded step.  Family resolution and acceptance remain prohibited until
+the compiled physical result succeeds and its diagnostics are reviewed.
