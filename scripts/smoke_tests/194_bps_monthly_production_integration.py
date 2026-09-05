@@ -34,10 +34,10 @@ def _compiled(root: Path) -> Path:
     return path
 
 
-PROVISIONAL_2607_COMPILED_ONLY = {
-    "martinsville_va_metro_area__cbsa_metro",
+PROVISIONAL_2607_ABSENT = {
+    "california_md_metro_area__cbsa_metro",
+    "madera_ca_metro_area__cbsa_metro",
     "ocean_city_nj_metro_area__cbsa_metro",
-    "san_luis_obispo_ca_metro_area__cbsa_metro",
 }
 
 
@@ -46,7 +46,7 @@ def _provisional(root: Path) -> dict[str, Path]:
     for item in load_registry():
         if item["provider_location_type"] == "Country":
             continue
-        if item["geo_id"] in PROVISIONAL_2607_COMPILED_ONLY:
+        if item["geo_id"] in PROVISIONAL_2607_ABSENT:
             continue
         level = {"State": "state", "County": "county", "Metro": "cbsa_metro"}[item["provider_location_type"]]
         row = {column: "0" for column in PROVISIONAL_COLUMNS_BY_LEVEL[level]}
@@ -119,7 +119,7 @@ def main() -> None:
             "State": 5, "County": 162, "Metro": 50}
         missing = provisional["evidence"]["coverage"]["missing_configured"]
         assert provisional["evidence"]["coverage"]["missing_configured_count"] == 3
-        assert {item["geo_id"] for item in missing} == PROVISIONAL_2607_COMPILED_ONLY
+        assert {item["geo_id"] for item in missing} == PROVISIONAL_2607_ABSENT
         assert {item["provider_location_type"] for item in missing} == {"Metro"}
         for extension in ("source_contract_version", "republication_id", "supersedes_artifact_id"):
             assert extension not in compiled["manifest"] and extension not in provisional["manifest"]
@@ -137,7 +137,9 @@ def main() -> None:
         assert len(expected_cbsa) == 53
         assert set(compiled_data.loc[compiled_data.geo_id.isin(expected_cbsa), "geo_id"]) == expected_cbsa
         assert set(provisional_data.loc[provisional_data.geo_id.isin(expected_cbsa), "geo_id"]) == (
-            expected_cbsa - PROVISIONAL_2607_COMPILED_ONLY)
+            expected_cbsa - PROVISIONAL_2607_ABSENT)
+        assert {"martinsville_va_metro_area__cbsa_metro",
+                "san_luis_obispo_ca_metro_area__cbsa_metro"} <= set(provisional_data.geo_id)
         assert "united_states__nation" not in set(provisional_data.geo_id)
         assert not any("09999" in value for value in compiled_data.geo_id)
         assert not any("09999" in value for value in provisional_data.geo_id)

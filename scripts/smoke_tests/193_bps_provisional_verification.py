@@ -82,17 +82,21 @@ assert {item['provider_location_type'] for item in
         metro_diagnostics['missing_provisional_applicable_geographies']}=={'Metro'}
 # Exact 2607 promoted contract: 217 physical rows, 220 logical, three named CBSAs absent.
 promoted={**expanded,'cbsa_metro':expanded['cbsa_metro'][~expanded['cbsa_metro'].cbsa_code.isin(
-    ['32300','36140','42020'])].reset_index(drop=True)}
+    ['15680','31460','36140'])].reset_index(drop=True)}
 promoted_rows,_,promoted_outside,promoted_diagnostics,_=verify(promoted,release_id=release)
 assert len(promoted_rows)==217 and promoted_diagnostics['canonical_row_count']==217
 assert promoted_diagnostics['provisional_applicable_geography_count']==220
 assert promoted_diagnostics['present_provisional_applicable_geography_count_by_type']=={
     'State':5,'County':162,'Metro':50}
+assert promoted_diagnostics['raw_provider_geography_classification_counts']=={
+    'PROVIDER_NATIONAL_SUMMARY':1,'PROVIDER_REGION_SUMMARY':4,
+    'PROVIDER_DIVISION_SUMMARY':9,'GOVERNED_CANDIDATE':217,'OUT_OF_GOVERNANCE':0}
 assert [(item['provider_identifier'],item['geo_id']) for item in
         promoted_diagnostics['missing_provisional_applicable_geographies']]==[
-    ('32300','martinsville_va_metro_area__cbsa_metro'),
-    ('36140','ocean_city_nj_metro_area__cbsa_metro'),
-    ('42020','san_luis_obispo_ca_metro_area__cbsa_metro')]
+    ('15680','california_md_metro_area__cbsa_metro'),
+    ('31460','madera_ca_metro_area__cbsa_metro'),
+    ('36140','ocean_city_nj_metro_area__cbsa_metro')]
+assert {'32300','42020'} <= set(promoted['cbsa_metro'].cbsa_code)
 assert set(promoted_outside.loc[promoted_outside.classification.eq(
     'PROVIDER_NATIONAL_SUMMARY'),'provider_identifier'])=={'US'}
 # The explicit aggregate inventory does not admit arbitrary alphabetic codes or

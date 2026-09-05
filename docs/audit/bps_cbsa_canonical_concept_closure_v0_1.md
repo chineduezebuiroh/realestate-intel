@@ -5,6 +5,17 @@
 
 ## Evidence and decision
 
+> **Superseding evidence note (2026-09-05):** The cross-parent counts in the
+> historical paragraph below (`39` shared, `3` compiled-only, and `11`
+> provisional-only) are no longer an admissible family-resolution premise. A
+> later exact-SHA production verification established provisional `2607`
+> presence for 50 of the 53 promoted codes, with only `15680`, `31460`, and
+> `36140` absent; `32300` and `42020` are present. Because the compiled r2 parent
+> separately reported 42 of 53 present, the intersection and union must be
+> recomputed from both exact physical parent inventories. No replacement
+> intersection or union is inferred from the provisional parent alone. The
+> original paragraph remains below to preserve the earlier diagnostic record.
+
 The hosted exact-pin facts are accepted as established: compiled release 202604 contains 515 provider identities from 1988-01 through 2026-04; provisional 2607 contains 921 identities at 2026-07; neither contains nonnumeric tokens. Exact-code crosswalk counts are 39 exact matches, 3 compiled-only, 11 provisional-only, 11 canonical-only, 988 unmapped, and zero ambiguous canonical identities.
 
 The 64 canonical identities classify as 43 Metropolitan Statistical Areas, 11 Micropolitan Statistical Areas, and 10 Metropolitan Divisions. The repository manifest supplies the canonical code identity; the explicit concept registry freezes concept separately from its display label. A read-only attempt to retrieve the Census delineation page from this environment was blocked by the network proxy (HTTP 403), so no unverified external payload was substituted.

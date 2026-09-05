@@ -168,6 +168,17 @@ the compiled physical result succeeds and its diagnostics are reviewed.
 
 ## Provisional r2 physical-presence correction
 
+> **Superseding correction (2026-09-05):** The paragraph below is retained as
+> historical evidence of what the earlier diagnostic reported, but its missing
+> inventory is not authoritative for the exact-pinned `2607` physical parent.
+> A subsequent production `verify()` run over all three members after exact
+> SHA-256 validation established that the missing configured CBSAs are
+> California, MD (`15680`), Madera, CA (`31460`), and Ocean City, NJ (`36140`).
+> Martinsville (`32300`) and San Luis Obispo (`42020`) are present. Accordingly,
+> the earlier “present only in the compiled parent” conclusion is superseded.
+> Cross-parent intersection/union counts require recomputation from both exact
+> physical parents before family resolution.
+
 The exact-pinned `2607` provisional evidence distinguishes the 220 configured
 logical-applicable identities from the 217 identities physically present in
 that release: five states, 162 counties, and 50 CBSAs. Martinsville, VA

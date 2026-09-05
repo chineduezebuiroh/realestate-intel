@@ -24,11 +24,12 @@ The exact geography registry is `config/bps_governed_geographies_v1.csv`. It fre
 
 For exact-pinned provisional release `2607`, configured logical applicability is
 220 while physical presence is 217: five states, 162 counties, and 50 CBSAs.
-The three configured-but-absent identities are Martinsville, VA (`32300`), Ocean
-City, NJ (`36140`), and San Luis Obispo, CA (`42020`). They are supported by the
-logical BPS family and present in the compiled parent, but absent from this
-physical provisional release. Their absence is provider-release behavior, not
-a registry or mapping defect, and does not shrink the governed 53-CBSA union.
+The three configured-but-absent identities are California, MD (`15680`), Madera,
+CA (`31460`), and Ocean City, NJ (`36140`). Martinsville, VA (`32300`) and San
+Luis Obispo, CA (`42020`) are present. These facts describe only the physical
+provisional parent. The cross-parent intersection and union must be recomputed
+from both exact physical parents before family resolution; no cross-parent
+classification is inferred from provisional absence alone.
 
 | Metric ID | Provider measure | Description | Unit / scaling | SA | Frequency | Class | Downstream consumers |
 |---|---|---|---|---|---|---|---|
