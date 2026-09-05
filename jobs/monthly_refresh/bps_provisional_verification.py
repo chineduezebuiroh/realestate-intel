@@ -106,10 +106,20 @@ def _number(raw: Any) -> float:
 
 def _identity(level: str, row: Mapping[str, Any]) -> tuple[str, str]:
     if level == "state":
-        return "State", str(row["state_fips"]).strip().zfill(2)
+        raw = str(row["state_fips"]).strip()
+        if not re.fullmatch(r"\d{1,2}", raw):
+            raise ValueError(f"unsafe provisional state identifier: {raw!r}")
+        return "State", raw.zfill(2)
     if level == "county":
-        return "County", str(row["state_fips"]).strip().zfill(2) + str(row["county_fips_3"]).strip().zfill(3)
-    return "Metro", str(row["cbsa_code"]).strip().zfill(5)
+        state = str(row["state_fips"]).strip()
+        county = str(row["county_fips_3"]).strip()
+        if not re.fullmatch(r"\d{1,2}", state) or not re.fullmatch(r"\d{1,3}", county):
+            raise ValueError(f"unsafe provisional county identifier: {state!r}/{county!r}")
+        return "County", state.zfill(2) + county.zfill(3)
+    raw = str(row["cbsa_code"]).strip()
+    if not re.fullmatch(r"\d{1,5}", raw):
+        raise ValueError(f"unsafe provisional CBSA identifier: {raw!r}")
+    return "Metro", raw.zfill(5)
 
 
 def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
@@ -174,11 +184,19 @@ def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
     }
     present = set(zip(inventory.provider_location_type, inventory.provider_identifier)) & governed
     present_applicable = present & provisional_applicable
+    missing_applicable = provisional_applicable - present_applicable
     coverage = pd.DataFrame([{**item,
                               "provisional_applicable": (item["provider_location_type"], item["provider_identifier"]) in provisional_applicable,
                               "present_in_release": (item["provider_location_type"], item["provider_identifier"]) in present}
                              for item in registry]).sort_values("geo_id")
     outside = inventory[~inventory.apply(lambda r: (r.provider_location_type, r.provider_identifier) in governed, axis=1)]
+    present_by_type = Counter(location for location, _ in present_applicable)
+    missing_inventory = [{"geo_id": item["geo_id"], "level": item["level"],
+        "provider_location_type": item["provider_location_type"],
+        "provider_identifier": item["provider_identifier"]}
+        for item in applicable_registry
+        if (item["provider_location_type"], item["provider_identifier"]) in missing_applicable]
+    missing_inventory.sort(key=lambda item: item["geo_id"])
     diagnostics = {"schema_version": SCHEMA_VERSION, "provider_release_id": release_id,
         "observation_min": str(min(dates)), "observation_max": str(max(dates)),
         "current_month_only": True, "authoritative_total_semantics": "sum of estimate UNIT fields for 1, 2, 3-4, and 5+ unit structures",
@@ -188,14 +206,18 @@ def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
         "provisional_applicable_geography_count": len(applicable_registry),
         "present_governed_geography_count": len(present),
         "present_provisional_applicable_geography_count": len(present_applicable),
-        "missing_provisional_applicable_geography_count": len(provisional_applicable - present_applicable),
+        "present_provisional_applicable_geography_count_by_type": {
+            location: present_by_type.get(location, 0) for location in ("State", "County", "Metro")},
+        "missing_provisional_applicable_geography_count": len(missing_applicable),
+        "missing_provisional_applicable_geographies": missing_inventory,
         "out_of_governance_geography_count": len(outside), "canonical_row_count": len(canonical),
         "identical_duplicate_row_count": duplicate_rows, "identical_duplicate_key_count": duplicate_keys,
         "identical_duplicate_excess_row_count": duplicate_rows - duplicate_keys,
         "conflicting_duplicate_key_count": 0,
         "omission_semantics": "unresolved_do_not_interpret_as_zero_or_retraction",
-        "contract_gate": "blocked_if_tokens_or_incomplete_provisional_applicable_coverage"
-        if tokens or present_applicable != provisional_applicable else "provider_layout_and_mapping_verified"}
+        "contract_gate": "blocked_if_tokens_or_missing_stable_provisional_geography"
+        if tokens or any(item["provider_location_type"] != "Metro" for item in missing_inventory)
+        else "provider_layout_exact_mapping_and_stable_coverage_verified"}
     return canonical, coverage, outside.reset_index(drop=True), diagnostics, [examples[k] for k in sorted(examples)]
 
 

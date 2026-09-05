@@ -39,6 +39,15 @@ def validate_compiled_coverage(coverage: Any) -> None:
         raise ValueError(f"compiled snapshot lacks required nation/state/county geographies: {identities}")
 
 
+def validate_provisional_coverage(coverage: Any) -> None:
+    """Require stable physical levels; CBSA presence varies by release."""
+    missing = coverage.loc[coverage.provisional_applicable & ~coverage.present_in_release]
+    required_missing = missing[~missing.provider_location_type.eq("Metro")]
+    if not required_missing.empty:
+        identities = required_missing.geo_id.sort_values().tolist()
+        raise ValueError(f"provisional snapshot lacks required state/county geographies: {identities}")
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -153,15 +162,25 @@ def provisional_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], 
         frames, release_id=str(pin["provider_release_id"]))
     if examples or diagnostics["nonnumeric_or_unavailable_token_counts"]:
         raise ValueError("provisional required unit component contains an unsafe token")
-    if diagnostics["present_provisional_applicable_geography_count"] != 220 or len(canonical) != 220:
-        raise ValueError("provisional release does not cover exactly 220 applicable geographies")
+    validate_provisional_coverage(coverage)
+    if len(canonical) != diagnostics["present_provisional_applicable_geography_count"]:
+        raise ValueError("provisional canonical rows do not match governed physical presence")
     if "united_states__nation" in set(canonical.geo_id):
         raise ValueError("provisional candidate must not synthesize a national observation")
     target = str(diagnostics["observation_max"])[:7]
     evidence = {"schema_version": "bps_provisional_candidate_evidence_v1",
                 "physical_source_id": PROVISIONAL_SOURCE_ID, "logical_source_id": LOGICAL_SOURCE_ID,
                 "cycle_id": cycle_id, "provider_pin": dict(pin),
-                "coverage": {"applicable": 220, "present": 220},
+                "coverage": {
+                    # Existing names remain aliases for backward-compatible readers.
+                    "applicable": diagnostics["provisional_applicable_geography_count"],
+                    "present": diagnostics["present_provisional_applicable_geography_count"],
+                    "configured": diagnostics["provisional_applicable_geography_count"],
+                    "provider_snapshot_present": diagnostics["present_provisional_applicable_geography_count"],
+                    "present_by_type": diagnostics["present_provisional_applicable_geography_count_by_type"],
+                    "missing_configured_count": diagnostics["missing_provisional_applicable_geography_count"],
+                    "missing_configured": diagnostics["missing_provisional_applicable_geographies"],
+                },
                 "out_of_governance": {"classification": "OUT_OF_GOVERNANCE",
                                       "count": len(outside),
                                       "inventory": outside.to_dict(orient="records")},

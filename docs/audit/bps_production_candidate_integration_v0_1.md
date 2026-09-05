@@ -165,3 +165,20 @@ amplification identified here; the common GitHub Release publisher is unchanged
 in this bounded pass.  A further hosted retry of the exact durable pin is the
 next bounded step.  Family resolution and acceptance remain prohibited until
 the compiled physical result succeeds and its diagnostics are reviewed.
+
+## Provisional r2 physical-presence correction
+
+The exact-pinned `2607` provisional evidence distinguishes the 220 configured
+logical-applicable identities from the 217 identities physically present in
+that release: five states, 162 counties, and 50 CBSAs. Martinsville, VA
+(`32300`), Ocean City, NJ (`36140`), and San Luis Obispo, CA (`42020`) are the
+three configured provider-compatible CBSAs absent from provisional `2607` and
+present only in the compiled parent. They remain in the governed 53-CBSA
+logical-family union; no registry contraction or synthesis is authorized.
+
+Candidate evidence now records configured count, physical present count,
+present counts by provider geography type, missing-configured count, and the
+exact missing inventory. The physical gate requires complete state and county
+coverage while allowing explicitly diagnosed release-variable CBSA absence.
+All prior token, duplicate, identity, no-nation, placeholder, unsupported
+concept, and exact-code mapping controls remain fail-closed.

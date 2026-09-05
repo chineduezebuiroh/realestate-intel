@@ -20,7 +20,15 @@ The Codex environment could not reach Census (`CONNECT tunnel failed, response 4
 
 ## Governed v1 footprint
 
-The exact geography registry is `config/bps_governed_geographies_v1.csv`. It freezes 221 compiled-applicable identities: one nation, five states, 162 counties, and 53 provider-compatible canonical CBSA identities. Provisional applicability is the 220 state/county/CBSA identities; the nation is compiled/final-only because the provisional family has no national member. Provider binding is exact `(location_type, provider identifier)` to canonical `geo_id`; name matching is prohibited. `franklin_city_county_va__county` is enabled in the broader generated manifest but absent from the accepted local BPS truth and is excluded pending provider verification. Eleven configured `cbsa_metro` identities are intentionally unsupported as classified below. A provisional coverage gate therefore requires 220/220, never manufactures a national row, and must fail if any applicable state or county is absent. Temporal missingness remains legitimate and no per-month Cartesian completeness is asserted.
+The exact geography registry is `config/bps_governed_geographies_v1.csv`. It freezes 221 compiled-applicable identities: one nation, five states, 162 counties, and 53 provider-compatible canonical CBSA identities. Provisional logical applicability is the 220 state/county/CBSA identities; the nation is compiled/final-only because the provisional family has no national member. Provider binding is exact `(location_type, provider identifier)` to canonical `geo_id`; name matching is prohibited. `franklin_city_county_va__county` is enabled in the broader generated manifest but absent from the accepted local BPS truth and is excluded pending provider verification. Eleven configured `cbsa_metro` identities are intentionally unsupported as classified below. A provisional physical-release gate requires all five configured states and all 162 configured counties. Configured provider-compatible CBSAs may be absent from an individual provisional release, but each absence is explicitly inventoried and never synthesized. The gate never manufactures a national row and does not replace exact five-digit codes with names, fuzzy matches, parent metros, or Metropolitan Divisions. Temporal missingness remains legitimate and no per-month Cartesian completeness is asserted.
+
+For exact-pinned provisional release `2607`, configured logical applicability is
+220 while physical presence is 217: five states, 162 counties, and 50 CBSAs.
+The three configured-but-absent identities are Martinsville, VA (`32300`), Ocean
+City, NJ (`36140`), and San Luis Obispo, CA (`42020`). They are supported by the
+logical BPS family and present in the compiled parent, but absent from this
+physical provisional release. Their absence is provider-release behavior, not
+a registry or mapping defect, and does not shrink the governed 53-CBSA union.
 
 | Metric ID | Provider measure | Description | Unit / scaling | SA | Frequency | Class | Downstream consumers |
 |---|---|---|---|---|---|---|---|
