@@ -24,11 +24,12 @@ The exact geography registry is `config/bps_governed_geographies_v1.csv`. It fre
 
 For exact-pinned provisional release `2607`, configured logical applicability is
 220 while physical presence is 217: five states, 162 counties, and 50 CBSAs.
-The three configured-but-absent identities are Martinsville, VA (`32300`), Ocean
-City, NJ (`36140`), and San Luis Obispo, CA (`42020`). They are supported by the
-logical BPS family and present in the compiled parent, but absent from this
-physical provisional release. Their absence is provider-release behavior, not
-a registry or mapping defect, and does not shrink the governed 53-CBSA union.
+The three configured-but-absent identities are California, MD (`15680`), Madera,
+CA (`31460`), and Ocean City, NJ (`36140`). Martinsville, VA (`32300`) and San
+Luis Obispo, CA (`42020`) are present. These facts describe only the physical
+provisional parent. The cross-parent intersection and union must be recomputed
+from both exact physical parents before family resolution; no cross-parent
+classification is inferred from provisional absence alone.
 
 | Metric ID | Provider measure | Description | Unit / scaling | SA | Frequency | Class | Downstream consumers |
 |---|---|---|---|---|---|---|---|
@@ -140,15 +141,20 @@ nonnumeric/unavailable tokens, identical duplicate keys, or conflicting
 duplicate keys. The estimate-side four-unit-band encoding was consistent in all
 members and numeric zero occurred legitimately.
 
-The exact state member also contains one provider national summary record with
-raw geography fields `state_fips=US`, `region_code=0`, `division_code=0`, and
-`geo_name=United States` at `survey_date=202607`. It is the sole `US` state-code
-record. No analogous nonnumeric summary identifier occurs in the county or CBSA
-member. Verification classifies this exact tuple as
-`PROVIDER_NATIONAL_SUMMARY` in out-of-governance raw evidence before canonical
-identity formation; it never emits or counts a provisional national canonical
-observation. All other state identifiers and every county and CBSA identifier
-remain subject to strict bounded numeric validation.
+The exact state member contains 14 provider aggregates: national `US / 0 / 0 /
+United States`; regions `R1`–`R4`, with the matching region number, division
+zero, and exact Census region name; and divisions `D1`–`D9`, with the expected
+region and division numbers and exact Census division name. Verification uses
+an explicit tuple inventory and classifies these as
+`PROVIDER_NATIONAL_SUMMARY`, `PROVIDER_REGION_SUMMARY`, or
+`PROVIDER_DIVISION_SUMMARY` in out-of-governance raw evidence before canonical
+identity formation. They never emit measures, form canonical identities, or
+count toward physical governed coverage. Prefix matching is prohibited: every
+other nonnumeric state identifier and every contradiction in a recognized
+aggregate tuple fails closed. Numeric state identifiers continue through exact
+governed identity mapping; county and CBSA identifiers remain subject to their
+strict bounded numeric validation. No analogous nonnumeric identifier occurs
+in the county or CBSA member.
 
 Legacy provisional comparison produced 0 exact matches, 167 prior-only May
 rows, 167 provider-only July rows, 0 provider revisions, and 50 out-of-governance
