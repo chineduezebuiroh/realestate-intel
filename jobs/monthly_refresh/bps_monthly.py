@@ -75,7 +75,11 @@ def discover_provisional_pin(*, cycle_id: str, workspace: Path,
 
 
 def compiled_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], output: Path,
-                       cycle_id: str, git_sha: str = "unknown", repository_root: Path = Path(".")) -> dict[str, Any]:
+                       cycle_id: str, git_sha: str = "unknown", repository_root: Path = Path("."),
+                       revision: int = 1, prior_artifact_id: str | None = None,
+                       prior_artifact_sha256: str | None = None,
+                       republication_id: str | None = None,
+                       source_contract_version: str | None = None) -> dict[str, Any]:
     def stage(name: str, **measurements: Any) -> None:
         print(json.dumps({"bps_compiled_stage": name, **measurements}, sort_keys=True), flush=True)
 
@@ -116,13 +120,21 @@ def compiled_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], out
         retrieved_at=pin["members"]["compiled_zip"]["retrieved_at"], target_month=target,
         source_request_identity=pin["pin_id"],
         source_urls_or_endpoint_identity=[pin["members"]["compiled_zip"]["url"]],
-        raw_source_lineage=evidence, config_hashes=governed_config_hashes(repository_root), git_sha=git_sha)
+        raw_source_lineage=evidence, config_hashes=governed_config_hashes(repository_root), git_sha=git_sha,
+        revision=revision, prior_artifact_id=prior_artifact_id,
+        prior_artifact_sha256=prior_artifact_sha256,
+        supersedes_artifact_id=prior_artifact_id if revision > 1 else None,
+        republication_id=republication_id, source_contract_version=source_contract_version)
     stage("ARTIFACT_CREATE_COMPLETE", artifact_bytes=sum(p.stat().st_size for p in output.iterdir() if p.is_file()))
     return {"manifest": manifest, "evidence": evidence}
 
 
 def provisional_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], output: Path,
-                          cycle_id: str, git_sha: str = "unknown", repository_root: Path = Path(".")) -> dict[str, Any]:
+                          cycle_id: str, git_sha: str = "unknown", repository_root: Path = Path("."),
+                          revision: int = 1, prior_artifact_id: str | None = None,
+                          prior_artifact_sha256: str | None = None,
+                          republication_id: str | None = None,
+                          source_contract_version: str | None = None) -> dict[str, Any]:
     verify_member_bytes(pin, paths)
     frames = {level: read_member(paths[level], level)[0] for level in LEVELS}
     canonical, coverage, outside, diagnostics, examples = verify_provisional(
@@ -153,5 +165,9 @@ def provisional_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], 
         retrieved_at=max(item["retrieved_at"] for item in pin["members"].values()), target_month=target,
         source_request_identity=pin["pin_id"],
         source_urls_or_endpoint_identity=[pin["members"][level]["url"] for level in LEVELS],
-        raw_source_lineage=evidence, config_hashes=governed_config_hashes(repository_root), git_sha=git_sha)
+        raw_source_lineage=evidence, config_hashes=governed_config_hashes(repository_root), git_sha=git_sha,
+        revision=revision, prior_artifact_id=prior_artifact_id,
+        prior_artifact_sha256=prior_artifact_sha256,
+        supersedes_artifact_id=prior_artifact_id if revision > 1 else None,
+        republication_id=republication_id, source_contract_version=source_contract_version)
     return {"manifest": manifest, "evidence": evidence}

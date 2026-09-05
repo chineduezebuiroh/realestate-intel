@@ -207,6 +207,13 @@ candidate published before such a collision is immutable evidence but is not
 the authoritative result for that completed cohort/source key; it is neither
 deleted nor promoted by orchestration.
 
+A BPS-only post-cycle contract republication is additive and outside this
+planner.  It may bind an existing result and raw-input pin to a new immutable
+candidate under a newer governed transform, but records that child operation in
+the separate `monthly_source_republications` namespace.  The original
+`(cycle_id, source_id)` result remains the monthly completion authority, and
+normal/resume/replay and barrier behavior are unchanged.
+
 Source-local activation remains only migration, investigation, or explicit recovery behavior.
 
 Automatic promotion additionally requires ownership/geography/metric, revision/change, package,
