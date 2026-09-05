@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from jobs.monthly_refresh.bps_monthly import compiled_candidate, provisional_candidate
+from jobs.monthly_refresh.bps_monthly import compiled_candidate, provisional_candidate, validate_compiled_coverage
 from jobs.monthly_refresh.source_inputs import (add_pin, pinned_or_discover,
                                                 provider_pin)
 from sources.census_bps.artifact import load_registry
@@ -121,6 +121,39 @@ def main() -> None:
         assert set(provisional_data.loc[provisional_data.geo_id.isin(expected_cbsa), "geo_id"]) == expected_cbsa
         assert "united_states__nation" not in set(provisional_data.geo_id)
         assert not any("09999" in value for value in compiled_data.geo_id)
+
+        # The real promoted contract contains 53 exact-code CBSAs.  A compiled
+        # historical snapshot may contain only a provider-observed subset; this
+        # must remain explicit evidence rather than becoming synthetic history
+        # or a false all-configured completeness failure.
+        registry = load_registry()
+        promoted = [item for item in registry if item["level"] == "cbsa_metro"]
+        absent_promoted = {item["geo_id"] for item in promoted[:11]}
+        variable_rows = []
+        for item in registry:
+            if item["geo_id"] in absent_promoted:
+                continue
+            location, identifier = item["provider_location_type"], item["provider_identifier"]
+            variable_rows.append({"period": "Monthly", "year": "2026", "month": "4",
+                "location_type": location,
+                "state_fips": identifier if location == "State" else "",
+                "county_fips": identifier if location == "County" else "",
+                "cbsa_code": identifier if location == "Metro" else "", "total_units": "1"})
+        from jobs.monthly_refresh.bps_bootstrap import verify
+        _, variable_coverage, variable_diagnostics, _ = verify(
+            pd.DataFrame(variable_rows), release_month="2026-04")
+        validate_compiled_coverage(variable_coverage)
+        assert variable_diagnostics["configured_geography_count"] == 221
+        assert variable_diagnostics["present_geography_count"] == 210
+        assert variable_diagnostics["missing_configured_geography_count"] == 11
+        assert {item["geo_id"] for item in variable_diagnostics["missing_configured_geographies"]} == absent_promoted
+        assert {item["provider_geography_type"] for item in
+                variable_diagnostics["missing_configured_geographies"]} == {"Metro"}
+        broken = variable_coverage.copy()
+        broken.loc[broken.geo_id.eq("united_states__nation"), "present_in_release"] = False
+        try: validate_compiled_coverage(broken)
+        except ValueError as exc: assert "united_states__nation" in str(exc)
+        else: raise AssertionError("missing compiled nation passed stable-level coverage")
         print(json.dumps({"compiled": compiled["manifest"]["artifact_id"],
                           "provisional": provisional["manifest"]["artifact_id"]}, sort_keys=True))
 
