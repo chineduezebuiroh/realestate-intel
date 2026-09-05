@@ -1,0 +1,70 @@
+name: Governed BPS candidate republication
+on:
+  workflow_dispatch:
+    inputs:
+      source_id:
+        description: Exact BPS physical source
+        required: true
+        type: choice
+        options: [census_bps, census_bps_provisional]
+      parent_cycle_id:
+        description: Existing monthly cycle that owns the parent result and pin
+        required: true
+        type: string
+      expected_parent_artifact_id:
+        description: Exact immutable r1 parent candidate
+        required: true
+        type: string
+      expected_pin_id:
+        description: Exact immutable provider-input pin
+        required: true
+        type: string
+      revision:
+        description: Required replacement revision (must be 2)
+        required: true
+        default: '2'
+        type: string
+      target_source_contract:
+        description: Required active BPS adapter/source contract
+        required: true
+        default: bps_governed_source_v1
+        type: string
+
+# Manual candidate publication only. There is intentionally no push/schedule
+# trigger and no call from the monthly cohort master.
+permissions:
+  contents: write
+
+jobs:
+  republish:
+    # The default-branch copy exists only to register the dispatch surface.
+    # Execution is intentionally restricted to a non-default implementation ref.
+    if: github.ref_name != github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Republish exact pinned BPS input
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: |
+          python -m jobs.monthly_refresh.bps_republication \
+            --source-id '${{ inputs.source_id }}' \
+            --parent-cycle-id '${{ inputs.parent_cycle_id }}' \
+            --expected-parent-artifact-id '${{ inputs.expected_parent_artifact_id }}' \
+            --expected-pin-id '${{ inputs.expected_pin_id }}' \
+            --revision '${{ inputs.revision }}' \
+            --target-source-contract '${{ inputs.target_source_contract }}' \
+            --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" \
+            --workspace "$RUNNER_TEMP/bps-republication" \
+            --output "$RUNNER_TEMP/bps-republication.json"
+          cat "$RUNNER_TEMP/bps-republication.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload republication diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: bps-republication-${{ inputs.source_id }}-${{ inputs.revision }}
+          path: ${{ runner.temp }}/bps-republication.json
+          if-no-files-found: error
+          retention-days: 90
