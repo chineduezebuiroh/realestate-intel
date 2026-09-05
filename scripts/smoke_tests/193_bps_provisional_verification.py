@@ -28,7 +28,11 @@ assert diagnostics['present_governed_geography_count']==2
 assert diagnostics['configured_geography_count']==221
 assert diagnostics['provisional_applicable_geography_count']==220
 assert diagnostics['present_provisional_applicable_geography_count']==2
-assert diagnostics['out_of_governance_geography_count']==1
+assert diagnostics['out_of_governance_geography_count']==2
+assert 'united_states__nation' not in set(canonical.geo_id)
+summary=outside[outside.classification.eq('PROVIDER_NATIONAL_SUMMARY')]
+assert summary[['provider_location_type','provider_identifier','geo_name']].to_dict('records')==[
+    {'provider_location_type':'Country','provider_identifier':'US','geo_name':'United States'}]
 assert diagnostics['nonnumeric_or_unavailable_token_counts']=={}
 assert diagnostics['current_month_only'] is True and examples==[]
 assert list(map(str,canonical.date))==['2026-07-01','2026-07-01']
@@ -46,6 +50,9 @@ for item in applicable:
   row['county_fips_3']=item['provider_identifier'][2:]
  else: row['cbsa_code']=item['provider_identifier']
  expanded[level]=pd.concat([expanded[level],row.to_frame().T],ignore_index=True)
+# Preserve the exact provider national summary alongside 217 governed physical rows.
+expanded['state']=pd.concat([expanded['state'],frames['state'].loc[
+    frames['state'].state_fips.eq('US')]],ignore_index=True)
 full,full_coverage,full_outside,full_diagnostics,_=verify(expanded,release_id=release)
 assert len(full)==220 and 'united_states__nation' not in set(full.geo_id)
 assert full_diagnostics['contract_gate']=='provider_layout_exact_mapping_and_stable_coverage_verified'
@@ -60,6 +67,29 @@ assert metro_diagnostics['contract_gate']=='provider_layout_exact_mapping_and_st
 assert metro_diagnostics['missing_provisional_applicable_geography_count']==3
 assert {item['provider_location_type'] for item in
         metro_diagnostics['missing_provisional_applicable_geographies']}=={'Metro'}
+# Exact 2607 promoted contract: 217 physical rows, 220 logical, three named CBSAs absent.
+promoted={**expanded,'cbsa_metro':expanded['cbsa_metro'][~expanded['cbsa_metro'].cbsa_code.isin(
+    ['32300','36140','42020'])].reset_index(drop=True)}
+promoted_rows,_,promoted_outside,promoted_diagnostics,_=verify(promoted,release_id=release)
+assert len(promoted_rows)==217 and promoted_diagnostics['canonical_row_count']==217
+assert promoted_diagnostics['provisional_applicable_geography_count']==220
+assert promoted_diagnostics['present_provisional_applicable_geography_count_by_type']=={
+    'State':5,'County':162,'Metro':50}
+assert [(item['provider_identifier'],item['geo_id']) for item in
+        promoted_diagnostics['missing_provisional_applicable_geographies']]==[
+    ('32300','martinsville_va_metro_area__cbsa_metro'),
+    ('36140','ocean_city_nj_metro_area__cbsa_metro'),
+    ('42020','san_luis_obispo_ca_metro_area__cbsa_metro')]
+assert set(promoted_outside.loc[promoted_outside.classification.eq(
+    'PROVIDER_NATIONAL_SUMMARY'),'provider_identifier'])=={'US'}
+# The narrow summary exception does not admit arbitrary alphabetic state codes or
+# a US-shaped row with contradictory provider geography fields.
+for field,value in [('state_fips','XX'),('geo_name','Not United States')]:
+ malformed=frames['state'].loc[frames['state'].state_fips.eq('US')].copy()
+ malformed.loc[:,field]=value
+ try: verify({**frames,'state':malformed},release_id=release)
+ except ValueError as exc: assert 'unsafe provisional state' in str(exc)
+ else: raise AssertionError('malformed provisional state identity accepted')
 # Existing provisional values compare through the same governed categories.
 detail,summary=equivalence(canonical,canonical.assign(source_id='census_bps_provisional'))
 assert summary['exact_match_count']==2 and len(detail)==2
