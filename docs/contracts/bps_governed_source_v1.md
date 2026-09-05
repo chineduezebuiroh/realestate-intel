@@ -140,6 +140,16 @@ nonnumeric/unavailable tokens, identical duplicate keys, or conflicting
 duplicate keys. The estimate-side four-unit-band encoding was consistent in all
 members and numeric zero occurred legitimately.
 
+The exact state member also contains one provider national summary record with
+raw geography fields `state_fips=US`, `region_code=0`, `division_code=0`, and
+`geo_name=United States` at `survey_date=202607`. It is the sole `US` state-code
+record. No analogous nonnumeric summary identifier occurs in the county or CBSA
+member. Verification classifies this exact tuple as
+`PROVIDER_NATIONAL_SUMMARY` in out-of-governance raw evidence before canonical
+identity formation; it never emits or counts a provisional national canonical
+observation. All other state identifiers and every county and CBSA identifier
+remain subject to strict bounded numeric validation.
+
 Legacy provisional comparison produced 0 exact matches, 167 prior-only May
 rows, 167 provider-only July rows, 0 provider revisions, and 50 out-of-governance
 CBSA rows. Because the governed months do not overlap, this is expected and is

@@ -29,6 +29,10 @@ SCHEMA_VERSION = "bps_provisional_verification_v1"
 LEVELS = ("state", "county", "cbsa_metro")
 PREFIXES = {"state": "st", "county": "co", "cbsa_metro": "cbsa"}
 UNIT_FIELDS = ("units_1", "units_2", "units_3_4", "units_5plus")
+STATE_SUMMARY_IDENTITY = {
+    "state_fips": "US", "region_code": "0", "division_code": "0",
+    "geo_name": "United States",
+}
 
 
 def provisional_applicable_registry(registry: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -122,6 +126,16 @@ def _identity(level: str, row: Mapping[str, Any]) -> tuple[str, str]:
     return "Metro", raw.zfill(5)
 
 
+def _provider_summary(level: str, row: Mapping[str, Any]) -> tuple[str, str] | None:
+    """Recognize the provider's one exact national row before geo formation."""
+    if level != "state" or str(row.get("state_fips", "")).strip() != "US":
+        return None
+    geography = {field: str(row.get(field, "")).strip() for field in STATE_SUMMARY_IDENTITY}
+    if geography != STATE_SUMMARY_IDENTITY:
+        raise ValueError(f"unsafe provisional state summary identity: {geography!r}")
+    return "Country", "US"
+
+
 def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
     if set(frames) != set(LEVELS):
         raise ValueError("all three provisional members are required")
@@ -136,14 +150,24 @@ def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
     for level in LEVELS:
         for _, series in frames[level].iterrows():
             row = series.to_dict()
-            identity = _identity(level, row)
-            raw_inventory.append({"level": level, "provider_location_type": identity[0],
-                                  "provider_identifier": identity[1], "geo_name": row["geo_name"]})
             stamp = str(row["survey_date"]).strip()
             if not re.fullmatch(r"\d{6}", stamp):
                 raise ValueError(f"malformed provisional survey date: {stamp!r}")
             observed = pd.Timestamp(year=int(stamp[:4]), month=int(stamp[4:]), day=1).date()
             dates.add(observed)
+            summary_identity = _provider_summary(level, row)
+            if summary_identity is not None:
+                raw_inventory.append({"level": level,
+                    "provider_location_type": summary_identity[0],
+                    "provider_identifier": summary_identity[1],
+                    "geo_name": row["geo_name"],
+                    "classification": "PROVIDER_NATIONAL_SUMMARY"})
+                continue
+            identity = _identity(level, row)
+            raw_inventory.append({"level": level, "provider_location_type": identity[0],
+                                  "provider_identifier": identity[1], "geo_name": row["geo_name"],
+                                  "classification": "GOVERNED_CANDIDATE"
+                                  if identity in bindings else "OUT_OF_GOVERNANCE"})
             values = []
             invalid = False
             for field in UNIT_FIELDS:
