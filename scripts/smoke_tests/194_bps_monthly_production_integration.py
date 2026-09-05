@@ -12,6 +12,7 @@ from jobs.monthly_refresh.bps_monthly import compiled_candidate, provisional_can
 from jobs.monthly_refresh.source_inputs import (add_pin, pinned_or_discover,
                                                 provider_pin)
 from sources.census_bps.artifact import load_registry
+from sources.census_bps.artifact import ADAPTER_CONTRACT_VERSION
 from sources.census_bps_provisional.ingest import PROVISIONAL_COLUMNS_BY_LEVEL
 
 
@@ -88,12 +89,38 @@ def main() -> None:
             output=root/"compiled-artifact", cycle_id=cycle, repository_root=Path("."))
         provisional = provisional_candidate(pin=provisional_pin, paths=provisional_paths,
             output=root/"provisional-artifact", cycle_id=cycle, repository_root=Path("."))
+        compiled_r2 = compiled_candidate(pin=compiled_pin, paths=compiled_paths,
+            output=root/"compiled-artifact-r2", cycle_id=cycle, repository_root=Path("."),
+            revision=2, prior_artifact_id="src__census_bps__2026-01__r1__parent",
+            prior_artifact_sha256="a"*64, republication_id="source_republication__compiled__fixture",
+            source_contract_version=ADAPTER_CONTRACT_VERSION)
+        provisional_r2 = provisional_candidate(pin=provisional_pin, paths=provisional_paths,
+            output=root/"provisional-artifact-r2", cycle_id=cycle, repository_root=Path("."),
+            revision=2, prior_artifact_id="src__census_bps_provisional__2026-07__r1__parent",
+            prior_artifact_sha256="b"*64, republication_id="source_republication__provisional__fixture",
+            source_contract_version=ADAPTER_CONTRACT_VERSION)
         assert compiled["manifest"]["geography_count"] == 221
         assert compiled["manifest"]["observation_min"] == "1988-01-01"
         assert provisional["manifest"]["geography_count"] == 220
         assert provisional["manifest"]["row_count"] == 220
+        for extension in ("source_contract_version", "republication_id", "supersedes_artifact_id"):
+            assert extension not in compiled["manifest"] and extension not in provisional["manifest"]
         assert provisional["evidence"]["out_of_governance"]["classification"] == "OUT_OF_GOVERNANCE"
         assert compiled["manifest"]["artifact_id"] != provisional["manifest"]["artifact_id"]
+        assert "__r2__" in compiled_r2["manifest"]["artifact_id"]
+        assert "__r2__" in provisional_r2["manifest"]["artifact_id"]
+        assert compiled_r2["manifest"]["supersedes_artifact_id"] == compiled_r2["manifest"]["prior_artifact_id"]
+        assert provisional_r2["manifest"]["supersedes_artifact_id"] == provisional_r2["manifest"]["prior_artifact_id"]
+        assert compiled_r2["manifest"]["provider_release_id"] == "bps-compiled:202604"
+        assert provisional_r2["manifest"]["provider_release_id"] == "bps-provisional:2607"
+        compiled_data = pd.read_parquet(root/"compiled-artifact-r2"/"data.parquet")
+        provisional_data = pd.read_parquet(root/"provisional-artifact-r2"/"data.parquet")
+        expected_cbsa = {item["geo_id"] for item in load_registry() if item["level"] == "cbsa_metro"}
+        assert len(expected_cbsa) == 53
+        assert set(compiled_data.loc[compiled_data.geo_id.isin(expected_cbsa), "geo_id"]) == expected_cbsa
+        assert set(provisional_data.loc[provisional_data.geo_id.isin(expected_cbsa), "geo_id"]) == expected_cbsa
+        assert "united_states__nation" not in set(provisional_data.geo_id)
+        assert not any("09999" in value for value in compiled_data.geo_id)
         print(json.dumps({"compiled": compiled["manifest"]["artifact_id"],
                           "provisional": provisional["manifest"]["artifact_id"]}, sort_keys=True))
 

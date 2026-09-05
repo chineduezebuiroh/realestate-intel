@@ -62,6 +62,25 @@ The future routine lifecycle reuses common source-artifact publication, durable 
 
 Modes use common semantics: `normal` runs/reuses the cycle candidate; `resume` reuses an eligible successful durable result or reruns missing/failed work; `replay` deterministically audits historical work without accepted-state/control-plane mutation.
 
+### Physical-candidate republication from an immutable pin
+
+A promoted BPS transformation or geography change may require a new physical
+candidate even though provider identity and bytes did not change.  This is an
+explicit, manually dispatched republication, not normal, resume, or replay.  It
+validates an existing successful monthly result and its cataloged `r1` object,
+then validates and retrieves only that cycle/source's immutable input-pin URLs.
+Every retrieved member must match its pinned SHA-256 before canonicalization.
+
+The bounded v1 republication supports only revision `2` with an explicit valid
+`r1` parent.  Its artifact records both `prior_artifact_id` (backward-compatible
+reader terminology) and `supersedes_artifact_id` (correction semantics), plus
+the parent content hash, deterministic republication ID, current
+`bps_governed_source_v1` adapter identity, and governed configuration hashes.
+The create-once record is stored separately at
+`config/monthly_source_republications/<parent_cycle_id>/<source_id>/<republication_id>.json`.
+It never replaces the monthly result, changes an accepted pointer, resolves the
+BPS family, creates a Source Set, consumes Redfin readiness, or writes DuckDB.
+
 ## Failure taxonomy
 
 Retryable: connection timeout/reset, HTTP 408/429, and HTTP 5xx, exhausted through the common bounded retry pattern. Terminal: malformed ZIP/CSV, unknown schema/geography/metric, missing required validated coverage, identity collision, unknown suppression token, invalid numeric/date/unit, immutable publication conflict, corrupt durable resolution, or local/artifact validation failure. A documented provider-unavailable value is diagnosed and excluded; it becomes terminal only when a later completeness gate proves a required controlling identity absent. Structural contradictions always fail closed.
