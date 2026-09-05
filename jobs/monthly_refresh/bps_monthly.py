@@ -30,6 +30,15 @@ COMPILED_SOURCE_ID = "census_bps"
 PROVISIONAL_SOURCE_ID = "census_bps_provisional"
 
 
+def validate_compiled_coverage(coverage: Any) -> None:
+    """Require stable compiled levels while allowing provider-variable CBSA history."""
+    missing = coverage.loc[~coverage.present_in_release]
+    required_missing = missing[~missing.provider_geography_type.eq("Metro")]
+    if not required_missing.empty:
+        identities = required_missing.geo_id.sort_values().tolist()
+        raise ValueError(f"compiled snapshot lacks required nation/state/county geographies: {identities}")
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -100,13 +109,16 @@ def compiled_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], out
           elapsed_seconds=round(time.monotonic() - started, 3))
     if diagnostics["authoritative_total_field"] != "total_units" or examples:
         raise ValueError("compiled authoritative TOTAL_UNITS contains unsafe values")
-    if diagnostics["present_geography_count"] != 221:
-        raise ValueError("compiled current release does not cover 221 governed geographies")
+    validate_compiled_coverage(coverage)
     target = str(diagnostics["observation_max"])[:7]
     evidence = {"schema_version": "bps_compiled_candidate_evidence_v1",
                 "physical_source_id": COMPILED_SOURCE_ID, "logical_source_id": LOGICAL_SOURCE_ID,
                 "cycle_id": cycle_id, "provider_pin": dict(pin), "zip": zip_evidence,
-                "coverage": {"applicable": 221, "present": int(coverage.present_in_release.sum())},
+                "coverage": {"applicable": diagnostics["configured_geography_count"],
+                             "present": diagnostics["present_geography_count"],
+                             "configured": diagnostics["configured_geography_count"],
+                             "provider_snapshot_present": diagnostics["present_geography_count"],
+                             "missing_configured": diagnostics["missing_configured_geographies"]},
                 "duplicate_diagnostics": {k: diagnostics[k] for k in diagnostics if "duplicate" in k},
                 "provider_diagnostics": diagnostics}
     # The governed metric belongs to logical family ``bps``, while immutable

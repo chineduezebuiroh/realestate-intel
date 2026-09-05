@@ -214,6 +214,11 @@ def verify(frame: pd.DataFrame, *, release_month: str) -> tuple[pd.DataFrame, pd
           "last_observation": str(max((x[0] for x in entries), default=""))[:10], "observation_count": len(entries),
           "latest_value_available": bool(entries and max(entries)[1])})
     coverage = pd.DataFrame(coverage_rows).sort_values("geo_id").reset_index(drop=True)
+    missing = coverage.loc[~coverage.present_in_release,
+        ["geo_id", "provider_geography_type", "provider_identifier"]]
+    present_by_type = (coverage.loc[coverage.present_in_release]
+        .groupby("provider_geography_type").size().sort_index().to_dict())
+    configured_by_type = coverage.groupby("provider_geography_type").size().sort_index().to_dict()
     diagnostics = {"schema_version": SCHEMA_VERSION, "release_month": release_month,
       "monthly_row_count": inspection.get("monthly_row_count", len(monthly)),
       "governed_raw_row_count": len(governed),
@@ -224,6 +229,10 @@ def verify(frame: pd.DataFrame, *, release_month: str) -> tuple[pd.DataFrame, pd
       "identical_duplicate_excess_row_count": duplicate_row_count - duplicate_key_count,
       "nonnumeric_token_counts": dict(sorted(token_counts.items())),
       "configured_geography_count": len(registry), "present_geography_count": int(coverage.present_in_release.sum()),
+      "configured_geography_count_by_type": {key: int(value) for key, value in configured_by_type.items()},
+      "present_geography_count_by_type": {key: int(value) for key, value in present_by_type.items()},
+      "missing_configured_geography_count": len(missing),
+      "missing_configured_geographies": missing.to_dict(orient="records"),
       "canonical_row_count": len(canonical), "observation_min": str(canonical.date.min()) if not canonical.empty else None,
       "observation_max": str(canonical.date.max()) if not canonical.empty else None,
       "history_semantics": "complete_historical_snapshot_with_provider_variable_geography_coverage_no_synthetic_fill",
