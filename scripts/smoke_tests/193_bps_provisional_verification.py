@@ -28,11 +28,23 @@ assert diagnostics['present_governed_geography_count']==2
 assert diagnostics['configured_geography_count']==221
 assert diagnostics['provisional_applicable_geography_count']==220
 assert diagnostics['present_provisional_applicable_geography_count']==2
-assert diagnostics['out_of_governance_geography_count']==2
+assert diagnostics['out_of_governance_geography_count']==15
 assert 'united_states__nation' not in set(canonical.geo_id)
-summary=outside[outside.classification.eq('PROVIDER_NATIONAL_SUMMARY')]
-assert summary[['provider_location_type','provider_identifier','geo_name']].to_dict('records')==[
+national=outside[outside.classification.eq('PROVIDER_NATIONAL_SUMMARY')]
+assert national[['provider_location_type','provider_identifier','geo_name']].to_dict('records')==[
     {'provider_location_type':'Country','provider_identifier':'US','geo_name':'United States'}]
+regions=outside[outside.classification.eq('PROVIDER_REGION_SUMMARY')]
+assert regions[['provider_identifier','geo_name']].to_records(index=False).tolist()==[
+    ('R1','Northeast Region'),('R2','Midwest Region'),('R3','South Region'),('R4','West Region')]
+divisions=outside[outside.classification.eq('PROVIDER_DIVISION_SUMMARY')]
+assert divisions[['provider_identifier','geo_name']].to_records(index=False).tolist()==[
+    ('D1','New England Division'),('D2','Middle Atlantic Division'),
+    ('D3','East North Central Division'),('D4','West North Central Division'),
+    ('D5','South Atlantic Division'),('D6','East South Central Division'),
+    ('D7','West South Central Division'),('D8','Mountain Division'),('D9','Pacific Division')]
+assert diagnostics['raw_provider_geography_classification_counts']=={
+    'PROVIDER_NATIONAL_SUMMARY':1,'PROVIDER_REGION_SUMMARY':4,
+    'PROVIDER_DIVISION_SUMMARY':9,'GOVERNED_CANDIDATE':2,'OUT_OF_GOVERNANCE':1}
 assert diagnostics['nonnumeric_or_unavailable_token_counts']=={}
 assert diagnostics['current_month_only'] is True and examples==[]
 assert list(map(str,canonical.date))==['2026-07-01','2026-07-01']
@@ -50,11 +62,12 @@ for item in applicable:
   row['county_fips_3']=item['provider_identifier'][2:]
  else: row['cbsa_code']=item['provider_identifier']
  expanded[level]=pd.concat([expanded[level],row.to_frame().T],ignore_index=True)
-# Preserve the exact provider national summary alongside 217 governed physical rows.
+# Preserve all 14 exact provider aggregates alongside governed physical rows.
 expanded['state']=pd.concat([expanded['state'],frames['state'].loc[
-    frames['state'].state_fips.eq('US')]],ignore_index=True)
+    ~frames['state'].state_fips.str.fullmatch(r'\d{1,2}')]],ignore_index=True)
 full,full_coverage,full_outside,full_diagnostics,_=verify(expanded,release_id=release)
 assert len(full)==220 and 'united_states__nation' not in set(full.geo_id)
+assert len(full_outside[full_outside.classification.str.startswith('PROVIDER_')])==14
 assert full_diagnostics['contract_gate']=='provider_layout_exact_mapping_and_stable_coverage_verified'
 assert full_diagnostics['present_provisional_applicable_geography_count']==220
 assert not full_coverage.loc[full_coverage.geo_id.eq('united_states__nation'),'provisional_applicable'].item()
@@ -82,14 +95,28 @@ assert [(item['provider_identifier'],item['geo_id']) for item in
     ('42020','san_luis_obispo_ca_metro_area__cbsa_metro')]
 assert set(promoted_outside.loc[promoted_outside.classification.eq(
     'PROVIDER_NATIONAL_SUMMARY'),'provider_identifier'])=={'US'}
-# The narrow summary exception does not admit arbitrary alphabetic state codes or
-# a US-shaped row with contradictory provider geography fields.
-for field,value in [('state_fips','XX'),('geo_name','Not United States')]:
- malformed=frames['state'].loc[frames['state'].state_fips.eq('US')].copy()
+# The explicit aggregate inventory does not admit arbitrary alphabetic codes or
+# any contradictory national, region, or division tuple.
+for code,field,value in [('US','geo_name','Not United States'),
+                         ('R1','region_code','2'),('R1','division_code','1'),
+                         ('D1','region_code','2'),('D1','division_code','2')]:
+ malformed=frames['state'].loc[frames['state'].state_fips.eq(code)].copy()
  malformed.loc[:,field]=value
  try: verify({**frames,'state':malformed},release_id=release)
- except ValueError as exc: assert 'unsafe provisional state' in str(exc)
+ except ValueError as exc: assert 'unsafe provisional state summary' in str(exc)
+ else: raise AssertionError('contradictory provisional aggregate accepted')
+for value in ('XX','R5','D0','REGION1','D10'):
+ malformed=frames['state'].loc[frames['state'].state_fips.eq('US')].copy()
+ malformed.loc[:,'state_fips']=value
+ try: verify({**frames,'state':malformed},release_id=release)
+ except ValueError as exc: assert 'unsafe provisional state summary' in str(exc)
  else: raise AssertionError('malformed provisional state identity accepted')
+# County and CBSA identifiers retain their strict numeric-only validation.
+for level,field in [('county','county_fips_3'),('cbsa_metro','cbsa_code')]:
+ malformed=frames[level].copy(); malformed.loc[:,field]='X1'
+ try: verify({**frames,level:malformed},release_id=release)
+ except ValueError as exc: assert f'unsafe provisional {"CBSA" if level == "cbsa_metro" else "county"} identifier' in str(exc)
+ else: raise AssertionError(f'malformed provisional {level} identity accepted')
 # Existing provisional values compare through the same governed categories.
 detail,summary=equivalence(canonical,canonical.assign(source_id='census_bps_provisional'))
 assert summary['exact_match_count']==2 and len(detail)==2

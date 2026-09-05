@@ -29,9 +29,21 @@ SCHEMA_VERSION = "bps_provisional_verification_v1"
 LEVELS = ("state", "county", "cbsa_metro")
 PREFIXES = {"state": "st", "county": "co", "cbsa_metro": "cbsa"}
 UNIT_FIELDS = ("units_1", "units_2", "units_3_4", "units_5plus")
-STATE_SUMMARY_IDENTITY = {
-    "state_fips": "US", "region_code": "0", "division_code": "0",
-    "geo_name": "United States",
+STATE_PROVIDER_AGGREGATES = {
+    "US": ("0", "0", "United States", "PROVIDER_NATIONAL_SUMMARY", "Country"),
+    "R1": ("1", "0", "Northeast Region", "PROVIDER_REGION_SUMMARY", "Region"),
+    "R2": ("2", "0", "Midwest Region", "PROVIDER_REGION_SUMMARY", "Region"),
+    "R3": ("3", "0", "South Region", "PROVIDER_REGION_SUMMARY", "Region"),
+    "R4": ("4", "0", "West Region", "PROVIDER_REGION_SUMMARY", "Region"),
+    "D1": ("1", "1", "New England Division", "PROVIDER_DIVISION_SUMMARY", "Division"),
+    "D2": ("1", "2", "Middle Atlantic Division", "PROVIDER_DIVISION_SUMMARY", "Division"),
+    "D3": ("2", "3", "East North Central Division", "PROVIDER_DIVISION_SUMMARY", "Division"),
+    "D4": ("2", "4", "West North Central Division", "PROVIDER_DIVISION_SUMMARY", "Division"),
+    "D5": ("3", "5", "South Atlantic Division", "PROVIDER_DIVISION_SUMMARY", "Division"),
+    "D6": ("3", "6", "East South Central Division", "PROVIDER_DIVISION_SUMMARY", "Division"),
+    "D7": ("3", "7", "West South Central Division", "PROVIDER_DIVISION_SUMMARY", "Division"),
+    "D8": ("4", "8", "Mountain Division", "PROVIDER_DIVISION_SUMMARY", "Division"),
+    "D9": ("4", "9", "Pacific Division", "PROVIDER_DIVISION_SUMMARY", "Division"),
 }
 
 
@@ -126,14 +138,20 @@ def _identity(level: str, row: Mapping[str, Any]) -> tuple[str, str]:
     return "Metro", raw.zfill(5)
 
 
-def _provider_summary(level: str, row: Mapping[str, Any]) -> tuple[str, str] | None:
-    """Recognize the provider's one exact national row before geo formation."""
-    if level != "state" or str(row.get("state_fips", "")).strip() != "US":
+def _provider_summary(level: str, row: Mapping[str, Any]) -> tuple[str, str, str] | None:
+    """Classify only the provider's explicit, exact state-member aggregates."""
+    if level != "state":
         return None
-    geography = {field: str(row.get(field, "")).strip() for field in STATE_SUMMARY_IDENTITY}
-    if geography != STATE_SUMMARY_IDENTITY:
+    code = str(row.get("state_fips", "")).strip()
+    if re.fullmatch(r"\d{1,2}", code):
+        return None
+    expected = STATE_PROVIDER_AGGREGATES.get(code)
+    geography = (str(row.get("region_code", "")).strip(),
+                 str(row.get("division_code", "")).strip(),
+                 str(row.get("geo_name", "")).strip())
+    if expected is None or geography != expected[:3]:
         raise ValueError(f"unsafe provisional state summary identity: {geography!r}")
-    return "Country", "US"
+    return expected[4], code, expected[3]
 
 
 def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
@@ -161,7 +179,7 @@ def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
                     "provider_location_type": summary_identity[0],
                     "provider_identifier": summary_identity[1],
                     "geo_name": row["geo_name"],
-                    "classification": "PROVIDER_NATIONAL_SUMMARY"})
+                    "classification": summary_identity[2]})
                 continue
             identity = _identity(level, row)
             raw_inventory.append({"level": level, "provider_location_type": identity[0],
@@ -214,6 +232,7 @@ def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
                               "present_in_release": (item["provider_location_type"], item["provider_identifier"]) in present}
                              for item in registry]).sort_values("geo_id")
     outside = inventory[~inventory.apply(lambda r: (r.provider_location_type, r.provider_identifier) in governed, axis=1)]
+    classification_counts = Counter(inventory.classification)
     present_by_type = Counter(location for location, _ in present_applicable)
     missing_inventory = [{"geo_id": item["geo_id"], "level": item["level"],
         "provider_location_type": item["provider_location_type"],
@@ -234,6 +253,11 @@ def verify(frames: Mapping[str, pd.DataFrame], *, release_id: str):
             location: present_by_type.get(location, 0) for location in ("State", "County", "Metro")},
         "missing_provisional_applicable_geography_count": len(missing_applicable),
         "missing_provisional_applicable_geographies": missing_inventory,
+        "raw_provider_geography_classification_counts": {
+            classification: classification_counts.get(classification, 0)
+            for classification in ("PROVIDER_NATIONAL_SUMMARY", "PROVIDER_REGION_SUMMARY",
+                                   "PROVIDER_DIVISION_SUMMARY", "GOVERNED_CANDIDATE",
+                                   "OUT_OF_GOVERNANCE")},
         "out_of_governance_geography_count": len(outside), "canonical_row_count": len(canonical),
         "identical_duplicate_row_count": duplicate_rows, "identical_duplicate_key_count": duplicate_keys,
         "identical_duplicate_excess_row_count": duplicate_rows - duplicate_keys,

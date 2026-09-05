@@ -183,6 +183,8 @@ def provisional_candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], 
                 },
                 "out_of_governance": {"classification": "OUT_OF_GOVERNANCE",
                                       "count": len(outside),
+                                      "classification_counts": diagnostics[
+                                          "raw_provider_geography_classification_counts"],
                                       "inventory": outside.to_dict(orient="records")},
                 "token_diagnostics": diagnostics["nonnumeric_or_unavailable_token_counts"],
                 "duplicate_diagnostics": {k: diagnostics[k] for k in diagnostics if "duplicate" in k},
