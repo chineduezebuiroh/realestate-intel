@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from jobs.monthly_refresh.bps_monthly import compiled_candidate, provisional_candidate, validate_compiled_coverage
+from jobs.monthly_refresh.bps_monthly import (compiled_candidate, provisional_candidate,
+                                              validate_compiled_coverage)
 from jobs.monthly_refresh.source_inputs import (add_pin, pinned_or_discover,
                                                 provider_pin)
 from sources.census_bps.artifact import load_registry
@@ -33,10 +34,19 @@ def _compiled(root: Path) -> Path:
     return path
 
 
+PROVISIONAL_2607_COMPILED_ONLY = {
+    "martinsville_va_metro_area__cbsa_metro",
+    "ocean_city_nj_metro_area__cbsa_metro",
+    "san_luis_obispo_ca_metro_area__cbsa_metro",
+}
+
+
 def _provisional(root: Path) -> dict[str, Path]:
     by_level = {"state": [], "county": [], "cbsa_metro": []}
     for item in load_registry():
         if item["provider_location_type"] == "Country":
+            continue
+        if item["geo_id"] in PROVISIONAL_2607_COMPILED_ONLY:
             continue
         level = {"State": "state", "County": "county", "Metro": "cbsa_metro"}[item["provider_location_type"]]
         row = {column: "0" for column in PROVISIONAL_COLUMNS_BY_LEVEL[level]}
@@ -101,8 +111,16 @@ def main() -> None:
             source_contract_version=ADAPTER_CONTRACT_VERSION)
         assert compiled["manifest"]["geography_count"] == 221
         assert compiled["manifest"]["observation_min"] == "1988-01-01"
-        assert provisional["manifest"]["geography_count"] == 220
-        assert provisional["manifest"]["row_count"] == 220
+        assert provisional["manifest"]["geography_count"] == 217
+        assert provisional["manifest"]["row_count"] == 217
+        assert provisional["evidence"]["coverage"]["configured"] == 220
+        assert provisional["evidence"]["coverage"]["provider_snapshot_present"] == 217
+        assert provisional["evidence"]["coverage"]["present_by_type"] == {
+            "State": 5, "County": 162, "Metro": 50}
+        missing = provisional["evidence"]["coverage"]["missing_configured"]
+        assert provisional["evidence"]["coverage"]["missing_configured_count"] == 3
+        assert {item["geo_id"] for item in missing} == PROVISIONAL_2607_COMPILED_ONLY
+        assert {item["provider_location_type"] for item in missing} == {"Metro"}
         for extension in ("source_contract_version", "republication_id", "supersedes_artifact_id"):
             assert extension not in compiled["manifest"] and extension not in provisional["manifest"]
         assert provisional["evidence"]["out_of_governance"]["classification"] == "OUT_OF_GOVERNANCE"
@@ -118,9 +136,28 @@ def main() -> None:
         expected_cbsa = {item["geo_id"] for item in load_registry() if item["level"] == "cbsa_metro"}
         assert len(expected_cbsa) == 53
         assert set(compiled_data.loc[compiled_data.geo_id.isin(expected_cbsa), "geo_id"]) == expected_cbsa
-        assert set(provisional_data.loc[provisional_data.geo_id.isin(expected_cbsa), "geo_id"]) == expected_cbsa
+        assert set(provisional_data.loc[provisional_data.geo_id.isin(expected_cbsa), "geo_id"]) == (
+            expected_cbsa - PROVISIONAL_2607_COMPILED_ONLY)
         assert "united_states__nation" not in set(provisional_data.geo_id)
         assert not any("09999" in value for value in compiled_data.geo_id)
+        assert not any("09999" in value for value in provisional_data.geo_id)
+        concepts = pd.read_csv("config/bps_cbsa_canonical_concepts_v1.csv", dtype=str)
+        divisions = set(concepts.loc[concepts.canonical_concept.eq("metropolitan_division"), "canonical_geo_id"])
+        assert set(provisional_data.geo_id).isdisjoint(divisions)
+
+        # Stable physical levels still fail closed; a missing Metro remains absent.
+        (root / "broken").mkdir()
+        broken_paths = _provisional(root / "broken")
+        county = pd.read_csv(broken_paths["county"], skiprows=3, header=None)
+        county.iloc[1:].to_csv(broken_paths["county"], index=False, header=False)
+        with broken_paths["county"].open("r+") as stream:
+            body = stream.read(); stream.seek(0); stream.write("heading\nheading\nheading\n" + body)
+        broken_pin = _pin(cycle, "census_bps_provisional", "2607", broken_paths)
+        try:
+            provisional_candidate(pin=broken_pin, paths=broken_paths,
+                output=root/"broken-artifact", cycle_id=cycle, repository_root=Path("."))
+        except ValueError as exc: assert "required state/county" in str(exc)
+        else: raise AssertionError("missing provisional county passed stable-level coverage")
 
         # The real promoted contract contains 53 exact-code CBSAs.  A compiled
         # historical snapshot may contain only a provider-observed subset; this

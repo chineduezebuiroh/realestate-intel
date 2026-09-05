@@ -48,11 +48,18 @@ for item in applicable:
  expanded[level]=pd.concat([expanded[level],row.to_frame().T],ignore_index=True)
 full,full_coverage,full_outside,full_diagnostics,_=verify(expanded,release_id=release)
 assert len(full)==220 and 'united_states__nation' not in set(full.geo_id)
-assert full_diagnostics['contract_gate']=='provider_layout_and_mapping_verified'
+assert full_diagnostics['contract_gate']=='provider_layout_exact_mapping_and_stable_coverage_verified'
 assert full_diagnostics['present_provisional_applicable_geography_count']==220
 assert not full_coverage.loc[full_coverage.geo_id.eq('united_states__nation'),'provisional_applicable'].item()
 missing_one={**expanded,'county':expanded['county'].iloc[1:].reset_index(drop=True)}
 assert verify(missing_one,release_id=release)[3]['contract_gate'].startswith('blocked_')
+# Release-variable Metro omission is diagnosed but does not weaken stable levels.
+missing_metro={**expanded,'cbsa_metro':expanded['cbsa_metro'].iloc[3:].reset_index(drop=True)}
+metro_diagnostics=verify(missing_metro,release_id=release)[3]
+assert metro_diagnostics['contract_gate']=='provider_layout_exact_mapping_and_stable_coverage_verified'
+assert metro_diagnostics['missing_provisional_applicable_geography_count']==3
+assert {item['provider_location_type'] for item in
+        metro_diagnostics['missing_provisional_applicable_geographies']}=={'Metro'}
 # Existing provisional values compare through the same governed categories.
 detail,summary=equivalence(canonical,canonical.assign(source_id='census_bps_provisional'))
 assert summary['exact_match_count']==2 and len(detail)==2
