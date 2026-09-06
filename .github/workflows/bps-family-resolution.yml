@@ -1,0 +1,32 @@
+name: Governed BPS logical family resolution
+on:
+  workflow_dispatch:
+
+# A separately governed, manual candidate-only step.  It resolves cataloged
+# immutable parents and has no acceptance, Source Set, readiness, or DB job.
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Resolve exact immutable BPS parents
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: |
+          python -m jobs.monthly_refresh.bps_family_resolution \
+            --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" \
+            --workspace "$RUNNER_TEMP/bps-family-resolution" \
+            --output "$RUNNER_TEMP/bps-family-resolution.json"
+          cat "$RUNNER_TEMP/bps-family-resolution.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bps-family-resolution
+          path: ${{ runner.temp }}/bps-family-resolution.json
+          if-no-files-found: error
+          retention-days: 90

@@ -32,7 +32,8 @@ def create_artifact(output: Path, frame: pd.DataFrame, *, source_id: str, source
  artifact_created_at: str|None=None, registered_at: str|None=None,
  acquisition_time_status: str|None=None, raw_source_lineage: dict|None=None,
  source_contract_version: str|None=None, republication_id: str|None=None,
- supersedes_artifact_id: str|None=None) -> dict:
+ supersedes_artifact_id: str|None=None, identity_context: dict|None=None,
+ manifest_extensions: dict|None=None) -> dict:
     output.mkdir(parents=True,exist_ok=False)
     data=canonicalize(frame)
     if data.source_id.nunique()!=1 or data.source_id.iloc[0]!=source_id: raise ValueError("source mismatch")
@@ -57,6 +58,7 @@ def create_artifact(output: Path, frame: pd.DataFrame, *, source_id: str, source
     if source_contract_version is not None: identity_payload["source_contract_version"]=source_contract_version
     if republication_id is not None: identity_payload["republication_id"]=republication_id
     if supersedes_artifact_id is not None: identity_payload["supersedes_artifact_id"]=supersedes_artifact_id
+    if identity_context is not None: identity_payload["identity_context"]=identity_context
     content_hash=sha256_json(identity_payload)
     artifact_id=f"src__{source_id}__{target_month}__r{revision}__{content_hash[:16]}"
     if acquisition_time_status is None:
@@ -68,5 +70,10 @@ def create_artifact(output: Path, frame: pd.DataFrame, *, source_id: str, source
     if source_contract_version is not None: manifest["source_contract_version"]=source_contract_version
     if republication_id is not None: manifest["republication_id"]=republication_id
     if supersedes_artifact_id is not None: manifest["supersedes_artifact_id"]=supersedes_artifact_id
+    if identity_context is not None: manifest["identity_context"]=identity_context
+    if manifest_extensions:
+        overlap=set(manifest) & set(manifest_extensions)
+        if overlap: raise ValueError(f"manifest extension collision: {sorted(overlap)}")
+        manifest.update(manifest_extensions)
     write_canonical_json(output/"manifest.json",manifest)
     return manifest
