@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import tempfile
+from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
@@ -17,9 +18,11 @@ from sources.census_bps.artifact import (
 )
 
 registry = load_registry()
-assert len(registry) == EXPECTED_GEOGRAPHIES == 168
-assert len({row["geo_id"] for row in registry}) == 168
-assert {row["level"] for row in registry} == {"nation", "state", "county"}
+geography_counts = Counter(row["provider_location_type"] for row in registry)
+assert geography_counts == {"Country": 1, "State": 5, "County": 162, "Metro": 53}
+assert len(registry) == sum(geography_counts.values()) == EXPECTED_GEOGRAPHIES == 221
+assert len({row["geo_id"] for row in registry}) == len(registry)
+assert {row["level"] for row in registry} == {"nation", "state", "county", "cbsa_metro"}
 assert {row["metric_id"] for row in registry} == {REQUIRED_METRIC}
 assert {row["classification"] for row in registry} == {"GOVERNED_REQUIRED"}
 hashes = {"fixture": "a" * 64}
