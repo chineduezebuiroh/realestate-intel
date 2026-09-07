@@ -53,6 +53,20 @@ Forcing changed bytes under the old ID fails validation. A missing or malformed
 source-set reference, nonzero duplicate count, or failed validation state fails
 closed.
 
-No GitHub Release implementation is active. Phase 2 may publish validated
-canonical manifests and packages through the registry interfaces without
-changing generic assembly semantics.
+The common GitHub Release publisher accepts deterministic allowlisted
+non-source packages for `source_set` and `canonical_market`, validates their
+typed manifest and database identities before upload and after download, and
+then uses the existing receipt/catalog lifecycle. Publication never activates
+an accepted pointer.
+
+## Cohort-controlled implementation boundary
+
+`assemble_source_set_v2` is the production-candidate assembler for a validated
+logical v2 set.  It resolves only each entry's exact immutable URI, verifies the
+artifact/manifest identities, validates metric ownership (including an exact
+family's declared physical owner identities) and geography,
+property, date, finite-value, and canonical-key contracts, and builds a new
+isolated DuckDB.  It never reads `accepted.source`, never loads physical family
+parents, and prohibits production and serving database paths.  The candidate is
+not authoritative until immutable publication, catalog insertion, and the
+prepared cohort promotion described by the monthly production contract.

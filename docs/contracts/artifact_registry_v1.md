@@ -85,10 +85,16 @@ identity collision. Records are sorted by type and ID. All hashes are full
 lowercase SHA-256. Malformed records, nonfinal states, and dangling accepted
 pointers fail closed.
 
-`accepted.source.<source_id>`, `accepted.canonical_market`, and
+`accepted.source.<source_id>`, `accepted.source_set`, `accepted.canonical_market`, and
 `accepted.serving_market` are mutable governance conveniences separated from
 immutable records. Pointer changes do not mutate records. Immutable source sets
 copy exact records and never resolve these aliases.
+
+Catalogs created before cohort promotion may omit `accepted.source_set`; they
+remain valid read inputs.  The first prepared promotion performs the one-way
+addition with a null expected-old value.  Thereafter the pointer must identify
+exactly one immutable `source_set` record.  It is never inferred from source
+pointers or canonical metadata.
 
 ## Publisher and commit point
 

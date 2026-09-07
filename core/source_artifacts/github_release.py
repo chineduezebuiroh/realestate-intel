@@ -17,7 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .catalog import activate_source, add_record, empty_catalog, validate_catalog, validate_catalog_namespace
+from .catalog import (activate_object, activate_source, add_record, empty_catalog,
+                      validate_catalog, validate_catalog_namespace)
 from .hashing import canonical_json_bytes, sha256_file
 from .package import extract_publication_package
 from .publication import (ArtifactPublisher, IdentityCollisionError, PublicationError,
@@ -109,9 +110,31 @@ class GitHubReleaseArtifactPublisher(ArtifactPublisher):
         self.api, self.fixture, self.pending = api, fixture, {}
 
     def _identity(self, metadata: dict[str, Any]) -> tuple[str, str]:
-        source, artifact = metadata["object_metadata"]["source_id"], metadata["object_id"]
-        prefix = "source-artifact-fixture" if self.fixture else "source-artifact"
-        return f"{prefix}/{source}/{artifact}", f"{artifact}.tar"
+        artifact = metadata["object_id"]
+        if metadata["object_type"] == "source":
+            source = metadata["object_metadata"]["source_id"]
+            prefix = "source-artifact-fixture" if self.fixture else "source-artifact"
+            return f"{prefix}/{source}/{artifact}", f"{artifact}.tar"
+        if self.fixture: raise PublicationError("non-source production objects cannot use fixture Releases")
+        prefix = {"source_set":"source-set", "canonical_market":"canonical-market",
+                  "serving_market":"serving-market"}.get(metadata["object_type"])
+        if prefix is None: raise PublicationError("unsupported governed Release object type")
+        return f"{prefix}/{artifact}", f"{artifact}.tar"
+
+    @staticmethod
+    def _validate_package(package: Path, output: Path, metadata: dict[str, Any]) -> None:
+        if metadata["object_type"] == "source":
+            extracted = extract_publication_package(package, output, expected_sha256=sha256_file(package))
+            manifest = validate_artifact(extracted)["manifest"]
+            if (manifest["artifact_id"] != metadata["object_id"] or
+                    manifest["artifact_uri"] != metadata["logical_artifact_uri"] or
+                    manifest["artifact_content_hash"] != metadata["artifact_content_hash"]):
+                raise PublicationError("source package semantic identity mismatch")
+            if {n: sha256_file(extracted/n) for n in metadata["member_hashes"]} != metadata["member_hashes"]:
+                raise PublicationError("source package member hash mismatch")
+        else:
+            from .object_package import validate_object_package
+            validate_object_package(package,output,object_type=metadata["object_type"],expected=metadata)
 
     def _release(self, tag: str) -> dict[str, Any] | None:
         encoded = urllib.parse.quote(tag, safe="")
@@ -169,13 +192,7 @@ class GitHubReleaseArtifactPublisher(ArtifactPublisher):
         # turn an arbitrary tar into a draft merely by supplying metadata.
         with tempfile.TemporaryDirectory() as td:
             local_package = Path(td) / "local.tar"; local_package.write_bytes(package)
-            extracted = extract_publication_package(local_package, Path(td) / "artifact", expected_sha256=digest)
-            manifest = validate_artifact(extracted)["manifest"]
-            if (manifest["artifact_id"] != metadata["object_id"] or manifest["artifact_uri"] != logical_uri
-                    or manifest["artifact_content_hash"] != metadata["artifact_content_hash"]):
-                raise PublicationError("local package semantic identity mismatch")
-            if {n: sha256_file(extracted / n) for n in metadata["member_hashes"]} != metadata["member_hashes"]:
-                raise PublicationError("local package member hash mismatch")
+            self._validate_package(local_package,Path(td)/"artifact",metadata)
         old = self.pending.get(logical_uri)
         if old and old["sha"] != digest: raise IdentityCollisionError("same logical identity has different package bytes")
         release = self._release(tag)
@@ -211,12 +228,8 @@ class GitHubReleaseArtifactPublisher(ArtifactPublisher):
             raise PublicationError("verified GitHub asset identity is missing or changed")
         with tempfile.TemporaryDirectory() as td:
             package = Path(td) / "remote.tar"; self.api.download_asset(int(item["asset"]["id"]), package)
-            extracted = extract_publication_package(package, Path(td) / "artifact", expected_sha256=item["sha"])
-            manifest = validate_artifact(extracted)["manifest"]; expected = item["metadata"]
-            if manifest["artifact_id"] != expected["object_id"] or manifest["artifact_uri"] != logical_uri or manifest["artifact_content_hash"] != expected["artifact_content_hash"]:
-                raise PublicationError("remote package semantic identity mismatch")
-            actual_members = {name: sha256_file(extracted / name) for name in expected["member_hashes"]}
-            if actual_members != expected["member_hashes"]: raise PublicationError("remote package member hash mismatch")
+            if sha256_file(package) != item["sha"]: raise PublicationError("remote package hash mismatch")
+            self._validate_package(package,Path(td)/"artifact",item["metadata"])
         item["verified_at"] = _now(); item["state"] = transition(item["state"], "remotely_verified")
 
     def finalize(self, logical_uri: str) -> dict[str, Any]:
@@ -309,4 +322,10 @@ class GitHubCatalogCAS:
         catalog, oid = self.read(); updated = activate_source(catalog, source_id, object_id)
         if updated == catalog: return catalog, False
         self._write(updated, oid, f"Accept source artifact {object_id}")
+        return updated, True
+
+    def activate_object(self, object_type: str, object_id: str) -> tuple[dict[str, Any], bool]:
+        catalog, oid = self.read(); updated = activate_object(catalog, object_type, object_id)
+        if updated == catalog: return catalog, False
+        self._write(updated, oid, f"Accept {object_type} artifact {object_id}")
         return updated, True

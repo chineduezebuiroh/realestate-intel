@@ -177,6 +177,28 @@ consumed. Until a multi-object transactional registry primitive exists, the impl
 a prepared promotion record plus ordered CAS operations and recover idempotently; downstream readers
 must follow the canonical pointer, so partial bookkeeping cannot expose an incomplete cohort.
 
+The executable prepared record is `cohort_promotion_record_v1`.  Its stable ID
+binds the cycle, Source Set semantic identity, canonical identity, exact
+expected-old and target logical source pointers, Redfin readiness identity, BPS
+resolution identity, and this fixed order: accept Source Set, accept canonical,
+advance logical source pointers in sorted order, consume Redfin.  The accepted
+canonical pointer is the reader commit authority; serving remains later.
+
+Recovery rereads durable state before each compare-and-swap.  An operation is
+pending only at its frozen expected-old value, complete only at its exact target,
+and contradictory at every other value.  Exact targets are never rewritten.
+Thus interruption before any operation, between either object pointer, between
+any source pointers, or before readiness consumption resumes deterministically.
+The first promotion adds the previously absent `accepted.source_set` catalog
+authority.  Publication/cataloging of Source Set and canonical objects remains
+separate and cannot move any accepted pointer.
+
+For the July 2026 migration, the six physical completion authorities map to the
+five logical entries `bps`, `ces`, `fred_macro`, `laus`, and `redfin` through
+the exact BPS family record.  Neither physical BPS pointer participates.  This
+physical-to-logical mapping happens before canonical assembly; assembly never
+loads both BPS parents.
+
 ### Hosted BPS physical members
 
 `census_bps` and `census_bps_provisional` are independent required execution
