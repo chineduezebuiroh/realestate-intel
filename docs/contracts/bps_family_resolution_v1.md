@@ -13,6 +13,17 @@ It validates their complete content and package hashes against the frozen
 identities before reading canonical data. It never reads or discovers provider
 inputs. Both physical artifacts remain unchanged and independently cataloged.
 
+Their governed compatible-CBSA relationship is release-variable rather than an
+equivalence requirement: 39 shared identities, compiled-only `15680`, `31460`,
+and `36140`, provisional-only `15700`, `17340`, `18860`, `20660`, `21700`,
+`32300`, `39780`, `43760`, `45000`, `46020`, and `46380`, a 53-code union, and
+none absent from both. This physical inventory does not alter the frozen
+53-compatible-code universe. These counts and sets validate only this frozen r2
+parent pair; they are regression evidence, not acceptance criteria for a future
+compiled or provisional release. Every future governed parent pair derives its
+physical intersection, differences, union, and absence dynamically inside the
+compatible universe.
+
 ## Merge and identity
 
 Resolution occurs at `(geo_id, metric_id, date, property_type_id)`. The output

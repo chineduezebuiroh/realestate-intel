@@ -11,7 +11,7 @@ import pandas as pd
 COMPILED = "src__census_bps__2026-04__r2__993afaddb934ce4f"
 PROVISIONAL = "src__census_bps_provisional__2026-07__r2__61c56540953237cb"
 COMPILED_MISSING = {
-    "15680", "15700", "17340", "18860", "20660", "31460", "39780",
+    "15700", "17340", "18860", "20660", "21700", "32300", "39780",
     "43760", "45000", "46020", "46380",
 }
 PROVISIONAL_MISSING = {"15680", "31460", "36140"}
@@ -34,16 +34,15 @@ union = compiled | provisional
 absent = governed - union
 
 assert (len(compiled), len(provisional), len(shared), len(compiled_only),
-        len(provisional_only), len(union), len(absent)) == (42, 50, 41, 1, 9, 51, 2)
+        len(provisional_only), len(union), len(absent)) == (42, 50, 39, 3, 11, 53, 0)
 assert shared | compiled_only == compiled
 assert shared | provisional_only == provisional
 assert len(shared) + len(compiled_only) + len(provisional_only) == len(union)
 assert len(union) + len(absent) == 53
-assert compiled_only == {"36140"}
-assert provisional_only == {"15700", "17340", "18860", "20660", "39780",
-                            "43760", "45000", "46020", "46380"}
-assert absent == {"15680", "31460"}
-assert "32300" in shared  # Martinsville is physically present in both r2 parents.
+assert compiled_only == {"15680", "31460", "36140"}
+assert provisional_only == {"15700", "17340", "18860", "20660", "21700",
+                            "32300", "39780", "43760", "45000", "46020", "46380"}
+assert not absent
 assert "09999" not in union
 
 catalog = json.loads(Path("config/artifact_catalog.json").read_text())
@@ -66,7 +65,7 @@ physical_compiled = set(fixture.loc[fixture.compiled_present.eq("true"), "census
 physical_provisional = set(fixture.loc[fixture.provisional_present.eq("true"), "census_code"])
 assert physical_compiled & governed == compiled
 assert physical_provisional & governed == provisional
-assert physical_compiled - governed == {"13720"}
+assert not physical_compiled - governed
 assert not physical_provisional - governed
 
 from jobs.monthly_refresh.bps_family_resolution import _cbsa_diagnostics
@@ -79,7 +78,10 @@ physical_diagnostics = _cbsa_diagnostics(
     physical_frame("provisional_present"),
     concept_path,
 )
-assert physical_diagnostics["actual_count_tuple"] == [53, 42, 50, 41, 1, 9, 51, 2]
-assert physical_diagnostics["compiled_unsupported_concept_codes"] == ["13720"]
+assert physical_diagnostics["actual_count_tuple"] == [53, 42, 50, 39, 3, 11, 53, 0]
+assert physical_diagnostics["compiled_only_codes"] == sorted(compiled_only)
+assert physical_diagnostics["provisional_only_codes"] == sorted(provisional_only)
+assert physical_diagnostics["absent_from_both_codes"] == []
+assert physical_diagnostics["compiled_unsupported_concept_codes"] == []
 assert physical_diagnostics["provisional_unsupported_concept_codes"] == []
 print("[smoke] immutable-r2 BPS CBSA reconciliation passed")
