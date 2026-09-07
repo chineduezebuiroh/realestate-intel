@@ -14,6 +14,7 @@ REQUIRED_CONFIGS = {
     "config/source_metric_registry.csv", "config/geo_manifest.generated.csv",
 }
 SHA = re.compile(r"[0-9a-f]{64}")
+FAMILY_MAP_VERSION = "source_family_resolution_map_v1"
 
 
 def governed_config_hashes(repository_root: Path = Path(".")) -> dict[str, str]:
@@ -46,6 +47,47 @@ def validate_source_set_v2(payload: dict[str, Any]) -> dict[str, Any]:
     if required_inventory != sorted(set(required_inventory)) or included != sorted(set(included)) or required_inventory != included:
         raise PublicationError("complete source-set inventory mismatch")
     if [e.get("source_id") for e in payload["sources"]] != included: raise PublicationError("source-set entries unordered or missing")
+    family = payload["family_resolution"]
+    if family:
+        fields = {"schema_version", "cycle_id", "physical_source_inventory",
+                  "logical_source_inventory", "families"}
+        if set(family) != fields or family["schema_version"] != FAMILY_MAP_VERSION \
+                or not str(family["cycle_id"]).startswith("monthly_cycle__"):
+            raise PublicationError("source family-resolution map schema mismatch")
+        physical = family["physical_source_inventory"]
+        logical = family["logical_source_inventory"]
+        if physical != sorted(set(physical)) or logical != included:
+            raise PublicationError("physical/logical source inventories are not canonical")
+        resolved_logical, resolved_physical = set(), set()
+        family_fields = {"logical_source_id", "resolution_id", "output_artifact_id",
+                         "output_content_hash", "output_package_sha256", "physical_sources"}
+        physical_fields = {"source_id", "artifact_id", "artifact_content_hash", "package_sha256"}
+        for item in family["families"]:
+            if set(item) != family_fields or item["logical_source_id"] not in logical:
+                raise PublicationError("logical family declaration invalid")
+            if item["logical_source_id"] in resolved_logical:
+                raise PublicationError("duplicate logical family")
+            if not item["resolution_id"] or not all(SHA.fullmatch(item[k]) for k in
+                    ("output_content_hash", "output_package_sha256")):
+                raise PublicationError("family output identity invalid")
+            members = item["physical_sources"]
+            if not members or [m.get("source_id") for m in members] != sorted(m["source_id"] for m in members):
+                raise PublicationError("family physical members are not canonical")
+            for member in members:
+                if set(member) != physical_fields or member["source_id"] not in physical \
+                        or member["source_id"] in logical or member["source_id"] in resolved_physical \
+                        or not SHA.fullmatch(member["artifact_content_hash"]) \
+                        or not SHA.fullmatch(member["package_sha256"]):
+                    raise PublicationError("family physical member identity invalid")
+                resolved_physical.add(member["source_id"])
+            entry = next(e for e in payload["sources"] if e["source_id"] == item["logical_source_id"])
+            if (entry["artifact_id"] != item["output_artifact_id"] or
+                    entry["artifact_content_hash"] != item["output_content_hash"] or
+                    entry["package_sha256"] != item["output_package_sha256"]):
+                raise PublicationError("family output/source-set entry mismatch")
+            resolved_logical.add(item["logical_source_id"])
+        if set(physical) != (set(logical) - resolved_logical) | resolved_physical:
+            raise PublicationError("physical completion inventory is not completely mapped")
     entry_fields = {"source_id", "artifact_id", "logical_artifact_uri", "package_sha256", "artifact_content_hash",
                     "provider_release_id", "observation_max", "validation_status", "monthly_status", "release_tag",
                     "asset_id", "publication_receipt_id", "cycle_check_succeeded", "carried_forward", "carry_forward_policy_allowed"}

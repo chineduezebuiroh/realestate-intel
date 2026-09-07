@@ -1,0 +1,42 @@
+name: Governed cohort promotion implementation proof
+on:
+  workflow_dispatch:
+    inputs:
+      cycle_id:
+        description: Exact governed cycle (validation only; no live promotion)
+        required: true
+        type: string
+
+# This workflow validates the migration implementation without publishing or
+# changing live control-plane state. A separate reviewed change must enable the
+# remote publication/CAS adapter before a live promotion dispatch is possible.
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: inputs.cycle_id == 'monthly_cycle__2026-07__7cab1c5df177a1e4'
+    runs-on: ubuntu-latest
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Prove logical cohort and recoverable promotion
+        run: python scripts/smoke_tests/202_cohort_promotion.py
+      - name: Governed side-effect summary
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          cycle_id: monthly_cycle__2026-07__7cab1c5df177a1e4
+          physical barrier members: census_bps, census_bps_provisional, ces, fred_macro, laus, redfin
+          logical Source Set entries: bps, ces, fred_macro, laus, redfin
+          BPS family resolution: bps_family_resolution__457b5a17a73da623cfcfea08
+          live Source Set/canonical publication: false
+          live promotion performed: false
+          physical BPS pointers changed: false
+          Redfin consumed: false
+          serving market mutated: false
+          provider discovery performed: false
+          recovery fixture proof: passed
+          EOF

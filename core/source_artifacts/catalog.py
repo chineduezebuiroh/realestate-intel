@@ -15,7 +15,8 @@ GIT_OBJECT_ID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 
 def empty_catalog(*, expected_git_blob_sha: str | None = None) -> dict[str, Any]:
     return {"schema_version": CATALOG_VERSION, "compare_and_swap": {"expected_git_blob_sha": expected_git_blob_sha},
-            "immutable_records": [], "accepted": {"source": {}, "canonical_market": None, "serving_market": None}}
+            "immutable_records": [], "accepted": {"source": {}, "source_set": None,
+            "canonical_market": None, "serving_market": None}}
 
 
 def record_key(record: dict[str, Any]) -> tuple[str, str]:
@@ -79,12 +80,18 @@ def validate_catalog(catalog: dict[str, Any]) -> dict[str, Any]:
         keys.add(key); uris.add(uri); assets.add(asset)
     if records != sorted(records, key=record_key): raise PublicationError("catalog records are not canonically sorted")
     accepted = catalog["accepted"]
-    if set(accepted) != {"source", "canonical_market", "serving_market"} or not isinstance(accepted["source"], dict):
+    # Catalogs written before cohort promotion did not have a source-set
+    # pointer.  They remain valid inputs to the one-way migration performed by
+    # the first cohort promotion.
+    if set(accepted) not in ({"source", "canonical_market", "serving_market"},
+                             {"source", "source_set", "canonical_market", "serving_market"}) \
+            or not isinstance(accepted["source"], dict):
         raise PublicationError("catalog accepted pointer schema mismatch")
     for source_id, object_id in accepted["source"].items():
         if ("source", object_id) not in keys or not any(r["object_id"] == object_id and r["metadata"].get("source_id") == source_id for r in records):
             raise PublicationError("dangling source accepted pointer")
-    for kind in ("canonical_market", "serving_market"):
+    for kind in ("source_set", "canonical_market", "serving_market"):
+        if kind not in accepted: continue
         if accepted[kind] is not None and (kind, accepted[kind]) not in keys: raise PublicationError(f"dangling {kind} accepted pointer")
     return catalog
 
@@ -96,12 +103,18 @@ def validate_catalog_namespace(catalog: dict[str, Any], *, fixture: bool) -> dic
     forbidden = "source-artifact/" if fixture else "source-artifact-fixture/"
     for record in catalog["immutable_records"]:
         tag = record["release_tag"]
-        if not tag.startswith(prefix) or tag.startswith(forbidden):
-            raise PublicationError("catalog record belongs to the other Release namespace")
-        if fixture and record.get("metadata", {}).get("source_id") != "fixture_source":
-            raise PublicationError("fixture catalog contains a production source")
-        if not fixture and record.get("metadata", {}).get("source_id") == "fixture_source":
-            raise PublicationError("production catalog contains a fixture source")
+        if record["object_type"] == "source":
+            if not tag.startswith(prefix) or tag.startswith(forbidden):
+                raise PublicationError("catalog record belongs to the other Release namespace")
+            if fixture and record.get("metadata", {}).get("source_id") != "fixture_source":
+                raise PublicationError("fixture catalog contains a production source")
+            if not fixture and record.get("metadata", {}).get("source_id") == "fixture_source":
+                raise PublicationError("production catalog contains a fixture source")
+        else:
+            expected = {"source_set":"source-set/", "canonical_market":"canonical-market/",
+                        "serving_market":"serving-market/"}[record["object_type"]]
+            if fixture or not tag.startswith(expected):
+                raise PublicationError("non-source object belongs to an invalid Release namespace")
     return catalog
 
 
@@ -110,6 +123,17 @@ def activate_source(catalog: dict[str, Any], source_id: str, object_id: str) -> 
     validate_catalog(catalog)
     out = deepcopy(catalog)
     out["accepted"]["source"][source_id] = object_id
+    return validate_catalog(out)
+
+
+def activate_object(catalog: dict[str, Any], object_type: str, object_id: str) -> dict[str, Any]:
+    """Move a non-source accepted pointer as an explicit guarded operation."""
+    if object_type not in {"source_set", "canonical_market", "serving_market"}:
+        raise PublicationError("unsupported accepted object pointer")
+    validate_catalog(catalog)
+    out = deepcopy(catalog)
+    out["accepted"].setdefault("source_set", None)
+    out["accepted"][object_type] = object_id
     return validate_catalog(out)
 
 

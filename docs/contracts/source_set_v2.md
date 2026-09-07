@@ -64,3 +64,22 @@ V2 has its own create/validate functions in `source_set_v2.py`. Existing v1
 functions and generic assembly are untouched. A future cloud coordinator may
 select v2 only after the catalog-backed GitHub resolver exists and full
 production inventory/eligibility acceptance passes.
+
+## Physical completion and logical assembly inventory
+
+The physical monthly barrier and the logical assembly inventory are distinct
+authorities.  When no family is present they contain the same source IDs.  A
+family resolver may instead map two or more exact physical completion members
+to one exact logical source entry.  That mapping is carried by
+`source_family_resolution_map_v1` in `family_resolution` and pins the cycle,
+complete sorted physical and logical inventories, resolver record, logical
+output hashes, and every physical parent artifact/content/package identity.
+
+BPS is the first production use: `census_bps` and
+`census_bps_provisional` satisfy the physical barrier, while the assembly
+inventory contains exactly one `bps` entry.  The `bps` entry must equal the
+output of its exact `bps_family_resolution_record_v1`; both physical parents
+remain lineage and must not be loaded independently.  The validator requires
+every physical member to be accounted for exactly once, rejects duplicate
+logical families, and rejects a family output that differs from its logical
+entry.  This is a general family mapping contract, not BPS precedence logic.
