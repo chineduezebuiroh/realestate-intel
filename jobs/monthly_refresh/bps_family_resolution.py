@@ -110,24 +110,65 @@ def resolve_frames(compiled: pd.DataFrame, provisional: pd.DataFrame) -> tuple[p
 
 
 def _cbsa_diagnostics(compiled: pd.DataFrame, provisional: pd.DataFrame, concepts_path: Path) -> dict[str, Any]:
+    """Reconcile physical parent identities against the compatible CBSA universe."""
     concepts = pd.read_csv(concepts_path, dtype=str)
-    governed = set(concepts.loc[concepts.bps_compatibility.eq("compatible"), "census_code"])
-    divisions = set(concepts.loc[concepts.canonical_concept.eq("metropolitan_division"), "census_code"])
-    code_by_geo = dict(zip(concepts.canonical_geo_id, concepts.census_code))
-    codes = lambda f: {code_by_geo[g] for g in set(f.geo_id) if g in code_by_geo}
-    c, p = codes(compiled), codes(provisional); union = c | p
-    result = {"governed_compatible_count": len(governed), "compiled_physical_count": len(c),
-              "provisional_physical_count": len(p), "shared_count": len(c & p),
-              "compiled_only_count": len(c - p), "provisional_only_count": len(p - c),
-              "union_count": len(union), "absent_from_both_count": len(governed - union),
-              "absent_from_both_codes": sorted(governed - union)}
+    compatible = concepts.bps_compatibility.eq("compatible")
+    governed = set(concepts.loc[compatible, "census_code"])
+    compatible_code_by_geo = dict(zip(
+        concepts.loc[compatible, "canonical_geo_id"],
+        concepts.loc[compatible, "census_code"],
+    ))
+    unsupported_by_geo = dict(zip(
+        concepts.loc[~compatible, "canonical_geo_id"],
+        concepts.loc[~compatible, "census_code"],
+    ))
+
+    def codes(frame: pd.DataFrame) -> set[str]:
+        return {compatible_code_by_geo[geo_id] for geo_id in set(frame.geo_id)
+                if geo_id in compatible_code_by_geo}
+
+    def unsupported(frame: pd.DataFrame) -> set[str]:
+        return {unsupported_by_geo[geo_id] for geo_id in set(frame.geo_id)
+                if geo_id in unsupported_by_geo}
+
+    c, p = codes(compiled), codes(provisional)
+    shared, compiled_only, provisional_only = c & p, c - p, p - c
+    union = c | p
+    absent = governed - union
+    actual = (len(governed), len(c), len(p), len(shared), len(compiled_only),
+              len(provisional_only), len(union), len(absent))
     expected = (53, 42, 50, 41, 1, 9, 51, 2)
-    actual = tuple(result[k] for k in ("governed_compatible_count", "compiled_physical_count",
-        "provisional_physical_count", "shared_count", "compiled_only_count",
-        "provisional_only_count", "union_count", "absent_from_both_count"))
-    if actual != expected or set(result["absent_from_both_codes"]) != ABSENT_CBSA_CODES:
-        raise ValueError("BPS family CBSA reconciliation contradicts Smoke 200")
-    if "09999" in union or divisions & union: raise ValueError("unsupported BPS geography entered family")
+    result = {
+        "actual_count_tuple": list(actual),
+        "governed_compatible_count": len(governed),
+        "compiled_physical_count": len(c),
+        "provisional_physical_count": len(p),
+        "shared_count": len(shared),
+        "compiled_only_count": len(compiled_only),
+        "provisional_only_count": len(provisional_only),
+        "union_count": len(union),
+        "absent_from_both_count": len(absent),
+        "compiled_cbsa_codes": sorted(c),
+        "provisional_cbsa_codes": sorted(p),
+        "shared_codes": sorted(shared),
+        "compiled_only_codes": sorted(compiled_only),
+        "provisional_only_codes": sorted(provisional_only),
+        "union_codes": sorted(union),
+        "absent_from_both_codes": sorted(absent),
+        "expected_count_tuple": list(expected),
+        "expected_absent_from_both_codes": sorted(ABSENT_CBSA_CODES),
+        "compiled_extra_vs_governed_codes": sorted(c - governed),
+        "compiled_missing_vs_governed_codes": sorted(governed - c),
+        "provisional_extra_vs_governed_codes": sorted(p - governed),
+        "provisional_missing_vs_governed_codes": sorted(governed - p),
+        "compiled_unsupported_concept_codes": sorted(unsupported(compiled)),
+        "provisional_unsupported_concept_codes": sorted(unsupported(provisional)),
+        "compiled_unsupported_concept_geo_ids": sorted(set(compiled.geo_id) & set(unsupported_by_geo)),
+        "provisional_unsupported_concept_geo_ids": sorted(set(provisional.geo_id) & set(unsupported_by_geo)),
+    }
+    if actual != expected or absent != ABSENT_CBSA_CODES:
+        raise ValueError("BPS family CBSA reconciliation contradiction: " +
+                         json.dumps(result, sort_keys=True))
     return result
 
 
@@ -138,7 +179,15 @@ def build_family_artifact(*, compiled_artifact: Path, provisional_artifact: Path
     provisional, pm = _parent(provisional_record, provisional_artifact, "provisional")
     if provisional.geo_id.astype(str).str.endswith("__nation").any():
         raise ValueError("provisional BPS parent contains a forbidden nation row")
-    data, lineage, diagnostics = resolve_frames(compiled, provisional)
+    concepts_path = repository_root / "config/bps_cbsa_canonical_concepts_v1.csv"
+    cbsa_diagnostics = _cbsa_diagnostics(compiled, provisional, concepts_path)
+    concepts = pd.read_csv(concepts_path, dtype=str)
+    unsupported_geo_ids = set(concepts.loc[
+        ~concepts.bps_compatibility.eq("compatible"), "canonical_geo_id"
+    ])
+    compiled_eligible = compiled.loc[~compiled.geo_id.isin(unsupported_geo_ids)].copy()
+    provisional_eligible = provisional.loc[~provisional.geo_id.isin(unsupported_geo_ids)].copy()
+    data, lineage, diagnostics = resolve_frames(compiled_eligible, provisional_eligible)
     diagnostics.update({
         "compiled_parent_artifact_id": EXPECTED_PARENTS["compiled"]["artifact_id"],
         "compiled_parent_content_hash": EXPECTED_PARENTS["compiled"]["artifact_content_hash"],
@@ -149,7 +198,7 @@ def build_family_artifact(*, compiled_artifact: Path, provisional_artifact: Path
         level: int(data.geo_id.astype(str).str.endswith(f"__{level}").groupby(data.geo_id).max().sum())
         for level in ("nation", "state", "county", "cbsa_metro")
     }
-    diagnostics["cbsa"] = _cbsa_diagnostics(compiled, provisional, repository_root / "config/bps_cbsa_canonical_concepts_v1.csv")
+    diagnostics["cbsa"] = cbsa_diagnostics
     parents = [{"role": role, **EXPECTED_PARENTS[role], "data_sha256": m["data_sha256"]}
                for role, m in (("compiled", cm), ("provisional", pm))]
     identity_context = {"resolver_version": RESOLVER_VERSION, "merge_policy": "full_key_union_compiled_precedence_v1",

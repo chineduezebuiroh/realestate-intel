@@ -178,7 +178,7 @@ The governed 53 did **not** change: its frozen contract hash is unchanged. No fu
 
 ## Negative controls and scope
 
-Neither physical artifact contains canonical `09999`, any identity classified `metropolitan_division`, or any synthesized/fuzzy-mapped CBSA. The provisional artifact contains no `united_states__nation` row. These follow from direct canonical-row inventories, with the concept registry used only to classify the physically observed canonical IDs after extraction.
+Neither physical artifact contains canonical `09999`, any identity classified `metropolitan_division`, or any synthesized/fuzzy-mapped CBSA. The provisional artifact contains no `united_states__nation` row. The compiled artifact does retain the historical canonical Big Stone Gap identity (`13720`), which the concept registry classifies as unsupported; it is not one of the 42 compatible compiled identities and is ineligible for the governed family. The compatible-set reconciliation above remains unchanged. The family resolver must classify physical canonical IDs through the compatibility boundary before computing the governed counts and must omit unsupported rows from its output.
 
 This reconciliation created no source candidate or family artifact, moved no accepted pointer, created no Source Set, mutated no DuckDB database, consumed no Redfin readiness, performed no provider discovery, and changed no schedule. Smoke 200 freezes the exact identities, arithmetic, contract hash, artifact full hashes, Metropolitan Division exclusion, placeholder exclusion, and Martinsville shared status so future resolver work cannot silently revive the stale assumptions.
 
