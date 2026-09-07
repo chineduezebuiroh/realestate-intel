@@ -4,7 +4,10 @@ import copy
 import tempfile
 from pathlib import Path
 import pandas as pd
-from jobs.monthly_refresh.bps_family_resolution import resolve_frames, add_record, RECORD_VERSION, _parent, EXPECTED_PARENTS
+from jobs.monthly_refresh.bps_family_resolution import (
+    ABSENT_CBSA_CODES, EXPECTED_PARENTS, RECORD_VERSION, _cbsa_diagnostics,
+    _parent, add_record, resolve_frames,
+)
 
 cols=["geo_id","metric_id","date","property_type_id","value","source_id","property_type"]
 def frame(rows, source):
@@ -36,6 +39,29 @@ else: raise AssertionError("resolution identity collision accepted")
 try: _parent({"object_id":"wrong"},Path("never-read"),"compiled")
 except ValueError as exc: assert "identity mismatch" in str(exc)
 else: raise AssertionError("wrong immutable parent accepted")
+
+# A reconciliation contradiction remains fail-closed and carries complete evidence.
+concepts_path = Path("config/bps_cbsa_canonical_concepts_v1.csv")
+concepts = pd.read_csv(concepts_path, dtype=str)
+compatible_geos = concepts.loc[concepts.bps_compatibility.eq("compatible"), "canonical_geo_id"]
+bad_compiled = pd.DataFrame({"geo_id": compatible_geos.iloc[:1]})
+bad_provisional = pd.DataFrame({"geo_id": compatible_geos.iloc[:1]})
+try:
+    _cbsa_diagnostics(bad_compiled, bad_provisional, concepts_path)
+except ValueError as exc:
+    message = str(exc)
+    for field in ("actual_count_tuple", "compiled_cbsa_codes", "provisional_cbsa_codes",
+                  "shared_codes", "compiled_only_codes", "provisional_only_codes",
+                  "union_codes", "absent_from_both_codes", "expected_count_tuple",
+                  "expected_absent_from_both_codes", "compiled_missing_vs_governed_codes",
+                  "provisional_missing_vs_governed_codes",
+                  "compiled_unsupported_concept_geo_ids",
+                  "provisional_unsupported_concept_geo_ids"):
+        assert field in message
+    assert all(code in message for code in ABSENT_CBSA_CODES)
+else:
+    raise AssertionError("CBSA reconciliation contradiction did not fail closed")
+
 workflow=Path(".github/workflows/bps-family-resolution.yml").read_text()
 master=Path(".github/workflows/monthly-refresh-production.yml").read_text()
 assert "workflow_dispatch:" in workflow and "schedule:" not in workflow and "push:" not in workflow

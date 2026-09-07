@@ -54,4 +54,32 @@ assert records[COMPILED]["artifact_content_hash"] == (
 assert records[PROVISIONAL]["artifact_content_hash"] == (
     "61c56540953237cb72cc2fec062e9aeb092de411153cd78a250994254004f7ab"
 )
+
+# The offline fixture records direct physical membership from the exact immutable
+# r2 data.parquet inventories; arithmetic alone is not accepted as physical proof.
+fixture = pd.read_csv(
+    "scripts/smoke_tests/fixtures/bps_r2_physical_cbsa_inventory.csv",
+    dtype=str,
+)
+assert set(fixture.census_code) == set(concepts.census_code)
+physical_compiled = set(fixture.loc[fixture.compiled_present.eq("true"), "census_code"])
+physical_provisional = set(fixture.loc[fixture.provisional_present.eq("true"), "census_code"])
+assert physical_compiled & governed == compiled
+assert physical_provisional & governed == provisional
+assert physical_compiled - governed == {"13720"}
+assert not physical_provisional - governed
+
+from jobs.monthly_refresh.bps_family_resolution import _cbsa_diagnostics
+
+def physical_frame(column):
+    return pd.DataFrame({"geo_id": fixture.loc[fixture[column].eq("true"), "canonical_geo_id"]})
+
+physical_diagnostics = _cbsa_diagnostics(
+    physical_frame("compiled_present"),
+    physical_frame("provisional_present"),
+    concept_path,
+)
+assert physical_diagnostics["actual_count_tuple"] == [53, 42, 50, 41, 1, 9, 51, 2]
+assert physical_diagnostics["compiled_unsupported_concept_codes"] == ["13720"]
+assert physical_diagnostics["provisional_unsupported_concept_codes"] == []
 print("[smoke] immutable-r2 BPS CBSA reconciliation passed")
