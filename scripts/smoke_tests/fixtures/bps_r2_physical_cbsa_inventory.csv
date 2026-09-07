@@ -3,9 +3,9 @@ anaheim_ca_metro_area__cbsa_metro,11244,unsupported,false,false
 atlantic_city_nj_metro_area__cbsa_metro,12100,compatible,true,true
 bakersfield_ca_metro_area__cbsa_metro,12540,compatible,true,true
 baltimore_md_metro_area__cbsa_metro,12580,compatible,true,true
-big_stone_gap_va_metro_area__cbsa_metro,13720,unsupported,true,false
+big_stone_gap_va_metro_area__cbsa_metro,13720,unsupported,false,false
 blacksburg_va_metro_area__cbsa_metro,13980,compatible,true,true
-california_md_metro_area__cbsa_metro,15680,compatible,false,false
+california_md_metro_area__cbsa_metro,15680,compatible,true,false
 cambridge_md_metro_area__cbsa_metro,15700,compatible,false,true
 camden_nj_metro_area__cbsa_metro,15804,unsupported,false,false
 charlottesville_va_metro_area__cbsa_metro,16820,compatible,true,true
@@ -16,7 +16,7 @@ cumberland_md_metro_area__cbsa_metro,19060,compatible,true,true
 danville_va_metro_area__cbsa_metro,19260,compatible,true,true
 easton_md_metro_area__cbsa_metro,20660,compatible,false,true
 el_centro_ca_metro_area__cbsa_metro,20940,compatible,true,true
-eureka_ca_metro_area__cbsa_metro,21700,compatible,true,true
+eureka_ca_metro_area__cbsa_metro,21700,compatible,false,true
 frederick_md_metro_area__cbsa_metro,23224,unsupported,false,false
 fresno_ca_metro_area__cbsa_metro,23420,compatible,true,true
 hagerstown_md_metro_area__cbsa_metro,25180,compatible,true,true
@@ -24,8 +24,8 @@ hanford_ca_metro_area__cbsa_metro,25260,compatible,true,true
 harrisonburg_va_metro_area__cbsa_metro,25500,compatible,true,true
 los_angeles_ca_metro_area__cbsa_metro,31084,unsupported,false,false
 lynchburg_va_metro_area__cbsa_metro,31340,compatible,true,true
-madera_ca_metro_area__cbsa_metro,31460,compatible,false,false
-martinsville_va_metro_area__cbsa_metro,32300,compatible,true,true
+madera_ca_metro_area__cbsa_metro,31460,compatible,true,false
+martinsville_va_metro_area__cbsa_metro,32300,compatible,false,true
 merced_ca_metro_area__cbsa_metro,32900,compatible,true,true
 modesto_ca_metro_area__cbsa_metro,33700,compatible,true,true
 napa_ca_metro_area__cbsa_metro,34900,compatible,true,true

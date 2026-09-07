@@ -25,11 +25,17 @@ The exact geography registry is `config/bps_governed_geographies_v1.csv`. It fre
 For exact-pinned provisional release `2607`, configured logical applicability is
 220 while physical presence is 217: five states, 162 counties, and 50 CBSAs.
 The three configured-but-absent identities are California, MD (`15680`), Madera,
-CA (`31460`), and Ocean City, NJ (`36140`). Martinsville, VA (`32300`) and San
-Luis Obispo, CA (`42020`) are present. These facts describe only the physical
-provisional parent. The cross-parent intersection and union must be recomputed
-from both exact physical parents before family resolution; no cross-parent
-classification is inferred from provisional absence alone.
+CA (`31460`), and Ocean City, NJ (`36140`). Eureka, CA (`21700`), Martinsville,
+VA (`32300`), and San Luis Obispo, CA (`42020`) are present. These facts describe
+only the physical provisional parent. The exact compiled `202604` parent has 42
+compatible CBSAs, including `15680`, `31460`, and `36140`, while `21700` and
+`32300` are absent. The resulting physical relationship is 39 shared, three
+compiled-only, eleven provisional-only, a 53-code union, and none absent from
+both. Those counts and sets are r2-pair evidence, not a required shape for later
+releases. Release-variable CBSA coverage is valid for both products: neither parent
+is required to equal the other or independently contain all 53 compatible
+identities. Stable state and county coverage remains mandatory. No cross-parent
+classification is inferred from either parent's absence alone.
 
 | Metric ID | Provider measure | Description | Unit / scaling | SA | Frequency | Class | Downstream consumers |
 |---|---|---|---|---|---|---|---|
