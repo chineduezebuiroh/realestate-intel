@@ -82,6 +82,20 @@ other metric families remain unchanged by this promotion.
 
 ### Current Focus
 
+The first live governed cohort promotion completed for July cycle
+`monthly_cycle__2026-07__7cab1c5df177a1e4` through the shared hosted lifecycle.
+It accepted Source Set `source_set__2026-07__v2__b80b9554de5208c4`, canonical
+market `market__2026-07__r1__89f7e097af74f87d`, and promotion
+`cohort_promotion__89964f95cfe330e995de8253`. All logical source pointers
+advanced in the governed recoverable order and Redfin readiness was consumed
+last; no provider discovery or physical BPS pointer activation occurred.
+Serving-market mutation remains outstanding and outside that transaction.
+
+This is the live proof for the currently migrated cohort machinery, not the
+final intended initial Source Set v2/full-cohort canonical-market milestone.
+Remaining source integrations precede that milestone. **ACS is the next source
+migration target.**
+
 The active workstream is **Macro Regime Visualization MVP**. Capital Markets, Supply, Affordability, Price, and Demand calibration workstreams are closed under their governed freeze contracts. After the visualization MVP, direction proceeds to CBSA/metro expansion, the local-regime layer, and regime-informed forecasting integration, subject to roadmap governance.
 
 The Regime Engine v1.0 historical/current county-level macro baseline has been

@@ -447,6 +447,26 @@ Recovery paths:
    its legacy direct-to-DB job is retired. Legacy workflows remain until explicit
    source acceptance; no batch migration.
 
+### July cohort live proof and reproducibility follow-up
+
+The July 2026 promotion is the first completed live proof of the shared cohort
+machinery for the currently migrated sources. It accepted Source Set
+`source_set__2026-07__v2__b80b9554de5208c4` and canonical market
+`market__2026-07__r1__89f7e097af74f87d` under promotion
+`cohort_promotion__89964f95cfe330e995de8253`. This does not close the initial
+full-cohort milestone: serving derivation remains separate and outstanding, and
+remaining source migrations begin with ACS.
+
+A non-blocking reproducibility hardening item remains. Canonical market identity
+includes `database_sha256`, and local and separate hosted executions produced
+different physical DuckDB hashes despite an identical Source Set identity. The
+likely cause is that the current dependency contract does not pin the exact
+DuckDB runtime/version. Follow-up should pin the production DuckDB version or
+introduce a true resolved dependency/environment identity, and should consider
+a deterministic hosted rebuild assertion over `database_sha256`. The different
+byte identities remain correctly distinct; this hardening is not a prerequisite
+for the completed July promotion.
+
 ## Non-decisions and review gates
 
 This document does not authorize a publisher, resolver, workflow, catalog,

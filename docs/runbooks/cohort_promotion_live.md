@@ -120,9 +120,33 @@ must not write. A reviewed exact live rerun must report a complete no-op.
 | Serving authority / DuckDB | none | unchanged | unchanged |
 | Downstream serving processing | none | not started | not started |
 
-## Recommendation
+## July 2026 live completion record
 
-GO for one controlled July promotion only after merge/registration, a successful
-non-mutating hosted preflight, review of its exact IDs, and confirmation that no
-other catalog writer is active. Otherwise NO-GO; any contradiction or stale CAS
-must be investigated rather than overwritten.
+The first live governed cohort promotion completed successfully through the
+shared hosted cohort-promotion lifecycle for
+`monthly_cycle__2026-07__7cab1c5df177a1e4`. The durable promoted identities are:
+
+* Source Set: `source_set__2026-07__v2__b80b9554de5208c4`;
+* canonical market: `market__2026-07__r1__89f7e097af74f87d`;
+* promotion: `cohort_promotion__89964f95cfe330e995de8253`.
+
+Terminal verification reported `source_set_accepted=true`,
+`canonical_accepted=true`, and `complete=true`. The recoverable transaction
+advanced, in order, `accepted.source_set`, `accepted.canonical_market`, the
+logical pointers `accepted.source.bps`, `accepted.source.ces`,
+`accepted.source.fred_macro`, `accepted.source.laus`, and
+`accepted.source.redfin`, and then consumed the exact Redfin readiness record
+last. No provider discovery occurred. No `accepted.source.census_bps` or
+`accepted.source.census_bps_provisional` pointer was introduced: BPS acceptance
+remains exclusively the logical `accepted.source.bps` authority.
+
+Serving-market mutation was outside this transaction and remains outstanding.
+This completion proves the shared live cohort machinery for the sources migrated
+so far; it is not the final intended initial Source Set v2/full-cohort canonical
+market milestone. Remaining governed source integrations still precede that
+milestone, beginning with ACS.
+
+The controlled July promotion described by this runbook is therefore complete.
+Future promotions retain the same fail-closed preflight, single-writer, exact-ID,
+and recoverable-order requirements; any contradiction or stale CAS must be
+investigated rather than overwritten.
