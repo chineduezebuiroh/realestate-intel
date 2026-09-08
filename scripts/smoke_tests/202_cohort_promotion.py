@@ -82,6 +82,19 @@ with tempfile.TemporaryDirectory() as td:
         asset_filename=source_set["source_set_id"]+".tar",publisher_git_sha="fixture",
         published_at="fixed",contract_versions=["source_set_manifest_v2"])
     assert not changed and reused == published_catalog
+    conflicting_package=root/"source-set-conflict.tar"
+    conflicting_package.write_bytes((root/"source-set.tar").read_bytes()+b"contradiction")
+    try:
+        publish_object(publisher=offline,catalog=published_catalog,
+            package=conflicting_package,logical_uri="artifact://source_set/"+source_set["source_set_id"],
+            object_id=source_set["source_set_id"],object_type="source_set",artifact_content_hash=sha256_json(source_set),
+            object_metadata={"cycle_id":CYCLE,"source_set_semantic_sha256":sha256_json(source_set)},
+            member_hashes=package["member_hashes"],remote_repository="fixture/repo",
+            release_tag="source-set/"+source_set["source_set_id"],release_id=800001,asset_id=800002,
+            asset_filename=source_set["source_set_id"]+".tar",publisher_git_sha="fixture",
+            published_at="fixed",contract_versions=["source_set_manifest_v2"])
+    except (IdentityCollisionError, PublicationError): pass
+    else: raise AssertionError("contradictory same-identity publication accepted")
 
     # Add already-published fixture Source Set/canonical records. Publication is
     # a distinct prerequisite; promotion never manufactures catalog records.
