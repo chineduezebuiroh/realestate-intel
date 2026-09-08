@@ -1,6 +1,7 @@
 """Smoke 202: logical Source Set, canonical authority, and recovery semantics."""
 import copy
 import json
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import pandas as pd
 from core.source_artifacts.artifact import create_artifact
 from core.source_artifacts.assembly_v2 import assemble_source_set_v2
 from core.source_artifacts.catalog import validate_catalog, validate_catalog_namespace
-from core.source_artifacts.hashing import sha256_json
+from core.source_artifacts.hashing import sha256_file, sha256_json
 from core.source_artifacts.fixture_remote import OfflineArtifactPublisher
 from core.source_artifacts.object_package import build_object_package, publish_object
 from core.source_artifacts.promotion import (add_promotion_record, create_promotion_record,
@@ -42,14 +43,36 @@ results.append({"schema_version":"monthly_source_execution_result_v1", "source_i
 
 with tempfile.TemporaryDirectory() as td:
     root = Path(td)
+    # The persisted July BPS resolution correctly pins the registry as it
+    # existed when that immutable artifact was built. Reconstruct that local
+    # config snapshot so this historical fixture does not require rewriting the
+    # BPS record when the live registry gains already-governed FRED metrics.
+    repository_root = root / "july-config-snapshot"
+    for config_path in resolution["config_hashes"]:
+        destination = repository_root / config_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if config_path != "config/source_metric_registry.csv":
+            shutil.copyfile(config_path, destination)
+    new_fred_metrics = {
+        "fred_mortgage_5y_arm_avg", "fred_gs30", "fred_spread_10y_30y",
+        "fred_spread_2y_30y", "fred_spread_2y_fedfunds",
+        "fred_spread_30y_fedfunds",
+    }
+    registry_lines = Path("config/source_metric_registry.csv").read_text().splitlines(keepends=True)
+    (repository_root / "config/source_metric_registry.csv").write_text("".join(
+        line for line in registry_lines
+        if len(line.split(",")) < 3 or line.split(",", 3)[2] not in new_fred_metrics
+    ))
+    assert all(sha256_file(repository_root / path) == digest
+               for path, digest in resolution["config_hashes"].items())
     source_set = build_logical_source_set(output=root/"source-set.json", cycle_id=CYCLE,
         target_month="2026-07", physical_results=results, catalog=catalog, readiness=readiness,
         resolution=resolution, family_parent_republications=republications,
-        created_at="first", builder_git_sha="git-a")
+        created_at="first", builder_git_sha="git-a", repository_root=repository_root)
     repeat = build_logical_source_set(output=root/"source-set-repeat.json", cycle_id=CYCLE,
         target_month="2026-07", physical_results=results, catalog=catalog, readiness=readiness,
         resolution=resolution, family_parent_republications=republications,
-        created_at="second", builder_git_sha="git-b")
+        created_at="second", builder_git_sha="git-b", repository_root=repository_root)
     assert source_set["source_set_id"] == repeat["source_set_id"]
     assert source_set["included_source_inventory"] == ["bps", "ces", "fred_macro", "laus", "redfin"]
     assert sum(e["source_id"] == "bps" for e in source_set["sources"]) == 1
