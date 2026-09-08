@@ -41,11 +41,17 @@ nrc_housing_completions,census_nrc_fred,census_housing_completions_total_saar,Ho
 
 fred_mortgage_30y,fred_macro,fred_mortgage_30y_avg,30-Year Mortgage Rate,Average 30-year fixed mortgage rate,nation,monthly,Percent,NSA,true,
 fred_mortgage_15y,fred_macro,fred_mortgage_15y_avg,15-Year Mortgage Rate,Average 15-year fixed mortgage rate,nation,monthly,Percent,NSA,true,
+fred_mortgage_5y_arm,fred_macro,fred_mortgage_5y_arm_avg,5/1 ARM Mortgage Rate,Average 5/1 adjustable-rate mortgage rate,nation,monthly,Percent,NSA,true,
 fred_fedfunds,fred_macro,fred_fedfunds,Fed Funds Rate,Effective federal funds rate,nation,monthly,Percent,SA,true,
 fred_10y,fred_macro,fred_gs10,Treasury 10-Year Yield,10-year Treasury constant maturity rate,nation,monthly,Percent,NSA,true,
 fred_2y,fred_macro,fred_gs2,Treasury 2-Year Yield,2-year Treasury constant maturity rate,nation,monthly,Percent,NSA,true,
+fred_30y,fred_macro,fred_gs30,Treasury 30-Year Yield,30-year Treasury constant maturity rate,nation,monthly,Percent,NSA,true,
 fred_2y10y_spread,fred_macro,fred_spread_2y_10y,2Y-10Y Physical Treasury Spread,Physical provider identity is 2Y - 10Y; canonical spread_10y_2y is sign-inverted to governed 10Y - 2Y at canonical resolution,nation,monthly,Percentage points,NSA,true,
+fred_10y30y_spread,fred_macro,fred_spread_10y_30y,10Y-30Y Treasury Spread,10-year Treasury minus 30-year Treasury spread,nation,monthly,Percentage points,NSA,true,
+fred_2y30y_spread,fred_macro,fred_spread_2y_30y,2Y-30Y Treasury Spread,2-year Treasury minus 30-year Treasury spread,nation,monthly,Percentage points,NSA,true,
+fred_2y_fedfunds_spread,fred_macro,fred_spread_2y_fedfunds,2Y-Fed Funds Spread,2-year Treasury minus fed funds spread,nation,monthly,Percentage points,NSA,true,
 fred_10y_fedfunds_spread,fred_macro,fred_spread_10y_fedfunds,10Y-Fed Funds Spread,10-year Treasury minus fed funds spread,nation,monthly,Percentage points,NSA,true,
+fred_30y_fedfunds_spread,fred_macro,fred_spread_30y_fedfunds,30Y-Fed Funds Spread,30-year Treasury minus fed funds spread,nation,monthly,Percentage points,NSA,true,
 fred_cpi,fred_macro,fred_cpi_urban_sa_index,CPI Urban SA Index,Consumer Price Index for all urban consumers,nation,monthly,Index,SA,true,
 
 derived_price_to_income,derived,price_to_income,Price-to-Income Ratio,Median sale price divided by median household income,county|zip,annual,Ratio,NSA,true,Derived metric
