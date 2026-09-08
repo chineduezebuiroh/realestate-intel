@@ -234,8 +234,20 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
                                                database_path=workspace/"market.duckdb", **manifest_values)
     market_package = build_object_package({"canonical-market.json":workspace/"canonical-market.json",
         "market.duckdb":workspace/"market.duckdb"}, workspace/"canonical-market.tar")
+    targets = {e["source_id"]:e["artifact_id"] for e in source_set["sources"]}
+    proposed_record = create_promotion_record(cycle_id=cycle_id,
+        source_set_id=source_set["source_set_id"],
+        source_set_semantic_sha256=source_set_semantic_sha256(source_set),
+        canonical_artifact_id=market["market_artifact_id"],
+        canonical_artifact_hash=sha256_json(market),
+        expected_source_pointers={s:catalog["accepted"]["source"].get(s) for s in targets},
+        target_source_pointers=targets,
+        expected_source_set=catalog["accepted"].get("source_set"),
+        expected_canonical=catalog["accepted"].get("canonical_market"),
+        readiness_id=redfin["readiness_id"], resolution_id=resolution["resolution_id"])
     summary = {"cycle_id":cycle_id, "source_set_id":source_set["source_set_id"],
         "canonical_artifact_id":market["market_artifact_id"], "provider_discovery_performed":False,
+        "promotion_id":proposed_record["promotion_id"], "promotion_plan_validated":True,
         "live_promotion_performed":False, "mutate":mutate}
     if not mutate: return summary
     ss_record = _publish_object(api=api, cas=catalog_cas, package=workspace/"source-set.tar",
@@ -247,7 +259,6 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
         metadata={"source_set_id":source_set["source_set_id"],"database_sha256":market["database_sha256"]},
         members=market_package["member_hashes"], git_sha=git_sha)
     prepared_catalog, _ = catalog_cas.read()
-    targets = {e["source_id"]:e["artifact_id"] for e in source_set["sources"]}
     record_store = GitHubJSONCAS(api, f"{RECORD_ROOT}/{cycle_id}.json", branch)
     existing_record, _ = record_store.read()
     frozen_expected_sources = (existing_record["expected_source_pointers"] if existing_record
@@ -279,7 +290,7 @@ def main() -> int:
     parser.add_argument("--output",type=Path,required=True); args=parser.parse_args()
     if args.live and args.confirm != LIVE_CONFIRMATION:
         raise SystemExit("live execution requires exact confirmation: "+LIVE_CONFIRMATION)
-    api=GitHubAPI(args.repository,os.environ.get("GITHUB_TOKEN",""))
+    api=GitHubAPI(args.repository,os.environ.get("GITHUB_TOKEN",""), read_only=not args.live)
     report=run(api=api,branch=args.branch,cycle_id=args.cycle_id,workspace=args.workspace,
                git_sha=args.git_sha,mutate=args.live)
     write_canonical_json(args.output,report); print(json.dumps(report,sort_keys=True)); return 0

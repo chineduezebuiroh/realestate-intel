@@ -35,8 +35,9 @@ synthesized. Every output row is rewritten to `source_id=bps`.
 
 `bps_family_resolver_v1` creates an ordinary immutable source artifact through
 the common source-artifact builder and publication lifecycle. Its semantic
-identity binds the active `bps_governed_source_v1` contract, governed config
-hashes, resolver policy/version, both parent artifact/content/package/data
+identity binds the active `bps_governed_source_v1` contract, the hash of
+`config/bps_cbsa_canonical_concepts_v1.csv` (the only repository config read
+while deciding the logical output), resolver policy/version, both parent artifact/content/package/data
 hashes, row-level lineage, and canonical output Parquet hash. Row lineage names
 the winning physical parent and retains both physical values for collisions.
 
@@ -50,6 +51,14 @@ package hash, deterministic diagnostics, and false assertions for accepted
 pointer movement, Source Set creation, DuckDB mutation, Redfin consumption,
 and provider discovery. Exact reruns reuse the artifact and record; any
 same-identity contradiction fails closed.
+
+The published July record retains its original immutable identity, including
+the broader physical-adapter hash map captured when it was created. Historical
+staleness validation compares its stored hash for the directly consumed CBSA
+concept table rather than unrelated global Source Set or physical-adapter
+configuration. Future family resolutions freeze only that directly consumed
+table. Physical BPS artifacts and Source Set v2 retain their separate, broader
+governed config hashes.
 
 The manually dispatched `bps-family-resolution.yml` is deliberately absent
 from the monthly fan-out and has no schedule or push trigger.
