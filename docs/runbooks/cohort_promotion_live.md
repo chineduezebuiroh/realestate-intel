@@ -36,7 +36,7 @@ git diff --check
 Exact non-mutating hosted preflight (safe to run after workflow registration):
 
 ```bash
-gh workflow run cohort-promotion-live.yml --ref main \
+gh workflow run cohort-promotion-live.yml --ref monthly-refresh-orchestration \
   -f cycle_id=monthly_cycle__2026-07__7cab1c5df177a1e4 \
   -f intent=preflight -f confirmation=''
 ```
@@ -44,7 +44,7 @@ gh workflow run cohort-promotion-live.yml --ref main \
 ## Controlled live dispatch (do not run during implementation)
 
 ```bash
-gh workflow run cohort-promotion-live.yml --ref main \
+gh workflow run cohort-promotion-live.yml --ref monthly-refresh-orchestration \
   -f cycle_id=monthly_cycle__2026-07__7cab1c5df177a1e4 \
   -f intent=live -f confirmation=PROMOTE_GOVERNED_COHORT
 ```
