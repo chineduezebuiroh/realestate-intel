@@ -1,0 +1,54 @@
+name: Governed July control-plane migration (manual only)
+on:
+  workflow_dispatch:
+    inputs:
+      intent:
+        description: Select non-mutating preflight or controlled migration
+        required: true
+        default: preflight
+        type: choice
+        options: [preflight, live]
+      confirmation:
+        description: For live only, enter MIGRATE_GOVERNED_JULY_CONTROL_PLANE
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: governed-control-plane-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: >-
+      inputs.intent == 'preflight' ||
+      (inputs.intent == 'live' &&
+       inputs.confirmation == 'MIGRATE_GOVERNED_JULY_CONTROL_PLANE')
+    runs-on: ubuntu-latest
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: "${{ github.ref_name }}"}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Compare orchestration evidence with main authority
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INTENT: ${{ inputs.intent }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          args=(--repository "$GITHUB_REPOSITORY"
+            --output "$RUNNER_TEMP/control-plane-migration.json")
+          if [[ "$INTENT" == live ]]; then
+            args+=(--live --confirm "$CONFIRMATION")
+          fi
+          python -m jobs.monthly_refresh.control_plane_migration "${args[@]}"
+          cat "$RUNNER_TEMP/control-plane-migration.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: control-plane-migration-${{ inputs.intent }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/control-plane-migration.json
