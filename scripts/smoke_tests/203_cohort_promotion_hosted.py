@@ -28,4 +28,24 @@ live_text=live_path.read_text()
 assert "PROMOTE_GOVERNED_COHORT" in live_text and "--live" in live_text
 assert "schedule:" not in live_text and "push:" not in live_text
 assert "cohort_promotion_hosted" in live_text
+
+# Code executes from the workflow-dispatch ref, while durable control-plane
+# reads and CAS writes continue to target the authority branch.
+execution_ref="monthly-refresh-orchestration"
+authority_branch="main"
+steps=live["jobs"]["promote"]["steps"]
+checkout=next(step for step in steps if step.get("uses")=="actions/checkout@v4")
+assert checkout.get("with",{}).get("ref")=="${{ github.ref_name }}"
+assert checkout["with"]["ref"]!="main"
+assert execution_ref!=authority_branch
+adapter=next(step for step in steps if step.get("name")=="Execute exact hosted adapter")
+assert f"--branch {authority_branch}" in adapter["run"]
+assert "--branch monthly-refresh-orchestration" not in adapter["run"]
+assert 'if [[ "$INTENT" == live ]]' in adapter["run"]
+assert 'args+=(--live --confirm "$CONFIRMATION")' in adapter["run"]
+assert "--live" not in adapter["run"].split('if [[ "$INTENT" == live ]]')[0]
+job_gate=live["jobs"]["promote"]["if"]
+assert "inputs.intent == 'preflight'" in job_gate
+assert "inputs.intent == 'live'" in job_gate
+assert "inputs.confirmation == 'PROMOTE_GOVERNED_COHORT'" in job_gate
 print("Smoke 203 manual live cohort workflow passed")
