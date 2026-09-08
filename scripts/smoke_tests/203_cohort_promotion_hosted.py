@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import yaml
+from jobs.monthly_refresh.control_plane_migration import SOURCE_BRANCH, TARGET_BRANCH
 
 path=Path(".github/workflows/cohort-promotion-proof.yml")
 workflow=yaml.safe_load(path.read_text())
@@ -49,3 +50,18 @@ assert "inputs.intent == 'preflight'" in job_gate
 assert "inputs.intent == 'live'" in job_gate
 assert "inputs.confirmation == 'PROMOTE_GOVERNED_COHORT'" in job_gate
 print("Smoke 203 manual live cohort workflow passed")
+
+migration_path=Path(".github/workflows/control-plane-migration.yml")
+migration=yaml.safe_load(migration_path.read_text())
+migration_triggers=migration.get(True,migration.get("on"))
+assert set(migration_triggers)=={"workflow_dispatch"}
+assert migration["permissions"]=={"contents":"write"}
+migration_text=migration_path.read_text()
+assert "schedule:" not in migration_text and "push:" not in migration_text
+assert 'with: {ref: "${{ github.ref_name }}"}' in migration_text
+assert "monthly-refresh-orchestration" not in migration_text  # branches are frozen in the adapter
+assert execution_ref==SOURCE_BRANCH and SOURCE_BRANCH!=TARGET_BRANCH and TARGET_BRANCH=="main"
+assert "control_plane_migration" in migration_text
+assert "MIGRATE_GOVERNED_JULY_CONTROL_PLANE" in migration_text
+assert 'if [[ "$INTENT" == live ]]' in migration_text
+print("Smoke 203 migration workflow keeps execution, source, and target refs distinct")
