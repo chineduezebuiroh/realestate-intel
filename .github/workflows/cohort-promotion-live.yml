@@ -1,0 +1,59 @@
+name: Governed cohort promotion (manual only)
+on:
+  workflow_dispatch:
+    inputs:
+      cycle_id:
+        description: Exact governed monthly cycle ID
+        required: true
+        type: string
+      intent:
+        description: Select non-mutating preflight or controlled live promotion
+        required: true
+        default: preflight
+        type: choice
+        options: [preflight, live]
+      confirmation:
+        description: For live only, enter PROMOTE_GOVERNED_COHORT
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: governed-cohort-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: >-
+      inputs.cycle_id == 'monthly_cycle__2026-07__7cab1c5df177a1e4' &&
+      (inputs.intent == 'preflight' ||
+       (inputs.intent == 'live' && inputs.confirmation == 'PROMOTE_GOVERNED_COHORT'))
+    runs-on: ubuntu-latest
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: main}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Execute exact hosted adapter
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INTENT: ${{ inputs.intent }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          args=(--repository "$GITHUB_REPOSITORY" --branch main
+            --cycle-id "${{ inputs.cycle_id }}" --workspace "$RUNNER_TEMP/cohort"
+            --git-sha "$GITHUB_SHA" --output "$RUNNER_TEMP/cohort-report.json")
+          if [[ "$INTENT" == live ]]; then
+            args+=(--live --confirm "$CONFIRMATION")
+          fi
+          python -m jobs.monthly_refresh.cohort_promotion_hosted "${args[@]}"
+          cat "$RUNNER_TEMP/cohort-report.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cohort-promotion-${{ inputs.intent }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/cohort-report.json

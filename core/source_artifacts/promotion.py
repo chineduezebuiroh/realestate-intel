@@ -83,12 +83,20 @@ def promotion_progress(record: dict[str, Any], catalog: dict[str, Any], readines
     match = [r for r in readiness.get("records", []) if r.get("readiness_id") == record["readiness_id"]]
     if len(match) != 1 or match[0].get("cycle_id") != record["cycle_id"]:
         raise PublicationError("promotion Redfin readiness identity mismatch")
+    if (match[0].get("source_id") != "redfin"
+            or match[0].get("candidate_artifact_id") != record["target_source_pointers"].get("redfin")
+            or type(match[0].get("consumed")) is not bool):
+        raise PublicationError("promotion Redfin readiness state contradiction")
     source_done = {s: accepted["source"].get(s) == t for s, t in record["target_source_pointers"].items()}
+    prior_done = (accepted.get("source_set") == record["source_set_id"]
+                  and accepted.get("canonical_market") == record["canonical_artifact_id"]
+                  and all(source_done.values()))
+    if match[0]["consumed"] and not prior_done:
+        raise PublicationError("Redfin readiness was consumed before prior promotion targets")
     return {"source_set_accepted": accepted.get("source_set") == record["source_set_id"],
         "canonical_accepted": accepted.get("canonical_market") == record["canonical_artifact_id"],
         "source_pointers": source_done, "redfin_consumed": match[0]["consumed"],
-        "complete": accepted.get("canonical_market") == record["canonical_artifact_id"]
-            and all(source_done.values()) and match[0]["consumed"]}
+        "complete": prior_done and match[0]["consumed"]}
 
 
 def recover_promotion(record: dict[str, Any], catalog: dict[str, Any], readiness: dict[str, Any],
