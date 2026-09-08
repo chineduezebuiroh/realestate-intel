@@ -5,11 +5,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from core.source_artifacts.catalog import validate_catalog
-from core.source_artifacts.hashing import sha256_file, sha256_json
+from core.source_artifacts.hashing import sha256_json
 from core.source_artifacts.source_set_v2 import (FAMILY_MAP_VERSION, create_source_set_v2,
     governed_config_hashes)
 from jobs.monthly_refresh.production import validate_source_result
 from jobs.monthly_refresh.readiness import eligible_record
+from sources.census_bps.artifact import family_resolution_config_hashes
 
 
 def _catalog_source(catalog: Mapping[str, Any], source_id: str, artifact_id: str) -> dict[str, Any]:
@@ -56,8 +57,11 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
             "source_set_created", "duckdb_mutated", "redfin_consumed", "provider_discovery_performed")):
         raise ValueError("BPS family resolution contains forbidden side effects")
     config_hashes = resolution.get("config_hashes", {})
-    if not config_hashes or any(sha256_file(repository_root / path) != digest
-                                for path, digest in config_hashes.items()):
+    family_hashes = family_resolution_config_hashes(repository_root)
+    # Preserve the frozen July record's full identity, while checking drift
+    # only for configuration actually consumed by logical family resolution.
+    if not config_hashes or any(config_hashes.get(path) != digest
+                                for path, digest in family_hashes.items()):
         raise ValueError("BPS family resolution governed config drift")
     resolution_semantic = {key:resolution[key] for key in ("cycle_id", "resolver_version",
         "source_contract_version", "parents", "config_hashes", "output_artifact_id", "output_content_hash")}

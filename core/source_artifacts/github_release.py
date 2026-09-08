@@ -35,22 +35,26 @@ def _now() -> str:
 
 class GitHubAPI:
     """Small injectable REST boundary; errors fail closed without token logging."""
-    def __init__(self, repository: str, token: str, *, opener: Any = None):
-        if repository.count("/") != 1 or not token:
+    def __init__(self, repository: str, token: str, *, opener: Any = None,
+                 read_only: bool = False):
+        if repository.count("/") != 1 or (not token and not read_only):
             raise PublicationError("GitHub repository identity and token are required")
-        self.repository, self.token = repository, token
+        self.repository, self.token, self.read_only = repository, token, read_only
         self.api = f"https://api.github.com/repos/{repository}"
         self.opener = opener or urllib.request.build_opener(_NoRedirect())
 
     def request(self, method: str, url: str, *, payload: Any = None,
                 content_type: str = "application/json", expected: tuple[int, ...] = (200,)) -> tuple[Any, dict[str, str]]:
+        if self.read_only and method != "GET":
+            raise PublicationError("read-only GitHub API forbids mutation")
         data = None
         if payload is not None:
             data = canonical_json_bytes(payload) if content_type == "application/json" else payload
+        headers = {"Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": API_VERSION, "Content-Type": content_type}
+        if self.token: headers["Authorization"] = f"Bearer {self.token}"
         request = urllib.request.Request(url if url.startswith("http") else self.api + url,
-            data=data, method=method, headers={"Authorization": f"Bearer {self.token}",
-            "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": API_VERSION,
-            "Content-Type": content_type})
+            data=data, method=method, headers=headers)
         try:
             response = self.opener.open(request)
         except urllib.error.HTTPError as exc:
@@ -73,8 +77,9 @@ class GitHubAPI:
     def download_asset(self, asset_id: int, destination: Path) -> None:
         """Follow GitHub's signed redirect without forwarding bearer credentials."""
         url = f"{self.api}/releases/assets/{asset_id}"
-        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}",
-            "Accept": "application/octet-stream", "X-GitHub-Api-Version": API_VERSION})
+        headers = {"Accept": "application/octet-stream", "X-GitHub-Api-Version": API_VERSION}
+        if self.token: headers["Authorization"] = f"Bearer {self.token}"
+        request = urllib.request.Request(url, headers=headers)
         try:
             response = self.opener.open(request)
         except urllib.error.HTTPError as exc:

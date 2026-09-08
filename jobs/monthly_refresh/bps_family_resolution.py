@@ -24,7 +24,8 @@ from core.source_artifacts.models import CANONICAL_COLUMNS, CANONICAL_KEY
 from core.source_artifacts.publication import IdentityCollisionError
 from core.source_artifacts.publication import TransientPublicationError
 from core.source_artifacts.validation import validate_artifact
-from sources.census_bps.artifact import ADAPTER_CONTRACT_VERSION, governed_config_hashes
+from sources.census_bps.artifact import (ADAPTER_CONTRACT_VERSION,
+    family_resolution_config_hashes)
 from jobs.monthly_refresh.bps_hosted import publish_candidate
 
 RESOLVER_VERSION = "bps_family_resolver_v1"
@@ -200,7 +201,7 @@ def build_family_artifact(*, compiled_artifact: Path, provisional_artifact: Path
         provider_release_timestamp_or_date=None, retrieved_at=None, target_month="2026-07",
         source_request_identity="bps-family-resolution:" + sha256_json(identity_context),
         source_urls_or_endpoint_identity=[f"artifact://source/{x['source_id']}/{x['artifact_id']}" for x in parents],
-        revision=1, lineage=lineage, config_hashes=governed_config_hashes(repository_root), git_sha=git_sha,
+        revision=1, lineage=lineage, config_hashes=family_resolution_config_hashes(repository_root), git_sha=git_sha,
         acquisition_time_status="historical_not_recorded", source_contract_version=ADAPTER_CONTRACT_VERSION,
         identity_context=identity_context, manifest_extensions={"family_resolution": {"diagnostics": diagnostics, "parents": parents}})
     return {"manifest": manifest, "diagnostics": diagnostics, "parents": parents}

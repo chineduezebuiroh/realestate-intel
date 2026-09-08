@@ -25,6 +25,7 @@ REQUIRED_METRIC = "census_bp_total_units"
 UNAVAILABLE_TOKENS: set[str] = set()
 EXPECTED_GEOGRAPHIES = 221
 GOVERNED_CONFIG_PATHS = ("config/bps_governed_geographies_v1.csv", "config/geo_manifest.generated.csv", "config/source_metric_registry.csv", "config/source_refresh_revision_policy_v0_2.json", "config/monthly_refresh_policy.json", "config/bps_cbsa_canonical_concepts_v1.csv")
+FAMILY_RESOLUTION_CONFIG_PATHS = ("config/bps_cbsa_canonical_concepts_v1.csv",)
 
 
 def governed_config_hashes(repository_root: Path = Path(".")) -> dict[str, str]:
@@ -33,6 +34,17 @@ def governed_config_hashes(repository_root: Path = Path(".")) -> dict[str, str]:
         path = repository_root / relative
         if not path.is_file():
             raise FileNotFoundError(f"missing governed BPS configuration: {relative}")
+        result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return dict(sorted(result.items()))
+
+
+def family_resolution_config_hashes(repository_root: Path = Path(".")) -> dict[str, str]:
+    """Hash only repository config read during logical family resolution."""
+    result = {}
+    for relative in FAMILY_RESOLUTION_CONFIG_PATHS:
+        path = repository_root / relative
+        if not path.is_file():
+            raise FileNotFoundError(f"missing governed BPS family-resolution configuration: {relative}")
         result[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
     return dict(sorted(result.items()))
 

@@ -41,6 +41,26 @@ gh workflow run cohort-promotion-live.yml --ref monthly-refresh-orchestration \
   -f intent=preflight -f confirmation=''
 ```
 
+The same production adapter can be run locally against the exact durable July
+state on `main`. For a public repository it uses unauthenticated read-only API
+access when `GITHUB_TOKEN` is absent; setting a token only increases API rate
+limits. Keep the workspace to reuse immutable packages by package SHA-256:
+
+```bash
+PYTHONPATH=. python -m jobs.monthly_refresh.cohort_promotion_hosted \
+  --repository chineduezebuiroh/realestate-intel --branch main \
+  --cycle-id monthly_cycle__2026-07__7cab1c5df177a1e4 \
+  --workspace .cache/cohort-promotion-july --git-sha local-preflight \
+  --output .cache/cohort-promotion-july-report.json
+```
+
+Omitting `--live` constructs the logical Source Set, resolves and validates all
+exact immutable source packages, validates metric ownership, assembles the
+isolated canonical database, and validates the prepared promotion plan. It
+does not publish objects, write GitHub state, move accepted pointers, consume
+Redfin readiness, or perform provider discovery. Read-only transport rejects
+non-GET API calls locally as an additional guard.
+
 ## Controlled live dispatch (do not run during implementation)
 
 ```bash
