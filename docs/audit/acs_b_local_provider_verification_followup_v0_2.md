@@ -6,6 +6,12 @@
 supersedes only the live-evidence status in v0.1; it does not reinterpret the
 empty fact files from the first local run as provider evidence.
 
+**2026-09-10 diagnostic checkpoint:** The corrected Mac run reached an HTTP 200
+response but could not parse its body as JSON. HTTP success does not establish a
+valid Census response, and this result is neither product unavailability nor an
+authentication failure. The original exception omitted the request identity and
+response shape, so the exact cause cannot yet be identified.
+
 ## Evidence incorporated from the first local run
 
 Local dynamic discovery resolved 2024 as the latest catalog vintage for both
@@ -69,6 +75,20 @@ The utility is verification-only. It does not discover or freeze production
 pins, publish a candidate, mutate DuckDB, alter durable state, or dispatch a
 workflow.
 
+For every HTTP 2xx body that is empty, invalid JSON, non-tabular JSON, malformed,
+or unexpectedly multi-row, the utility now raises `INVALID_PROVIDER_RESPONSE`
+with the physical source/product, vintage, canonical identity, geography level,
+Census code, credential-free request parameters, HTTP status, Content-Type,
+byte length, and a whitespace-normalized 300-byte preview. A transport key is
+removed from parameters and redacted from the preview defensively.
+
+The query construction was rechecked against the repository manifest and the
+existing Census adapter: nation uses `for=us:1`; two-digit states use
+`for=state:<code>`; five-digit counties split into state and county components;
+and ordinary CBSAs use the Census metropolitan/micropolitan geography name. No
+deterministic construction error is evident without the missing response body,
+so query semantics are unchanged rather than being altered speculatively.
+
 ## Sentinel status
 
 The verifier currently fail-closes on non-numeric values, omits null/blank
@@ -90,6 +110,10 @@ python scripts/acs_b_verify.py --vintage 2024 --output "$OUT"
 (cd "$OUT" && shasum -a 256 -c SHA256SUMS)
 printf 'ACS-B evidence: %s\n' "$OUT"
 ```
+
+For this diagnostic rerun, do not set `CENSUS_API_KEY`. If the command fails,
+return the complete single-line `INVALID_PROVIDER_RESPONSE` diagnostic. Run the
+`shasum` command only after the verifier completes and publishes `SHA256SUMS`.
 
 Anonymous execution is intentional for the first run because it resolves the
 authentication question directly. If and only if Census returns an explicit

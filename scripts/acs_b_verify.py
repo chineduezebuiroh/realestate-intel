@@ -13,7 +13,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import sys
 from typing import Any
 
 import requests
@@ -62,27 +61,100 @@ def _geo_params(level: str, code: str) -> dict[str, str]:
     raise VerificationError(f"unsupported canonical geography level: {level}")
 
 
-def _request(session: requests.Session, url: str, params: dict[str, str], key: str) -> tuple[str, Any, bytes | None]:
+def _invalid_response_diagnostic(
+    *,
+    response: requests.Response,
+    params: dict[str, str],
+    context: dict[str, Any],
+    key: str,
+    reason: str,
+    classification: str = "INVALID_PROVIDER_RESPONSE",
+) -> str:
+    """Render actionable provider diagnostics without exposing credentials."""
+    safe_params = {name: value for name, value in params.items() if name.lower() != "key"}
+    preview = response.content[:300].decode("utf-8", errors="replace")
+    preview = " ".join(preview.split())
+    if key:
+        preview = preview.replace(key, "[REDACTED]")
+        safe_params = {
+            name: value.replace(key, "[REDACTED]")
+            for name, value in safe_params.items()
+        }
+    diagnostic = {
+        "classification": classification,
+        "reason": reason,
+        "source_id": context["source_id"],
+        "product": context["product"],
+        "vintage": context["vintage"],
+        "geo_id": context["geo_id"],
+        "geography_level": context["geography_level"],
+        "census_code": context["census_code"],
+        "request_params": safe_params,
+        "http_status": response.status_code,
+        "content_type": response.headers.get("Content-Type", ""),
+        "response_bytes": len(response.content),
+        "body_preview": preview,
+    }
+    return json.dumps(diagnostic, sort_keys=True, ensure_ascii=True)
+
+
+def _request(
+    session: requests.Session,
+    url: str,
+    params: dict[str, str],
+    key: str,
+    context: dict[str, Any],
+) -> tuple[str, Any, bytes | None]:
     transport = dict(params)
     if key:
         transport["key"] = key
-    response = session.get(url, params=transport, timeout=60)
+    try:
+        response = session.get(url, params=transport, timeout=60)
+    except requests.RequestException as exc:
+        message = str(exc).replace(key, "[REDACTED]") if key else str(exc)
+        safe_params = {
+            name: (value.replace(key, "[REDACTED]") if key else value)
+            for name, value in params.items()
+            if name.lower() != "key"
+        }
+        raise VerificationError(json.dumps({
+            "classification": "PROVIDER_TRANSPORT_ERROR",
+            **context,
+            "request_params": safe_params,
+            "error": message,
+        }, sort_keys=True, ensure_ascii=True)) from exc
     if response.status_code == 204:
         return "provider_ineligible_no_content", None, None
-    response.raise_for_status()
+    if not 200 <= response.status_code < 300:
+        raise VerificationError(_invalid_response_diagnostic(
+            response=response, params=params, context=context, key=key,
+            reason="HTTP error response", classification="PROVIDER_HTTP_ERROR",
+        ))
     if not response.content:
-        raise VerificationError(f"HTTP {response.status_code} returned an empty body")
+        raise VerificationError(_invalid_response_diagnostic(
+            response=response, params=params, context=context, key=key,
+            reason="empty response body",
+        ))
     try:
         value = response.json()
     except ValueError as exc:
-        raise VerificationError(f"HTTP {response.status_code} returned invalid JSON") from exc
+        raise VerificationError(_invalid_response_diagnostic(
+            response=response, params=params, context=context, key=key,
+            reason="response body is not valid JSON",
+        )) from exc
     if not isinstance(value, list) or not value or not isinstance(value[0], list):
-        raise VerificationError("provider response is not a Census tabular JSON payload")
+        raise VerificationError(_invalid_response_diagnostic(
+            response=response, params=params, context=context, key=key,
+            reason="JSON is not a Census tabular payload",
+        ))
     canonical = _canonical_json(value)
     if len(value) == 1:
         return "valid_zero_rows", value, canonical
     if len(value) != 2 or not isinstance(value[1], list) or len(value[0]) != len(value[1]):
-        raise VerificationError("individual fact query returned malformed or multiple rows")
+        raise VerificationError(_invalid_response_diagnostic(
+            response=response, params=params, context=context, key=key,
+            reason="tabular payload is malformed or contains multiple data rows",
+        ))
     return "available", value, canonical
 
 
@@ -141,7 +213,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 product_diag["errors"].append({"geo_id": geo["geo_slug"], "classification": "CANONICAL_CONCEPT_MISMATCH", "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT"})
                 continue
             params = {"get": "NAME," + ",".join(VARIABLES), **_geo_params(geo["level"].strip(), code)}
-            status, payload, body = _request(session, f"https://api.census.gov/data/{args.vintage}/{product}", params, key)
+            context = {
+                "source_id": source_id,
+                "product": product,
+                "vintage": args.vintage,
+                "geo_id": geo["geo_slug"],
+                "geography_level": geo["level"].strip(),
+                "census_code": code,
+            }
+            status, payload, body = _request(
+                session,
+                f"https://api.census.gov/data/{args.vintage}/{product}",
+                params,
+                key,
+                context,
+            )
             if status != "available":
                 product_diag["provider_ineligible" if status == "provider_ineligible_no_content" else "valid_zero_rows"] += 1
                 product_diag["errors"].append({"geo_id": geo["geo_slug"], "classification": status})
