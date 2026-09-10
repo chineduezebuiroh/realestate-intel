@@ -1,12 +1,12 @@
 # ACS-B local provider verification follow-up v0.2
 
-**Status:** `PENDING_LOCAL_EVIDENCE_DETAIL_INCORPORATION` (2026-09-10)
+**Status:** `ACS_B_COMPLETE_PHYSICAL_CONTRACTS_FROZEN` (2026-09-10)
 
-**Decision:** The corrected physical fact acquisition succeeded, but ACS-B
-remains open and ACS-C remains prohibited until the evidence details already in
-the locally generated `summary.json` are supplied and incorporated. This
-follow-up does not reinterpret the empty files from the first local run as
-provider evidence.
+**Decision:** **ACS-B is complete.** The corrected physical fact acquisition and
+the exact credential-free `summary.json` results resolve all evidence-bound
+questions for the initial `census_acs1` and `census_acs5` contracts. ACS-C was
+not begun by this closure. This follow-up does not reinterpret the empty files
+from the first local run as provider evidence.
 
 ## Successful local evidence incorporated
 
@@ -25,10 +25,10 @@ internally consistent: 371 independent physical memberships times two metrics
 equals 742 rows. SHA-256 verification passed for `canonical.csv`, every captured
 ACS1/ACS5 provider JSON response, and `summary.json`.
 
-The successful `summary.json` itself is not present in this hosted checkout.
-Aggregate counts do not disclose the exact membership lists, per-geography
-non-available classifications, sentinel diagnostics, legacy comparison, or
-concrete revision hashes. Those fields are not inferred below.
+The authoritative summary schema is `acs_b_local_verification_v1`, its vintage
+is 2024, `credential_persisted=false`, and its exact diagnostics and comparison
+results are incorporated below. Provider response bodies remain external
+verification evidence rather than production repository state.
 
 ## Frozen physical contract decisions
 
@@ -65,10 +65,21 @@ The following initial physical contract shape is frozen:
 * Unsupported or ineligible identities are not synthesized. No physical product
   may silently substitute for the other.
 
-These decisions freeze the contract shape. Exact 2024 membership lists,
-ordinary non-available dispositions, legacy equivalence results, and concrete
-revision-proof hashes remain evidence-bound contract fields and cannot be frozen
-from aggregate counts alone.
+These decisions and the verified 2024 instance are frozen as the initial
+physical contracts. Later implementation belongs to ACS-C and must consume—not
+silently reinterpret—these product-specific boundaries.
+
+## Exact 2024 membership reconciliation
+
+| physical source | available | CBSA | county | nation | state | provider-ineligible | valid zero rows | division exclusions | evaluated |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `census_acs1` | 152 | 43 | 103 | 1 | 5 | 71 | 0 | 10 | 233 |
+| `census_acs5` | 219 | 50 | 163 | 1 | 5 | 4 | 0 | 10 | 233 |
+
+The reconciliations are exact: ACS1 is `152 + 71 + 10 = 233`; ACS5 is
+`219 + 4 + 10 = 233`. Across products, 371 available physical memberships times
+two governed variables produced exactly 742 canonical rows. Product membership
+is intentionally unequal and remains independently pinned.
 
 ## Bounded geography decisions
 
@@ -81,34 +92,43 @@ acquisition, synthesis, or global taxonomy change. Their future path remains a
 shared cross-source taxonomy correction or later clean ordinary integration;
 this is not a finding that Census does not support them.
 
-Code 13720 was queried through the same ordinary metropolitan/micropolitan path
-as every non-division canonical CBSA. Its final disposition is present in either
-`diagnostics.<product>.available_membership` or the corresponding `errors` in
-the successful local `summary.json`. Because that file is unavailable here,
-13720 remains `PENDING_EVIDENCE_DETAIL`; absence from a response-filename listing
-is not treated as unsupported evidence. No special investigation is opened.
+Code 13720 (`big_stone_gap_va_metro_area__cbsa_metro`) was queried through the
+same ordinary metropolitan/micropolitan path as every non-division canonical
+CBSA and returned `provider_ineligible_no_content` in both `census_acs1` and
+`census_acs5`. That is its frozen 2024 physical-product disposition. It is not a
+canonical-concept mismatch, is not synthesized, receives no bespoke hierarchy
+path, and does not expand ACS-B into a taxonomy investigation.
 
 ## Sentinel and missing-value boundary
 
-The verifier fail-closes on unknown non-numeric values, omits null/blank missing
-values with diagnostics, and recognizes candidate numeric tokens `-666666666`,
-`-888888888`, and `-999999999` as omitted sentinels. The observed run produced
-exactly 742 rows for 371 memberships with two requested variables, proving that
-no sentinel/null observation was omitted among the available responses. Thus
-the empirically supported initial rule is: accept finite numeric estimates;
-omit recognized sentinel/null values with diagnostics; fail on unknown tokens;
-never coerce missing or sentinel values to zero. The run did not exercise a
-sentinel value, so provider-specific meanings beyond those behaviors are not
-claimed.
+Both products recorded `sentinels={}` and `valid_zero_rows=0`. The observed run
+produced exactly 742 rows for 371 memberships with two requested variables, so
+no sentinel/null omission occurred among available responses. The frozen
+empirical rule is: accept finite numeric estimates; retain defensive omission of
+recognized sentinel/null values with diagnostics; fail closed on unknown
+tokens; never coerce missing or sentinel values to zero. No provider-specific
+sentinel meaning is claimed because this run exercised none.
 
 ## Same-vintage revision result
 
-Successful bundle publication means the verifier completed its deterministic
-same-vintage mutation check and wrote `hash_changed=true`: changing governed
-canonical bytes while holding the 2024 vintage fixed changed the SHA-256 content
-identity. The original and mutated hash strings remain in the unavailable local
-`summary.json`; they must be copied into the final evidence record rather than
-reconstructed or guessed.
+The deterministic proof recorded `hash_changed=true`. At the same logical 2024
+vintage, governed canonical content changed from SHA-256
+`e9fcc2ec50b389d537ec04f6a9d2eb12beb218c40d3c8e406af5cc545c2f3d6e` to
+`70beffb6c97c8e20b8aaa0c0b47f8e9cd6c2f3ec137bfaf74b098cb69a00460e` after
+the controlled mutation. A same-vintage governed-content change therefore must
+create a distinct immutable revision and must not overwrite the prior identity.
+
+## Legacy equivalence
+
+| database | exact | revised | provider-only | legacy-only | legacy rows |
+|---|---:|---:|---:|---:|---:|
+| serving | 742 | 0 | 0 | 0 | 742 |
+| public | 0 | 0 | 742 | 0 | 0 |
+
+The complete governed 2024 provider result exactly matches the serving-market
+2024 ACS physical footprint. The public database contains no 2024 ACS physical
+rows, so its 742 provider-only rows reflect vintage absence, not conflicting
+values.
 
 ## Credential-safe verification boundary
 
@@ -119,39 +139,13 @@ publication or durable-state mutation. Invalid responses include precise
 credential-free request context and a sanitized preview. The key is added only
 to transient transport parameters and is defensively redacted from errors.
 
-## Required evidence handoff (no provider rerun)
+## Closure
 
-No metadata or fact request needs to be repeated. From the existing successful
-evidence directory, print the credential-free review fields:
-
-```bash
-cd /path/to/acs-b-2024-facts
-python - <<'PY'
-import json
-from pathlib import Path
-
-s = json.loads(Path("summary.json").read_text(encoding="utf-8"))
-review = {
-    "schema_version": s["schema_version"],
-    "vintage": s["vintage"],
-    "authentication": s["authentication"],
-    "credential_persisted": s["credential_persisted"],
-    "canonical_rows": s["canonical_rows"],
-    "diagnostics": s["diagnostics"],
-    "legacy_equivalence": s["legacy_equivalence"],
-    "same_vintage_revision_proof": s["same_vintage_revision_proof"],
-}
-print(json.dumps(review, indent=2, sort_keys=True))
-PY
-```
-
-The full `diagnostics` are necessary because they contain each product's exact
-`available_membership`, `available_by_level`, `provider_ineligible`,
-`valid_zero_rows`, `sentinels`, and per-geography `errors`. These fields resolve
-13720 and every non-available ordinary identity without guessing.
-`legacy_equivalence` and `same_vintage_revision_proof` are also required exactly
-as emitted. No key, URL, or raw response body is requested. Until these fields
-are incorporated, PR #233 is not ready to merge as ACS-B closure.
+No further local verification run or evidence handoff is required for ACS-B.
+PR #233 is ready to merge as the ACS-B physical-contract closure. Candidate
+publication, accepted-state mutation, Source Set integration, production
+workflow dispatch, legacy retirement, and any logical family resolver remain
+outside this phase and require later authorization.
 
 ## Side-effect statement
 
