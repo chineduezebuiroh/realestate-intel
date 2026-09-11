@@ -10,7 +10,10 @@ Census statistical products. The manually dispatched resolver takes one exact
 artifact ID for each product, finds each in the durable artifact catalog, and
 validates catalog, package, content, data, manifest, source, and contract
 identity before reading it. Parent choice is therefore an explicit orchestration
-input rather than provider discovery or a hard-coded one-time pair.
+input rather than provider discovery or a hard-coded one-time pair. The workflow
+may execute code from the dispatched migration ref, but catalog reads, parent
+resolution, logical artifact publication, and durable resolution-record writes
+all use `main`, the production control-plane authority branch.
 
 The derived source is `acs`. Physical metrics map to
 `census_acs_pop_total` and `census_acs_median_household_income`. At each

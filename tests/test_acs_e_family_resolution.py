@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import yaml
 
 from core.source_artifacts.artifact import create_artifact
 from core.source_artifacts.publication import IdentityCollisionError
@@ -14,6 +15,9 @@ from jobs.monthly_refresh.acs_family_resolution import (
 from sources.census_acs.artifact import CONTRACT_VERSION
 
 
+WORKFLOW = Path(".github/workflows/acs-family-resolution.yml")
+
+
 def row(source: str, suffix: str, geo: str, value: float, year: int = 2024) -> dict:
     return {"geo_id": geo, "metric_id": f"{source}_{suffix}", "date": date(year, 12, 31),
             "property_type_id": "all", "value": value, "source_id": source, "property_type": "all"}
@@ -21,6 +25,17 @@ def row(source: str, suffix: str, geo: str, value: float, year: int = 2024) -> d
 
 P1 = {"source_id": "census_acs1", "artifact_id": "one", "artifact_content_hash": "1" * 64, "package_sha256": "a" * 64}
 P5 = {"source_id": "census_acs5", "artifact_id": "five", "artifact_content_hash": "5" * 64, "package_sha256": "b" * 64}
+
+
+def test_hosted_workflow_separates_execution_ref_from_main_durable_authority():
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    job = workflow["jobs"]["resolve"]
+    assert job["env"]["DURABLE_AUTHORITY_BRANCH"] == "main"
+    checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+    assert "with" not in checkout  # workflow execution ref still supplies code
+    command = next(step["run"] for step in job["steps"] if step.get("name") == "Resolve exact immutable ACS parents")
+    assert '--branch "$DURABLE_AUTHORITY_BRANCH"' in command
+    assert "GITHUB_REF_NAME" not in command
 
 
 def test_observation_resolution_and_lineage_diagnostics():
