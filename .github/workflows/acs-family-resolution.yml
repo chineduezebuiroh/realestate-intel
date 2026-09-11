@@ -1,0 +1,42 @@
+name: Governed ACS logical family resolution
+on:
+  workflow_dispatch:
+    inputs:
+      acs1_artifact_id:
+        description: Exact published immutable census_acs1 artifact ID
+        required: true
+        type: string
+      acs5_artifact_id:
+        description: Exact published immutable census_acs5 artifact ID
+        required: true
+        type: string
+
+# Manual candidate publication only: no acceptance, Source Set, provider, or DB job.
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Resolve exact immutable ACS parents
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: |
+          python -m jobs.monthly_refresh.acs_family_resolution \
+            --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" \
+            --acs1-artifact-id '${{ inputs.acs1_artifact_id }}' \
+            --acs5-artifact-id '${{ inputs.acs5_artifact_id }}' \
+            --workspace "$RUNNER_TEMP/acs-family-resolution" \
+            --output "$RUNNER_TEMP/acs-family-resolution.json"
+          cat "$RUNNER_TEMP/acs-family-resolution.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acs-family-resolution
+          path: ${{ runner.temp }}/acs-family-resolution.json
+          if-no-files-found: error
+          retention-days: 90
