@@ -41,8 +41,9 @@ def governed_record(result: Mapping[str, Any], policy: Mapping[str, Any],
     value = validate_source_result(dict(result), expected_cycle_id=result.get("cycle_id"))
     source_id = value["source_id"]
     automated = {s["source_id"] for s in policy["sources"] if s.get("acquisition_mode") == "automated"}
-    if source_id not in automated:
-        raise ValueError("only policy-declared automated sources may record cycle results")
+    recordable = automated | set(policy.get("slower_cadence_sources", []))
+    if source_id not in recordable:
+        raise ValueError("only policy-declared automated or slower-cadence sources may record cycle results")
     required = {"status": "succeeded", "validation_status": "passed",
                 "publication_state": "published_verified", "accepted_pointer_changed": False}
     for field, expected in required.items():

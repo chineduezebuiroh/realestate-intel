@@ -5,14 +5,36 @@ on:
       source_id: {required: true, type: string}
       cycle_id: {required: true, type: string}
       invocation_mode: {required: true, type: string}
+    secrets:
+      CENSUS_API_KEY: {required: true}
     outputs:
       result_json: {value: '${{ jobs.execute.outputs.result_json }}'}
+  workflow_dispatch:
+    inputs:
+      source_id:
+        description: Independent physical ACS product
+        required: true
+        type: choice
+        options: [census_acs1, census_acs5]
+      invocation_mode:
+        description: Governed pin lifecycle mode
+        required: true
+        type: choice
+        options: [normal, resume, replay]
+      cycle_id:
+        description: Exact deterministic monthly cycle ID
+        required: true
+        type: string
 permissions: {contents: write}
 jobs:
   execute:
     runs-on: ubuntu-latest
     outputs: {result_json: '${{ steps.result.outputs.result_json }}'}
-    env: {PYTHONPATH: .}
+    env:
+      PYTHONPATH: .
+      # The checked-out ref supplies execution code; all durable Contents/catalog
+      # CAS writes remain on the production control-plane authority.
+      DURABLE_AUTHORITY_BRANCH: main
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,7 +48,7 @@ jobs:
           python -m jobs.monthly_refresh.acs_hosted \
             --source-id '${{ inputs.source_id }}' --cycle-id '${{ inputs.cycle_id }}' \
             --mode '${{ inputs.invocation_mode }}' --repository "$GITHUB_REPOSITORY" \
-            --branch "$GITHUB_REF_NAME" --workspace "$RUNNER_TEMP/acs" \
+            --branch "$DURABLE_AUTHORITY_BRANCH" --workspace "$RUNNER_TEMP/acs" \
             --output "$RUNNER_TEMP/result.json"
           echo "result_json=$(jq -c . "$RUNNER_TEMP/result.json")" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/result.json" >> "$GITHUB_STEP_SUMMARY"
