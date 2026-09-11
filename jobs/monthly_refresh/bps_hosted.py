@@ -37,7 +37,8 @@ def _retrieve_pin_members(pin: Mapping[str, Any], workspace: Path,
 
 
 def publish_candidate(*, artifact: Path, source_id: str, api: GitHubAPI,
-                      cas: GitHubCatalogCAS, workspace: Path, git_sha: str) -> dict[str, Any]:
+                      cas: GitHubCatalogCAS, workspace: Path, git_sha: str,
+                      logical_source_id: str = "bps") -> dict[str, Any]:
     """Publish/reuse one immutable physical candidate without touching pointers."""
     manifest = validate_artifact(artifact, expected_source_id=source_id)["manifest"]
     catalog, _ = cas.read()
@@ -46,13 +47,13 @@ def publish_candidate(*, artifact: Path, source_id: str, api: GitHubAPI,
     if matches:
         if len(matches) != 1 or matches[0]["metadata"].get("source_id") != source_id \
                 or matches[0]["artifact_content_hash"] != manifest["artifact_content_hash"]:
-            raise RuntimeError("contradictory BPS candidate identity collision")
+            raise RuntimeError("contradictory source candidate identity collision")
         record = matches[0]
         resolved = GitHubReleaseArtifactResolver(catalog, api, workspace / "existing").resolve(
             record["logical_artifact_uri"])
         remote = validate_artifact(resolved, expected_source_id=source_id)["manifest"]
         if remote["data_sha256"] != manifest["data_sha256"]:
-            raise RuntimeError("published BPS candidate data identity collision")
+            raise RuntimeError("published source candidate data identity collision")
         return {"record": record, "catalog": catalog, "reused": True}
 
     package = workspace / f"{manifest['artifact_id']}.tar"
@@ -73,7 +74,7 @@ def publish_candidate(*, artifact: Path, source_id: str, api: GitHubAPI,
         "asset_id": receipt["asset_id"], "asset_filename": receipt["asset_filename"],
         "package_sha256": receipt["package_sha256"], "artifact_content_hash": manifest["artifact_content_hash"],
         "publication_receipt_id": receipt["receipt_id"], "publication_state": receipt["publication_state"],
-        "metadata": {"source_id": source_id, "logical_source_id": "bps",
+        "metadata": {"source_id": source_id, "logical_source_id": logical_source_id,
             "data_sha256": manifest["data_sha256"], "provider_release_id": manifest["provider_release_id"],
             "observation_max": manifest["observation_max"]}}
     catalog, _ = cas.add(record, receipt)
