@@ -23,12 +23,15 @@ live_path=Path(".github/workflows/cohort-promotion-live.yml")
 live=yaml.safe_load(live_path.read_text()); live_triggers=live.get(True,live.get("on"))
 assert set(live_triggers)=={"workflow_dispatch"}
 inputs=live_triggers["workflow_dispatch"]["inputs"]
-assert set(inputs)=={"cycle_id","intent","confirmation"}
+assert set(inputs)=={"cycle_id","intent","confirmation","acs_resolution_id"}
 assert live["permissions"]=={"contents":"write"}
 live_text=live_path.read_text()
 assert "PROMOTE_GOVERNED_COHORT" in live_text and "--live" in live_text
 assert "schedule:" not in live_text and "push:" not in live_text
 assert "cohort_promotion_hosted" in live_text
+assert '--acs-resolution-id "${{ inputs.acs_resolution_id }}"' in live_text
+adapter_text=Path("jobs/monthly_refresh/cohort_promotion_hosted.py").read_text()
+assert "ACS-inclusive cohort integration is preflight-only" in adapter_text
 
 # Code executes from the workflow-dispatch ref, while durable control-plane
 # reads and CAS writes continue to target the authority branch.

@@ -27,8 +27,9 @@ def create_promotion_record(*, cycle_id: str, source_set_id: str,
         expected_canonical: str | None, readiness_id: str, resolution_id: str) -> dict[str, Any]:
     if set(expected_source_pointers) != set(target_source_pointers):
         raise PublicationError("promotion source pointer inventories differ")
-    if any(s in target_source_pointers for s in ("census_bps", "census_bps_provisional")):
-        raise PublicationError("physical BPS pointers cannot participate in promotion")
+    physical_family_sources = {"census_acs1", "census_acs5", "census_bps", "census_bps_provisional"}
+    if physical_family_sources & set(target_source_pointers):
+        raise PublicationError("physical family pointers cannot participate in promotion")
     semantic = {"schema_version": VERSION, "cycle_id": cycle_id,
         "source_set_id": source_set_id, "source_set_semantic_sha256": source_set_semantic_sha256,
         "canonical_artifact_id": canonical_artifact_id,

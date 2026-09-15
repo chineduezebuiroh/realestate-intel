@@ -16,6 +16,10 @@ on:
         description: For live only, enter PROMOTE_GOVERNED_COHORT
         required: false
         type: string
+      acs_resolution_id:
+        description: Exact immutable logical ACS family resolution record
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -46,6 +50,7 @@ jobs:
         run: |
           args=(--repository "$GITHUB_REPOSITORY" --branch main
             --cycle-id "${{ inputs.cycle_id }}" --workspace "$RUNNER_TEMP/cohort"
+            --acs-resolution-id "${{ inputs.acs_resolution_id }}"
             --git-sha "$GITHUB_SHA" --output "$RUNNER_TEMP/cohort-report.json")
           if [[ "$INTENT" == live ]]; then
             args+=(--live --confirm "$CONFIRMATION")

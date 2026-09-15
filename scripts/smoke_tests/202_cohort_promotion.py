@@ -19,6 +19,8 @@ from core.source_artifacts.publication import IdentityCollisionError, Publicatio
 from core.source_artifacts.source_set_v2 import validate_source_set_v2
 from core.source_artifacts.storage import LocalArtifactResolver
 from jobs.monthly_refresh.cohort_promotion import build_logical_source_set
+from sources.census_acs.artifact import CONTRACT_VERSION as ACS_CONTRACT_VERSION
+from sources.census_acs.artifact import governed_config_hashes as acs_governed_config_hashes
 
 CYCLE = "monthly_cycle__2026-07__7cab1c5df177a1e4"
 ROOT = Path("config/monthly_source_cycle_results") / CYCLE
@@ -27,6 +29,48 @@ readiness = json.loads(Path("config/monthly_refresh_readiness.json").read_text()
 resolution = json.loads(Path("config/bps_family_resolutions/bps_family_resolution__457b5a17a73da623cfcfea08.json").read_text())
 results = [json.loads(path.read_text())["result"] for path in sorted(ROOT.glob("*.json"))]
 republications = [json.loads(path.read_text()) for path in sorted(Path("config/monthly_source_republications",CYCLE).glob("*/*.json"))]
+
+# The live ACS objects remain on main and are not copied into this implementation
+# branch.  Exact immutable fixture records exercise the same catalog boundary.
+def acs_record(source, artifact_id, content, package, number):
+    return {"object_type":"source", "object_id":artifact_id,
+        "logical_artifact_uri":f"artifact://source/{source}/{artifact_id}",
+        "remote_repository":"fixture/repo", "release_tag":f"source-artifact/{source}/{artifact_id}",
+        "release_id":900000+number, "asset_id":910000+number, "asset_filename":artifact_id+".tar",
+        "package_sha256":package, "artifact_content_hash":content,
+        "publication_receipt_id":f"publication_receipt__acs_fixture_{number}",
+        "publication_state":"published_immutable_verified", "metadata":{"source_id":source,
+        "data_sha256":chr(99+number)*64, "provider_release_id":f"acs-fixture-{number}",
+        "observation_max":"2024-12-31"}}
+
+acs1_id="src__census_acs1__2024-12__r1__"+"1"*16
+acs5_id="src__census_acs5__2024-12__r1__"+"5"*16
+acs_id="src__acs__2024-12__r1__fce37b9e694903b0"
+acs_parents=[{"role":"acs1", "source_id":"census_acs1", "artifact_id":acs1_id,
+    "artifact_content_hash":"1"*64, "package_sha256":"2"*64, "data_sha256":"3"*64},
+    {"role":"acs5", "source_id":"census_acs5", "artifact_id":acs5_id,
+    "artifact_content_hash":"5"*64, "package_sha256":"6"*64, "data_sha256":"7"*64}]
+acs_semantic={"resolver_version":"acs_family_resolver_v1",
+    "resolution_policy_version":"acs1_preferred_observation_key_v1",
+    "source_contract_version":ACS_CONTRACT_VERSION, "parents":acs_parents,
+    "config_hashes":acs_governed_config_hashes(Path(".")),
+    "physical_to_logical_metric_mapping":{
+        "census_acs1_median_household_income":"census_acs_median_household_income",
+        "census_acs1_pop_total":"census_acs_pop_total",
+        "census_acs5_median_household_income":"census_acs_median_household_income",
+        "census_acs5_pop_total":"census_acs_pop_total"},
+    "output_artifact_id":acs_id,
+    "output_content_hash":"fce37b9e694903b0a7ce44dd55158b55544af92ada3d7aa509d78487b345e5c9"}
+acs_resolution={"schema_version":"acs_family_resolution_record_v1",
+    "resolution_id":"acs_family_resolution__"+sha256_json(acs_semantic)[:24], **acs_semantic,
+    "output_package_sha256":"8"*64, "diagnostics":{}, "accepted_pointer_changed":False,
+    "source_set_created":False, "duckdb_mutated":False, "serving_db_mutated":False,
+    "provider_discovery_performed":False}
+catalog["immutable_records"].extend([
+    acs_record("census_acs1",acs1_id,"1"*64,"2"*64,1),
+    acs_record("census_acs5",acs5_id,"5"*64,"6"*64,2),
+    acs_record("acs",acs_id,acs_semantic["output_content_hash"],"8"*64,3)])
+catalog["immutable_records"].sort(key=lambda r:(r["object_type"],r["object_id"]))
 # Redfin is intentionally authoritative in readiness rather than the automated
 # cycle-result registry.
 redfin_record = next(r for r in catalog["immutable_records"] if r["object_id"] == readiness["records"][0]["candidate_artifact_id"])
@@ -44,11 +88,11 @@ with tempfile.TemporaryDirectory() as td:
     root = Path(td)
     source_set = build_logical_source_set(output=root/"source-set.json", cycle_id=CYCLE,
         target_month="2026-07", physical_results=results, catalog=catalog, readiness=readiness,
-        resolution=resolution, family_parent_republications=republications,
+        resolution=resolution, acs_resolution=acs_resolution, family_parent_republications=republications,
         created_at="first", builder_git_sha="git-a")
     repeat = build_logical_source_set(output=root/"source-set-repeat.json", cycle_id=CYCLE,
         target_month="2026-07", physical_results=results, catalog=catalog, readiness=readiness,
-        resolution=resolution, family_parent_republications=republications,
+        resolution=resolution, acs_resolution=acs_resolution, family_parent_republications=republications,
         created_at="second", builder_git_sha="git-b")
     concept = Path("config/bps_cbsa_canonical_concepts_v1.csv")
     original = concept.read_bytes()
@@ -57,7 +101,7 @@ with tempfile.TemporaryDirectory() as td:
         try:
             build_logical_source_set(output=root/"drifted-source-set.json", cycle_id=CYCLE,
                 target_month="2026-07", physical_results=results, catalog=catalog,
-                readiness=readiness, resolution=resolution,
+                readiness=readiness, resolution=resolution, acs_resolution=acs_resolution,
                 family_parent_republications=republications, created_at="drift",
                 builder_git_sha="git-drift")
         except ValueError as exc:
@@ -67,10 +111,23 @@ with tempfile.TemporaryDirectory() as td:
     finally:
         concept.write_bytes(original)
     assert source_set["source_set_id"] == repeat["source_set_id"]
-    assert source_set["included_source_inventory"] == ["bps", "ces", "fred_macro", "laus", "redfin"]
+    assert source_set["included_source_inventory"] == ["acs", "bps", "ces", "fred_macro", "laus", "redfin"]
+    assert sum(e["source_id"] == "acs" for e in source_set["sources"]) == 1
+    assert not {"census_acs1", "census_acs5"} & set(source_set["included_source_inventory"])
+    physical_candidate = copy.deepcopy(acs_resolution)
+    physical_candidate["output_artifact_id"] = acs1_id
+    try:
+        build_logical_source_set(output=root/"physical-acs.json", cycle_id=CYCLE,
+            target_month="2026-07", physical_results=results, catalog=catalog, readiness=readiness,
+            resolution=resolution, acs_resolution=physical_candidate,
+            family_parent_republications=republications, created_at="physical", builder_git_sha="git")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("physical ACS artifact accepted as the logical ACS candidate")
     assert sum(e["source_id"] == "bps" for e in source_set["sources"]) == 1
     assert not {"census_bps", "census_bps_provisional"} & set(source_set["included_source_inventory"])
-    family = source_set["family_resolution"]["families"][0]
+    family = next(f for f in source_set["family_resolution"]["families"] if f["logical_source_id"] == "bps")
     assert family["resolution_id"] == resolution["resolution_id"]
     assert {m["artifact_id"] for m in family["physical_sources"]} == {p["artifact_id"] for p in resolution["parents"]}
     contradictory = copy.deepcopy(source_set); contradictory["family_resolution"]["families"][0]["output_package_sha256"] = "a"*64
@@ -155,8 +212,11 @@ with tempfile.TemporaryDirectory() as td:
         final_catalog, final_readiness, final = recover_promotion(promotion, partial_catalog, partial_readiness)
         assert final["complete"] and final["redfin_consumed"]
         assert final_catalog["accepted"]["source"]["bps"] == resolution["output_artifact_id"]
+        assert final_catalog["accepted"]["source"]["acs"] == acs_resolution["output_artifact_id"]
         assert "census_bps" not in final_catalog["accepted"]["source"]
         assert "census_bps_provisional" not in final_catalog["accepted"]["source"]
+        assert "census_acs1" not in final_catalog["accepted"]["source"]
+        assert "census_acs5" not in final_catalog["accepted"]["source"]
         assert final_catalog["accepted"]["serving_market"] == catalog["accepted"]["serving_market"]
         repeated = recover_promotion(promotion, final_catalog, final_readiness)
         assert repeated[0] == final_catalog and repeated[1] == final_readiness and repeated[2]["complete"]

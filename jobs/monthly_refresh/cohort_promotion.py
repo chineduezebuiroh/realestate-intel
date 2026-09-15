@@ -11,6 +11,13 @@ from core.source_artifacts.source_set_v2 import (FAMILY_MAP_VERSION, create_sour
 from jobs.monthly_refresh.production import validate_source_result
 from jobs.monthly_refresh.readiness import eligible_record
 from sources.census_bps.artifact import family_resolution_config_hashes
+from sources.census_acs.artifact import (CONTRACT_VERSION as ACS_CONTRACT_VERSION,
+    governed_config_hashes as acs_governed_config_hashes)
+
+
+LOGICAL_COHORT_SOURCES = frozenset({"acs", "bps", "ces", "fred_macro", "laus", "redfin"})
+PHYSICAL_FAMILY_SOURCES = frozenset({"census_acs1", "census_acs5",
+                                     "census_bps", "census_bps_provisional"})
 
 
 def _catalog_source(catalog: Mapping[str, Any], source_id: str, artifact_id: str) -> dict[str, Any]:
@@ -33,7 +40,8 @@ def _entry(record: Mapping[str, Any], *, status: str, carried: bool) -> dict[str
 
 def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
         physical_results: list[dict[str, Any]], catalog: dict[str, Any], readiness: dict[str, Any],
-        resolution: dict[str, Any], family_parent_republications: list[dict[str, Any]],
+        resolution: dict[str, Any], acs_resolution: dict[str, Any],
+        family_parent_republications: list[dict[str, Any]],
         created_at: str, builder_git_sha: str,
         repository_root: Path = Path(".")) -> dict[str, Any]:
     """Map complete physical results to exact logical assembly inputs."""
@@ -96,6 +104,38 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
     if logical_bps["artifact_content_hash"] != resolution["output_content_hash"] \
             or logical_bps["package_sha256"] != resolution["output_package_sha256"]:
         raise ValueError("BPS logical output identity mismatch")
+
+    required_acs_resolution = {"schema_version":"acs_family_resolution_record_v1",
+        "resolver_version":"acs_family_resolver_v1",
+        "resolution_policy_version":"acs1_preferred_observation_key_v1",
+        "source_contract_version":ACS_CONTRACT_VERSION}
+    if any(acs_resolution.get(k) != v for k, v in required_acs_resolution.items()):
+        raise ValueError("ACS family resolution contract mismatch")
+    if any(acs_resolution.get(field) is not False for field in ("accepted_pointer_changed",
+            "source_set_created", "duckdb_mutated", "serving_db_mutated",
+            "provider_discovery_performed")):
+        raise ValueError("ACS family resolution contains forbidden side effects")
+    acs_hashes = acs_governed_config_hashes(repository_root)
+    if acs_resolution.get("config_hashes") != acs_hashes:
+        raise ValueError("ACS family resolution governed config drift")
+    acs_semantic_fields = ("resolver_version", "resolution_policy_version",
+        "source_contract_version", "parents", "config_hashes",
+        "physical_to_logical_metric_mapping", "output_artifact_id", "output_content_hash")
+    acs_semantic = {key:acs_resolution[key] for key in acs_semantic_fields}
+    if acs_resolution.get("resolution_id") != "acs_family_resolution__" + sha256_json(acs_semantic)[:24]:
+        raise ValueError("ACS family resolution identity mismatch")
+    acs_parents = sorted(acs_resolution.get("parents", []), key=lambda p:p["source_id"])
+    if {p.get("source_id") for p in acs_parents} != {"census_acs1", "census_acs5"}:
+        raise ValueError("ACS family parent inventory mismatch")
+    for parent in acs_parents:
+        record = _catalog_source(catalog, parent["source_id"], parent["artifact_id"])
+        if (record["artifact_content_hash"] != parent["artifact_content_hash"] or
+                record["package_sha256"] != parent["package_sha256"]):
+            raise ValueError("ACS family parent catalog identity mismatch")
+    logical_acs = _catalog_source(catalog, "acs", acs_resolution["output_artifact_id"])
+    if (logical_acs["artifact_content_hash"] != acs_resolution["output_content_hash"] or
+            logical_acs["package_sha256"] != acs_resolution["output_package_sha256"]):
+        raise ValueError("ACS logical output identity mismatch")
     direct = []
     for source in sorted(expected_physical - {"census_bps", "census_bps_provisional"}):
         result = by_source[source]
@@ -107,17 +147,27 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
         # its canonical data equals the prior artifact.
         status = "unchanged" if result["candidate_artifact_id"] == result["prior_artifact_id"] else "refreshed"
         direct.append(_entry(record, status=status, carried=status == "unchanged"))
-    entries = [*direct, _entry(logical_bps, status="refreshed", carried=False)]
+    entries = [*direct, _entry(logical_acs, status="refreshed", carried=False),
+               _entry(logical_bps, status="refreshed", carried=False)]
     physical_members = [{"source_id": p["source_id"], "artifact_id": p["artifact_id"],
         "artifact_content_hash": p["artifact_content_hash"], "package_sha256": p["package_sha256"]} for p in parents]
     family_map = {"schema_version": FAMILY_MAP_VERSION, "cycle_id": cycle_id,
-        "physical_source_inventory": sorted(expected_physical),
+        "physical_source_inventory": sorted(expected_physical | {"census_acs1", "census_acs5"}),
         "logical_source_inventory": sorted(e["source_id"] for e in entries),
         "families": [{"logical_source_id":"bps", "resolution_id":resolution["resolution_id"],
             "output_artifact_id":resolution["output_artifact_id"],
             "output_content_hash":resolution["output_content_hash"],
             "output_package_sha256":resolution["output_package_sha256"],
-            "physical_sources":physical_members}]}
+            "physical_sources":physical_members},
+            {"logical_source_id":"acs", "resolution_id":acs_resolution["resolution_id"],
+            "output_artifact_id":acs_resolution["output_artifact_id"],
+            "output_content_hash":acs_resolution["output_content_hash"],
+            "output_package_sha256":acs_resolution["output_package_sha256"],
+            "physical_sources":[{"source_id":p["source_id"], "artifact_id":p["artifact_id"],
+                "artifact_content_hash":p["artifact_content_hash"], "package_sha256":p["package_sha256"]}
+                for p in acs_parents]}]}
+    if {entry["source_id"] for entry in entries} != LOGICAL_COHORT_SOURCES:
+        raise AssertionError("logical cohort inventory drift")
     return create_source_set_v2(output, target_month=target_month, created_at=created_at,
         builder_git_sha=builder_git_sha, entries=entries,
         config_hashes=governed_config_hashes(repository_root), family_resolution=family_map)
