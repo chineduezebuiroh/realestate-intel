@@ -1,6 +1,6 @@
 # BEA-B live provider verification and physical contract freeze v0.1
 
-**Status: BLOCKED / contracts rejected for freeze, 2026-09-15.** This is a
+**Status: LIVE FOLLOW-UP PENDING / contracts not frozen, 2026-09-15.** This is a
 verification-only record. No production adapter, provider write, observation
 synthesis, candidate, durable pin, pointer, Source Set, database, cohort,
 schedule, or workflow was created or changed.
@@ -14,6 +14,18 @@ request was attempted and no substitute/sample credential was used. Therefore
 neither proposed contract is frozen: `bea_gdp_qtr` and `bea_gdp_ann` are
 **REJECTED FOR FREEZE IN THIS RUN (insufficient live evidence)**, not rejected as
 statistical products. BEA-C is blocked until BEA-B is rerun with `BEA_API_KEY`.
+
+**Post-run harness update.** A reviewer subsequently demonstrated credential
+availability outside Codex and successfully ran the initial verifier: both
+physical-source requests returned HTTP success, the quarterly response contained
+510 rows, the annual response contained 3,096 rows, and each source's two raw,
+normalized-content, and key-inventory hashes matched. Those facts establish
+transport and short-interval repeatability only. The initial artifact did not
+retain metadata, actual geography/history inventories, sentinel evidence,
+batch-equivalence evidence, or live-to-legacy parity, so it cannot freeze either
+contract. The verifier and fixture tests are now expanded to collect those
+diagnostics on a **second credentialed local run**. This document deliberately
+does not anticipate that run's conclusions.
 
 BEA-A remains the starting hypothesis, not live proof. Its proposed table, line,
 unit, frequency, date, geography, sentinel, release, and acquisition claims are
@@ -32,8 +44,10 @@ Authentication and usability could not be tested.
 
 ## 3. Live table/line metadata
 
-**Live provider evidence:** none; live calls stopped before request construction.
-Consequently Regional dataset identity, `SQGDP9`/`CAGDP9` current titles, line 1
+**Live provider evidence retained here:** only the reviewer-reported
+transport/row-count/repeat-hash result summarized above. No sufficient metadata
+evidence was retained. Consequently Regional dataset identity,
+`SQGDP9`/`CAGDP9` current titles, line 1
 descriptions, returned units and multipliers, frequency, period parameters,
 table-specific geography metadata, update/vintage metadata, and coverage remain
 unverified. Generic Regional capability is not treated as table-specific
