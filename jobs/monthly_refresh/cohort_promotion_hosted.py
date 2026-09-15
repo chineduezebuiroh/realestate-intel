@@ -176,28 +176,34 @@ def execute_to_completion(record: dict[str, Any], catalog_cas: GitHubCatalogCAS,
     return {"operations": operations, "exact_rerun_noop": True, "progress": repeat["progress"]}
 
 
-def _durable_inputs(api: GitHubAPI, branch: str, cycle_id: str) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+def _durable_inputs(api: GitHubAPI, branch: str, cycle_id: str,
+                    acs_resolution_id: str) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
     sources = ("census_bps", "census_bps_provisional", "ces", "fred_macro", "laus")
     results = [_read_required(GitHubJSONCAS(api,
         f"config/monthly_source_cycle_results/{cycle_id}/{source}.json", branch))["result"] for source in sources]
     resolution = _read_required(GitHubJSONCAS(api,
         f"config/bps_family_resolutions/{JULY_RESOLUTION}.json", branch))
+    acs_resolution = _read_required(GitHubJSONCAS(api,
+        f"config/acs_family_resolutions/{acs_resolution_id}.json", branch))
     republications = [_read_required(GitHubJSONCAS(api,
         f"config/monthly_source_republications/{cycle_id}/{source}/{REPUBLICATION_IDS[source]}.json", branch))
         for source in ("census_bps", "census_bps_provisional")]
-    return results, resolution, republications
+    return results, resolution, acs_resolution, republications
 
 
 def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
-        git_sha: str, mutate: bool) -> dict[str, Any]:
+        git_sha: str, mutate: bool, acs_resolution_id: str) -> dict[str, Any]:
     if cycle_id != JULY_CYCLE: raise PublicationError("adapter is pinned to the governed July cycle")
+    if mutate:
+        raise PublicationError("ACS-inclusive cohort integration is preflight-only pending promotion authorization")
     workspace.mkdir(parents=True, exist_ok=True)
     catalog_cas = GitHubCatalogCAS(api, CATALOG_PATH, branch)
     readiness_store = GitHubJSONCAS(api, READINESS_PATH, branch)
     catalog, _ = catalog_cas.read(); readiness = _read_required(readiness_store)
     validate_readiness(readiness, catalog=catalog, policy_path=Path("config/monthly_refresh_policy.json"))
     serving_before = deepcopy(catalog["accepted"].get("serving_market"))
-    results, resolution, republications = _durable_inputs(api, branch, cycle_id)
+    results, resolution, acs_resolution, republications = _durable_inputs(
+        api, branch, cycle_id, acs_resolution_id)
     redfin = next(r for r in readiness["records"] if r["cycle_id"] == cycle_id)
     redfin_record = next(r for r in catalog["immutable_records"] if r["object_id"] == redfin["candidate_artifact_id"])
     results.append({"schema_version":"monthly_source_execution_result_v1", "source_id":"redfin",
@@ -216,7 +222,8 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
     next(r for r in assembly_readiness["records"] if r["readiness_id"] == redfin["readiness_id"])["consumed"] = False
     source_set = build_logical_source_set(output=workspace/"source-set.json", cycle_id=cycle_id,
         target_month="2026-07", physical_results=results, catalog=catalog, readiness=assembly_readiness,
-        resolution=resolution, family_parent_republications=republications, created_at=BUILD_TIME,
+        resolution=resolution, acs_resolution=acs_resolution,
+        family_parent_republications=republications, created_at=BUILD_TIME,
         builder_git_sha=BUILD_PROVENANCE)
     ss_package = build_object_package({"source-set.json":workspace/"source-set.json"}, workspace/"source-set.tar")
     resolver = GitHubReleaseArtifactResolver(catalog, api, workspace/"sources")
@@ -285,6 +292,7 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
 def main() -> int:
     parser=argparse.ArgumentParser(); parser.add_argument("--repository",required=True)
     parser.add_argument("--branch",required=True); parser.add_argument("--cycle-id",required=True)
+    parser.add_argument("--acs-resolution-id",required=True)
     parser.add_argument("--workspace",type=Path,required=True); parser.add_argument("--git-sha",required=True)
     parser.add_argument("--live",action="store_true"); parser.add_argument("--confirm",default="")
     parser.add_argument("--output",type=Path,required=True); args=parser.parse_args()
@@ -292,7 +300,7 @@ def main() -> int:
         raise SystemExit("live execution requires exact confirmation: "+LIVE_CONFIRMATION)
     api=GitHubAPI(args.repository,os.environ.get("GITHUB_TOKEN",""), read_only=not args.live)
     report=run(api=api,branch=args.branch,cycle_id=args.cycle_id,workspace=args.workspace,
-               git_sha=args.git_sha,mutate=args.live)
+               git_sha=args.git_sha,mutate=args.live,acs_resolution_id=args.acs_resolution_id)
     write_canonical_json(args.output,report); print(json.dumps(report,sort_keys=True)); return 0
 
 

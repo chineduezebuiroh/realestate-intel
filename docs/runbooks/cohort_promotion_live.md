@@ -38,6 +38,7 @@ Exact non-mutating hosted preflight (safe to run after workflow registration):
 ```bash
 gh workflow run cohort-promotion-live.yml --ref monthly-refresh-orchestration \
   -f cycle_id=monthly_cycle__2026-07__7cab1c5df177a1e4 \
+  -f acs_resolution_id=acs_family_resolution__8266f59d0a2222681f098cf8 \
   -f intent=preflight -f confirmation=''
 ```
 
@@ -50,6 +51,7 @@ limits. Keep the workspace to reuse immutable packages by package SHA-256:
 PYTHONPATH=. python -m jobs.monthly_refresh.cohort_promotion_hosted \
   --repository chineduezebuiroh/realestate-intel --branch main \
   --cycle-id monthly_cycle__2026-07__7cab1c5df177a1e4 \
+  --acs-resolution-id acs_family_resolution__8266f59d0a2222681f098cf8 \
   --workspace .cache/cohort-promotion-july --git-sha local-preflight \
   --output .cache/cohort-promotion-july-report.json
 ```
@@ -150,3 +152,18 @@ The controlled July promotion described by this runbook is therefore complete.
 Future promotions retain the same fail-closed preflight, single-writer, exact-ID,
 and recoverable-order requirements; any contradiction or stale CAS must be
 investigated rather than overwritten.
+
+## ACS-G preflight integration
+
+The shared cohort builder now recognizes the intended six-logical-source
+inventory: `acs`, `bps`, `ces`, `fred_macro`, `laus`, and `redfin`. It consumes
+the exact logical ACS family artifact named by an immutable
+`acs_family_resolution_record_v1`; `census_acs1` and `census_acs5` remain
+immutable lineage parents and cannot become Source Set entries or accepted
+source pointers through this path. No provider discovery occurs here.
+
+This integration is **preflight-capable only and has not been live-promoted**.
+The hosted adapter rejects mutation while ACS integration awaits a separate
+promotion authorization. The next operational step is the hosted ACS-inclusive
+cohort/Source Set preflight above. Stop after inspecting that evidence; do not
+select live intent or make a promotion decision as part of ACS-G.

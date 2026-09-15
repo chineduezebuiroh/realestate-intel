@@ -41,7 +41,7 @@ class JSONCAS:
     def write(self,value,oid,message):
         assert oid==self.oid; self.value=copy.deepcopy(value); self.oid="3"*40; self.writes+=1
 
-sources=("bps","ces","fred_macro","laus","redfin")
+sources=("acs","bps","ces","fred_macro","laus","redfin")
 targets={s:f"src__{s}__2026-07__r1__{'1'*16}" for s in sources}
 catalog=empty_catalog()
 catalog["immutable_records"]=[source_record(s,a,i+1) for i,(s,a) in enumerate(targets.items())]
@@ -71,7 +71,7 @@ cas=CatalogCAS(catalog); ready=JSONCAS(readiness)
 outcome=execute_to_completion(record,cas,ready)
 assert outcome["progress"]["complete"] and outcome["exact_rerun_noop"]
 assert cas.writes==2+len(sources) and ready.writes==1
-assert not {"census_bps","census_bps_provisional"}&set(cas.value["accepted"]["source"])
+assert not {"census_acs1","census_acs5","census_bps","census_bps_provisional"}&set(cas.value["accepted"]["source"])
 assert cas.value["accepted"]["serving_market"] is None
 
 # Resume after every operation boundary.

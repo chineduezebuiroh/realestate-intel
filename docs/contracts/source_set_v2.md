@@ -83,3 +83,9 @@ remain lineage and must not be loaded independently.  The validator requires
 every physical member to be accounted for exactly once, rejects duplicate
 logical families, and rejects a family output that differs from its logical
 entry.  This is a general family mapping contract, not BPS precedence logic.
+
+ACS now uses the same family mapping boundary at the cohort layer. Exact
+immutable `census_acs1` and `census_acs5` artifacts are lineage members of one
+resolved logical `acs` entry; neither physical source is eligible as an
+assembly entry or accepted source pointer. ACS1 preference and ACS5 fallback
+remain wholly owned by `acs_family_resolver_v1`, below this contract.
