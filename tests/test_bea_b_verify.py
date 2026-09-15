@@ -118,6 +118,29 @@ def test_year_all_and_batch_equivalence_comparison():
     assert not cmp["equivalent"] and len(cmp["changed_values"])==1
 
 
+def test_quarterly_batch_validation_requests_years_and_filters_to_boundary_quarters(monkeypatch):
+    full=[
+        row("00000","2005Q1","1"),row("00000","2005Q2","2"),row("00000","2026Q1","3"),
+        row("51000","2005Q1","4"),row("51000","2005Q2","5"),row("51000","2026Q1","6"),
+    ]
+    seen=[]
+    def fake_get(_key, params):
+        seen.append(params)
+        codes=params["GeoFips"].split(",")
+        rows=[r for r in full if r["GeoFips"] in codes]
+        if params["Year"]!="ALL":
+            years=set(params["Year"].split(","))
+            rows=[r for r in rows if r["TimePeriod"][:4] in years]
+        return b"{}", {"BEAAPI":{"Results":{"Data":rows}}}
+    monkeypatch.setattr(verify,"bea_get",fake_get)
+    got=verify.batch_validation("secret","SQGDP9",full,[geo("00000","nation","nation"),geo("51000","va","state")])
+    assert got["deterministic_sample"]["explicit_year_parameter_values"]==["2005","2026"]
+    assert got["year_all_vs_explicit_year_boundary_periods"]["reference_key_count"]==4
+    assert got["year_all_vs_explicit_year_boundary_periods"]["candidate_key_count"]==4
+    assert got["conclusion"]=="ONE_REQUEST_PER_PHYSICAL_SOURCE_SUPPORTED_BY_BOUNDED_SAMPLES"
+    assert any(call["Year"]=="2005,2026" for call in seen)
+
+
 def test_metadata_plans_distinguish_generic_and_table_specific():
     plans=verify.metadata_plan("CAGDP9")
     assert plans[0][0].startswith("generic")

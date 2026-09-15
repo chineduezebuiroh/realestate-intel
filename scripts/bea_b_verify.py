@@ -267,6 +267,11 @@ def request_plan(table: str, geos: list[str], year: str="ALL") -> dict[str,str]:
     return {"method":"GetData","DataSetName":"Regional","TableName":table,"LineCode":"1","Year":year,"GeoFips":",".join(geos)}
 
 
+def explicit_years_for_periods(periods: list[str]) -> list[str]:
+    """Regional GetData accepts calendar years, including for quarterly tables."""
+    return sorted({period[:4] for period in periods})
+
+
 def metadata_plan(table: str) -> list[tuple[str,dict[str,str]]]:
     return [("generic_dataset_list",{"method":"GetDatasetList"}),("generic_parameter_list",{"method":"GetParameterList","DataSetName":"Regional"}),("generic_table_values",{"method":"GetParameterValues","DataSetName":"Regional","ParameterName":"TableName"}),("table_line_values",{"method":"GetParameterValuesFiltered","DataSetName":"Regional","TargetParameter":"LineCode","TableName":table}),("table_year_values",{"method":"GetParameterValuesFiltered","DataSetName":"Regional","TargetParameter":"Year","TableName":table,"LineCode":"1"}),("table_geography_values",{"method":"GetParameterValuesFiltered","DataSetName":"Regional","TargetParameter":"GeoFips","TableName":table,"LineCode":"1"})]
 
@@ -286,13 +291,16 @@ def batch_validation(key: str, table: str, full_rows: list[dict[str,Any]], reque
     separate=[]
     for code in sample:
         _,response=bea_get(key,request_plan(table,[code])); separate.extend(data_rows(response))
-    explicit=[]
-    if selected:
-        _,response=bea_get(key,request_plan(table,sample,",".join(selected))); explicit=data_rows(response)
+    explicit=[]; explicit_years=explicit_years_for_periods(selected)
+    if explicit_years:
+        _,response=bea_get(key,request_plan(table,sample,",".join(explicit_years)))
+        # A quarterly explicit-year request returns every quarter in each year;
+        # compare only the selected boundary periods to like-for-like reference keys.
+        explicit=[r for r in data_rows(response) if row_key(r)[1] in selected]
     baseline_explicit=[r for r in baseline if row_key(r)[1] in selected]
     geo_cmp=compare_responses(baseline,separate); combined_cmp=compare_responses(baseline,combined_rows); year_cmp=compare_responses(baseline_explicit,explicit)
     safe=geo_cmp["equivalent"] and combined_cmp["equivalent"] and year_cmp["equivalent"]
-    return {"deterministic_sample":{"provider_geo_fips":sample,"explicit_periods":selected},"full_vs_combined_sample":combined_cmp,"full_vs_separate_geography_requests":geo_cmp,"year_all_vs_explicit_periods":year_cmp,"conclusion":"ONE_REQUEST_PER_PHYSICAL_SOURCE_SUPPORTED_BY_BOUNDED_SAMPLES" if safe else "DETERMINISTIC_BATCHING_REQUIRED_OR_EVIDENCE_INSUFFICIENT"}
+    return {"deterministic_sample":{"provider_geo_fips":sample,"selected_boundary_periods":selected,"explicit_year_parameter_values":explicit_years},"full_vs_combined_sample":combined_cmp,"full_vs_separate_geography_requests":geo_cmp,"year_all_vs_explicit_year_boundary_periods":year_cmp,"conclusion":"ONE_REQUEST_PER_PHYSICAL_SOURCE_SUPPORTED_BY_BOUNDED_SAMPLES" if safe else "DETERMINISTIC_BATCHING_REQUIRED_OR_EVIDENCE_INSUFFICIENT"}
 
 
 def pin_diagnostic(source_id: str, config: dict[str,str], request: dict[str,str], requested: list[dict[str,str]], geo:dict[str,Any], repeat:list[dict[str,Any]], metadata:dict[str,Any], sentinels:dict[str,Any], retrieved_at:str) -> dict[str,Any]:
