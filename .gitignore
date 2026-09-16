@@ -22,6 +22,7 @@ artifacts/source_artifacts/
 artifacts/canonical_market_vertical_slice/
 artifacts/source_validation/
 artifacts/audit/
+artifacts/bea_verification/
 data/redfin/raw/incoming/
 data/redfin/state/
 
