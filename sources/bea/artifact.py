@@ -106,12 +106,21 @@ def build_snapshot(source_id: str, rows: Iterable[Mapping[str, Any]], root: Path
         if key in seen: raise ValueError(f"duplicate BEA provider key: {code}/{period}")
         seen.add(key); returned.add(code)
         if period not in periods: raise ValueError(f"unexpected BEA history period: {period}")
-        line = _field(raw, "LineCode")
-        unit = _field(raw, "CL_UNIT", "Unit")
+        # Regional GetData observation rows carry unit metadata, but table/line
+        # identity is established by the governed request and table metadata.
+        # In particular, SQGDP9 and CAGDP9 rows need not repeat LineCode or
+        # LineDescription; requiring those fields would fabricate a row contract.
+        unit = _field(raw, "CL_UNIT")
         multiplier = _field(raw, "UNIT_MULT")
-        description = _field(raw, "LineDescription")
-        if line != "1" or unit != STABLE_METADATA["unit"] or multiplier != "6" or description != STABLE_METADATA["line_description"]:
-            raise ValueError("BEA stable table/line/unit metadata changed")
+        if unit != STABLE_METADATA["unit"] or multiplier != STABLE_METADATA["unit_multiplier"]:
+            raise ValueError("BEA observation unit metadata changed")
+        optional_table = _field(raw, "TableName")
+        optional_line = _field(raw, "LineCode")
+        optional_description = _field(raw, "LineDescription")
+        if ((optional_table and optional_table != config["table"])
+                or (optional_line and optional_line != STABLE_METADATA["line_code"])
+                or (optional_description and optional_description != STABLE_METADATA["line_description"])):
+            raise ValueError("BEA optional observation contract metadata changed")
         geo = mapping[code]
         observations.append({"provider_geo_fips": code, "geo_id": geo["geo_id"], "period": period,
             "date": canonical_date(period, config["frequency"]), "value": canonical_number(raw.get("DataValue"))})
@@ -142,8 +151,8 @@ def snapshot_bytes(snapshot: Mapping[str, Any]) -> bytes:
 def validate_snapshot(snapshot: Mapping[str, Any], source_id: str, root: Path = Path(".")) -> dict[str, Any]:
     value = dict(snapshot)
     rebuilt_rows = [{"GeoFips": r["provider_geo_fips"], "TimePeriod": r["period"],
-        "DataValue": r["value"], "CL_UNIT": STABLE_METADATA["unit"], "UNIT_MULT": "6",
-        "LineCode": "1", "LineDescription": STABLE_METADATA["line_description"]}
+        "DataValue": r["value"], "CL_UNIT": STABLE_METADATA["unit"],
+        "UNIT_MULT": STABLE_METADATA["unit_multiplier"]}
         for r in value.get("normalized_observations", [])]
     rebuilt = build_snapshot(source_id, rebuilt_rows, root)
     if value != rebuilt: raise ValueError("BEA normalized snapshot contract mismatch")

@@ -11,8 +11,8 @@ from jobs.monthly_refresh.bea_hosted import execute_source
 from jobs.monthly_refresh.bea_monthly import (MEMBER, acquire_provider, candidate, discover_pin,
     recover_pinned_snapshot)
 from jobs.monthly_refresh.source_inputs import FilePinStore
-from sources.bea.artifact import (SOURCES, STABLE_METADATA, build_snapshot, expected_periods,
-    governed_geographies, request_plan, snapshot_bytes)
+from sources.bea.artifact import (SOURCES, STABLE_METADATA, build_snapshot,
+    canonicalize_snapshot, expected_periods, governed_geographies, request_plan, snapshot_bytes)
 
 
 def provider_rows(source_id: str, *, mutation: float = 0.0):
@@ -22,9 +22,11 @@ def provider_rows(source_id: str, *, mutation: float = 0.0):
         for period_number, period in enumerate(expected_periods(source_id)):
             value = 1000 + geo_number * 100 + period_number
             if not rows: value += mutation
+            # Faithful Regional GetData observation shape: table/line identity is
+            # request-level metadata and is not repeated on each observation.
             rows.append({"GeoFips": geo["provider_geo_fips"], "TimePeriod": period,
-                "DataValue": f"{value:,.1f}", "LineCode": "1", "CL_UNIT": STABLE_METADATA["unit"],
-                "UNIT_MULT": "6", "LineDescription": STABLE_METADATA["line_description"]})
+                "DataValue": f"{value:,.1f}", "CL_UNIT": STABLE_METADATA["unit"],
+                "UNIT_MULT": STABLE_METADATA["unit_multiplier"]})
     return rows
 
 
@@ -110,6 +112,38 @@ def test_unknown_sentinel_and_geography_changes_fail_closed():
     unavailable = next(g for g in governed_geographies("bea_gdp_ann") if g["availability"] == "PROVIDER_UNAVAILABLE")
     appeared = copy.deepcopy(rows); appeared[0]["GeoFips"] = unavailable["provider_geo_fips"]
     with pytest.raises(ValueError, match="became available"): build_snapshot("bea_gdp_ann", appeared)
+
+
+@pytest.mark.parametrize("source_id", ["bea_gdp_qtr", "bea_gdp_ann"])
+def test_live_row_shape_and_request_level_table_line_contract(source_id):
+    rows = provider_rows(source_id)
+    assert all("LineCode" not in row and "LineDescription" not in row and "Unit" not in row for row in rows)
+    snapshot = build_snapshot(source_id, rows)
+    assert snapshot["sanitized_request_plan"]["TableName"] == SOURCES[source_id]["table"]
+    assert snapshot["sanitized_request_plan"]["LineCode"] == "1"
+    assert snapshot["stable_provider_metadata"]["line_description"] == "All industry total"
+
+    wrong_unit = copy.deepcopy(rows); wrong_unit[0]["CL_UNIT"] = "Thousands of current dollars"
+    with pytest.raises(ValueError, match="unit metadata changed"):
+        build_snapshot(source_id, wrong_unit)
+    wrong_multiplier = copy.deepcopy(rows); wrong_multiplier[0]["UNIT_MULT"] = "3"
+    with pytest.raises(ValueError, match="unit metadata changed"):
+        build_snapshot(source_id, wrong_multiplier)
+    optional_wrong_line = copy.deepcopy(rows); optional_wrong_line[0]["LineCode"] = "2"
+    with pytest.raises(ValueError, match="contract metadata changed"):
+        build_snapshot(source_id, optional_wrong_line)
+    optional_wrong_table = copy.deepcopy(rows); optional_wrong_table[0]["TableName"] = "WRONG"
+    with pytest.raises(ValueError, match="contract metadata changed"):
+        build_snapshot(source_id, optional_wrong_table)
+
+    drifted_table = copy.deepcopy(snapshot)
+    drifted_table["sanitized_request_plan"]["TableName"] = "WRONG"
+    with pytest.raises(ValueError, match="snapshot contract mismatch"):
+        canonicalize_snapshot(drifted_table, source_id)
+    drifted_line = copy.deepcopy(snapshot)
+    drifted_line["sanitized_request_plan"]["LineCode"] = "2"
+    with pytest.raises(ValueError, match="snapshot contract mismatch"):
+        canonicalize_snapshot(drifted_line, source_id)
 
 
 def test_normal_persists_then_executes_and_resume_replay_never_discover(tmp_path):

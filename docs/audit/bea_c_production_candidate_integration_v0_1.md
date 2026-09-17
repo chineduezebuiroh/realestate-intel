@@ -25,6 +25,15 @@ established by the geography registry. Geography membership, complete history,
 line/unit metadata, duplicates, and blank/unknown nonnumeric sentinels all fail
 closed.
 
+BEA-B establishes `TableName`, `LineCode=1`, and the line description `All
+industry total` through the governed request and table/parameter metadata.
+Regional GetData observation rows do not repeat `LineCode` or
+`LineDescription`; they do carry `CL_UNIT=Millions of chained 2017 dollars` and
+`UNIT_MULT=6`. The adapter therefore keeps table/line/description as strict
+snapshot source-contract metadata while validating the two fields actually
+returned on every observation row. This applies consistently to the SQGDP9 and
+CAGDP9 Regional row contracts and does not weaken request identity validation.
+
 ## Common lifecycle and normalized snapshot pin
 
 The implementation uses `monthly_source_input_pin_v1` unchanged. Normal mode
