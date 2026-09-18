@@ -12,9 +12,11 @@ import csv
 import hashlib
 import io
 import json
-import urllib.parse
 import urllib.request
 import urllib.error
+import re
+import zipfile
+import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -42,16 +44,12 @@ FRED_SERIES = {
     "COMPUNETSA": ("NE", COMPLETIONS), "COMPUMWTSA": ("MW", COMPLETIONS),
     "COMPUSTSA": ("S", COMPLETIONS), "COMPUWTSA": ("W", COMPLETIONS),
 }
-# Candidate EITS route. Its variables and selectors are intentionally validated
-# against the returned metadata rather than trusted as an undocumented constant.
-CENSUS_BASE_URL = "https://api.census.gov/data/timeseries/eits/resconst"
-CENSUS_QUERY = {
-    "get": "cell_value,data_type_code,time_slot_id,category_code,seasonally_adj,region_code",
-    "time": "from 1959-01",
+CENSUS_INPUTS = {
+    "starts": ("https://www.census.gov/construction/nrc/xls/starts_cust.xlsx", STARTS),
+    "completions": ("https://www.census.gov/construction/nrc/xls/comps_cust.xlsx", COMPLETIONS),
 }
-CENSUS_URL = CENSUS_BASE_URL + "?" + urllib.parse.urlencode(CENSUS_QUERY)
 FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
-MISSING = {"", ".", "NA", "N/A", "NULL", "null", "(X)", "S", "Z"}
+MISSING = {"", ".", "...", "-", "--", "NA", "N/A", "NULL", "null", "(X)", "S", "Z"}
 KEY_FIELDS = ("geo_id", "metric_id", "date", "property_type_id")
 BODY_PREFIX_BYTES = 256
 
@@ -143,63 +141,154 @@ def census_response_diagnostic(body: bytes, metadata: dict[str, Any]) -> dict[st
             "body_prefix": body[:BODY_PREFIX_BYTES].decode("utf-8", errors="replace")}
 
 
-def parse_census_response(payload: bytes, metadata: dict[str, Any]) -> list[dict[str, Any]]:
-    """Validate transport shape before invoking the Census JSON parser."""
+def parse_census_response(payload: bytes, metadata: dict[str, Any], kind: str
+                          ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Validate XLSX transport shape before invoking the workbook parser."""
     evidence = census_response_diagnostic(payload, metadata)
     content_type = str(metadata.get("content_type") or "").lower()
-    stripped = payload.lstrip()
-    if "json" not in content_type or not stripped.startswith(b"["):
+    compatible_type = ("spreadsheetml" in content_type or
+                       "application/octet-stream" in content_type)
+    if (not compatible_type or not payload.startswith(b"PK") or
+            not zipfile.is_zipfile(io.BytesIO(payload))):
         raise ProviderContractError(
-            "Census acquisition returned non-JSON response: "
+            "Census acquisition returned non-XLSX response: "
             f"status={metadata.get('status')} content_type={metadata.get('content_type')!r} "
             f"body_prefix={evidence['body_prefix']!r}"
         )
-    try:
-        return parse_census_json(payload)
-    except json.JSONDecodeError as exc:
-        raise ProviderContractError(
-            "Census acquisition returned invalid JSON: "
-            f"status={metadata.get('status')} content_type={metadata.get('content_type')!r} "
-            f"body_prefix={evidence['body_prefix']!r}"
-        ) from exc
+    return parse_census_workbook(payload, kind)
 
 
-def parse_census_json(payload: bytes | str) -> list[dict[str, Any]]:
-    """Parse the EITS response, failing closed on schema or selector drift.
+def _column_number(reference: str) -> int:
+    letters = re.match(r"[A-Z]+", reference)
+    if not letters:
+        raise ValueError(f"invalid XLSX cell reference: {reference}")
+    result = 0
+    for char in letters.group():
+        result = result * 26 + ord(char) - 64
+    return result - 1
 
-    Selectors are exact. They remain an acquisition-contract gate until a live
-    metadata capture confirms the EITS endpoint; no label substring inference is
-    permitted.
-    """
-    data = json.loads(payload)
-    if not isinstance(data, list) or len(data) < 2 or not isinstance(data[0], list):
-        raise ValueError("Census response must be a header plus record arrays")
-    required = {"cell_value", "time", "category_code", "seasonally_adj", "region_code"}
-    header = [str(x) for x in data[0]]
-    if not required.issubset(header):
-        raise ValueError(f"unexpected Census schema; missing {sorted(required-set(header))}")
-    records = [dict(zip(header, record, strict=True)) for record in data[1:]]
-    category_to_metric = {"STARTS": STARTS, "COMPLETIONS": COMPLETIONS}
-    region_to_geo = {"0": "US", "1": "NE", "2": "MW", "3": "S", "4": "W"}
-    rows = []
-    for item in records:
-        seasonal = str(item["seasonally_adj"]).strip().upper()
-        if seasonal not in {"YES", "Y", "SA", "1"}:
+
+def _xlsx_sheet(payload: bytes, wanted: str) -> tuple[list[list[Any]], list[str]]:
+    """Read one XLSX worksheet with only stdlib ZIP/XML facilities."""
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+          "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+          "p": "http://schemas.openxmlformats.org/package/2006/relationships"}
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+        rels = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        targets = {x.attrib["Id"]: x.attrib["Target"] for x in rels.findall("p:Relationship", ns)}
+        sheets = workbook.findall("m:sheets/m:sheet", ns)
+        names = [x.attrib["name"] for x in sheets]
+        expected = {"Annual", "Not Seasonally Adjusted", "Seasonally Adjusted", "Seasonal Factors"}
+        if set(names) != expected:
+            raise ProviderContractError(f"unexpected Census workbook sheets: {names}")
+        selected = next((x for x in sheets if x.attrib["name"] == wanted), None)
+        if selected is None:
+            raise ProviderContractError(f"missing Census worksheet: {wanted}")
+        target = targets[selected.attrib[f"{{{ns['r']}}}id"]].lstrip("/")
+        if not target.startswith("xl/"):
+            target = "xl/" + target
+        shared: list[str] = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            shared = ["".join(t.text or "" for t in item.findall(".//m:t", ns))
+                      for item in root.findall("m:si", ns)]
+        root = ET.fromstring(archive.read(target))
+        values: dict[tuple[int, int], Any] = {}
+        for cell in root.findall(".//m:sheetData/m:row/m:c", ns):
+            ref, typ = cell.attrib["r"], cell.attrib.get("t")
+            row = int(re.search(r"\d+", ref).group()) - 1
+            col = _column_number(ref)
+            if typ == "inlineStr":
+                value = "".join(t.text or "" for t in cell.findall(".//m:t", ns))
+            else:
+                node = cell.find("m:v", ns)
+                value = None if node is None else node.text
+                if typ == "s" and value is not None:
+                    value = shared[int(value)]
+            values[(row, col)] = value
+        for merged in root.findall(".//m:mergeCells/m:mergeCell", ns):
+            left, right = merged.attrib["ref"].split(":")
+            r1, r2 = int(re.search(r"\d+", left).group())-1, int(re.search(r"\d+", right).group())-1
+            c1, c2 = _column_number(left), _column_number(right)
+            for row in range(r1, r2 + 1):
+                for col in range(c1, c2 + 1):
+                    values.setdefault((row, col), values.get((r1, c1)))
+        max_row = max((x[0] for x in values), default=-1)
+        max_col = max((x[1] for x in values), default=-1)
+        return [[values.get((r, c)) for c in range(max_col + 1)] for r in range(max_row + 1)], names
+
+
+def parse_census_workbook(payload: bytes, kind: str
+                           ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Parse and strictly validate a Census NRC historical-series workbook."""
+    if kind not in CENSUS_INPUTS:
+        raise ValueError(f"unexpected Census workbook kind: {kind}")
+    metric = CENSUS_INPUTS[kind][1]
+    matrix, sheets = _xlsx_sheet(payload, "Seasonally Adjusted")
+    text = "\n".join(str(v) for row in matrix[:30] for v in row if v is not None)
+    metric_phrase = ("housing units started" if kind == "starts" else "housing units completed")
+    if metric_phrase not in text.lower():
+        raise ProviderContractError(f"Census {kind} workbook title/metric identity not found")
+    if "seasonally adjusted annual rate" not in text.lower():
+        raise ProviderContractError("Census workbook lacks seasonally adjusted annual rate declaration")
+    if "thousands of units" not in text.lower():
+        raise ProviderContractError("Census workbook lacks thousands-of-units declaration")
+    provider_geos = {"United States": "US", "Northeast": "NE", "Midwest": "MW",
+                     "South": "S", "West": "W"}
+    header = None
+    for index in range(len(matrix) - 1):
+        upper, lower = matrix[index], matrix[index + 1]
+        columns = {}
+        current = None
+        for col in range(max(len(upper), len(lower))):
+            top = str(upper[col]).strip() if col < len(upper) and upper[col] is not None else ""
+            bottom = str(lower[col]).strip() if col < len(lower) and lower[col] is not None else ""
+            if top in provider_geos:
+                current = top
+            if current and bottom == "Total":
+                if current in columns:
+                    raise ProviderContractError(f"duplicate Census Total header: {current}")
+                columns[current] = col
+        labels = {str(v).strip().casefold(): c for c, v in enumerate(lower) if v is not None}
+        if set(columns) == set(provider_geos) and {"year", "month"}.issubset(labels):
+            header = (index + 1, labels["year"], labels["month"], columns)
+            break
+    if header is None:
+        raise ProviderContractError("Census workbook two-row geography/Total header not found")
+    header_row, year_col, month_col, columns = header
+    rows, unavailable = [], Counter()
+    current_year = None
+    for source in matrix[header_row + 1:]:
+        year_value = source[year_col] if year_col < len(source) else None
+        month_value = source[month_col] if month_col < len(source) else None
+        if year_value not in (None, ""):
+            try: current_year = int(Decimal(str(year_value)))
+            except (InvalidOperation, ValueError): continue
+        if current_year is None or month_value in (None, ""):
             continue
-        category = str(item["category_code"]).strip().upper()
-        metric = category_to_metric.get(category)
-        if metric is None:
-            raise ValueError(f"unexpected Census category code: {category!r}")
-        region_raw = str(item["region_code"]).strip().upper()
-        if region_raw not in region_to_geo:
-            raise ValueError(f"unexpected Census region code: {region_raw!r}")
-        row = _row(region_to_geo[region_raw], metric, item["time"], item["cell_value"],
-                   "census", category)
-        if row:
-            rows.append(row)
-    if not rows:
-        raise ValueError("Census response contained no governed SA starts/completions rows")
-    return validate_rows(rows)
+        try:
+            month_text = str(month_value).strip()
+            month_number = (int(Decimal(month_text)) if month_text.replace(".", "", 1).isdigit()
+                            else datetime.strptime(month_text[:3], "%b").month)
+            if not 1 <= month_number <= 12: raise ValueError
+            period = f"{current_year:04d}-{month_number:02d}"
+        except (ValueError, InvalidOperation):
+            continue
+        for label, col in columns.items():
+            raw = source[col] if col < len(source) else None
+            if parse_number(raw) is None:
+                unavailable[label] += 1
+                continue
+            rows.append(_row(provider_geos[label], metric, period, raw, "census", kind))
+    normalized = validate_rows(r for r in rows if r is not None)
+    if {(r["geo_id"], r["metric_id"]) for r in normalized} != {
+            (geo, metric) for geo in GEOGRAPHIES.values()}:
+        raise ProviderContractError(f"Census {kind} workbook lacks one or more governed series")
+    return normalized, {"workbook_kind": kind, "sheet_names": sheets,
+                        "worksheet": "Seasonally Adjusted",
+                        "unit": "thousands_of_housing_units_saar",
+                        "unavailable_cell_count_by_geography": dict(sorted(unavailable.items()))}
 
 
 def canonical_hash(rows: Iterable[dict[str, Any]], inventory_only: bool = False) -> str:
@@ -238,6 +327,11 @@ def compare(left: Iterable[dict[str, Any]], right: Iterable[dict[str, Any]],
         series[f'{item["metric_id"]}|{item["geo_id"]}'][item["classification"]] += 1
     differing = [d["date"] for d in details if d["classification"] == unequal]
     return {"total_keys": len(details), "counts": counts,
+            "exact_match_count": counts.get("EXACT_MATCH", 0),
+            f"{left_only.lower()}_count": counts.get(left_only, 0),
+            f"{right_only.lower()}_count": counts.get(right_only, 0),
+            f"{unequal.lower()}_count": counts.get(unequal, 0),
+            "differing_or_revised_count": counts.get(unequal, 0),
             "maximum_absolute_difference": str(max(differences)) if differences else None,
             "first_differing_period": min(differing) if differing else None,
             "last_differing_period": max(differing) if differing else None,
@@ -283,6 +377,31 @@ def legacy_inventory(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return normalized, inventory
 
 
+def geography_reconciliation(path: Path) -> list[dict[str, str]]:
+    """Prove governed IDs against the repository geography manifest."""
+    expected = {
+        "United States": ("US", "us_nation", "united_states__nation", "nation"),
+        "Northeast": ("NE", "us_region_northeast", "northeast_region__region", "region"),
+        "Midwest": ("MW", "us_region_midwest", "midwest_region__region", "region"),
+        "South": ("S", "us_region_south", "south_region__region", "region"),
+        "West": ("W", "us_region_west", "west_region__region", "region"),
+    }
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        records = {row["geo_id"]: row for row in csv.DictReader(handle)}
+    result = []
+    for label, (code, governed, legacy, level) in expected.items():
+        record = records.get(governed)
+        if record is None or record.get("level") != level:
+            raise ProviderContractError(
+                f"geography manifest lacks governed {label} identity {governed}/{level}")
+        result.append({"provider_label": label, "provider_code": code,
+                       "governed_canonical_geo_id": governed,
+                       "legacy_ingestion_geo_id": legacy,
+                       "manifest_level": level,
+                       "manifest_geo_name": record.get("geo_name", "")})
+    return result
+
+
 def _get(url: str) -> tuple[bytes, dict[str, Any]]:
     request = urllib.request.Request(url, headers={"User-Agent": "realestate-intel-nrc-b/0.1"})
     try:
@@ -303,9 +422,26 @@ def _get(url: str) -> tuple[bytes, dict[str, Any]]:
 
 def _provider_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     dates = [r["date"] for r in rows]
+    series: dict[str, Any] = {}
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[f'{row["metric_id"]}|{row["geo_id"]}'].append(row["date"])
+    for key, periods in sorted(grouped.items()):
+        ordered = sorted(periods)
+        expected = []
+        cursor = datetime.strptime(ordered[0], "%Y-%m-%d")
+        last = datetime.strptime(ordered[-1], "%Y-%m-%d")
+        while cursor <= last:
+            expected.append(month_end(cursor))
+            cursor = datetime(cursor.year + (cursor.month == 12), cursor.month % 12 + 1, 1)
+        series[key] = {"observation_count": len(ordered), "first_period": ordered[0],
+                       "last_period": ordered[-1],
+                       "missing_periods_within_bounds": sorted(set(expected)-set(ordered)),
+                       "continuous_within_observed_bounds": set(expected) == set(ordered)}
     return {"row_count": len(rows), "metric_ids": sorted({r["metric_id"] for r in rows}),
             "geography_ids": sorted({r["geo_id"] for r in rows}),
             "first_period": min(dates), "latest_period": max(dates),
+            "series": series,
             "normalized_content_sha256": canonical_hash(rows),
             "canonical_key_inventory_sha256": canonical_hash(rows, True)}
 
@@ -314,11 +450,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Read-only NRC-B provider verifier")
     parser.add_argument("--legacy-db", type=Path, required=True)
     parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--geo-manifest", type=Path, default=Path("config/geo_manifest.csv"))
     parser.add_argument("--skip-census", action="store_true")
     parser.add_argument("--skip-fred", action="store_true")
     parser.add_argument("--offline", action="store_true",
                         help="parse workspace/raw inputs without network access")
-    parser.add_argument("--census-url", default=CENSUS_URL)
+    parser.add_argument("--census-starts-url", default=CENSUS_INPUTS["starts"][0])
+    parser.add_argument("--census-completions-url", default=CENSUS_INPUTS["completions"][0])
     args = parser.parse_args(argv)
     workspace, rawdir = args.workspace, args.workspace / "raw"
     rawdir.mkdir(parents=True, exist_ok=True)
@@ -331,20 +469,33 @@ def main(argv: list[str] | None = None) -> int:
                      "geographies": list(GEOGRAPHIES.values()),
                      "date_normalization": "provider observation month -> calendar month-end"},
         "providers": {}, "errors": []}
+    try:
+        report["geography_reconciliation"] = geography_reconciliation(args.geo_manifest)
+    except Exception as exc:
+        report["errors"].append({"stage": "geography", "error": f"{type(exc).__name__}: {exc}"})
     census_rows: list[dict[str, Any]] = []
     fred_rows: list[dict[str, Any]] = []
     if not args.skip_census:
         try:
-            target = rawdir / "census_resconst.json"
-            if args.offline:
-                body, transport = target.read_bytes(), {"requested_url": args.census_url,
-                    "final_url": args.census_url, "status": 200,
-                    "content_type": "application/json", "offline": True}
-            else:
-                body, transport = _get(args.census_url); target.write_bytes(body)
-            diagnostic = census_response_diagnostic(body, transport)
-            report["providers"]["census"] = {"transport": diagnostic}
-            census_rows = parse_census_response(body, transport)
+            inputs, workbook_contracts = [], []
+            report["providers"]["census"] = {"inputs": inputs,
+                                                "workbook_contracts": workbook_contracts}
+            urls = {"starts": args.census_starts_url,
+                    "completions": args.census_completions_url}
+            for kind, url in urls.items():
+                target = rawdir / f"census_{kind}.xlsx"
+                if args.offline:
+                    body, transport = target.read_bytes(), {"requested_url": url,
+                        "final_url": url, "status": 200,
+                        "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "offline": True}
+                else:
+                    body, transport = _get(url); target.write_bytes(body)
+                diagnostic = census_response_diagnostic(body, transport)
+                inputs.append({"kind": kind, **diagnostic})
+                parsed, contract = parse_census_response(body, transport, kind)
+                census_rows.extend(parsed); workbook_contracts.append(contract)
+            census_rows = validate_rows(census_rows)
             report["providers"]["census"].update(_provider_summary(census_rows))
         except Exception as exc:  # boundary records provider/fixture failure in report
             report["errors"].append({"stage": "census", "error": f"{type(exc).__name__}: {exc}"})
@@ -376,6 +527,15 @@ def main(argv: list[str] | None = None) -> int:
     if census_rows and legacy_rows:
         report["provider_legacy_parity"] = compare(census_rows, legacy_rows,
             "PROVIDER_ONLY", "LEGACY_ONLY", "PROVIDER_REVISION")
+        legacy_latest = max(r["date"] for r in legacy_rows)
+        reasons = Counter()
+        for item in report["provider_legacy_parity"]["details"]:
+            if item["classification"] != "PROVIDER_ONLY": continue
+            if item["geo_id"] == "us_nation": reason = "NATIONAL_ABSENT_FROM_LEGACY"
+            elif item["date"] > legacy_latest: reason = "AFTER_LEGACY_SNAPSHOT"
+            else: reason = "OTHER_PROVIDER_ONLY"
+            item["provider_only_reason"] = reason; reasons[reason] += 1
+        report["provider_legacy_parity"]["provider_only_reason_counts"] = dict(sorted(reasons.items()))
     expected_pairs = {(g, m) for g in GEOGRAPHIES.values() for m in METRICS}
     census_pairs = {(r["geo_id"], r["metric_id"]) for r in census_rows}
     report["applicability"] = {"expected_pair_count": 10,
