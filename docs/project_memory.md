@@ -93,8 +93,24 @@ Serving-market mutation remains outstanding and outside that transaction.
 
 This is the live proof for the currently migrated cohort machinery, not the
 final intended initial Source Set v2/full-cohort canonical-market milestone.
-Remaining source integrations precede that milestone. **ACS is the next source
-migration target.**
+Remaining source integrations precede that milestone.
+
+### BEA governed-source migration closure (2026-09-18)
+
+BEA-A through BEA-D are closed through shared-cohort integration and live proof.
+BEA consists of two independent governed sources, `bea_gdp_qtr` and
+`bea_gdp_ann`; there is no logical `bea`. Annual CAGDP9 values remain
+provider-native thousands of chained 2017 dollars (`UNIT_MULT=3`) with no
+numeric rescaling. Its governed applicability is 169 identities: 129 direct
+provider identities and 40 Virginia identities retained as
+`PROVIDER_UNAVAILABLE`.
+
+The durable candidates are
+`src__bea_gdp_qtr__2026-03__r1__6060ef25ef70eb62` and
+`src__bea_gdp_ann__2024-12__r1__384cf1e026bce84e`. BEA-D merge authority is
+`1c6c377d` (PR #245). Accepted BEA promotion remains deferred to the full
+intended initial cohort; the next project step is remaining source migration,
+not additional BEA work.
 
 The active workstream is **Macro Regime Visualization MVP**. Capital Markets, Supply, Affordability, Price, and Demand calibration workstreams are closed under their governed freeze contracts. After the visualization MVP, direction proceeds to CBSA/metro expansion, the local-regime layer, and regime-informed forecasting integration, subject to roadmap governance.
 
