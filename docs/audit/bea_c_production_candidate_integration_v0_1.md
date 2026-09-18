@@ -17,7 +17,8 @@ The direct contract is 129 identities and 3,096 rows for 2001--2024. The other
 40 identities are governed Virginia counties/county-equivalents classified
 `PROVIDER_UNAVAILABLE`. They are retained in coverage evidence and never
 synthesized, substituted, combined, or emitted as observations. Annual dates
-are December 31 and values remain millions of chained 2017 dollars.
+are December 31 and values remain provider-native thousands of chained 2017
+dollars (`UNIT_MULT=3`), with no rescaling.
 
 The frozen geography/availability inventory is
 `config/bea_governed_geographies_v1.csv`, joined to canonical `geo_id` values
@@ -28,11 +29,11 @@ closed.
 BEA-B establishes `TableName`, `LineCode=1`, and the line description `All
 industry total` through the governed request and table/parameter metadata.
 Regional GetData observation rows do not repeat `LineCode` or
-`LineDescription`; they do carry `CL_UNIT=Millions of chained 2017 dollars` and
-`UNIT_MULT=6`. The adapter therefore keeps table/line/description as strict
-snapshot source-contract metadata while validating the two fields actually
-returned on every observation row. This applies consistently to the SQGDP9 and
-CAGDP9 Regional row contracts and does not weaken request identity validation.
+`LineDescription`. SQGDP9 rows carry `CL_UNIT=Millions of chained 2017 dollars`
+and `UNIT_MULT=6`; CAGDP9 rows carry `CL_UNIT=Thousands of chained 2017 dollars`
+and `UNIT_MULT=3`. The adapter therefore keeps table/line/description as strict
+snapshot source-contract metadata while validating source-specific unit fields
+actually returned on every observation row. Neither path rescales `DataValue`.
 
 ## Common lifecycle and normalized snapshot pin
 

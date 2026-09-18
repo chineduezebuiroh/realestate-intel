@@ -43,7 +43,8 @@ Evidence layers are deliberately separate:
 The verified products are Regional `SQGDP9`, **Real GDP by state**, line 1,
 **All industry total**, quarterly; and Regional `CAGDP9`, **Real GDP by county**,
 line 1, **All industry total**, annual. GetData reports millions of chained 2017
-dollars for both; SQGDP9 is seasonally adjusted at annual rates. Available-period
+dollars (`UNIT_MULT=6`) for SQGDP9 and thousands of chained 2017 dollars
+(`UNIT_MULT=3`) for CAGDP9; SQGDP9 is seasonally adjusted at annual rates. Available-period
 metadata and actual periods agree with the histories below. Metadata/notes did
 not expose a provider release identifier sufficient to make an acquisition
 immutable by itself.
@@ -53,7 +54,7 @@ immutable by itself.
 | source | metric | provider/canonical units | frequency | canonical date |
 |---|---|---|---|---|
 | `bea_gdp_qtr` | `bea_qgdp_real_total_chained2017_saar` | millions of chained 2017 dollars, SAAR; no rescaling | quarterly | last calendar day of represented quarter |
-| `bea_gdp_ann` | `bea_agdp_real_total_chained2017` | millions of chained 2017 dollars; no rescaling | annual | Dec. 31 of represented calendar year |
+| `bea_gdp_ann` | `bea_agdp_real_total_chained2017` | thousands of chained 2017 dollars; no rescaling | annual | Dec. 31 of represented calendar year |
 
 Dates represent observation periods, never retrieval or release dates.
 
@@ -126,8 +127,17 @@ Neither response exhibited pagination or silent truncation in the tested shapes.
 
 Each SQGDP9 quarter is a seasonally adjusted annual-rate level in millions of
 chained 2017 dollars. Calendar quarter-end dates are correct. Each CAGDP9 annual
-row represents its calendar year's real GDP level in millions of chained 2017
+row represents its calendar year's real GDP level in thousands of chained 2017
 dollars; Dec. 31 is the deterministic canonical period date. No rescaling occurs.
+
+**Correction recorded by BEA-C live verification:** the original BEA-B prose
+incorrectly described CAGDP9 as millions even though its parity implementation
+parsed `DataValue` directly and compared that unscaled value to legacy serving.
+The live CAGDP9 rows report `CL_UNIT=Thousands of chained 2017 dollars` and
+`UNIT_MULT=3`. The 3,096/3,096 exact-match finding therefore proves that legacy
+annual values are stored in provider-native thousands, not that a millions
+conversion occurred. This corrects metadata wording only; no numeric value,
+metric identity, date, geography, or parity conclusion changes.
 
 ## 10. Sentinel/missing-value behavior
 
@@ -203,8 +213,8 @@ request-shape check. Status: **NOT FROZEN**.
 
 ### `bea_gdp_ann` — frozen
 
-Regional / CAGDP9 / line 1; `bea_agdp_real_total_chained2017`; millions
-chained-2017 dollars; annual Dec. 31; applicability nation + five states + all
+Regional / CAGDP9 / line 1; `bea_agdp_real_total_chained2017`; thousands
+chained-2017 dollars (`UNIT_MULT=3`), provider-native with no rescaling; annual Dec. 31; applicability nation + five states + all
 163 governed counties; direct availability nation + five states + 123 counties;
 40 explicit `PROVIDER_UNAVAILABLE` identities; one `Year=ALL` request; strict
 numeric/comma parser and fail-closed unknown tokens; no synthesis/substitution;

@@ -111,7 +111,7 @@ NULL. No mixed-frequency physical metric was found.
 | source_id | exact metric_id | evidenced interpretation | provider unit | frequency/date meaning | natural/canonical geography | min--max date | rows | geographies |
 |---|---|---|---|---|---|---|---:|---:|
 | `bea_gdp_qtr` | `bea_qgdp_real_total_chained2017_saar` | Regional `SQGDP9`, line 1, real all-industry GDP | Millions of chained 2017 dollars, SAAR (registry adds SAAR; stored dimension says millions of chained 2017 dollars) | quarterly; calendar-quarter end | nation 1, states 5 | 2005-03-31--2026-03-31 | 510 | 6 |
-| `bea_gdp_ann` | `bea_agdp_real_total_chained2017` | Regional `CAGDP9`, line 1, annual real all-industry GDP | Millions of chained 2017 dollars | annual; calendar-year label stored as Dec. 31 | nation 1, states 5, counties 123 | 2001-12-31--2024-12-31 | 3,096 | 129 |
+| `bea_gdp_ann` | `bea_agdp_real_total_chained2017` | Regional `CAGDP9`, line 1, annual real all-industry GDP | Thousands of chained 2017 dollars (corrected by BEA-C live metadata; stored values are provider-native) | annual; calendar-year label stored as Dec. 31 | nation 1, states 5, counties 123 | 2001-12-31--2024-12-31 | 3,096 | 129 |
 
 Each annual geography has 24 observations. Each quarterly geography has 85
 observations. There are zero duplicate `(geo_id, metric_id, date,
@@ -191,7 +191,7 @@ counties but county-aggregate GDP, explicitly including `CAGDP9`, is discontinue
 | disposition | physical source | physical metric | dataset/table/line | unit/frequency | canonical date | geography |
 |---|---|---|---|---|---|---|
 | **KEEP, verify** | `bea_gdp_qtr` | `bea_qgdp_real_total_chained2017_saar` | Regional / `SQGDP9` / 1 | millions chained-2017 dollars, seasonally adjusted annual rate; quarterly | last calendar day of represented quarter | nation + five states only |
-| **KEEP, verify** | `bea_gdp_ann` | `bea_agdp_real_total_chained2017` | Regional / `CAGDP9` / 1 | millions chained-2017 dollars; annual | Dec. 31 of represented calendar year | nation + five states + 163 governed counties, subject to direct provider support |
+| **KEEP, verify** | `bea_gdp_ann` | `bea_agdp_real_total_chained2017` | Regional / `CAGDP9` / 1 | thousands chained-2017 dollars; annual; provider-native with no rescaling (corrected by BEA-C live metadata) | Dec. 31 of represented calendar year | nation + five states + 163 governed counties, subject to direct provider support |
 | **DEPRECATE compatibility alias** | `bea_gdp_qtr` | `gdp_real_total` | intended `SQGDP9` / 1 | same intended concept | quarter end | old public DB only |
 
 No adjacent BEA metric is proposed. BEA-B must fail contract freeze if line 1's
@@ -376,7 +376,8 @@ Legacy-only keys are not deletions without governed provider evidence.
 
 * **Product:** BEA Regional `CAGDP9`, line 1, annual real all-industry GDP.
 * **Metric:** only `bea_agdp_real_total_chained2017`.
-* **Unit/frequency/date:** millions of chained 2017 dollars; annual; represented
+* **Unit/frequency/date:** thousands of chained 2017 dollars, provider-native
+  with no rescaling (corrected by BEA-C live metadata); annual; represented
   calendar year at Dec. 31.
 * **Geography:** direct nation, five states and the complete 163-governed-county
   universe, contingent on BEA-B exact provider support and an explanation for

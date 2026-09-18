@@ -11,13 +11,15 @@ from jobs.monthly_refresh.bea_hosted import execute_source
 from jobs.monthly_refresh.bea_monthly import (MEMBER, acquire_provider, candidate, discover_pin,
     recover_pinned_snapshot)
 from jobs.monthly_refresh.source_inputs import FilePinStore
-from sources.bea.artifact import (SOURCES, STABLE_METADATA, build_snapshot,
-    canonicalize_snapshot, expected_periods, governed_geographies, request_plan, snapshot_bytes)
+from sources.bea.artifact import (OBSERVATION_METADATA, SOURCES, build_snapshot,
+    canonicalize_snapshot, expected_periods, governed_geographies, request_plan,
+    snapshot_bytes, stable_metadata)
 
 
 def provider_rows(source_id: str, *, mutation: float = 0.0):
     direct = [g for g in governed_geographies(source_id) if g["availability"] == "AVAILABLE_DIRECT"]
     rows = []
+    metadata = stable_metadata(source_id)
     for geo_number, geo in enumerate(direct):
         for period_number, period in enumerate(expected_periods(source_id)):
             value = 1000 + geo_number * 100 + period_number
@@ -25,8 +27,8 @@ def provider_rows(source_id: str, *, mutation: float = 0.0):
             # Faithful Regional GetData observation shape: table/line identity is
             # request-level metadata and is not repeated on each observation.
             rows.append({"GeoFips": geo["provider_geo_fips"], "TimePeriod": period,
-                "DataValue": f"{value:,.1f}", "CL_UNIT": STABLE_METADATA["unit"],
-                "UNIT_MULT": STABLE_METADATA["unit_multiplier"]})
+                "DataValue": f"{value:,.1f}", "CL_UNIT": metadata["unit"],
+                "UNIT_MULT": metadata["unit_multiplier"]})
     return rows
 
 
@@ -122,11 +124,13 @@ def test_live_row_shape_and_request_level_table_line_contract(source_id):
     assert snapshot["sanitized_request_plan"]["TableName"] == SOURCES[source_id]["table"]
     assert snapshot["sanitized_request_plan"]["LineCode"] == "1"
     assert snapshot["stable_provider_metadata"]["line_description"] == "All industry total"
+    assert snapshot["stable_provider_metadata"] == stable_metadata(source_id)
 
     wrong_unit = copy.deepcopy(rows); wrong_unit[0]["CL_UNIT"] = "Thousands of current dollars"
     with pytest.raises(ValueError, match="unit metadata changed"):
         build_snapshot(source_id, wrong_unit)
-    wrong_multiplier = copy.deepcopy(rows); wrong_multiplier[0]["UNIT_MULT"] = "3"
+    wrong_multiplier = copy.deepcopy(rows)
+    wrong_multiplier[0]["UNIT_MULT"] = "3" if stable_metadata(source_id)["unit_multiplier"] != "3" else "6"
     with pytest.raises(ValueError, match="unit metadata changed"):
         build_snapshot(source_id, wrong_multiplier)
     optional_wrong_line = copy.deepcopy(rows); optional_wrong_line[0]["LineCode"] = "2"
@@ -144,6 +148,30 @@ def test_live_row_shape_and_request_level_table_line_contract(source_id):
     drifted_line["sanitized_request_plan"]["LineCode"] = "2"
     with pytest.raises(ValueError, match="snapshot contract mismatch"):
         canonicalize_snapshot(drifted_line, source_id)
+
+
+def test_source_specific_native_units_are_not_interchangeable_or_rescaled():
+    assert OBSERVATION_METADATA == {
+        "bea_gdp_qtr": {"unit": "Millions of chained 2017 dollars", "unit_multiplier": "6"},
+        "bea_gdp_ann": {"unit": "Thousands of chained 2017 dollars", "unit_multiplier": "3"},
+    }
+    for source_id, other_source in (("bea_gdp_qtr", "bea_gdp_ann"),
+                                    ("bea_gdp_ann", "bea_gdp_qtr")):
+        rows = provider_rows(source_id)
+        native_value = rows[0]["DataValue"]
+        snapshot = build_snapshot(source_id, rows)
+        assert snapshot["normalized_observations"][0]["value"] == native_value.replace(",", "").rstrip("0").rstrip(".")
+        canonical, _ = canonicalize_snapshot(snapshot, source_id)
+        first = snapshot["normalized_observations"][0]
+        canonical_value = canonical.loc[
+            (canonical.geo_id == first["geo_id"]) & (canonical.date.astype(str) == first["date"]), "value"
+        ].iloc[0]
+        assert canonical_value == float(native_value.replace(",", ""))
+        swapped = copy.deepcopy(rows)
+        swapped[0]["CL_UNIT"] = OBSERVATION_METADATA[other_source]["unit"]
+        swapped[0]["UNIT_MULT"] = OBSERVATION_METADATA[other_source]["unit_multiplier"]
+        with pytest.raises(ValueError, match="unit metadata changed"):
+            build_snapshot(source_id, swapped)
 
 
 def test_normal_persists_then_executes_and_resume_replay_never_discover(tmp_path):

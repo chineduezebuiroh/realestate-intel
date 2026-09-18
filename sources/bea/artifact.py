@@ -25,8 +25,15 @@ SOURCES: dict[str, dict[str, str]] = {
     "bea_gdp_ann": {"table": "CAGDP9", "frequency": "annual",
         "metric_id": "bea_agdp_real_total_chained2017", "first": "2001", "last": "2024"},
 }
-STABLE_METADATA = {"line_code": "1", "line_description": "All industry total",
-                   "unit": "Millions of chained 2017 dollars", "unit_multiplier": "6"}
+STABLE_METADATA = {"line_code": "1", "line_description": "All industry total"}
+OBSERVATION_METADATA = {
+    "bea_gdp_qtr": {"unit": "Millions of chained 2017 dollars", "unit_multiplier": "6"},
+    "bea_gdp_ann": {"unit": "Thousands of chained 2017 dollars", "unit_multiplier": "3"},
+}
+
+
+def stable_metadata(source_id: str) -> dict[str, str]:
+    return {**STABLE_METADATA, **OBSERVATION_METADATA[source_id]}
 
 
 def governed_geographies(source_id: str, root: Path = Path(".")) -> list[dict[str, str]]:
@@ -110,16 +117,17 @@ def build_snapshot(source_id: str, rows: Iterable[Mapping[str, Any]], root: Path
         # identity is established by the governed request and table metadata.
         # In particular, SQGDP9 and CAGDP9 rows need not repeat LineCode or
         # LineDescription; requiring those fields would fabricate a row contract.
+        metadata = stable_metadata(source_id)
         unit = _field(raw, "CL_UNIT")
         multiplier = _field(raw, "UNIT_MULT")
-        if unit != STABLE_METADATA["unit"] or multiplier != STABLE_METADATA["unit_multiplier"]:
+        if unit != metadata["unit"] or multiplier != metadata["unit_multiplier"]:
             raise ValueError("BEA observation unit metadata changed")
         optional_table = _field(raw, "TableName")
         optional_line = _field(raw, "LineCode")
         optional_description = _field(raw, "LineDescription")
         if ((optional_table and optional_table != config["table"])
-                or (optional_line and optional_line != STABLE_METADATA["line_code"])
-                or (optional_description and optional_description != STABLE_METADATA["line_description"])):
+                or (optional_line and optional_line != metadata["line_code"])
+                or (optional_description and optional_description != metadata["line_description"])):
             raise ValueError("BEA optional observation contract metadata changed")
         geo = mapping[code]
         observations.append({"provider_geo_fips": code, "geo_id": geo["geo_id"], "period": period,
@@ -136,7 +144,7 @@ def build_snapshot(source_id: str, rows: Iterable[Mapping[str, Any]], root: Path
     return {"schema_version": CONTRACT_VERSION, "source_id": source_id, "dataset": "Regional",
         "table": config["table"], "line_code": "1", "frequency": config["frequency"],
         "metric_id": config["metric_id"], "sanitized_request_plan": request_plan(source_id, root),
-        "stable_provider_metadata": STABLE_METADATA, "parser_contract": {"version": PARSER_VERSION,
+        "stable_provider_metadata": stable_metadata(source_id), "parser_contract": {"version": PARSER_VERSION,
             "accepted_values": ["plain_numeric", "comma_formatted_numeric"], "unknown_sentinel": "FAIL_CLOSED"},
         "governed_applicability": applicability, "direct_provider_membership": sorted(expected_direct),
         "provider_unavailable_membership": sorted(set(mapping) - expected_direct),
@@ -150,9 +158,10 @@ def snapshot_bytes(snapshot: Mapping[str, Any]) -> bytes:
 
 def validate_snapshot(snapshot: Mapping[str, Any], source_id: str, root: Path = Path(".")) -> dict[str, Any]:
     value = dict(snapshot)
+    metadata = stable_metadata(source_id)
     rebuilt_rows = [{"GeoFips": r["provider_geo_fips"], "TimePeriod": r["period"],
-        "DataValue": r["value"], "CL_UNIT": STABLE_METADATA["unit"],
-        "UNIT_MULT": STABLE_METADATA["unit_multiplier"]}
+        "DataValue": r["value"], "CL_UNIT": metadata["unit"],
+        "UNIT_MULT": metadata["unit_multiplier"]}
         for r in value.get("normalized_observations", [])]
     rebuilt = build_snapshot(source_id, rebuilt_rows, root)
     if value != rebuilt: raise ValueError("BEA normalized snapshot contract mismatch")
