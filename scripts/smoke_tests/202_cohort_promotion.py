@@ -40,7 +40,7 @@ def acs_record(source, artifact_id, content, package, number):
         "package_sha256":package, "artifact_content_hash":content,
         "publication_receipt_id":f"publication_receipt__acs_fixture_{number}",
         "publication_state":"published_immutable_verified", "metadata":{"source_id":source,
-        "data_sha256":chr(99+number)*64, "provider_release_id":f"acs-fixture-{number}",
+        "data_sha256":"a"*64, "provider_release_id":f"fixture-{source}-{number}",
         "observation_max":"2024-12-31"}}
 
 acs1_id="src__census_acs1__2024-12__r1__"+"1"*16
@@ -70,6 +70,19 @@ catalog["immutable_records"].extend([
     acs_record("census_acs1",acs1_id,"1"*64,"2"*64,1),
     acs_record("census_acs5",acs5_id,"5"*64,"6"*64,2),
     acs_record("acs",acs_id,acs_semantic["output_content_hash"],"8"*64,3)])
+# BEA's two products are ordinary independent governed entries, not a family.
+for number, source in enumerate(("bea_gdp_ann", "bea_gdp_qtr"), 4):
+    artifact_id = f"src__{source}__2026-03__r1__" + str(number) * 16
+    record = acs_record(source, artifact_id, str(number) * 64, str(number + 1) * 64, number)
+    catalog["immutable_records"].append(record)
+    results.append({"schema_version":"monthly_source_execution_result_v1", "source_id":source,
+        "cycle_id":CYCLE, "status":"succeeded", "candidate_artifact_id":artifact_id,
+        "artifact_content_hash":record["artifact_content_hash"],
+        "package_sha256":record["package_sha256"], "publication_state":"published_verified",
+        "validation_status":"passed", "provider_release_id":record["metadata"]["provider_release_id"],
+        "observation_max":record["metadata"]["observation_max"], "prior_artifact_id":None,
+        "source_change_detected":True, "retryability":"not_applicable",
+        "evidence_uri":record["logical_artifact_uri"], "accepted_pointer_changed":False})
 catalog["immutable_records"].sort(key=lambda r:(r["object_type"],r["object_id"]))
 # Redfin is intentionally authoritative in readiness rather than the automated
 # cycle-result registry.
@@ -111,7 +124,12 @@ with tempfile.TemporaryDirectory() as td:
     finally:
         concept.write_bytes(original)
     assert source_set["source_set_id"] == repeat["source_set_id"]
-    assert source_set["included_source_inventory"] == ["acs", "bps", "ces", "fred_macro", "laus", "redfin"]
+    assert source_set["included_source_inventory"] == [
+        "acs", "bea_gdp_ann", "bea_gdp_qtr", "bps", "ces", "fred_macro", "laus", "redfin"]
+    assert {"bea_gdp_ann", "bea_gdp_qtr"}.issubset(
+        {entry["source_id"] for entry in source_set["sources"]})
+    assert all(family["logical_source_id"] != "bea"
+               for family in source_set["family_resolution"]["families"])
     assert sum(e["source_id"] == "acs" for e in source_set["sources"]) == 1
     assert not {"census_acs1", "census_acs5"} & set(source_set["included_source_inventory"])
     physical_candidate = copy.deepcopy(acs_resolution)

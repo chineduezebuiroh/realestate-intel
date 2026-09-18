@@ -15,7 +15,8 @@ from sources.census_acs.artifact import (CONTRACT_VERSION as ACS_CONTRACT_VERSIO
     governed_config_hashes as acs_governed_config_hashes)
 
 
-LOGICAL_COHORT_SOURCES = frozenset({"acs", "bps", "ces", "fred_macro", "laus", "redfin"})
+LOGICAL_COHORT_SOURCES = frozenset({"acs", "bea_gdp_ann", "bea_gdp_qtr", "bps",
+                                    "ces", "fred_macro", "laus", "redfin"})
 PHYSICAL_FAMILY_SOURCES = frozenset({"census_acs1", "census_acs5",
                                      "census_bps", "census_bps_provisional"})
 
@@ -46,7 +47,8 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
         repository_root: Path = Path(".")) -> dict[str, Any]:
     """Map complete physical results to exact logical assembly inputs."""
     validate_catalog(catalog)
-    expected_physical = {"census_bps", "census_bps_provisional", "ces", "fred_macro", "laus", "redfin"}
+    expected_physical = {"bea_gdp_ann", "bea_gdp_qtr", "census_bps",
+                         "census_bps_provisional", "ces", "fred_macro", "laus", "redfin"}
     by_source = {}
     for result in physical_results:
         result = validate_source_result(result, expected_cycle_id=cycle_id)

@@ -42,6 +42,20 @@
       "hosted_cohort_enabled": true,
       "provider_input_policy": "durable_raw_input_pin",
       "dependencies": []
+    },
+    {
+      "source_id": "bea_gdp_qtr",
+      "required": true,
+      "hosted_cohort_enabled": true,
+      "provider_input_policy": "durable_normalized_input_pin",
+      "dependencies": []
+    },
+    {
+      "source_id": "bea_gdp_ann",
+      "required": true,
+      "hosted_cohort_enabled": true,
+      "provider_input_policy": "durable_normalized_input_pin",
+      "dependencies": []
     }
   ]
 }

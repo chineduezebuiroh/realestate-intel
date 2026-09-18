@@ -178,7 +178,8 @@ def execute_to_completion(record: dict[str, Any], catalog_cas: GitHubCatalogCAS,
 
 def _durable_inputs(api: GitHubAPI, branch: str, cycle_id: str,
                     acs_resolution_id: str) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
-    sources = ("census_bps", "census_bps_provisional", "ces", "fred_macro", "laus")
+    sources = ("bea_gdp_ann", "bea_gdp_qtr", "census_bps",
+               "census_bps_provisional", "ces", "fred_macro", "laus")
     results = [_read_required(GitHubJSONCAS(api,
         f"config/monthly_source_cycle_results/{cycle_id}/{source}.json", branch))["result"] for source in sources]
     resolution = _read_required(GitHubJSONCAS(api,
@@ -195,7 +196,8 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
         git_sha: str, mutate: bool, acs_resolution_id: str) -> dict[str, Any]:
     if cycle_id != JULY_CYCLE: raise PublicationError("adapter is pinned to the governed July cycle")
     if mutate:
-        raise PublicationError("ACS-inclusive cohort integration is preflight-only pending promotion authorization")
+        raise PublicationError(
+            "ACS/BEA-inclusive cohort integration is preflight-only pending promotion authorization")
     workspace.mkdir(parents=True, exist_ok=True)
     catalog_cas = GitHubCatalogCAS(api, CATALOG_PATH, branch)
     readiness_store = GitHubJSONCAS(api, READINESS_PATH, branch)
