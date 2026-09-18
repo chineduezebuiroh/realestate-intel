@@ -1,6 +1,7 @@
 import io
 import json
 import zipfile
+from datetime import date
 from decimal import Decimal
 from xml.sax.saxutils import escape
 
@@ -11,7 +12,7 @@ from scripts.nrc_b_verify import (
     canonical_hash, census_response_diagnostic, compare, main, month_end,
     geography_reconciliation,
     parse_census_response, parse_census_workbook, parse_fred_csv, parse_number,
-    validate_rows, _provider_summary,
+    validate_rows, _excel_1900_date, _provider_summary,
 )
 
 
@@ -21,8 +22,14 @@ def row(geo="us_nation", metric=STARTS, period="2026-01", value="1500"):
             "provider": "fixture", "native_id": "x"}
 
 
+def excel_serial(day):
+    serial = (day - date(1899, 12, 31)).days
+    return serial + (1 if day >= date(1900, 3, 1) else 0)
+
+
 def workbook(kind="starts", *, saar=True, units=True, headers=True,
-             duplicate=False, unavailable=False):
+             duplicate=False, unavailable=False, month_header=True,
+             valid_date_style=True, invalid_date_value=False):
     title = ("New Privately-Owned Housing Units Started" if kind == "starts" else
              "New Privately-Owned Housing Units Completed")
     values = [
@@ -31,23 +38,25 @@ def workbook(kind="starts", *, saar=True, units=True, headers=True,
         ["Thousands of units. Detail may not add to total because of rounding."
          if units else "Individual units"],
         [],
-        ["", "", "United States", "Northeast", "Midwest", "South", "West"],
-        ["Year", "Month", "Total", "Total", "Total", "Total", "Total"],
-        ["2026", "Jan", "1500", "100", "200", "700", "500"],
-        ["", "Feb", "1501", "101", "201", "701", "498"],
+        ["Month" if month_header else "Period", "United States", "Northeast", "Midwest", "South", "West"],
+        [None, "Total", "Total", "Total", "Total", "Total"],
+        ["not-a-serial" if invalid_date_value else str(excel_serial(date(2026, 1, 1))),
+         "1500", "100", "200", "700", "500"],
+        [str(excel_serial(date(2026, 2, 1))), "1501", "101", "201", "701", "498"],
     ]
     if unavailable:
-        values[6][3] = "(X)"
+        values[6][2] = "(X)"
     if duplicate:
         values.append(list(values[6]))
     if not headers:
-        values[5][2] = "All units"
+        values[5][1] = "All units"
 
-    def cell(ref, value):
+    def cell(ref, value, style=None):
         if value is None or value == "": return ""
+        style_attr = f' s="{style}"' if style is not None else ""
         if str(value).replace(".", "", 1).isdigit():
-            return f'<c r="{ref}"><v>{value}</v></c>'
-        return f'<c r="{ref}" t="inlineStr"><is><t>{escape(str(value))}</t></is></c>'
+            return f'<c r="{ref}"{style_attr}><v>{value}</v></c>'
+        return f'<c r="{ref}"{style_attr} t="inlineStr"><is><t>{escape(str(value))}</t></is></c>'
 
     def sheet(rows):
         xmlrows = []
@@ -58,7 +67,8 @@ def workbook(kind="starts", *, saar=True, units=True, headers=True,
                 n = col + 1
                 while n:
                     n, rem = divmod(n - 1, 26); name = chr(65 + rem) + name
-                cells.append(cell(f"{name}{rnum}", val))
+                style = (1 if valid_date_style else 0) if rnum >= 7 and col == 0 else None
+                cells.append(cell(f"{name}{rnum}", val, style))
             xmlrows.append(f'<row r="{rnum}">{"".join(cells)}</row>')
         return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                 '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
@@ -78,6 +88,9 @@ def workbook(kind="starts", *, saar=True, units=True, headers=True,
         archive.writestr("xl/_rels/workbook.xml.rels",
             '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             f'{rels}</Relationships>')
+        archive.writestr("xl/styles.xml",
+            '<?xml version="1.0"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            '<cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs></styleSheet>')
         for i in range(1, 5):
             archive.writestr(f"xl/worksheets/sheet{i}.xml", sheet(values if i == 3 else []))
     return output.getvalue()
@@ -105,6 +118,7 @@ def test_workbook_parser_selects_five_totals_and_metric_identity():
     assert {x["metric_id"] for x in starts} == {STARTS}
     assert {x["metric_id"] for x in completions} == {COMPLETIONS}
     assert starts[0]["value"] != "1500000"
+    assert {x["date"] for x in starts} == {"2026-01-31", "2026-02-28"}
     assert contract["unit"] == "thousands_of_housing_units_saar"
 
 
@@ -126,6 +140,25 @@ def test_workbook_contract_drift_fails_closed(kwargs, message):
 def test_workbook_duplicate_keys_fail_closed():
     with pytest.raises(ValueError, match="duplicate"):
         parse_census_workbook(workbook(duplicate=True), "starts")
+
+
+def test_real_month_header_is_required():
+    with pytest.raises(ProviderContractError, match="header"):
+        parse_census_workbook(workbook(month_header=False), "starts")
+
+
+def test_month_date_requires_excel_date_style_and_valid_serial():
+    with pytest.raises(ProviderContractError, match="date style"):
+        parse_census_workbook(workbook(valid_date_style=False), "starts")
+    with pytest.raises(ProviderContractError, match="date serial"):
+        parse_census_workbook(workbook(invalid_date_value=True), "starts")
+
+
+def test_excel_1900_date_conversion_applies_leap_year_offset():
+    assert _excel_1900_date("59", 1, {1}) == date(1900, 2, 28)
+    assert _excel_1900_date("61", 1, {1}) == date(1900, 3, 1)
+    with pytest.raises(ProviderContractError, match="1900 date serial"):
+        _excel_1900_date("60", 1, {1})
 
 
 def test_non_xlsx_diagnostic_is_bounded():

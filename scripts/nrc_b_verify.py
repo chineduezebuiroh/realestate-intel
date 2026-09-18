@@ -18,7 +18,7 @@ import re
 import zipfile
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Iterable
@@ -168,13 +168,18 @@ def _column_number(reference: str) -> int:
     return result - 1
 
 
-def _xlsx_sheet(payload: bytes, wanted: str) -> tuple[list[list[Any]], list[str]]:
+def _xlsx_sheet(payload: bytes, wanted: str
+                ) -> tuple[list[list[Any]], list[list[int | None]], list[str], set[int]]:
     """Read one XLSX worksheet with only stdlib ZIP/XML facilities."""
     ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
           "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
           "p": "http://schemas.openxmlformats.org/package/2006/relationships"}
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+        workbook_properties = workbook.find("m:workbookPr", ns)
+        if (workbook_properties is not None and
+                workbook_properties.attrib.get("date1904", "0") in {"1", "true", "True"}):
+            raise ProviderContractError("Census workbook unexpectedly uses the Excel 1904 date system")
         rels = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
         targets = {x.attrib["Id"]: x.attrib["Target"] for x in rels.findall("p:Relationship", ns)}
         sheets = workbook.findall("m:sheets/m:sheet", ns)
@@ -195,6 +200,7 @@ def _xlsx_sheet(payload: bytes, wanted: str) -> tuple[list[list[Any]], list[str]
                       for item in root.findall("m:si", ns)]
         root = ET.fromstring(archive.read(target))
         values: dict[tuple[int, int], Any] = {}
+        styles: dict[tuple[int, int], int] = {}
         for cell in root.findall(".//m:sheetData/m:row/m:c", ns):
             ref, typ = cell.attrib["r"], cell.attrib.get("t")
             row = int(re.search(r"\d+", ref).group()) - 1
@@ -207,6 +213,7 @@ def _xlsx_sheet(payload: bytes, wanted: str) -> tuple[list[list[Any]], list[str]
                 if typ == "s" and value is not None:
                     value = shared[int(value)]
             values[(row, col)] = value
+            styles[(row, col)] = int(cell.attrib.get("s", "0"))
         for merged in root.findall(".//m:mergeCells/m:mergeCell", ns):
             left, right = merged.attrib["ref"].split(":")
             r1, r2 = int(re.search(r"\d+", left).group())-1, int(re.search(r"\d+", right).group())-1
@@ -214,9 +221,43 @@ def _xlsx_sheet(payload: bytes, wanted: str) -> tuple[list[list[Any]], list[str]
             for row in range(r1, r2 + 1):
                 for col in range(c1, c2 + 1):
                     values.setdefault((row, col), values.get((r1, c1)))
+                    styles.setdefault((row, col), styles.get((r1, c1), 0))
         max_row = max((x[0] for x in values), default=-1)
         max_col = max((x[1] for x in values), default=-1)
-        return [[values.get((r, c)) for c in range(max_col + 1)] for r in range(max_row + 1)], names
+        date_styles: set[int] = set()
+        if "xl/styles.xml" not in archive.namelist():
+            raise ProviderContractError("Census workbook is missing styles.xml")
+        style_root = ET.fromstring(archive.read("xl/styles.xml"))
+        custom_formats = {int(x.attrib["numFmtId"]): x.attrib.get("formatCode", "")
+                          for x in style_root.findall("m:numFmts/m:numFmt", ns)}
+        builtin_dates = set(range(14, 23)) | set(range(27, 37)) | {45, 46, 47} | set(range(50, 59))
+        for index, xf in enumerate(style_root.findall("m:cellXfs/m:xf", ns)):
+            format_id = int(xf.attrib.get("numFmtId", "0"))
+            custom = re.sub(r'"[^"]*"|\[[^]]*\]|\\.', "", custom_formats.get(format_id, "")).lower()
+            if format_id in builtin_dates or ("y" in custom and ("m" in custom or "d" in custom)):
+                date_styles.add(index)
+        return ([[values.get((r, c)) for c in range(max_col + 1)] for r in range(max_row + 1)],
+                [[styles.get((r, c)) for c in range(max_col + 1)] for r in range(max_row + 1)],
+                names, date_styles)
+
+
+def _excel_1900_date(value: Any, style_id: int | None, date_styles: set[int]) -> date:
+    """Decode a style-validated Excel 1900-system serial, including its leap-year bug."""
+    if style_id not in date_styles:
+        raise ProviderContractError(
+            f"Census Month cell lacks a validated Excel date style: style={style_id}")
+    try:
+        serial = Decimal(str(value))
+    except InvalidOperation as exc:
+        raise ProviderContractError(f"invalid Census Excel date serial: {value!r}") from exc
+    if serial != serial.to_integral_value() or serial < 1 or serial == 60:
+        raise ProviderContractError(f"invalid Census Excel 1900 date serial: {value!r}")
+    day = int(serial)
+    # Excel pretends 1900-02-29 exists. Serials after the fictitious day need
+    # one day removed when mapped onto the real Gregorian calendar.
+    if day > 60:
+        day -= 1
+    return date(1899, 12, 31) + timedelta(days=day)
 
 
 def parse_census_workbook(payload: bytes, kind: str
@@ -225,7 +266,7 @@ def parse_census_workbook(payload: bytes, kind: str
     if kind not in CENSUS_INPUTS:
         raise ValueError(f"unexpected Census workbook kind: {kind}")
     metric = CENSUS_INPUTS[kind][1]
-    matrix, sheets = _xlsx_sheet(payload, "Seasonally Adjusted")
+    matrix, style_matrix, sheets, date_styles = _xlsx_sheet(payload, "Seasonally Adjusted")
     text = "\n".join(str(v) for row in matrix[:30] for v in row if v is not None)
     metric_phrase = ("housing units started" if kind == "starts" else "housing units completed")
     if metric_phrase not in text.lower():
@@ -239,6 +280,8 @@ def parse_census_workbook(payload: bytes, kind: str
     header = None
     for index in range(len(matrix) - 1):
         upper, lower = matrix[index], matrix[index + 1]
+        if not upper or str(upper[0]).strip() != "Month":
+            continue
         columns = {}
         current = None
         for col in range(max(len(upper), len(lower))):
@@ -250,31 +293,23 @@ def parse_census_workbook(payload: bytes, kind: str
                 if current in columns:
                     raise ProviderContractError(f"duplicate Census Total header: {current}")
                 columns[current] = col
-        labels = {str(v).strip().casefold(): c for c, v in enumerate(lower) if v is not None}
-        if set(columns) == set(provider_geos) and {"year", "month"}.issubset(labels):
-            header = (index + 1, labels["year"], labels["month"], columns)
+        if set(columns) == set(provider_geos):
+            header = (index + 1, 0, columns)
             break
     if header is None:
         raise ProviderContractError("Census workbook two-row geography/Total header not found")
-    header_row, year_col, month_col, columns = header
+    header_row, month_col, columns = header
     rows, unavailable = [], Counter()
-    current_year = None
-    for source in matrix[header_row + 1:]:
-        year_value = source[year_col] if year_col < len(source) else None
+    for row_index, source in enumerate(matrix[header_row + 1:], start=header_row + 1):
         month_value = source[month_col] if month_col < len(source) else None
-        if year_value not in (None, ""):
-            try: current_year = int(Decimal(str(year_value)))
-            except (InvalidOperation, ValueError): continue
-        if current_year is None or month_value in (None, ""):
+        if month_value in (None, ""):
             continue
-        try:
-            month_text = str(month_value).strip()
-            month_number = (int(Decimal(month_text)) if month_text.replace(".", "", 1).isdigit()
-                            else datetime.strptime(month_text[:3], "%b").month)
-            if not 1 <= month_number <= 12: raise ValueError
-            period = f"{current_year:04d}-{month_number:02d}"
-        except (ValueError, InvalidOperation):
-            continue
+        style_id = style_matrix[row_index][month_col]
+        observed = _excel_1900_date(month_value, style_id, date_styles)
+        if observed.day != 1:
+            raise ProviderContractError(
+                f"Census Month value is not first-of-month: {observed.isoformat()}")
+        period = observed.isoformat()
         for label, col in columns.items():
             raw = source[col] if col < len(source) else None
             if parse_number(raw) is None:
@@ -287,6 +322,7 @@ def parse_census_workbook(payload: bytes, kind: str
         raise ProviderContractError(f"Census {kind} workbook lacks one or more governed series")
     return normalized, {"workbook_kind": kind, "sheet_names": sheets,
                         "worksheet": "Seasonally Adjusted",
+                        "date_cell_contract": "Excel 1900 date system; date-styled integer serial; first day of month",
                         "unit": "thousands_of_housing_units_saar",
                         "unavailable_cell_count_by_geography": dict(sorted(unavailable.items()))}
 
