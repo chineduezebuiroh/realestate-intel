@@ -22,7 +22,7 @@ def row(geo="us_nation", metric=STARTS, period="2026-01", value="1500"):
 def workbook(kind="starts", *, saar=True, units=True, headers=True,
              duplicate=False, unavailable=False, month_header=True,
              date_value=None, sheet_names=None, leading_month=None,
-             footer_rows=None, all_missing=False):
+             footer_rows=None, all_missing=False, unavailable_token="(X)"):
     from openpyxl import Workbook
 
     book = Workbook()
@@ -48,7 +48,7 @@ def workbook(kind="starts", *, saar=True, units=True, headers=True,
         sheet.append([leading_month])
     first_date = datetime(2026, 1, 1) if date_value is None else date_value
     first_values = (["(X)"] * 5 if all_missing else
-                    [1500, "(X)" if unavailable else 100, 200, 700, 500])
+                    [1500, unavailable_token if unavailable else 100, 200, 700, 500])
     sheet.append([first_date, *first_values])
     sheet.append([datetime(2026, 2, 1), 1501, 101, 201, 701, 498])
     if duplicate:
@@ -93,6 +93,16 @@ def test_workbook_unavailable_marker_is_not_synthesized():
     rows, contract = parse_census_workbook(workbook(unavailable=True), "starts")
     assert len(rows) == 9
     assert contract["unavailable_cell_count_by_geography"] == {"Northeast": 1}
+
+
+def test_completions_parenthesized_na_is_omitted_and_inventoried():
+    assert parse_number("(NA)") is None
+    rows, contract = parse_census_workbook(
+        workbook("completions", unavailable=True, unavailable_token="(NA)"), "completions")
+    assert len(rows) == 9
+    assert contract["unavailable_cell_count_by_geography"] == {"Northeast": 1}
+    with pytest.raises(ValueError, match="nonnumeric"):
+        parse_number("(UNKNOWN)")
 
 
 @pytest.mark.parametrize(("kwargs", "message"), [

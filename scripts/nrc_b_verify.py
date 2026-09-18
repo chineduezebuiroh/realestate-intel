@@ -49,7 +49,7 @@ CENSUS_INPUTS = {
     "completions": ("https://www.census.gov/construction/nrc/xls/comps_cust.xlsx", COMPLETIONS),
 }
 FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
-MISSING = {"", ".", "...", "-", "--", "NA", "N/A", "NULL", "null", "(X)", "S", "Z"}
+MISSING = {"", ".", "...", "-", "--", "NA", "N/A", "(NA)", "NULL", "null", "(X)", "S", "Z"}
 KEY_FIELDS = ("geo_id", "metric_id", "date", "property_type_id")
 BODY_PREFIX_BYTES = 256
 

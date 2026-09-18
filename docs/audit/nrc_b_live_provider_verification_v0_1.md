@@ -95,7 +95,10 @@ provider-contract failure remains reproducible.
 Physical source ID remains provisionally `census_nrc`. Both property fields are `all`.
 Values are parsed exactly with `Decimal`; commas are presentation separators. There is no
 floating tolerance and no multiplication by 1,000. Explicit unavailable/suppression
-markers are absent observations, never zeroes. Unknown nonnumeric tokens fail closed.
+markers are absent observations, never zeroes. The bounded vocabulary includes the live-
+observed Census `(NA)` token used for regional completions before their January 1979
+history begins; those cells are inventoried as unavailable and never synthesized.
+Unknown nonnumeric tokens fail closed.
 
 ## 6. Geography and applicability freeze
 
