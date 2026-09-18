@@ -226,13 +226,12 @@ def parse_census_workbook(payload: bytes, kind: str
         if observed.day != 1:
             raise ProviderContractError(
                 f"Census Month value is not first-of-month: {observed.isoformat()}")
-        period = observed.isoformat()
         for label, col in columns.items():
             raw = source[col] if col < len(source) else None
             if parse_number(raw) is None:
                 unavailable[label] += 1
                 continue
-            rows.append(_row(provider_geos[label], metric, period, raw, "census", kind))
+            rows.append(_row(provider_geos[label], metric, observed, raw, "census", kind))
     normalized = validate_rows(r for r in rows if r is not None)
     if {(r["geo_id"], r["metric_id"]) for r in normalized} != {
             (geo, metric) for geo in GEOGRAPHIES.values()}:
