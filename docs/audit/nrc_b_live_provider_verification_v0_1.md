@@ -55,15 +55,21 @@ validated two-row geography/measure header. It selects only `Total` under United
 Northeast, Midwest, South, and West. It does not select unit-structure columns.
 
 The first workbook parser iteration incorrectly expected separate `Year` and `Month`
-columns. A local probe of both live files established the actual contract: the first
-header row begins with `Month` and contains the five geography labels, the immediately
-following row contains each corresponding `Total`, and the data rows store monthly dates
-in column A as Excel serials with a date cell style. The corrected parser requires that
-layout, validates the style through `styles.xml`, requires the workbook's Excel 1900 date
-system and integer first-of-month values, and applies Excel's conventional fictitious
-1900-02-29 offset before normalizing to canonical month-end. Missing `Month`, missing
-`Total`, unstyled/arbitrary numeric dates, fractional serials, serial 60, or non-first-day
-dates fail closed.
+columns. Its replacement then crossed the wrong abstraction boundary by interpreting
+relationships, shared strings, merges, styles, date formats, serial dates, and workbook
+epochs itself; this caused a second live-only failure on the real style index. These were
+parser implementation defects, not Census semantic-contract drift. A local probe of both
+live files established the stable contract: the first header row begins with `Month` and
+contains the five geography labels, the immediately following row contains each
+corresponding `Total`, and the provider month cells deserialize as dates.
+
+The corrected boundary uses `openpyxl.load_workbook(BytesIO(payload), read_only=True,
+data_only=True)` solely for generic XLSX deserialization. NRC-B still strictly owns all
+provider semantics: exact sheets, title, unit, SAAR declaration, header identities,
+selected Total columns, values, and applicability. Month cells must emerge from openpyxl
+as actual `date`/`datetime` values on day one; strings, arbitrary numerics, missing
+`Month`/`Total` headers, and non-first-day dates fail closed before canonical month-end
+normalization.
 
 The URLs and filenames are mutable current-history surfaces, not immutable release IDs.
 Exact response bytes are verification inputs and future pinned input members. HTTP

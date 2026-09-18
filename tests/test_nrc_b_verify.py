@@ -1,9 +1,6 @@
 import io
-import json
-import zipfile
-from datetime import date
+from datetime import datetime
 from decimal import Decimal
-from xml.sax.saxutils import escape
 
 import pytest
 
@@ -12,7 +9,7 @@ from scripts.nrc_b_verify import (
     canonical_hash, census_response_diagnostic, compare, main, month_end,
     geography_reconciliation,
     parse_census_response, parse_census_workbook, parse_fred_csv, parse_number,
-    validate_rows, _excel_1900_date, _provider_summary,
+    validate_rows, _provider_summary,
 )
 
 
@@ -22,77 +19,40 @@ def row(geo="us_nation", metric=STARTS, period="2026-01", value="1500"):
             "provider": "fixture", "native_id": "x"}
 
 
-def excel_serial(day):
-    serial = (day - date(1899, 12, 31)).days
-    return serial + (1 if day >= date(1900, 3, 1) else 0)
-
-
 def workbook(kind="starts", *, saar=True, units=True, headers=True,
              duplicate=False, unavailable=False, month_header=True,
-             valid_date_style=True, invalid_date_value=False):
+             date_value=None, sheet_names=None):
+    from openpyxl import Workbook
+
+    book = Workbook()
+    book.remove(book.active)
+    names = sheet_names or [
+        "Annual", "Not Seasonally Adjusted", "Seasonally Adjusted", "Seasonal Factors"]
+    for name in names:
+        book.create_sheet(name)
+    if "Seasonally Adjusted" not in book.sheetnames:
+        output = io.BytesIO(); book.save(output); book.close(); return output.getvalue()
+    sheet = book["Seasonally Adjusted"]
     title = ("New Privately-Owned Housing Units Started" if kind == "starts" else
              "New Privately-Owned Housing Units Completed")
-    values = [
-        [title],
-        ["Seasonally adjusted annual rate" if saar else "Monthly values"],
-        ["Thousands of units. Detail may not add to total because of rounding."
-         if units else "Individual units"],
-        [],
-        ["Month" if month_header else "Period", "United States", "Northeast", "Midwest", "South", "West"],
-        [None, "Total", "Total", "Total", "Total", "Total"],
-        ["not-a-serial" if invalid_date_value else str(excel_serial(date(2026, 1, 1))),
-         "1500", "100", "200", "700", "500"],
-        [str(excel_serial(date(2026, 2, 1))), "1501", "101", "201", "701", "498"],
-    ]
-    if unavailable:
-        values[6][2] = "(X)"
+    sheet.append([title])
+    sheet.append(["Seasonally adjusted annual rate" if saar else "Monthly values"])
+    sheet.append(["Thousands of units. Detail may not add to total because of rounding."
+                  if units else "Individual units"])
+    sheet.append([])
+    sheet.append(["Month" if month_header else "Period", "United States",
+                  "Northeast", "Midwest", "South", "West"])
+    sheet.append([None, "Total", "Total", "Total", "Total", "Total"])
+    first_date = datetime(2026, 1, 1) if date_value is None else date_value
+    sheet.append([first_date, 1500, "(X)" if unavailable else 100, 200, 700, 500])
+    sheet.append([datetime(2026, 2, 1), 1501, 101, 201, 701, 498])
     if duplicate:
-        values.append(list(values[6]))
+        sheet.append([first_date, 1500, 100, 200, 700, 500])
     if not headers:
-        values[5][1] = "All units"
-
-    def cell(ref, value, style=None):
-        if value is None or value == "": return ""
-        style_attr = f' s="{style}"' if style is not None else ""
-        if str(value).replace(".", "", 1).isdigit():
-            return f'<c r="{ref}"{style_attr}><v>{value}</v></c>'
-        return f'<c r="{ref}"{style_attr} t="inlineStr"><is><t>{escape(str(value))}</t></is></c>'
-
-    def sheet(rows):
-        xmlrows = []
-        for rnum, vals in enumerate(rows, 1):
-            cells = []
-            for col, val in enumerate(vals):
-                name = ""
-                n = col + 1
-                while n:
-                    n, rem = divmod(n - 1, 26); name = chr(65 + rem) + name
-                style = (1 if valid_date_style else 0) if rnum >= 7 and col == 0 else None
-                cells.append(cell(f"{name}{rnum}", val, style))
-            xmlrows.append(f'<row r="{rnum}">{"".join(cells)}</row>')
-        return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-                f'<sheetData>{"".join(xmlrows)}</sheetData></worksheet>')
-
-    names = ["Annual", "Not Seasonally Adjusted", "Seasonally Adjusted", "Seasonal Factors"]
-    wb_sheets = "".join(f'<sheet name="{n}" sheetId="{i}" r:id="rId{i}"/>'
-                        for i, n in enumerate(names, 1))
-    rels = "".join(f'<Relationship Id="rId{i}" Type="x" Target="worksheets/sheet{i}.xml"/>'
-                   for i in range(1, 5))
+        sheet.cell(6, 2).value = "All units"
     output = io.BytesIO()
-    with zipfile.ZipFile(output, "w") as archive:
-        archive.writestr("[Content_Types].xml", "<Types/>")
-        archive.writestr("xl/workbook.xml",
-            '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-            f'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>{wb_sheets}</sheets></workbook>')
-        archive.writestr("xl/_rels/workbook.xml.rels",
-            '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-            f'{rels}</Relationships>')
-        archive.writestr("xl/styles.xml",
-            '<?xml version="1.0"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-            '<cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs></styleSheet>')
-        for i in range(1, 5):
-            archive.writestr(f"xl/worksheets/sheet{i}.xml", sheet(values if i == 3 else []))
+    book.save(output)
+    book.close()
     return output.getvalue()
 
 
@@ -147,18 +107,20 @@ def test_real_month_header_is_required():
         parse_census_workbook(workbook(month_header=False), "starts")
 
 
-def test_month_date_requires_excel_date_style_and_valid_serial():
-    with pytest.raises(ProviderContractError, match="date style"):
-        parse_census_workbook(workbook(valid_date_style=False), "starts")
-    with pytest.raises(ProviderContractError, match="date serial"):
-        parse_census_workbook(workbook(invalid_date_value=True), "starts")
+@pytest.mark.parametrize("bad_date", ["2026-01-01", 46023])
+def test_month_date_must_deserialize_as_date_or_datetime(bad_date):
+    with pytest.raises(ProviderContractError, match="openpyxl date/datetime"):
+        parse_census_workbook(workbook(date_value=bad_date), "starts")
 
 
-def test_excel_1900_date_conversion_applies_leap_year_offset():
-    assert _excel_1900_date("59", 1, {1}) == date(1900, 2, 28)
-    assert _excel_1900_date("61", 1, {1}) == date(1900, 3, 1)
-    with pytest.raises(ProviderContractError, match="1900 date serial"):
-        _excel_1900_date("60", 1, {1})
+def test_month_date_must_be_first_day():
+    with pytest.raises(ProviderContractError, match="first-of-month"):
+        parse_census_workbook(workbook(date_value=datetime(2026, 1, 2)), "starts")
+
+
+def test_exact_sheet_inventory_is_required():
+    with pytest.raises(ProviderContractError, match="sheets"):
+        parse_census_workbook(workbook(sheet_names=["Annual", "Seasonally Adjusted"]), "starts")
 
 
 def test_non_xlsx_diagnostic_is_bounded():

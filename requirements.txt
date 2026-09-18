@@ -8,6 +8,7 @@ pyyaml
 altair
 plotly>=5.18,<7
 pyarrow>=14
+openpyxl>=3.1,<4
 
 statsmodels
 numpy
