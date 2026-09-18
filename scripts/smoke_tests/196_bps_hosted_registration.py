@@ -63,8 +63,8 @@ assert {r["source_id"] for r in records} == {"census_bps", "census_bps_provision
 assert records[0]["provider_release_id"] != records[1]["provider_release_id"]
 registry = json.loads(Path("config/monthly_source_execution_registry.json").read_text())
 required = required_sources(registry)
-assert required[-2:] == ("census_bps", "census_bps_provisional")
-base = [result(source, cycle, "other") for source in required[:-2]]
+assert required[4:6] == ("census_bps", "census_bps_provisional")
+base = [result(source, cycle, "other") for source in required if source not in {"census_bps", "census_bps_provisional"}]
 one = resume_plan(required, [*base, result("census_bps", cycle, "compiled-release")], expected_cycle_id=cycle)
 assert one["run"] == ["census_bps_provisional"]
 both = resume_plan(required, [*base, result("census_bps", cycle, "compiled-release"),

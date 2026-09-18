@@ -30,7 +30,8 @@ def required_sources(policy: dict[str, Any] | None = None) -> tuple[str, ...]:
 
 # Compatibility export for source-specific smoke/tooling. Runtime paths resolve
 # membership from policy rather than this value.
-REQUIRED_SOURCES = ("redfin", "fred_macro", "ces", "laus", "census_bps", "census_bps_provisional")
+REQUIRED_SOURCES = ("redfin", "fred_macro", "ces", "laus", "census_bps",
+                    "census_bps_provisional", "bea_gdp_qtr", "bea_gdp_ann")
 PIN_FIELDS = ("candidate_artifact_id", "artifact_content_hash", "package_sha256",
               "publication_state", "provider_release_id")
 RESULT_REGISTRY_VERSION = "monthly_source_cycle_results_v1"
@@ -89,7 +90,10 @@ def durable_automated_results(*, cycle: dict[str, Any], catalog: dict[str, Any],
     if policy.get("source_execution_result_schema") != RESULT_CONTRACT:
         raise ValueError("source result contract is not compatible with durable pins")
     required = set(required_sources(policy))
-    automated = {s["source_id"] for s in policy["sources"] if s.get("acquisition_mode") == "automated"}
+    # Hosted execution membership is governed by the execution registry.  The
+    # stable refresh policy remains part of cycle identity and deliberately is
+    # not rewritten as sources join the hosted barrier.
+    automated = required - {"redfin"}
     resolved = []
     records = [r for r in registry.get("records", []) if r.get("cycle_id") == cycle["cycle_id"]]
     if len({r.get("source_id") for r in records}) != len(records):
