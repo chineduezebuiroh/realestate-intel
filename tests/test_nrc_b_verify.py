@@ -21,7 +21,8 @@ def row(geo="us_nation", metric=STARTS, period="2026-01", value="1500"):
 
 def workbook(kind="starts", *, saar=True, units=True, headers=True,
              duplicate=False, unavailable=False, month_header=True,
-             date_value=None, sheet_names=None):
+             date_value=None, sheet_names=None, leading_month=None,
+             footer_rows=None, all_missing=False):
     from openpyxl import Workbook
 
     book = Workbook()
@@ -43,13 +44,19 @@ def workbook(kind="starts", *, saar=True, units=True, headers=True,
     sheet.append(["Month" if month_header else "Period", "United States",
                   "Northeast", "Midwest", "South", "West"])
     sheet.append([None, "Total", "Total", "Total", "Total", "Total"])
+    if leading_month is not None:
+        sheet.append([leading_month])
     first_date = datetime(2026, 1, 1) if date_value is None else date_value
-    sheet.append([first_date, 1500, "(X)" if unavailable else 100, 200, 700, 500])
+    first_values = (["(X)"] * 5 if all_missing else
+                    [1500, "(X)" if unavailable else 100, 200, 700, 500])
+    sheet.append([first_date, *first_values])
     sheet.append([datetime(2026, 2, 1), 1501, 101, 201, 701, 498])
     if duplicate:
         sheet.append([first_date, 1500, 100, 200, 700, 500])
     if not headers:
         sheet.cell(6, 2).value = "All units"
+    for footer in footer_rows or []:
+        sheet.append(footer)
     output = io.BytesIO()
     book.save(output)
     book.close()
@@ -121,6 +128,36 @@ def test_month_date_must_be_first_day():
 def test_exact_sheet_inventory_is_required():
     with pytest.raises(ProviderContractError, match="sheets"):
         parse_census_workbook(workbook(sheet_names=["Annual", "Seasonally Adjusted"]), "starts")
+
+
+@pytest.mark.parametrize("footer", [["Footnotes:"], ["arbitrary provider footer"]])
+def test_non_date_footer_terminates_observation_block(footer):
+    rows, _ = parse_census_workbook(workbook(footer_rows=[footer]), "starts")
+    assert len(rows) == 10
+
+
+def test_blank_then_footer_terminates_observation_block():
+    rows, _ = parse_census_workbook(
+        workbook(footer_rows=[[None], ["notes after blank row"]]), "starts")
+    assert len(rows) == 10
+
+
+def test_date_after_footer_fails_contiguous_block_contract():
+    with pytest.raises(ProviderContractError, match="not one contiguous block"):
+        parse_census_workbook(workbook(footer_rows=[
+            ["notes"], [datetime(2026, 3, 1), 1502, 102, 202, 702, 496]]), "starts")
+
+
+def test_missing_metrics_on_dated_row_do_not_terminate_block():
+    rows, contract = parse_census_workbook(workbook(all_missing=True), "starts")
+    assert len(rows) == 5
+    assert contract["unavailable_cell_count_by_geography"] == {
+        "Midwest": 1, "Northeast": 1, "South": 1, "United States": 1, "West": 1}
+
+
+def test_non_date_before_first_observation_fails_closed():
+    with pytest.raises(ProviderContractError, match="begins with a non-date"):
+        parse_census_workbook(workbook(leading_month="unexpected structural row"), "starts")
 
 
 def test_non_xlsx_diagnostic_is_bounded():

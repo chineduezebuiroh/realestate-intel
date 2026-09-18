@@ -215,13 +215,24 @@ def parse_census_workbook(payload: bytes, kind: str
         raise ProviderContractError("Census workbook two-row geography/Total header not found")
     header_row, month_col, columns = header
     rows, unavailable = [], Counter()
+    observation_started = False
+    observation_terminated = False
     for source in matrix[header_row + 1:]:
         month_value = source[month_col] if month_col < len(source) else None
-        if month_value in (None, ""):
-            continue
         if not isinstance(month_value, (date, datetime)):
+            if not observation_started:
+                if month_value in (None, ""):
+                    continue
+                raise ProviderContractError(
+                    "Census monthly observation block begins with a non-date Month cell: "
+                    f"{month_value!r}")
+            observation_terminated = True
+            continue
+        if observation_terminated:
             raise ProviderContractError(
-                f"Census Month cell is not an openpyxl date/datetime: {month_value!r}")
+                "Census monthly observations are not one contiguous block; "
+                f"found date after footer: {month_value!r}")
+        observation_started = True
         observed = month_value
         if observed.day != 1:
             raise ProviderContractError(

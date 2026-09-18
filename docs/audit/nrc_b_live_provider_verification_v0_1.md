@@ -71,6 +71,14 @@ as actual `date`/`datetime` values on day one; strings, arbitrary numerics, miss
 `Month`/`Total` headers, and non-first-day dates fail closed before canonical month-end
 normalization.
 
+After the validated two-row header, observations must form one contiguous monthly data
+block. Blank rows may precede its first dated observation, but any other non-date Month
+cell before the block fails closed. Once at least one observation has been parsed, the
+first non-date Month cell terminates the table without coupling the parser to particular
+footer wording. All remaining rows are still checked: any later date is fatal because it
+would prove an interrupted/non-contiguous series. Missing metric cells on a valid dated
+row remain provider-unavailable observations and do not terminate the block.
+
 The URLs and filenames are mutable current-history surfaces, not immutable release IDs.
 Exact response bytes are verification inputs and future pinned input members. HTTP
 status, requested/final URL, content type, length, retrieval time, raw SHA-256, and a
