@@ -1,10 +1,13 @@
+import json
 from decimal import Decimal
 
 import pytest
 
 from scripts.nrc_b_verify import (
-    COMPLETIONS, GEOGRAPHIES, METRICS, STARTS, canonical_hash, compare,
-    month_end, parse_census_json, parse_fred_csv, parse_number, validate_rows,
+    COMPLETIONS, GEOGRAPHIES, METRICS, ProviderContractError, STARTS,
+    canonical_hash, census_response_diagnostic, compare, month_end,
+    main, parse_census_json, parse_census_response, parse_fred_csv, parse_number,
+    validate_rows,
 )
 
 
@@ -49,6 +52,51 @@ def test_census_parser_geography_mapping_and_schema():
         (geo, metric) for geo in GEOGRAPHIES.values() for metric in METRICS}
     with pytest.raises(ValueError, match="schema"):
         parse_census_json('[["cell_value"],["1"]]')
+
+
+def test_census_response_rejects_non_json_with_transport_diagnostic():
+    body = b"<html><title>invalid query</title>" + b"x" * 500
+    metadata = {"status": 200, "content_type": "text/html",
+                "requested_url": "https://example.test/request",
+                "final_url": "https://example.test/error"}
+    diagnostic = census_response_diagnostic(body, metadata)
+    assert diagnostic["response_byte_length"] == len(body)
+    assert len(diagnostic["raw_sha256"]) == 64
+    assert len(diagnostic["body_prefix"].encode()) <= 256
+    with pytest.raises(ProviderContractError, match=r"non-JSON.*status=200.*text/html.*invalid query"):
+        parse_census_response(body, metadata)
+
+
+def test_census_response_rejects_wrong_content_type_even_for_json_body():
+    with pytest.raises(ProviderContractError, match="non-JSON"):
+        parse_census_response(b'[["cell_value"]]',
+                              {"status": 200, "content_type": "text/plain"})
+
+
+def test_main_persists_and_hashes_raw_census_response_before_parse(tmp_path, monkeypatch):
+    body = b"upstream error page"
+    monkeypatch.setattr("scripts.nrc_b_verify._get", lambda url: (
+        body, {"requested_url": url, "final_url": url, "status": 200,
+               "content_type": "text/plain"}))
+    workspace = tmp_path / "evidence"
+    rc = main(["--legacy-db", "data/market_serving.duckdb", "--workspace",
+               str(workspace), "--skip-fred"])
+    assert rc == 2
+    assert (workspace / "raw/census_resconst.json").read_bytes() == body
+    report = json.loads((workspace / "nrc_b_verification.json").read_text())
+    transport = report["providers"]["census"]["transport"]
+    assert transport["response_byte_length"] == len(body)
+    assert len(transport["raw_sha256"]) == 64
+
+
+def test_census_selectors_are_exact_not_substring_aliases():
+    header = ["cell_value", "time", "category_code", "seasonally_adj", "region_code"]
+    with pytest.raises(ValueError, match="category code"):
+        parse_census_json(__import__("json").dumps(
+            [header, ["1", "2026-01", "HOUSING_STARTS", "yes", "0"]]))
+    with pytest.raises(ValueError, match="region code"):
+        parse_census_json(__import__("json").dumps(
+            [header, ["1", "2026-01", "STARTS", "yes", "US"]]))
 
 
 def test_hashes_deterministic_and_inventory_excludes_value():

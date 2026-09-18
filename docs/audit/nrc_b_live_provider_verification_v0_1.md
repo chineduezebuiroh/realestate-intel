@@ -13,6 +13,15 @@ NRC-A disposition B remains **provisional**. The final physical source dispositi
 frozen until one successful local run validates the direct route, all ten identities, and
 both parity joins.
 
+The first local run of PR #248 reached Census at the HTTP layer but failed with a bare
+`JSONDecodeError` at byte zero for the candidate EITS query. That proves only that its
+body was not valid JSON. The old verifier did not retain the status, content type, final
+URL, byte count, hash, or prefix needed to distinguish an API error, HTML, an empty body,
+or an intermediary response, so the exact upstream cause cannot honestly be reconstructed
+from that run. The verifier now persists raw bytes before parsing and records those
+bounded diagnostics; the next local run will establish the root cause without printing
+an unbounded provider response.
+
 ## 2. NRC-A entry gates and locally reverified facts
 
 The base was `d67922a9` on the platform-created `work` branch, matching the requested
@@ -37,25 +46,34 @@ GET https://api.census.gov/data/timeseries/eits/resconst
     &time=from+1959-01
 ```
 
-The product/dataset identity is `timeseries/eits/resconst` (New Residential
+The product/dataset identity under investigation is `timeseries/eits/resconst` (New Residential
 Construction). The verifier expects a Census JSON array whose first row is a header and
 requires `cell_value`, `time`, `category_code`, `seasonally_adj`, and `region_code`.
 It selects only seasonally adjusted categories unambiguously identifying starts or
 completions and rejects unknown region codes. Missing tokens are not observations;
 unknown nonnumeric values fail closed.
 
+The prior local failure means this request is **not a corrected or frozen acquisition
+contract**. Hosted access cannot reach Census, so first-party live metadata could not be
+captured here. Candidate exact selector mappings are `category_code=STARTS` and
+`category_code=COMPLETIONS`, with candidate region codes `0`, `1`, `2`, `3`, and `4` for
+United States, Northeast, Midwest, South, and West. The parser now compares only those
+exact strings: substring matching and speculative aliases were removed. These codes
+remain explicitly unproven, and any different live value fails closed.
+
 **Not yet live-verified:** exact returned category/data-type codes, whether the query
 requires narrower selectors, actual content type/schema, full-history coverage, latest
 period, provider labels, response metadata, sentinel vocabulary, release markers,
 whether all ten series arrive in one response, and whether the current endpoint's URL or
-bytes are stable. The exact query is therefore a verifier candidate, not yet a frozen
+bytes are stable. The exact query is therefore a failed/unresolved verifier candidate, not yet a frozen
 production acquisition contract. A local schema failure is useful evidence and must be
 resolved by inspecting Census `variables.json`/first-party documentation, not by
 loosening validation or guessing.
 
-The historical-data page and downloadable tables remain alternate first-party surfaces
+The historical-data page and downloadable `starts_cust`/`completions_cust` workbooks remain alternate first-party surfaces
 to evaluate if the EITS response cannot provide the exact ten governed series. HTML
-scraping is not an acceptable fallback. No evidence yet establishes an immutable Census
+scraping is not an acceptable fallback. Their exact filenames, schema, and historical
+stability were not live-proven and are not substituted on guesswork. No evidence yet establishes an immutable Census
 vintage or old-release address.
 
 ## 4. Metric contract
@@ -226,7 +244,7 @@ PYTHONPATH=. pytest -q tests/test_nrc_b_verify.py
 python -m py_compile scripts/nrc_b_verify.py
 ```
 
-The live command is expected to write only beneath the new artifact directory and returns
+Use a new or empty workspace for the corrective rerun. The live command writes only beneath the artifact directory and returns
 nonzero with an `INCOMPLETE` report if any provider, schema, applicability, or legacy gate
 fails. For deterministic re-parsing after a successful download, preserve the workspace
 and add `--offline`. Remaining blocker: supply and review a successful local live report;

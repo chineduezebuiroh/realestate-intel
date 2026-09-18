@@ -12,9 +12,9 @@ import csv
 import hashlib
 import io
 import json
-import math
 import urllib.parse
 import urllib.request
+import urllib.error
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -44,14 +44,20 @@ FRED_SERIES = {
 }
 # Candidate EITS route. Its variables and selectors are intentionally validated
 # against the returned metadata rather than trusted as an undocumented constant.
-CENSUS_URL = (
-    "https://api.census.gov/data/timeseries/eits/resconst?"
-    "get=cell_value,data_type_code,time_slot_id,category_code,seasonally_adj,"
-    "region_code&time=from+1959-01"
-)
+CENSUS_BASE_URL = "https://api.census.gov/data/timeseries/eits/resconst"
+CENSUS_QUERY = {
+    "get": "cell_value,data_type_code,time_slot_id,category_code,seasonally_adj,region_code",
+    "time": "from 1959-01",
+}
+CENSUS_URL = CENSUS_BASE_URL + "?" + urllib.parse.urlencode(CENSUS_QUERY)
 FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
 MISSING = {"", ".", "NA", "N/A", "NULL", "null", "(X)", "S", "Z"}
 KEY_FIELDS = ("geo_id", "metric_id", "date", "property_type_id")
+BODY_PREFIX_BYTES = 256
+
+
+class ProviderContractError(ValueError):
+    """A provider response does not satisfy the frozen parser contract."""
 
 
 def month_end(value: str | date | datetime) -> str:
@@ -130,12 +136,40 @@ def parse_fred_csv(text: str, series: str) -> list[dict[str, Any]]:
     return rows
 
 
+def census_response_diagnostic(body: bytes, metadata: dict[str, Any]) -> dict[str, Any]:
+    """Return bounded, JSON-serializable transport evidence for any response."""
+    return {**metadata, "response_byte_length": len(body),
+            "raw_sha256": hashlib.sha256(body).hexdigest(),
+            "body_prefix": body[:BODY_PREFIX_BYTES].decode("utf-8", errors="replace")}
+
+
+def parse_census_response(payload: bytes, metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    """Validate transport shape before invoking the Census JSON parser."""
+    evidence = census_response_diagnostic(payload, metadata)
+    content_type = str(metadata.get("content_type") or "").lower()
+    stripped = payload.lstrip()
+    if "json" not in content_type or not stripped.startswith(b"["):
+        raise ProviderContractError(
+            "Census acquisition returned non-JSON response: "
+            f"status={metadata.get('status')} content_type={metadata.get('content_type')!r} "
+            f"body_prefix={evidence['body_prefix']!r}"
+        )
+    try:
+        return parse_census_json(payload)
+    except json.JSONDecodeError as exc:
+        raise ProviderContractError(
+            "Census acquisition returned invalid JSON: "
+            f"status={metadata.get('status')} content_type={metadata.get('content_type')!r} "
+            f"body_prefix={evidence['body_prefix']!r}"
+        ) from exc
+
+
 def parse_census_json(payload: bytes | str) -> list[dict[str, Any]]:
     """Parse the EITS response, failing closed on schema or selector drift.
 
-    Census category values are accepted only when they unambiguously contain
-    START and COMPLETE. Region aliases reflect the provider's documented labels;
-    unknown codes are rejected rather than guessed.
+    Selectors are exact. They remain an acquisition-contract gate until a live
+    metadata capture confirms the EITS endpoint; no label substring inference is
+    permitted.
     """
     data = json.loads(payload)
     if not isinstance(data, list) or len(data) < 2 or not isinstance(data[0], list):
@@ -145,26 +179,21 @@ def parse_census_json(payload: bytes | str) -> list[dict[str, Any]]:
     if not required.issubset(header):
         raise ValueError(f"unexpected Census schema; missing {sorted(required-set(header))}")
     records = [dict(zip(header, record, strict=True)) for record in data[1:]]
-    region_alias = {
-        "0": "US", "00": "US", "US": "US", "UNITED STATES": "US",
-        "1": "NE", "NE": "NE", "NORTHEAST": "NE",
-        "2": "MW", "MW": "MW", "MIDWEST": "MW",
-        "3": "S", "S": "S", "SOUTH": "S",
-        "4": "W", "W": "W", "WEST": "W",
-    }
+    category_to_metric = {"STARTS": STARTS, "COMPLETIONS": COMPLETIONS}
+    region_to_geo = {"0": "US", "1": "NE", "2": "MW", "3": "S", "4": "W"}
     rows = []
     for item in records:
         seasonal = str(item["seasonally_adj"]).strip().upper()
         if seasonal not in {"YES", "Y", "SA", "1"}:
             continue
         category = str(item["category_code"]).strip().upper()
-        metric = COMPLETIONS if "COMPLET" in category else STARTS if "START" in category else None
+        metric = category_to_metric.get(category)
         if metric is None:
-            continue
+            raise ValueError(f"unexpected Census category code: {category!r}")
         region_raw = str(item["region_code"]).strip().upper()
-        if region_raw not in region_alias:
+        if region_raw not in region_to_geo:
             raise ValueError(f"unexpected Census region code: {region_raw!r}")
-        row = _row(region_alias[region_raw], metric, item["time"], item["cell_value"],
+        row = _row(region_to_geo[region_raw], metric, item["time"], item["cell_value"],
                    "census", category)
         if row:
             rows.append(row)
@@ -256,9 +285,16 @@ def legacy_inventory(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
 def _get(url: str) -> tuple[bytes, dict[str, Any]]:
     request = urllib.request.Request(url, headers={"User-Agent": "realestate-intel-nrc-b/0.1"})
-    with urllib.request.urlopen(request, timeout=60) as response:
+    try:
+        response = urllib.request.urlopen(request, timeout=60)
+    except urllib.error.HTTPError as response:
+        # HTTP errors are still provider responses. Preserve their bytes and
+        # transport evidence so contract failures are diagnosable offline.
+        pass
+    with response:
         body = response.read()
-        metadata = {"url": response.geturl(), "status": response.status,
+        metadata = {"requested_url": url, "final_url": response.geturl(),
+                    "status": response.status,
                     "content_type": response.headers.get("Content-Type"),
                     "etag": response.headers.get("ETag"),
                     "last_modified": response.headers.get("Last-Modified")}
@@ -301,12 +337,15 @@ def main(argv: list[str] | None = None) -> int:
         try:
             target = rawdir / "census_resconst.json"
             if args.offline:
-                body, transport = target.read_bytes(), {"url": args.census_url, "offline": True}
+                body, transport = target.read_bytes(), {"requested_url": args.census_url,
+                    "final_url": args.census_url, "status": 200,
+                    "content_type": "application/json", "offline": True}
             else:
                 body, transport = _get(args.census_url); target.write_bytes(body)
-            census_rows = parse_census_json(body)
-            report["providers"]["census"] = {"transport": transport,
-                "raw_sha256": hashlib.sha256(body).hexdigest(), **_provider_summary(census_rows)}
+            diagnostic = census_response_diagnostic(body, transport)
+            report["providers"]["census"] = {"transport": diagnostic}
+            census_rows = parse_census_response(body, transport)
+            report["providers"]["census"].update(_provider_summary(census_rows))
         except Exception as exc:  # boundary records provider/fixture failure in report
             report["errors"].append({"stage": "census", "error": f"{type(exc).__name__}: {exc}"})
     if not args.skip_fred:
