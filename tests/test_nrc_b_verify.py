@@ -116,7 +116,7 @@ def test_real_month_header_is_required():
 
 @pytest.mark.parametrize("bad_date", ["2026-01-01", 46023])
 def test_month_date_must_deserialize_as_date_or_datetime(bad_date):
-    with pytest.raises(ProviderContractError, match="openpyxl date/datetime"):
+    with pytest.raises(ProviderContractError, match="non-date Month cell"):
         parse_census_workbook(workbook(date_value=bad_date), "starts")
 
 
