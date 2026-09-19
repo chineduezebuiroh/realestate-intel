@@ -19,24 +19,16 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Iterable
+from sources.census_nrc.parser import (CENSUS_INPUTS, COMPLETIONS, GEOGRAPHIES, KEY_FIELDS,
+    METRICS, SOURCE_ID, STARTS, ProviderContractError, _row, canonical_hash,
+    month_end, parse_census_workbook, parse_number, validate_rows)
 from zipfile import BadZipFile
 
 import duckdb
 import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
-SOURCE_ID = "census_nrc"
 LEGACY_SOURCE_ID = "census_nrc_fred"
-STARTS = "census_housing_starts_total_saar"
-COMPLETIONS = "census_housing_completions_total_saar"
-METRICS = (STARTS, COMPLETIONS)
-GEOGRAPHIES = {
-    "US": "us_nation",
-    "NE": "us_region_northeast",
-    "MW": "us_region_midwest",
-    "S": "us_region_south",
-    "W": "us_region_west",
-}
 FRED_SERIES = {
     "HOUST": ("US", STARTS), "HOUSTNE": ("NE", STARTS),
     "HOUSTMW": ("MW", STARTS), "HOUSTS": ("S", STARTS),
@@ -44,78 +36,9 @@ FRED_SERIES = {
     "COMPUNETSA": ("NE", COMPLETIONS), "COMPUMWTSA": ("MW", COMPLETIONS),
     "COMPUSTSA": ("S", COMPLETIONS), "COMPUWTSA": ("W", COMPLETIONS),
 }
-CENSUS_INPUTS = {
-    "starts": ("https://www.census.gov/construction/nrc/xls/starts_cust.xlsx", STARTS),
-    "completions": ("https://www.census.gov/construction/nrc/xls/comps_cust.xlsx", COMPLETIONS),
-}
 FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
 MISSING = {"", ".", "...", "-", "--", "NA", "N/A", "(NA)", "NULL", "null", "(X)", "S", "Z"}
-KEY_FIELDS = ("geo_id", "metric_id", "date", "property_type_id")
 BODY_PREFIX_BYTES = 256
-
-
-class ProviderContractError(ValueError):
-    """A provider response does not satisfy the frozen parser contract."""
-
-
-def month_end(value: str | date | datetime) -> str:
-    """Return a canonical ISO calendar month-end from any date/month label."""
-    if isinstance(value, (date, datetime)):
-        year, month = value.year, value.month
-    else:
-        text = str(value).strip()
-        for fmt in ("%Y-%m-%d", "%Y-%m", "%B %Y", "%b %Y"):
-            try:
-                parsed = datetime.strptime(text, fmt)
-                year, month = parsed.year, parsed.month
-                break
-            except ValueError:
-                pass
-        else:
-            raise ValueError(f"invalid monthly period: {value!r}")
-    return f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
-
-
-def parse_number(value: Any) -> Decimal | None:
-    text = "" if value is None else str(value).strip()
-    if text in MISSING:
-        return None
-    try:
-        number = Decimal(text.replace(",", ""))
-    except InvalidOperation as exc:
-        raise ValueError(f"unexpected nonnumeric value: {value!r}") from exc
-    if not number.is_finite():
-        raise ValueError(f"non-finite value: {value!r}")
-    return number
-
-
-def _row(geo_code: str, metric: str, period: Any, value: Any, provider: str,
-         native_id: str) -> dict[str, Any] | None:
-    if geo_code not in GEOGRAPHIES or metric not in METRICS:
-        raise ValueError(f"unexpected NRC identity: {geo_code}/{metric}")
-    number = parse_number(value)
-    if number is None:
-        return None
-    return {"geo_id": GEOGRAPHIES[geo_code], "metric_id": metric,
-            "date": month_end(period), "property_type_id": "all",
-            "property_type": "all", "value": str(number), "provider": provider,
-            "native_id": native_id}
-
-
-def validate_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    result = sorted(rows, key=lambda x: tuple(str(x[k]) for k in KEY_FIELDS))
-    seen: set[tuple[str, ...]] = set()
-    for row in result:
-        key = tuple(str(row[k]) for k in KEY_FIELDS)
-        if key in seen:
-            raise ValueError(f"duplicate normalized key: {key}")
-        seen.add(key)
-    pairs = {(r["geo_id"], r["metric_id"]) for r in result}
-    allowed = {(g, m) for g in GEOGRAPHIES.values() for m in METRICS}
-    extra = pairs - allowed
-    if extra:
-        raise ValueError(f"unexpected applicability pairs: {sorted(extra)}")
-    return result
 
 
 def parse_fred_csv(text: str, series: str) -> list[dict[str, Any]]:
@@ -126,16 +49,13 @@ def parse_fred_csv(text: str, series: str) -> list[dict[str, Any]]:
         raise ValueError(f"unexpected FRED schema for {series}: {reader.fieldnames}")
     date_field = reader.fieldnames[0]
     geo, metric = FRED_SERIES[series]
-    rows = []
-    for item in reader:
-        row = _row(geo, metric, item[date_field], item[series], "fred", series)
-        if row:
-            rows.append(row)
-    return rows
+    return [row for item in reader
+            if (row := _row(geo, metric, item[date_field],
+                            None if str(item[series]).strip() in MISSING else item[series],
+                            "fred", series))]
 
 
 def census_response_diagnostic(body: bytes, metadata: dict[str, Any]) -> dict[str, Any]:
-    """Return bounded, JSON-serializable transport evidence for any response."""
     return {**metadata, "response_byte_length": len(body),
             "raw_sha256": hashlib.sha256(body).hexdigest(),
             "body_prefix": body[:BODY_PREFIX_BYTES].decode("utf-8", errors="replace")}
@@ -143,125 +63,14 @@ def census_response_diagnostic(body: bytes, metadata: dict[str, Any]) -> dict[st
 
 def parse_census_response(payload: bytes, metadata: dict[str, Any], kind: str
                           ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Validate XLSX transport shape before invoking the workbook parser."""
     evidence = census_response_diagnostic(payload, metadata)
     content_type = str(metadata.get("content_type") or "").lower()
-    compatible_type = ("spreadsheetml" in content_type or
-                       "application/octet-stream" in content_type)
-    if not compatible_type or not payload.startswith(b"PK"):
-        raise ProviderContractError(
-            "Census acquisition returned non-XLSX response: "
+    if not (("spreadsheetml" in content_type or "application/octet-stream" in content_type)
+            and payload.startswith(b"PK")):
+        raise ProviderContractError("Census acquisition returned non-XLSX response: "
             f"status={metadata.get('status')} content_type={metadata.get('content_type')!r} "
-            f"body_prefix={evidence['body_prefix']!r}"
-        )
+            f"body_prefix={evidence['body_prefix']!r}")
     return parse_census_workbook(payload, kind)
-
-
-def parse_census_workbook(payload: bytes, kind: str
-                           ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Parse and strictly validate a Census NRC historical-series workbook."""
-    if kind not in CENSUS_INPUTS:
-        raise ValueError(f"unexpected Census workbook kind: {kind}")
-    metric = CENSUS_INPUTS[kind][1]
-    try:
-        workbook = openpyxl.load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
-    except (InvalidFileException, OSError, ValueError, KeyError, BadZipFile) as exc:
-        raise ProviderContractError(f"Census workbook could not be decoded as XLSX: {exc}") from exc
-    try:
-        sheets = workbook.sheetnames
-        expected_sheets = ["Annual", "Not Seasonally Adjusted", "Seasonally Adjusted",
-                           "Seasonal Factors"]
-        if sheets != expected_sheets:
-            raise ProviderContractError(f"unexpected Census workbook sheets: {sheets}")
-        matrix = [list(row) for row in workbook["Seasonally Adjusted"].iter_rows(values_only=True)]
-    finally:
-        workbook.close()
-    text = "\n".join(str(v) for row in matrix[:30] for v in row if v is not None)
-    metric_phrase = ("housing units started" if kind == "starts" else "housing units completed")
-    if metric_phrase not in text.lower():
-        raise ProviderContractError(f"Census {kind} workbook title/metric identity not found")
-    if "seasonally adjusted annual rate" not in text.lower():
-        raise ProviderContractError("Census workbook lacks seasonally adjusted annual rate declaration")
-    if "thousands of units" not in text.lower():
-        raise ProviderContractError("Census workbook lacks thousands-of-units declaration")
-    provider_geos = {"United States": "US", "Northeast": "NE", "Midwest": "MW",
-                     "South": "S", "West": "W"}
-    header = None
-    for index in range(len(matrix) - 1):
-        upper, lower = matrix[index], matrix[index + 1]
-        if not upper or str(upper[0]).strip() != "Month":
-            continue
-        header_geographies = [str(value).strip() for value in upper[1:]
-                              if value not in (None, "")]
-        if (len(header_geographies) != len(provider_geos) or
-                set(header_geographies) != set(provider_geos)):
-            raise ProviderContractError(
-                f"unexpected Census governed geography headers: {header_geographies}")
-        columns = {}
-        current = None
-        for col in range(max(len(upper), len(lower))):
-            top = str(upper[col]).strip() if col < len(upper) and upper[col] is not None else ""
-            bottom = str(lower[col]).strip() if col < len(lower) and lower[col] is not None else ""
-            if top in provider_geos:
-                current = top
-            if current and bottom == "Total":
-                if current in columns:
-                    raise ProviderContractError(f"duplicate Census Total header: {current}")
-                columns[current] = col
-        if set(columns) == set(provider_geos):
-            header = (index + 1, 0, columns)
-            break
-    if header is None:
-        raise ProviderContractError("Census workbook two-row geography/Total header not found")
-    header_row, month_col, columns = header
-    rows, unavailable = [], Counter()
-    observation_started = False
-    observation_terminated = False
-    for source in matrix[header_row + 1:]:
-        month_value = source[month_col] if month_col < len(source) else None
-        if not isinstance(month_value, (date, datetime)):
-            if not observation_started:
-                if month_value in (None, ""):
-                    continue
-                raise ProviderContractError(
-                    "Census monthly observation block begins with a non-date Month cell: "
-                    f"{month_value!r}")
-            observation_terminated = True
-            continue
-        if observation_terminated:
-            raise ProviderContractError(
-                "Census monthly observations are not one contiguous block; "
-                f"found date after footer: {month_value!r}")
-        observation_started = True
-        observed = month_value
-        if observed.day != 1:
-            raise ProviderContractError(
-                f"Census Month value is not first-of-month: {observed.isoformat()}")
-        for label, col in columns.items():
-            raw = source[col] if col < len(source) else None
-            if parse_number(raw) is None:
-                unavailable[label] += 1
-                continue
-            rows.append(_row(provider_geos[label], metric, observed, raw, "census", kind))
-    normalized = validate_rows(r for r in rows if r is not None)
-    if {(r["geo_id"], r["metric_id"]) for r in normalized} != {
-            (geo, metric) for geo in GEOGRAPHIES.values()}:
-        raise ProviderContractError(f"Census {kind} workbook lacks one or more governed series")
-    return normalized, {"workbook_kind": kind, "sheet_names": sheets,
-                        "worksheet": "Seasonally Adjusted",
-                        "date_cell_contract": "openpyxl date/datetime; first day of month",
-                        "unit": "thousands_of_housing_units_saar",
-                        "unavailable_cell_count_by_geography": dict(sorted(unavailable.items()))}
-
-
-def canonical_hash(rows: Iterable[dict[str, Any]], inventory_only: bool = False) -> str:
-    material = []
-    for row in validate_rows(rows):
-        fields = [str(row[k]) for k in KEY_FIELDS]
-        if not inventory_only:
-            fields.append(str(Decimal(str(row["value"]))))
-        material.append("\x1f".join(fields))
-    return hashlib.sha256(("\n".join(material) + "\n").encode()).hexdigest()
 
 
 def compare(left: Iterable[dict[str, Any]], right: Iterable[dict[str, Any]],

@@ -22,7 +22,7 @@ def row(geo="us_nation", metric=STARTS, period="2026-01", value="1500"):
 def workbook(kind="starts", *, saar=True, units=True, headers=True,
              duplicate=False, unavailable=False, month_header=True,
              date_value=None, sheet_names=None, leading_month=None,
-             footer_rows=None, all_missing=False, unavailable_token="(X)"):
+             footer_rows=None, all_missing=False, unavailable_token="(NA)"):
     from openpyxl import Workbook
 
     book = Workbook()
@@ -47,7 +47,7 @@ def workbook(kind="starts", *, saar=True, units=True, headers=True,
     if leading_month is not None:
         sheet.append([leading_month])
     first_date = datetime(2026, 1, 1) if date_value is None else date_value
-    first_values = (["(X)"] * 5 if all_missing else
+    first_values = (["(NA)"] * 5 if all_missing else
                     [1500, unavailable_token if unavailable else 100, 200, 700, 500])
     sheet.append([first_date, *first_values])
     sheet.append([datetime(2026, 2, 1), 1501, 101, 201, 701, 498])
@@ -65,10 +65,10 @@ def workbook(kind="starts", *, saar=True, units=True, headers=True,
 
 def test_numeric_missing_and_no_rescaling():
     assert parse_number("1,500") == Decimal("1500")
-    assert parse_number(".") is None
-    assert parse_number("(X)") is None
+    assert parse_number("(NA)") is None
     assert row(value=str(parse_number("1500")))["value"] == "1500"
-    with pytest.raises(ValueError, match="nonnumeric"): parse_number("secret")
+    for token in (".", "(X)", "secret"):
+        with pytest.raises(ValueError, match="nonnumeric"): parse_number(token)
 
 
 @pytest.mark.parametrize(("source", "expected"), [
