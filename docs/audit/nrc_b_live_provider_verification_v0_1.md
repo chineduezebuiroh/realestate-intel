@@ -2,12 +2,12 @@
 
 ## 1. Status
 
-**IMPLEMENTED / AWAITING FINAL LOCAL LIVE PROOF.** NRC-B now implements the proven,
-keyless Census Historical Time Series workbook acquisition contract. The workbook
-transport and structure facts below were observed in a local live retrieval supplied for
-PR #248. The revised verifier has not yet produced the final contemporaneous
-Census-to-FRED and Census-to-legacy report, so NRC-B is not `LIVE-PROVEN`, disposition B
-is not final, and the NRC-C gate remains closed.
+**COMPLETE / LIVE-PROVEN.** The final local live verification completed successfully
+against the real first-party Census NRC workbooks after all NRC-B corrections. Its status
+was `LIVE_VERIFICATION_COMPLETE`, with zero errors, all 10 expected metric/geography
+pairs observed, and zero missing pairs. PR #248 is the implementation and live-
+verification closure point for NRC-B. Disposition B and the physical contract documented
+below are final for NRC-B; NRC-C may begin from this frozen evidence.
 
 The implementation remains verification-only. It publishes no production artifact or
 pin and mutates no registry, pointer, cohort, Source Set, canonical market, serving state,
@@ -92,25 +92,27 @@ provider-contract failure remains reproducible.
 | Total privately owned housing units started | `census_housing_starts_total_saar` | monthly | seasonally adjusted annual rate | thousands of housing units at SAAR |
 | Total privately owned housing units completed | `census_housing_completions_total_saar` | monthly | seasonally adjusted annual rate | thousands of housing units at SAAR |
 
-Physical source ID remains provisionally `census_nrc`. Both property fields are `all`.
+Physical source ID is frozen as `census_nrc`. Both property fields are `all`.
 Values are parsed exactly with `Decimal`; commas are presentation separators. There is no
-floating tolerance and no multiplication by 1,000. Explicit unavailable/suppression
-markers are absent observations, never zeroes. The bounded vocabulary includes the live-
-observed Census `(NA)` token used for regional completions before their January 1979
-history begins; those cells are inventoried as unavailable and never synthesized.
+floating tolerance, the frozen `numeric_scale_factor` is 1, and there is **no ×1,000
+numeric rescaling**. The frozen physical unit is
+`thousands_of_housing_units_saar`. Explicit unavailable/suppression markers are absent
+observations, never zeroes. The exact live-observed Census workbook token `(NA)` marks
+pre-1979 regional completions as provider-unavailable observations: those cells are not
+zero, are not filled, and are not synthesized.
 Unknown nonnumeric tokens fail closed.
 
 ## 6. Geography and applicability freeze
 
 Repository governance supports the following mapping:
 
-| Provider label | Legacy ingest geo_id | Legacy DB geo_id | Feature-loader ID | Governed canonical geo_id | Compatibility disposition |
+| Provider code/label | Legacy ingest geo_id | Legacy DB geo_id | Feature-loader ID | Governed canonical geo_id | Compatibility disposition |
 |---|---|---|---|---|---|
-| United States | `united_states__nation` | absent | `us_nation` | `us_nation` | map provider label directly; do not preserve ingest alias |
-| Northeast | `northeast_region__region` | `us_region_northeast` | `us_region_northeast` | `us_region_northeast` | ingest alias maps to canonical ID |
-| Midwest | `midwest_region__region` | `us_region_midwest` | `us_region_midwest` | `us_region_midwest` | ingest alias maps to canonical ID |
-| South | `south_region__region` | `us_region_south` | `us_region_south` | `us_region_south` | ingest alias maps to canonical ID |
-| West | `west_region__region` | `us_region_west` | `us_region_west` | `us_region_west` | ingest alias maps to canonical ID |
+| `US` / United States | `united_states__nation` | absent | `us_nation` | `us_nation` | map provider label directly; do not preserve ingest alias |
+| `NE` / Northeast | `northeast_region__region` | `us_region_northeast` | `us_region_northeast` | `us_region_northeast` | ingest alias maps to canonical ID |
+| `MW` / Midwest | `midwest_region__region` | `us_region_midwest` | `us_region_midwest` | `us_region_midwest` | ingest alias maps to canonical ID |
+| `S` / South | `south_region__region` | `us_region_south` | `us_region_south` | `us_region_south` | ingest alias maps to canonical ID |
+| `W` / West | `west_region__region` | `us_region_west` | `us_region_west` | `us_region_west` | ingest alias maps to canonical ID |
 
 Applicability is exactly two metrics by five provider-published geographies. Division,
 state, metro, county, place, and other local values are absent. No lower geography is
@@ -125,20 +127,21 @@ The supplied local live workbook inspection established:
 
 | Metric/geography | Observations | First | Latest | Latest value (Aug 2026) |
 |---|---:|---|---|---:|
-| starts / United States | 812 | 1959-01 | 2026-08 | 1275 |
-| starts / Northeast | 812 | 1959-01 | 2026-08 | 96 |
-| starts / Midwest | 812 | 1959-01 | 2026-08 | 198 |
-| starts / South | 812 | 1959-01 | 2026-08 | 658 |
-| starts / West | 812 | 1959-01 | 2026-08 | 323 |
-| completions / United States | 704 | 1968-01 | 2026-08 | 1128 |
-| completions / Northeast | 572 | 1979-01 | 2026-08 | 90 |
-| completions / Midwest | 572 | 1979-01 | 2026-08 | 153 |
-| completions / South | 572 | 1979-01 | 2026-08 | 622 |
-| completions / West | 572 | 1979-01 | 2026-08 | 263 |
+| starts / United States | 812 | 1959-01-31 | 2026-08-31 | 1275 |
+| starts / Northeast | 812 | 1959-01-31 | 2026-08-31 | 96 |
+| starts / Midwest | 812 | 1959-01-31 | 2026-08-31 | 198 |
+| starts / South | 812 | 1959-01-31 | 2026-08-31 | 658 |
+| starts / West | 812 | 1959-01-31 | 2026-08-31 | 323 |
+| completions / United States | 704 | 1968-01-31 | 2026-08-31 | 1128 |
+| completions / Northeast | 572 | 1979-01-31 | 2026-08-31 | 90 |
+| completions / Midwest | 572 | 1979-01-31 | 2026-08-31 | 153 |
+| completions / South | 572 | 1979-01-31 | 2026-08-31 | 622 |
+| completions / West | 572 | 1979-01-31 | 2026-08-31 | 263 |
 
 These counts are evidence, not hard-coded parser assumptions. Every run recomputes each
 series' count, first/latest month, internal gaps, continuity, and provider-unavailable
-cell count. Regional completions before 1979 are provider-native unavailable and are not
+cell count. All ten observed series were continuous within their legitimate observed
+bounds. Regional completions before 1979 are provider-native unavailable and are not
 synthesized.
 
 ## 8. Revision semantics
@@ -151,24 +154,31 @@ period must be capable of producing a new immutable candidate revision.
 
 ## 9. Census-to-FRED parity
 
-**Awaiting the final revised-verifier local run.** The verifier independently downloads
-all ten established FRED series, normalizes both sources to canonical IDs and month-end,
-and performs an exact-Decimal outer join. The report includes exact-match, Census-only,
-FRED-only, and differing counts; maximum absolute difference; first/last differing
-periods; and per metric/geography classifications. No equality is assumed in advance.
+The final revised-verifier local run compared **7,052** keys. All 7,052 were exact
+matches: value differences 0, Census-only 0, FRED-only 0, and differing/revised 0.
+The verifier independently downloaded all ten established FRED series, normalized both
+sources to canonical IDs and calendar month-end, and performed an exact-Decimal outer
+join. Thus the direct first-party Census workbook route is empirically equivalent to the
+legacy FRED transport for every currently comparable governed observation. FRED remains
+lineage, parity, and rollback evidence, not the future governed acquisition route.
 
 ## 10. Census-to-legacy parity
 
-**Awaiting the final revised-verifier local run.** The legacy DB is opened read-only. In
-addition to exact matches, revisions, and legacy-only rows, provider-only rows are
-classified as:
+The final run opened the legacy DB read-only and confirmed 5,480 rows across four regional
+geographies, zero national rows, zero duplicate keys, and zero null values. The join
+reported 5,064 exact matches, 416 provider revisions, 1,572 provider-only keys, and zero
+legacy-only keys. Provider-only rows were classified as:
 
 * `NATIONAL_ABSENT_FROM_LEGACY` for the two national metric histories missing from the snapshot;
 * `AFTER_LEGACY_SNAPSHOT` for regional observations newer than its maximum month; or
 * `OTHER_PROVIDER_ONLY` for a structural/history difference requiring review.
 
-Ordinary post-snapshot observations therefore remain visible without being mislabeled as
-structural failures.
+The decomposition was exact: 1,516 `NATIONAL_ABSENT_FROM_LEGACY` rows (704 national
+completions plus 812 national starts), 56 `AFTER_LEGACY_SNAPSHOT` rows (seven newer months
+across eight regional series), and zero unexplained `OTHER_PROVIDER_ONLY` rows. The 416
+historical differences are `PROVIDER_REVISION`: current Census and current FRED agree
+exactly, so the local database contains older provider vintages rather than a different
+current metric, unit, date, or geography contract.
 
 ## 11. Missing national legacy investigation
 
@@ -177,7 +187,9 @@ them. Yet it emits the noncanonical legacy-ingest geography spelling while the d
 contains canonical region spellings and no nation. No checked raw CSV or database history
 proves the exact intervening stage. The bounded diagnosis remains **historical
 implementation difference or stale legacy snapshot, with demonstrated identity mismatch;
-exact exclusion stage unknown**. NRC-B does not repair it.
+exact exclusion stage unknown**. The absent national histories are a **legacy coverage
+gap**, not the governed contract: NRC-C must not reproduce that gap. NRC-B records but
+does not repair the old database.
 
 ## 12. Future input and semantic identity
 
@@ -194,23 +206,33 @@ This is a design only. NRC-B implements no durable pin or candidate lifecycle.
 
 ## 13. Physical source disposition
 
-Disposition B is now strongly supported by the proven keyless first-party workbook route:
-future physical source `census_nrc`, direct Census workbook acquisition, FRED retained as
-legacy/parity/rollback lineage, and no logical NRC family resolver. It remains
-**provisional pending final parity evidence**. The revised local report must show valid
-workbook contracts, the complete 2×5 applicability inventory, expected history, and
-reviewable parity classifications before NRC-B closes.
+**Disposition B is final and frozen for NRC-B.** The single governed physical source is
+`census_nrc`. Authoritative future acquisition is directly from the two first-party
+Census NRC historical workbooks identified in section 4. `census_nrc_fred` / FRED is the
+legacy transport and is retained for lineage, parity, and rollback evidence, but is not
+the future governed production acquisition route. There is no logical NRC family
+resolver.
+
+The source is revisionary current truth, with no assumed or invented bounded revision
+window. Future input pin/release machinery must make exact workbook bytes pinnable and
+content-addressed using provider URL plus byte/hash identity and appropriate retrieval
+lineage. Semantic candidate identity must derive from normalized governed content, key
+inventory, and parser-contract identity rather than volatile transport metadata. These
+are frozen contract/design conclusions, not implementation of NRC-C lifecycle machinery.
 
 ## 14. NRC-C entry gate and negative contracts
 
-NRC-C remains **CLOSED**. NRC-B does not publish production inputs/candidates, implement
-release pins, register a monthly source, change an accepted pointer, integrate a cohort,
-publish/promote a Source Set or canonical/serving market, consume Redfin readiness,
-retire FRED, or change downstream source/metric IDs.
+The NRC-B gate is **SATISFIED** by `LIVE_VERIFICATION_COMPLETE`; no NRC-B evidence issue
+prevents NRC-C from beginning. This closeout itself does not begin NRC-C: it does not
+publish production inputs/candidates, implement release pins, register a monthly source,
+change an accepted pointer, integrate a cohort, publish/promote a Source Set or
+canonical/serving market, consume Redfin readiness, retire FRED, or change downstream
+source/metric IDs.
 
 ## 15. Local execution and closure evidence
 
-From the isolated PR #248 worktree, use the existing repository DB read-only:
+The final local execution from the isolated PR #248 worktree used the existing repository
+DB read-only:
 
 ```bash
 PYTHONPATH=. python -u scripts/nrc_b_verify.py \
@@ -221,8 +243,8 @@ PYTHONPATH=. pytest -q tests/test_nrc_b_verify.py
 python -m py_compile scripts/nrc_b_verify.py
 ```
 
-Do not commit generated artifacts. NRC-B can close only after review of
-`artifacts/nrc_verification/live-xlsx/nrc_b_verification.json` confirms:
+No generated artifacts are part of this closeout. Review of
+`artifacts/nrc_verification/live-xlsx/nrc_b_verification.json` confirmed:
 
 1. both Census inputs have HTTP 200, XLSX content, exact URLs, byte lengths, and raw hashes;
 2. both workbook contracts validate the exact sheet set, metric identity, SAAR declaration,
@@ -232,4 +254,11 @@ Do not commit generated artifacts. NRC-B can close only after review of
 5. Census-to-FRED parity has complete per-series classifications;
 6. Census-to-legacy parity separates national absence, post-snapshot freshness, revisions,
    other provider-only keys, and unexpected legacy-only keys; and
-7. `status` is `LIVE_VERIFICATION_COMPLETE` with no errors or missing applicability pairs.
+7. `status` is `LIVE_VERIFICATION_COMPLETE`, with zero errors, 10 expected and 10
+   observed applicability pairs, and zero missing pairs.
+
+Together with the exact Census-to-FRED and provider-to-legacy results recorded in
+sections 9 and 10, these checks close NRC-B as **COMPLETE / LIVE-PROVEN**. PR #248 is the
+implementation/live-verification closure point. Candidate publication, accepted-pointer
+mutation, cohort integration, and release lifecycle implementation remain NRC-C or later
+work.
