@@ -68,6 +68,7 @@ def publish_candidate(*, artifact: Path, source_id: str, api: GitHubAPI,
     publisher.prepare(manifest["artifact_uri"], package.read_bytes(), metadata)
     publisher.upload(manifest["artifact_uri"]); publisher.verify(manifest["artifact_uri"])
     receipt = publisher.finalize(manifest["artifact_uri"])
+    governed = manifest.get("governed_contract", {})
     record = {"object_type": "source", "object_id": manifest["artifact_id"],
         "logical_artifact_uri": manifest["artifact_uri"], "remote_repository": receipt["remote_repository"],
         "release_tag": receipt["release_tag"], "release_id": receipt["release_id"],
@@ -76,7 +77,9 @@ def publish_candidate(*, artifact: Path, source_id: str, api: GitHubAPI,
         "publication_receipt_id": receipt["receipt_id"], "publication_state": receipt["publication_state"],
         "metadata": {"source_id": source_id, "logical_source_id": logical_source_id,
             "data_sha256": manifest["data_sha256"], "provider_release_id": manifest["provider_release_id"],
-            "observation_max": manifest["observation_max"]}}
+            "observation_max": manifest["observation_max"],
+            **({"source_contract_version": manifest["source_contract_version"], **governed}
+               if governed else {})}}
     catalog, _ = cas.add(record, receipt)
     GitHubReleaseArtifactResolver(catalog, api, workspace / "proof").resolve(manifest["artifact_uri"])
     return {"record": record, "catalog": catalog, "reused": False}

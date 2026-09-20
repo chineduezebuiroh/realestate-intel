@@ -83,6 +83,26 @@ for number, source in enumerate(("bea_gdp_ann", "bea_gdp_qtr"), 4):
         "observation_max":record["metadata"]["observation_max"], "prior_artifact_id":None,
         "source_change_detected":True, "retryability":"not_applicable",
         "evidence_uri":record["logical_artifact_uri"], "accepted_pointer_changed":False})
+# NRC is a direct physical entry. Its catalog evidence is the frozen parser,
+# metric, geography, unit, scale, and canonical-schema contract.
+nrc_id = "src__census_nrc__2026-08__r1__94a8e9dc77b9063b"
+nrc_record = acs_record("census_nrc", nrc_id,
+    "94a8e9dc77b9063befc592de1f64678ac143bb4609307861ab075c37ff815982", "9"*64, 6)
+nrc_record["metadata"].update({"source_contract_version":"census_nrc_workbook_parser_v1_openpyxl_3.1.5",
+    "metric_inventory":["census_housing_completions_total_saar","census_housing_starts_total_saar"],
+    "geography_inventory":["us_nation","us_region_midwest","us_region_northeast","us_region_south","us_region_west"],
+    "unit":"thousands_of_housing_units_saar", "numeric_scale_factor":1,
+    "canonical_schema":"source_artifact_v1",
+    "provider_release_id":"nrc-workbooks:84f66e94466844bc93d40ffee06571e2026f09e9bbea9250eee19f89dfbb8676",
+    "observation_max":"2026-08-31"})
+catalog["immutable_records"].append(nrc_record)
+results.append({"schema_version":"monthly_source_execution_result_v1", "source_id":"census_nrc",
+    "cycle_id":CYCLE, "status":"succeeded", "candidate_artifact_id":nrc_id,
+    "artifact_content_hash":nrc_record["artifact_content_hash"], "package_sha256":nrc_record["package_sha256"],
+    "publication_state":"published_verified", "validation_status":"passed",
+    "provider_release_id":nrc_record["metadata"]["provider_release_id"], "observation_max":"2026-08-31",
+    "prior_artifact_id":None, "source_change_detected":True, "retryability":"not_applicable",
+    "evidence_uri":nrc_record["logical_artifact_uri"], "accepted_pointer_changed":False})
 catalog["immutable_records"].sort(key=lambda r:(r["object_type"],r["object_id"]))
 # Redfin is intentionally authoritative in readiness rather than the automated
 # cycle-result registry.
@@ -125,7 +145,7 @@ with tempfile.TemporaryDirectory() as td:
         concept.write_bytes(original)
     assert source_set["source_set_id"] == repeat["source_set_id"]
     assert source_set["included_source_inventory"] == [
-        "acs", "bea_gdp_ann", "bea_gdp_qtr", "bps", "ces", "fred_macro", "laus", "redfin"]
+        "acs", "bea_gdp_ann", "bea_gdp_qtr", "bps", "census_nrc", "ces", "fred_macro", "laus", "redfin"]
     assert {"bea_gdp_ann", "bea_gdp_qtr"}.issubset(
         {entry["source_id"] for entry in source_set["sources"]})
     assert all(family["logical_source_id"] != "bea"
