@@ -51,6 +51,7 @@ jobs:
       resume_census_bps_provisional_result: ${{ steps.plan.outputs.resume_census_bps_provisional_result }}
       resume_bea_gdp_qtr_result: ${{ steps.plan.outputs.resume_bea_gdp_qtr_result }}
       resume_bea_gdp_ann_result: ${{ steps.plan.outputs.resume_bea_gdp_ann_result }}
+      resume_census_nrc_result: ${{ steps.plan.outputs.resume_census_nrc_result }}
       run_redfin: ${{ steps.plan.outputs.run_redfin }}
       run_fred: ${{ steps.plan.outputs.run_fred }}
       run_ces: ${{ steps.plan.outputs.run_ces }}
@@ -59,6 +60,7 @@ jobs:
       run_census_bps_provisional: ${{ steps.plan.outputs.run_census_bps_provisional }}
       run_bea_gdp_qtr: ${{ steps.plan.outputs.run_bea_gdp_qtr }}
       run_bea_gdp_ann: ${{ steps.plan.outputs.run_bea_gdp_ann }}
+      run_census_nrc: ${{ steps.plan.outputs.run_census_nrc }}
       pins_json: ${{ steps.plan.outputs.pins_json }}
       cycle_json: ${{ steps.resolve.outputs.cycle_json }}
     steps:
@@ -89,7 +91,7 @@ jobs:
         if: steps.resolve.outputs.fan_out == 'true'
         run: |
           python -m jobs.monthly_refresh.cohort resume-plan --cycle-json "$RUNNER_TEMP/cycle.json" --output "$RUNNER_TEMP/plan.json"
-          for source in redfin fred_macro ces laus census_bps census_bps_provisional bea_gdp_qtr bea_gdp_ann; do
+          for source in redfin fred_macro ces laus census_bps census_bps_provisional bea_gdp_qtr bea_gdp_ann census_nrc; do
             key="$source"; [ "$source" = fred_macro ] && key=fred
             echo "run_${key}=$(jq -r --arg s "$source" '.run | contains([$s])' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
             echo "resume_${key}_result=$(jq -c --arg s "$source" '.results[]? | select(.source_id==$s)' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
@@ -172,6 +174,15 @@ jobs:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
       invocation_mode: ${{ inputs.mode || 'normal' }}
     secrets: inherit
+  census-nrc:
+    needs: resolve-cycle
+    if: needs.resolve-cycle.outputs.fan_out == 'true' && needs.resolve-cycle.outputs.run_census_nrc == 'true'
+    permissions: {contents: write}
+    uses: ./.github/workflows/nrc-monthly-source.yml
+    with:
+      cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
+      invocation_mode: ${{ inputs.mode || 'normal' }}
+    secrets: inherit
   laus-satisfaction-repair:
     needs: resolve-cycle
     if: inputs.mode == 'resume' && needs.resolve-cycle.outputs.resume_laus_result != ''
@@ -187,7 +198,7 @@ jobs:
         run: python -m jobs.monthly_refresh.laus_routine satisfy --target-month '${{ needs.resolve-cycle.outputs.target_month }}' --cycle-id '${{ needs.resolve-cycle.outputs.cycle_id }}' --invocation-mode resume --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME"
   barrier:
     if: always() && needs.resolve-cycle.outputs.fan_out == 'true'
-    needs: [resolve-cycle, redfin, fred, ces, laus, census-bps, census-bps-provisional, bea-gdp-qtr, bea-gdp-ann, laus-satisfaction-repair]
+    needs: [resolve-cycle, redfin, fred, ces, laus, census-bps, census-bps-provisional, bea-gdp-qtr, bea-gdp-ann, census-nrc, laus-satisfaction-repair]
     runs-on: ubuntu-latest
     permissions: {contents: read}
     env:
@@ -210,6 +221,7 @@ jobs:
           BPS_PROVISIONAL_RESULT: ${{ needs.census-bps-provisional.outputs.result_json }}
           BEA_QTR_RESULT: ${{ needs.bea-gdp-qtr.outputs.result_json }}
           BEA_ANN_RESULT: ${{ needs.bea-gdp-ann.outputs.result_json }}
+          NRC_RESULT: ${{ needs.census-nrc.outputs.result_json }}
           RESUME_REDFIN: ${{ needs.resolve-cycle.outputs.resume_redfin_result }}
           RESUME_FRED: ${{ needs.resolve-cycle.outputs.resume_fred_result }}
           RESUME_CES: ${{ needs.resolve-cycle.outputs.resume_ces_result }}
@@ -218,6 +230,7 @@ jobs:
           RESUME_BPS_PROVISIONAL: ${{ needs.resolve-cycle.outputs.resume_census_bps_provisional_result }}
           RESUME_BEA_QTR: ${{ needs.resolve-cycle.outputs.resume_bea_gdp_qtr_result }}
           RESUME_BEA_ANN: ${{ needs.resolve-cycle.outputs.resume_bea_gdp_ann_result }}
+          RESUME_NRC: ${{ needs.resolve-cycle.outputs.resume_census_nrc_result }}
           PINS_JSON: ${{ needs.resolve-cycle.outputs.pins_json }}
         run: |
           test '${{ needs.laus-satisfaction-repair.result }}' != failure
@@ -235,6 +248,7 @@ jobs:
           if [ -n "$RESUME_BPS_PROVISIONAL" ]; then printf '%s' "$RESUME_BPS_PROVISIONAL" > "$RUNNER_TEMP/resume-bps-provisional.json"; args+=(--reused-result "$RUNNER_TEMP/resume-bps-provisional.json"); fi
           if [ -n "$RESUME_BEA_QTR" ]; then printf '%s' "$RESUME_BEA_QTR" > "$RUNNER_TEMP/resume-bea-qtr.json"; args+=(--reused-result "$RUNNER_TEMP/resume-bea-qtr.json"); fi
           if [ -n "$RESUME_BEA_ANN" ]; then printf '%s' "$RESUME_BEA_ANN" > "$RUNNER_TEMP/resume-bea-ann.json"; args+=(--reused-result "$RUNNER_TEMP/resume-bea-ann.json"); fi
+          if [ -n "$RESUME_NRC" ]; then printf '%s' "$RESUME_NRC" > "$RUNNER_TEMP/resume-nrc.json"; args+=(--reused-result "$RUNNER_TEMP/resume-nrc.json"); fi
           if [ -n "$PINS_JSON" ]; then printf '%s' "$PINS_JSON" > "$RUNNER_TEMP/pins.json"; args+=(--pins-json "$RUNNER_TEMP/pins.json"); fi
           if [ -n "$FRED_RESULT" ]; then printf '%s' "$FRED_RESULT" > "$RUNNER_TEMP/fred.json"; args+=(--result "$RUNNER_TEMP/fred.json"); fi
           if [ -n "$CES_RESULT" ]; then printf '%s' "$CES_RESULT" > "$RUNNER_TEMP/ces.json"; args+=(--result "$RUNNER_TEMP/ces.json"); fi
@@ -243,6 +257,7 @@ jobs:
           if [ -n "$BPS_PROVISIONAL_RESULT" ]; then printf '%s' "$BPS_PROVISIONAL_RESULT" > "$RUNNER_TEMP/bps-provisional.json"; args+=(--result "$RUNNER_TEMP/bps-provisional.json"); fi
           if [ -n "$BEA_QTR_RESULT" ]; then printf '%s' "$BEA_QTR_RESULT" > "$RUNNER_TEMP/bea-qtr.json"; args+=(--result "$RUNNER_TEMP/bea-qtr.json"); fi
           if [ -n "$BEA_ANN_RESULT" ]; then printf '%s' "$BEA_ANN_RESULT" > "$RUNNER_TEMP/bea-ann.json"; args+=(--result "$RUNNER_TEMP/bea-ann.json"); fi
+          if [ -n "$NRC_RESULT" ]; then printf '%s' "$NRC_RESULT" > "$RUNNER_TEMP/nrc.json"; args+=(--result "$RUNNER_TEMP/nrc.json"); fi
           python -m jobs.monthly_refresh.cohort barrier "${args[@]}"
           cat "$RUNNER_TEMP/cohort.json" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4

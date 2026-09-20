@@ -53,7 +53,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True); args = parser.parse_args()
     api = GitHubAPI(args.repository, os.environ.get("GITHUB_TOKEN", "")); cas = GitHubCatalogCAS(api, CATALOG_PATH, args.branch)
     policy = json.loads(Path("config/monthly_refresh_policy.json").read_text())
-    # Isolated NRC-C recording authorization only; the versioned cohort policy remains untouched until NRC-D.
+    # Recording authorization is additive; the stable refresh policy is part of
+    # existing Redfin cycle identity and is intentionally not rewritten.
     policy = {**policy, "slower_cadence_sources": [*policy.get("slower_cadence_sources", []), SOURCE_ID]}
     results = GitHubCycleResultStore(api, args.branch)
     def publish(path: Path, source: str) -> Mapping[str, Any]:

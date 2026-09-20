@@ -14,9 +14,15 @@ from sources.census_bps.artifact import family_resolution_config_hashes
 from sources.census_acs.artifact import (CONTRACT_VERSION as ACS_CONTRACT_VERSION,
     governed_config_hashes as acs_governed_config_hashes)
 
+NRC_CONTRACT_VERSION = "census_nrc_workbook_parser_v1_openpyxl_3.1.5"
+NRC_METRICS = ("census_housing_starts_total_saar",
+               "census_housing_completions_total_saar")
+NRC_GEOGRAPHIES = ("us_nation", "us_region_northeast", "us_region_midwest",
+                   "us_region_south", "us_region_west")
+
 
 LOGICAL_COHORT_SOURCES = frozenset({"acs", "bea_gdp_ann", "bea_gdp_qtr", "bps",
-                                    "ces", "fred_macro", "laus", "redfin"})
+                                    "census_nrc", "ces", "fred_macro", "laus", "redfin"})
 PHYSICAL_FAMILY_SOURCES = frozenset({"census_acs1", "census_acs5",
                                      "census_bps", "census_bps_provisional"})
 
@@ -39,6 +45,21 @@ def _entry(record: Mapping[str, Any], *, status: str, carried: bool) -> dict[str
         "carried_forward": carried, "carry_forward_policy_allowed": False}
 
 
+def validate_nrc_cohort_contract(record: Mapping[str, Any]) -> None:
+    """Fail closed unless the physical NRC catalog record carries its frozen contract."""
+    metadata = record.get("metadata", {})
+    expected = {
+        "source_contract_version": NRC_CONTRACT_VERSION,
+        "metric_inventory": sorted(NRC_METRICS),
+        "geography_inventory": sorted(NRC_GEOGRAPHIES),
+        "unit": "thousands_of_housing_units_saar",
+        "numeric_scale_factor": 1,
+        "canonical_schema": "source_artifact_v1",
+    }
+    if any(metadata.get(key) != value for key, value in expected.items()):
+        raise ValueError("census_nrc governed cohort contract evidence mismatch")
+
+
 def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
         physical_results: list[dict[str, Any]], catalog: dict[str, Any], readiness: dict[str, Any],
         resolution: dict[str, Any], acs_resolution: dict[str, Any],
@@ -47,7 +68,7 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
         repository_root: Path = Path(".")) -> dict[str, Any]:
     """Map complete physical results to exact logical assembly inputs."""
     validate_catalog(catalog)
-    expected_physical = {"bea_gdp_ann", "bea_gdp_qtr", "census_bps",
+    expected_physical = {"bea_gdp_ann", "bea_gdp_qtr", "census_bps", "census_nrc",
                          "census_bps_provisional", "ces", "fred_macro", "laus", "redfin"}
     by_source = {}
     for result in physical_results:
@@ -144,6 +165,8 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
         record = _catalog_source(catalog, source, result["candidate_artifact_id"])
         if record["artifact_content_hash"] != result["artifact_content_hash"] or record["package_sha256"] != result["package_sha256"]:
             raise ValueError(f"durable result/catalog mismatch: {source}")
+        if source == "census_nrc":
+            validate_nrc_cohort_contract(record)
         # Source Set status describes the selected immutable artifact, not only
         # row-value change.  A newly published revision is refreshed even when
         # its canonical data equals the prior artifact.

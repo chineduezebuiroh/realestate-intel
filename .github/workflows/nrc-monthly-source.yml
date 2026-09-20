@@ -1,5 +1,11 @@
 name: Governed NRC physical candidate
 on:
+  workflow_call:
+    inputs:
+      invocation_mode: {required: true, type: string}
+      cycle_id: {required: true, type: string}
+    outputs:
+      result_json: {value: '${{ jobs.execute.outputs.result_json }}'}
   workflow_dispatch:
     inputs:
       invocation_mode:
@@ -15,6 +21,7 @@ permissions: {contents: write}
 jobs:
   execute:
     runs-on: ubuntu-latest
+    outputs: {result_json: '${{ steps.result.outputs.result_json }}'}
     env:
       PYTHONPATH: .
       DURABLE_AUTHORITY_BRANCH: main
@@ -23,10 +30,12 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.11', cache: pip}
       - run: pip install -r requirements.txt
-      - env: {GITHUB_TOKEN: '${{ github.token }}'}
+      - id: result
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
         run: |
           python -m jobs.monthly_refresh.nrc_hosted \
             --cycle-id '${{ inputs.cycle_id }}' --mode '${{ inputs.invocation_mode }}' \
             --repository "$GITHUB_REPOSITORY" --branch "$DURABLE_AUTHORITY_BRANCH" \
             --workspace "$RUNNER_TEMP/nrc" --output "$RUNNER_TEMP/result.json"
+          echo "result_json=$(jq -c . "$RUNNER_TEMP/result.json")" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/result.json" >> "$GITHUB_STEP_SUMMARY"

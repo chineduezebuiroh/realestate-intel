@@ -31,7 +31,8 @@ def required_sources(policy: dict[str, Any] | None = None) -> tuple[str, ...]:
 # Compatibility export for source-specific smoke/tooling. Runtime paths resolve
 # membership from policy rather than this value.
 REQUIRED_SOURCES = ("redfin", "fred_macro", "ces", "laus", "census_bps",
-                    "census_bps_provisional", "bea_gdp_qtr", "bea_gdp_ann")
+                    "census_bps_provisional", "bea_gdp_qtr", "bea_gdp_ann",
+                    "census_nrc")
 PIN_FIELDS = ("candidate_artifact_id", "artifact_content_hash", "package_sha256",
               "publication_state", "provider_release_id")
 RESULT_REGISTRY_VERSION = "monthly_source_cycle_results_v1"

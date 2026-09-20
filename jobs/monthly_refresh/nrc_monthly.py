@@ -93,5 +93,10 @@ def candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], output: Path
         source_request_identity=semantic_input,
         source_urls_or_endpoint_identity=[CENSUS_INPUTS[k][0] for k in sorted(MEMBERS)],
         raw_source_lineage=evidence, config_hashes={"nrc_parser_sha256": sha256_file(parser_path)},
-        git_sha=git_sha, source_contract_version=PARSER_CONTRACT_VERSION)
+        git_sha=git_sha, source_contract_version=PARSER_CONTRACT_VERSION,
+        manifest_extensions={"governed_contract": {
+            "metric_inventory": sorted(frame.metric_id.unique().tolist()),
+            "geography_inventory": sorted(frame.geo_id.unique().tolist()),
+            "unit": "thousands_of_housing_units_saar", "numeric_scale_factor": 1,
+            "canonical_schema": "source_artifact_v1"}})
     return {"manifest": manifest, "evidence": evidence}

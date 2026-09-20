@@ -36,8 +36,8 @@ bps_total_value,census_bps,census_bp_total_value,Building Permits Total Value,To
 bps_1_unit,census_bps,census_bp_1_unit,Building Permits 1-Unit,Permitted single-family units,state|county|place,monthly,Units,NSA,true,
 bps_5plus_units,census_bps,census_bp_5plus_units,Building Permits 5+ Units,Permitted multifamily units in buildings with five or more units,state|county|place,monthly,Units,NSA,true,
 
-nrc_housing_starts,census_nrc_fred,census_housing_starts_total_saar,Housing Starts,Housing starts at seasonally adjusted annual rate,nation|region,monthly,Units SAAR,SA,true,
-nrc_housing_completions,census_nrc_fred,census_housing_completions_total_saar,Housing Completions,Housing completions at seasonally adjusted annual rate,nation|region,monthly,Units SAAR,SA,true,
+nrc_housing_starts,census_nrc,census_housing_starts_total_saar,Housing Starts,Housing starts at seasonally adjusted annual rate,nation|region,monthly,thousands_of_housing_units_saar,SA,true,
+nrc_housing_completions,census_nrc,census_housing_completions_total_saar,Housing Completions,Housing completions at seasonally adjusted annual rate,nation|region,monthly,thousands_of_housing_units_saar,SA,true,
 
 fred_mortgage_30y,fred_macro,fred_mortgage_30y_avg,30-Year Mortgage Rate,Average 30-year fixed mortgage rate,nation,monthly,Percent,NSA,true,
 fred_mortgage_15y,fred_macro,fred_mortgage_15y_avg,15-Year Mortgage Rate,Average 15-year fixed mortgage rate,nation,monthly,Percent,NSA,true,
