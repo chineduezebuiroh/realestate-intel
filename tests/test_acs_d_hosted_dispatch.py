@@ -52,8 +52,8 @@ def test_secret_is_runtime_only_and_workflow_has_no_promotion_surface():
                  "family-resolution", "monthly-refresh-production")
     assert all(token not in text for token in forbidden)
     registry = json.loads(Path("config/monthly_source_execution_registry.json").read_text())
-    assert {member["source_id"] for member in registry["members"]}.isdisjoint(
-        {"census_acs1", "census_acs5"}
+    assert {"census_acs1", "census_acs5"}.issubset(
+        {member["source_id"] for member in registry["members"]}
     )
 
 
@@ -76,7 +76,7 @@ def test_hosted_cli_rejects_unapproved_source_and_mode(flag, value, tmp_path):
 
 
 @pytest.mark.parametrize("source_id", ["census_acs1", "census_acs5"])
-def test_slower_cadence_acs_result_is_recordable_without_cohort_membership(source_id):
+def test_slower_cadence_acs_result_is_recordable_with_governed_cohort_membership(source_id):
     policy = json.loads(Path("config/monthly_refresh_policy.json").read_text())
     object_id = f"src__{source_id}__2024-12__r1__" + "a" * 16
     result = {

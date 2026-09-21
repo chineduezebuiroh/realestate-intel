@@ -49,6 +49,8 @@ jobs:
       resume_laus_result: ${{ steps.plan.outputs.resume_laus_result }}
       resume_census_bps_result: ${{ steps.plan.outputs.resume_census_bps_result }}
       resume_census_bps_provisional_result: ${{ steps.plan.outputs.resume_census_bps_provisional_result }}
+      resume_census_acs1_result: ${{ steps.plan.outputs.resume_census_acs1_result }}
+      resume_census_acs5_result: ${{ steps.plan.outputs.resume_census_acs5_result }}
       resume_bea_gdp_qtr_result: ${{ steps.plan.outputs.resume_bea_gdp_qtr_result }}
       resume_bea_gdp_ann_result: ${{ steps.plan.outputs.resume_bea_gdp_ann_result }}
       resume_census_nrc_result: ${{ steps.plan.outputs.resume_census_nrc_result }}
@@ -58,6 +60,8 @@ jobs:
       run_laus: ${{ steps.plan.outputs.run_laus }}
       run_census_bps: ${{ steps.plan.outputs.run_census_bps }}
       run_census_bps_provisional: ${{ steps.plan.outputs.run_census_bps_provisional }}
+      run_census_acs1: ${{ steps.plan.outputs.run_census_acs1 }}
+      run_census_acs5: ${{ steps.plan.outputs.run_census_acs5 }}
       run_bea_gdp_qtr: ${{ steps.plan.outputs.run_bea_gdp_qtr }}
       run_bea_gdp_ann: ${{ steps.plan.outputs.run_bea_gdp_ann }}
       run_census_nrc: ${{ steps.plan.outputs.run_census_nrc }}
@@ -91,7 +95,7 @@ jobs:
         if: steps.resolve.outputs.fan_out == 'true'
         run: |
           python -m jobs.monthly_refresh.cohort resume-plan --cycle-json "$RUNNER_TEMP/cycle.json" --output "$RUNNER_TEMP/plan.json"
-          for source in redfin fred_macro ces laus census_bps census_bps_provisional bea_gdp_qtr bea_gdp_ann census_nrc; do
+          for source in redfin fred_macro ces laus census_bps census_bps_provisional census_acs1 census_acs5 bea_gdp_qtr bea_gdp_ann census_nrc; do
             key="$source"; [ "$source" = fred_macro ] && key=fred
             echo "run_${key}=$(jq -r --arg s "$source" '.run | contains([$s])' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
             echo "resume_${key}_result=$(jq -c --arg s "$source" '.results[]? | select(.source_id==$s)' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
@@ -154,6 +158,26 @@ jobs:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
       invocation_mode: ${{ inputs.mode || 'normal' }}
     secrets: inherit
+  census-acs1:
+    needs: resolve-cycle
+    if: needs.resolve-cycle.outputs.fan_out == 'true' && needs.resolve-cycle.outputs.run_census_acs1 == 'true'
+    permissions: {contents: write}
+    uses: ./.github/workflows/acs-monthly-source.yml
+    with:
+      source_id: census_acs1
+      cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
+      invocation_mode: ${{ inputs.mode || 'normal' }}
+    secrets: inherit
+  census-acs5:
+    needs: resolve-cycle
+    if: needs.resolve-cycle.outputs.fan_out == 'true' && needs.resolve-cycle.outputs.run_census_acs5 == 'true'
+    permissions: {contents: write}
+    uses: ./.github/workflows/acs-monthly-source.yml
+    with:
+      source_id: census_acs5
+      cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
+      invocation_mode: ${{ inputs.mode || 'normal' }}
+    secrets: inherit
   bea-gdp-qtr:
     needs: resolve-cycle
     if: needs.resolve-cycle.outputs.fan_out == 'true' && needs.resolve-cycle.outputs.run_bea_gdp_qtr == 'true'
@@ -198,9 +222,15 @@ jobs:
         run: python -m jobs.monthly_refresh.laus_routine satisfy --target-month '${{ needs.resolve-cycle.outputs.target_month }}' --cycle-id '${{ needs.resolve-cycle.outputs.cycle_id }}' --invocation-mode resume --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME"
   barrier:
     if: always() && needs.resolve-cycle.outputs.fan_out == 'true'
-    needs: [resolve-cycle, redfin, fred, ces, laus, census-bps, census-bps-provisional, bea-gdp-qtr, bea-gdp-ann, census-nrc, laus-satisfaction-repair]
+    needs: [resolve-cycle, redfin, fred, ces, laus, census-bps, census-bps-provisional, census-acs1, census-acs5, bea-gdp-qtr, bea-gdp-ann, census-nrc, laus-satisfaction-repair]
     runs-on: ubuntu-latest
     permissions: {contents: read}
+    outputs:
+      evidence_json: ${{ steps.evidence.outputs.evidence_json }}
+      bps_artifact_id: ${{ steps.evidence.outputs.bps_artifact_id }}
+      bps_provisional_artifact_id: ${{ steps.evidence.outputs.bps_provisional_artifact_id }}
+      acs1_artifact_id: ${{ steps.evidence.outputs.acs1_artifact_id }}
+      acs5_artifact_id: ${{ steps.evidence.outputs.acs5_artifact_id }}
     env:
       PYTHONPATH: .
     steps:
@@ -211,13 +241,16 @@ jobs:
           cache: pip
       - name: Install governed dependencies
         run: pip install -r requirements.txt
-      - env:
+      - id: evidence
+        env:
           CYCLE_JSON: ${{ needs.resolve-cycle.outputs.cycle_json }}
           REDFIN_RESULT: ${{ needs.redfin.outputs.result_json }}
           FRED_RESULT: ${{ needs.fred.outputs.result_json }}
           CES_RESULT: ${{ needs.ces.outputs.result_json }}
           LAUS_RESULT: ${{ needs.laus.outputs.result_json }}
           BPS_RESULT: ${{ needs.census-bps.outputs.result_json }}
+          ACS1_RESULT: ${{ needs.census-acs1.outputs.result_json }}
+          ACS5_RESULT: ${{ needs.census-acs5.outputs.result_json }}
           BPS_PROVISIONAL_RESULT: ${{ needs.census-bps-provisional.outputs.result_json }}
           BEA_QTR_RESULT: ${{ needs.bea-gdp-qtr.outputs.result_json }}
           BEA_ANN_RESULT: ${{ needs.bea-gdp-ann.outputs.result_json }}
@@ -228,6 +261,8 @@ jobs:
           RESUME_LAUS: ${{ needs.resolve-cycle.outputs.resume_laus_result }}
           RESUME_BPS: ${{ needs.resolve-cycle.outputs.resume_census_bps_result }}
           RESUME_BPS_PROVISIONAL: ${{ needs.resolve-cycle.outputs.resume_census_bps_provisional_result }}
+          RESUME_ACS1: ${{ needs.resolve-cycle.outputs.resume_census_acs1_result }}
+          RESUME_ACS5: ${{ needs.resolve-cycle.outputs.resume_census_acs5_result }}
           RESUME_BEA_QTR: ${{ needs.resolve-cycle.outputs.resume_bea_gdp_qtr_result }}
           RESUME_BEA_ANN: ${{ needs.resolve-cycle.outputs.resume_bea_gdp_ann_result }}
           RESUME_NRC: ${{ needs.resolve-cycle.outputs.resume_census_nrc_result }}
@@ -246,6 +281,8 @@ jobs:
           if [ -n "$RESUME_CES" ]; then printf '%s' "$RESUME_CES" > "$RUNNER_TEMP/resume-ces.json"; args+=(--reused-result "$RUNNER_TEMP/resume-ces.json"); fi
           if [ -n "$RESUME_BPS" ]; then printf '%s' "$RESUME_BPS" > "$RUNNER_TEMP/resume-bps.json"; args+=(--reused-result "$RUNNER_TEMP/resume-bps.json"); fi
           if [ -n "$RESUME_BPS_PROVISIONAL" ]; then printf '%s' "$RESUME_BPS_PROVISIONAL" > "$RUNNER_TEMP/resume-bps-provisional.json"; args+=(--reused-result "$RUNNER_TEMP/resume-bps-provisional.json"); fi
+          if [ -n "$RESUME_ACS1" ]; then printf '%s' "$RESUME_ACS1" > "$RUNNER_TEMP/resume-acs1.json"; args+=(--reused-result "$RUNNER_TEMP/resume-acs1.json"); fi
+          if [ -n "$RESUME_ACS5" ]; then printf '%s' "$RESUME_ACS5" > "$RUNNER_TEMP/resume-acs5.json"; args+=(--reused-result "$RUNNER_TEMP/resume-acs5.json"); fi
           if [ -n "$RESUME_BEA_QTR" ]; then printf '%s' "$RESUME_BEA_QTR" > "$RUNNER_TEMP/resume-bea-qtr.json"; args+=(--reused-result "$RUNNER_TEMP/resume-bea-qtr.json"); fi
           if [ -n "$RESUME_BEA_ANN" ]; then printf '%s' "$RESUME_BEA_ANN" > "$RUNNER_TEMP/resume-bea-ann.json"; args+=(--reused-result "$RUNNER_TEMP/resume-bea-ann.json"); fi
           if [ -n "$RESUME_NRC" ]; then printf '%s' "$RESUME_NRC" > "$RUNNER_TEMP/resume-nrc.json"; args+=(--reused-result "$RUNNER_TEMP/resume-nrc.json"); fi
@@ -255,14 +292,67 @@ jobs:
           if [ -n "$LAUS_RESULT" ]; then printf '%s' "$LAUS_RESULT" > "$RUNNER_TEMP/laus.json"; args+=(--result "$RUNNER_TEMP/laus.json"); fi
           if [ -n "$BPS_RESULT" ]; then printf '%s' "$BPS_RESULT" > "$RUNNER_TEMP/bps.json"; args+=(--result "$RUNNER_TEMP/bps.json"); fi
           if [ -n "$BPS_PROVISIONAL_RESULT" ]; then printf '%s' "$BPS_PROVISIONAL_RESULT" > "$RUNNER_TEMP/bps-provisional.json"; args+=(--result "$RUNNER_TEMP/bps-provisional.json"); fi
+          if [ -n "$ACS1_RESULT" ]; then printf '%s' "$ACS1_RESULT" > "$RUNNER_TEMP/acs1.json"; args+=(--result "$RUNNER_TEMP/acs1.json"); fi
+          if [ -n "$ACS5_RESULT" ]; then printf '%s' "$ACS5_RESULT" > "$RUNNER_TEMP/acs5.json"; args+=(--result "$RUNNER_TEMP/acs5.json"); fi
           if [ -n "$BEA_QTR_RESULT" ]; then printf '%s' "$BEA_QTR_RESULT" > "$RUNNER_TEMP/bea-qtr.json"; args+=(--result "$RUNNER_TEMP/bea-qtr.json"); fi
           if [ -n "$BEA_ANN_RESULT" ]; then printf '%s' "$BEA_ANN_RESULT" > "$RUNNER_TEMP/bea-ann.json"; args+=(--result "$RUNNER_TEMP/bea-ann.json"); fi
           if [ -n "$NRC_RESULT" ]; then printf '%s' "$NRC_RESULT" > "$RUNNER_TEMP/nrc.json"; args+=(--result "$RUNNER_TEMP/nrc.json"); fi
           python -m jobs.monthly_refresh.cohort barrier "${args[@]}"
           cat "$RUNNER_TEMP/cohort.json" >> "$GITHUB_STEP_SUMMARY"
+          echo "evidence_json=$(jq -c . "$RUNNER_TEMP/cohort.json")" >> "$GITHUB_OUTPUT"
+          for source in census_bps census_bps_provisional census_acs1 census_acs5; do
+            key=${source#census_}; [ "$key" = bps_provisional ] && key=bps_provisional
+            echo "${key}_artifact_id=$(jq -r --arg s "$source" '.candidates[] | select(.source_id==$s) | .candidate_artifact_id' "$RUNNER_TEMP/cohort.json")" >> "$GITHUB_OUTPUT"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: governed-monthly-cohort-${{ needs.resolve-cycle.outputs.cycle_id }}
           path: ${{ runner.temp }}/cohort.json
+          if-no-files-found: error
+          retention-days: 90
+
+  resolve-bps-family:
+    needs: [resolve-cycle, barrier]
+    if: needs.barrier.result == 'success'
+    permissions: {contents: write}
+    uses: ./.github/workflows/bps-family-resolution.yml
+    with:
+      cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
+      compiled_artifact_id: ${{ needs.barrier.outputs.bps_artifact_id }}
+      provisional_artifact_id: ${{ needs.barrier.outputs.bps_provisional_artifact_id }}
+    secrets: inherit
+  resolve-acs-family:
+    needs: [resolve-cycle, barrier]
+    if: needs.barrier.result == 'success'
+    permissions: {contents: write}
+    uses: ./.github/workflows/acs-family-resolution.yml
+    with:
+      acs1_artifact_id: ${{ needs.barrier.outputs.acs1_artifact_id }}
+      acs5_artifact_id: ${{ needs.barrier.outputs.acs5_artifact_id }}
+    secrets: inherit
+  logical-cohort-plan:
+    needs: [barrier, resolve-bps-family, resolve-acs-family]
+    runs-on: ubuntu-latest
+    permissions: {contents: read}
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - env:
+          PHYSICAL: ${{ needs.barrier.outputs.evidence_json }}
+          BPS: ${{ needs.resolve-bps-family.outputs.resolution_json }}
+          ACS: ${{ needs.resolve-acs-family.outputs.resolution_json }}
+        run: |
+          printf '%s' "$PHYSICAL" > "$RUNNER_TEMP/physical.json"
+          printf '%s' "$BPS" > "$RUNNER_TEMP/bps.json"
+          printf '%s' "$ACS" > "$RUNNER_TEMP/acs.json"
+          python -m jobs.monthly_refresh.cohort logical-plan --physical-evidence "$RUNNER_TEMP/physical.json" --bps-resolution "$RUNNER_TEMP/bps.json" --acs-resolution "$RUNNER_TEMP/acs.json" --output "$RUNNER_TEMP/logical-plan.json"
+          cat "$RUNNER_TEMP/logical-plan.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: governed-logical-cohort-plan
+          path: ${{ runner.temp }}/logical-plan.json
           if-no-files-found: error
           retention-days: 90

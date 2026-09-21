@@ -31,8 +31,13 @@ def required_sources(policy: dict[str, Any] | None = None) -> tuple[str, ...]:
 # Compatibility export for source-specific smoke/tooling. Runtime paths resolve
 # membership from policy rather than this value.
 REQUIRED_SOURCES = ("redfin", "fred_macro", "ces", "laus", "census_bps",
-                    "census_bps_provisional", "bea_gdp_qtr", "bea_gdp_ann",
+                    "census_bps_provisional", "census_acs1", "census_acs5",
+                    "bea_gdp_qtr", "bea_gdp_ann",
                     "census_nrc")
+LOGICAL_DIRECT_SOURCES = ("fred_macro", "ces", "laus", "redfin", "bps", "acs",
+                          "bea_gdp_qtr", "bea_gdp_ann", "census_nrc")
+FAMILY_PHYSICAL_SOURCES = frozenset({"census_bps", "census_bps_provisional",
+                                     "census_acs1", "census_acs5"})
 PIN_FIELDS = ("candidate_artifact_id", "artifact_content_hash", "package_sha256",
               "publication_state", "provider_release_id")
 RESULT_REGISTRY_VERSION = "monthly_source_cycle_results_v1"
@@ -174,6 +179,55 @@ def barrier_evidence(*, cycle: dict[str, Any], results: list[dict[str, Any]],
             "redfin_consumption_committed": False}
 
 
+def logical_cohort_plan(*, physical_evidence: dict[str, Any],
+                        bps_resolution: dict[str, Any],
+                        acs_resolution: dict[str, Any]) -> dict[str, Any]:
+    """Validate post-barrier family outputs and return a non-promoting input plan."""
+    if physical_evidence.get("barrier_status") != "ready":
+        raise ValueError("logical planning requires a ready physical barrier")
+    candidates = physical_evidence.get("candidates", [])
+    by_source = {item.get("source_id"): item for item in candidates}
+    if len(by_source) != len(candidates) or set(by_source) != set(REQUIRED_SOURCES):
+        raise ValueError("exact 11-source physical barrier inventory mismatch")
+    if any(not item.get("candidate_artifact_id") for item in candidates):
+        raise ValueError("physical candidate identity is absent")
+
+    def family(record: dict[str, Any], logical: str, parents: set[str]) -> dict[str, Any]:
+        record = record.get("record", record)
+        if record.get("accepted_pointer_changed") is not False or record.get("source_set_created") is not False:
+            raise ValueError(f"{logical} resolution contains forbidden mutation")
+        actual = {p.get("source_id"): p.get("artifact_id") for p in record.get("parents", [])}
+        expected = {source: by_source[source]["candidate_artifact_id"] for source in parents}
+        if actual != expected:
+            raise ValueError(f"{logical} resolution did not consume exact cohort parents")
+        artifact_id = record.get("output_artifact_id")
+        if not artifact_id or not artifact_id.startswith(f"src__{logical}__"):
+            raise ValueError(f"{logical} immutable output identity is absent")
+        return {"source_id": logical, "artifact_id": artifact_id,
+                "artifact_content_hash": record.get("output_content_hash"),
+                "package_sha256": record.get("output_package_sha256"),
+                "resolution_id": record.get("resolution_id")}
+
+    bps = family(bps_resolution, "bps", {"census_bps", "census_bps_provisional"})
+    acs = family(acs_resolution, "acs", {"census_acs1", "census_acs5"})
+    direct = [{"source_id": source, "artifact_id": by_source[source]["candidate_artifact_id"],
+               "artifact_content_hash": by_source[source]["artifact_content_hash"],
+               "package_sha256": by_source[source]["package_sha256"]}
+              for source in LOGICAL_DIRECT_SOURCES if source not in {"bps", "acs"}]
+    indexed = {item["source_id"]: item for item in [*direct, bps, acs]}
+    if set(indexed) != set(LOGICAL_DIRECT_SOURCES):
+        raise AssertionError("logical/direct cohort inventory drift")
+    return {"schema_version": "monthly_logical_cohort_plan_v1",
+            "cycle_id": physical_evidence["cycle_id"],
+            "physical_source_inventory": list(REQUIRED_SOURCES),
+            "logical_source_inventory": list(LOGICAL_DIRECT_SOURCES),
+            "sources": [indexed[source] for source in LOGICAL_DIRECT_SOURCES],
+            "family_resolution_order": ["physical_barrier", "bps", "acs", "logical_plan"],
+            "accepted_pointers_advanced": False, "source_set_created": False,
+            "canonical_market_created": False, "serving_market_created": False,
+            "redfin_consumption_committed": False}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(); sub = parser.add_subparsers(dest="command", required=True)
     resolve = sub.add_parser("resolve"); resolve.add_argument("--mode", required=True)
@@ -190,6 +244,11 @@ def main() -> int:
     barrier.add_argument("--pins-json", type=Path)
     barrier.add_argument("--policy", type=Path, default=Path("config/monthly_refresh_policy.json"))
     barrier.add_argument("--output", type=Path, required=True)
+    logical = sub.add_parser("logical-plan")
+    logical.add_argument("--physical-evidence", type=Path, required=True)
+    logical.add_argument("--bps-resolution", type=Path, required=True)
+    logical.add_argument("--acs-resolution", type=Path, required=True)
+    logical.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "resolve":
         value = resolve_invocation(mode=args.mode, policy_path=args.policy,
@@ -200,12 +259,17 @@ def main() -> int:
         value = resolve_resume_results(cycle=json.loads(args.cycle_json.read_text()),
             catalog=json.loads(args.catalog.read_text()), registry=load_registry(args.registry),
             policy=json.loads(args.policy.read_text()))
-    else:
+    elif args.command == "barrier":
         cycle = json.loads(args.cycle_json.read_text()); results = [json.loads(p.read_text()) for p in args.result]
         reused_results = [json.loads(p.read_text()) for p in args.reused_result]
         pins = json.loads(args.pins_json.read_text()) if args.pins_json else None
         value = barrier_evidence(cycle=cycle, results=results, reused_results=reused_results,
                                  pins=pins, github={}, policy=json.loads(args.policy.read_text()))
+    else:
+        value = logical_cohort_plan(
+            physical_evidence=json.loads(args.physical_evidence.read_text()),
+            bps_resolution=json.loads(args.bps_resolution.read_text()),
+            acs_resolution=json.loads(args.acs_resolution.read_text()))
     write_canonical_json(args.output, value); print(json.dumps(value, sort_keys=True)); return 0
 
 

@@ -32,6 +32,7 @@ RESOLVER_VERSION = "bps_family_resolver_v1"
 RECORD_VERSION = "bps_family_resolution_record_v1"
 FAMILY_SOURCE_ID = "bps"
 CYCLE_ID = "monthly_cycle__2026-07__7cab1c5df177a1e4"
+TARGET_MONTH = "2026-07"
 EXPECTED_PARENTS = {
     "compiled": {
         "source_id": "census_bps",
@@ -197,8 +198,8 @@ def build_family_artifact(*, compiled_artifact: Path, provisional_artifact: Path
                         "source_contract_version": ADAPTER_CONTRACT_VERSION, "parents": parents}
     manifest = create_artifact(output, data, source_id=FAMILY_SOURCE_ID, source_family="bps",
         source_type="logical_governed_family", provider="resolved immutable BPS parents",
-        distribution_channel="governed_family_resolution", provider_release_id="bps-family:2026-07",
-        provider_release_timestamp_or_date=None, retrieved_at=None, target_month="2026-07",
+        distribution_channel="governed_family_resolution", provider_release_id="bps-family:" + TARGET_MONTH,
+        provider_release_timestamp_or_date=None, retrieved_at=None, target_month=TARGET_MONTH,
         source_request_identity="bps-family-resolution:" + sha256_json(identity_context),
         source_urls_or_endpoint_identity=[f"artifact://source/{x['source_id']}/{x['artifact_id']}" for x in parents],
         revision=1, lineage=lineage, config_hashes=family_resolution_config_hashes(repository_root), git_sha=git_sha,
@@ -260,10 +261,24 @@ class GitHubFamilyResolutionStore:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", required=True); parser.add_argument("--branch", required=True)
+    parser.add_argument("--cycle-id", required=True)
+    parser.add_argument("--compiled-artifact-id", required=True)
+    parser.add_argument("--provisional-artifact-id", required=True)
     parser.add_argument("--workspace", type=Path, required=True); parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     api = GitHubAPI(args.repository, os.environ.get("GITHUB_TOKEN", "")); cas = GitHubCatalogCAS(api, "config/artifact_catalog.json", args.branch)
     catalog, _ = cas.read(); records = {r["object_id"]: r for r in catalog["immutable_records"]}
+    requested = {"compiled": ("census_bps", args.compiled_artifact_id),
+                 "provisional": ("census_bps_provisional", args.provisional_artifact_id)}
+    if any(artifact_id not in records for _, artifact_id in requested.values()):
+        raise ValueError("requested BPS parent is absent from durable artifact catalog")
+    global CYCLE_ID, TARGET_MONTH, EXPECTED_PARENTS
+    CYCLE_ID = args.cycle_id
+    TARGET_MONTH = args.cycle_id.split("__")[1]
+    EXPECTED_PARENTS = {role: {"source_id": source, "artifact_id": artifact_id,
+        "artifact_content_hash": records[artifact_id]["artifact_content_hash"],
+        "package_sha256": records[artifact_id]["package_sha256"]}
+        for role, (source, artifact_id) in requested.items()}
     resolver = GitHubReleaseArtifactResolver(catalog, api, args.workspace / "parents")
     parent_paths = {role: resolver.resolve(f"artifact://source/{value['source_id']}/{value['artifact_id']}")
                     for role, value in EXPECTED_PARENTS.items()}
