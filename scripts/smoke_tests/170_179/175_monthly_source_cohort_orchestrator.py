@@ -41,8 +41,8 @@ assert 'fred_macro' not in one_reused['reused_source_ids']
 both_reused=barrier_evidence(cycle=replay,results=[],reused_results=[r,f,c,l,b,p,x1,x5,q,a,n],pins=None,github={})
 assert both_reused['reused_source_ids']==['bea_gdp_ann','bea_gdp_qtr','census_acs1','census_acs5','census_bps','census_bps_provisional','census_nrc','ces','fred_macro','laus','redfin']
 unchanged_redfin=dict(r); unchanged_redfin['prior_artifact_id']=unchanged_redfin['candidate_artifact_id']
-normal_unchanged=barrier_evidence(cycle=replay,results=[unchanged_redfin,f,c,l,b,p,q,a],pins=None,github={})
-assert normal_unchanged['reused_source_ids']==[]
+normal_unchanged=barrier_evidence(cycle=replay,results=[unchanged_redfin,f,c,l,b,p,x1,x5,q,a,n],pins=None,github={})
+assert normal_unchanged['barrier_status']=='ready' and normal_unchanged['reused_source_ids']==[]
 retry=result('fred_macro','failed','retryable'); assert evaluate_barrier(expected_cycle_id=ready['cycle_id'],required_source_ids=('redfin','fred_macro'),results=[r,retry]).status=='incomplete_retryable'
 terminal=result('redfin','failed','terminal'); assert evaluate_barrier(expected_cycle_id=ready['cycle_id'],required_source_ids=('redfin','fred_macro'),results=[terminal,f]).status=='failed_terminal'
 plan=resume_plan(('redfin','fred_macro','ces'),[r,c,retry],expected_cycle_id=ready['cycle_id']); assert plan['reuse']==['ces','redfin'] and plan['run']==['fred_macro']
