@@ -59,5 +59,8 @@ assert not any(field.startswith("expected_") for field in dynamic)
 workflow=Path(".github/workflows/bps-family-resolution.yml").read_text()
 master=Path(".github/workflows/monthly-refresh-production.yml").read_text()
 assert "workflow_dispatch:" in workflow and "schedule:" not in workflow and "push:" not in workflow
-assert "bps-family-resolution" not in master
+assert "./.github/workflows/bps-family-resolution.yml" in master
+assert "needs.barrier.outputs.bps_artifact_id" in master
+assert "needs.barrier.outputs.bps_provisional_artifact_id" in master
+assert "--compiled-artifact-id" in workflow and "--provisional-artifact-id" in workflow
 print("[smoke] BPS family resolution passed")

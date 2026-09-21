@@ -31,7 +31,7 @@ assert "schedule:" not in live_text and "push:" not in live_text
 assert "cohort_promotion_hosted" in live_text
 assert '--acs-resolution-id "${{ inputs.acs_resolution_id }}"' in live_text
 adapter_text=Path("jobs/monthly_refresh/cohort_promotion_hosted.py").read_text()
-assert "ACS-inclusive cohort integration is preflight-only" in adapter_text
+assert "ACS/BEA-inclusive cohort integration is preflight-only" in adapter_text
 
 # Code executes from the workflow-dispatch ref, while durable control-plane
 # reads and CAS writes continue to target the authority branch.

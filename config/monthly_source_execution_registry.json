@@ -44,6 +44,20 @@
       "dependencies": []
     },
     {
+      "source_id": "census_acs1",
+      "required": true,
+      "hosted_cohort_enabled": true,
+      "provider_input_policy": "durable_normalized_input_pin",
+      "dependencies": []
+    },
+    {
+      "source_id": "census_acs5",
+      "required": true,
+      "hosted_cohort_enabled": true,
+      "provider_input_policy": "durable_normalized_input_pin",
+      "dependencies": []
+    },
+    {
       "source_id": "bea_gdp_qtr",
       "required": true,
       "hosted_cohort_enabled": true,
