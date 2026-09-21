@@ -24,8 +24,8 @@ from typing import Any, Iterable
 import pandas as pd
 
 REPO = "chineduezebuiroh/realestate-intel"
-EXPECTED_BRANCH = "monthly-refresh-orchestration"
-EXPECTED_HEAD = "860b077cb3c4c637f5b9404e3b7cb843cf9688f2"
+EXPECTED_BASE_BRANCH = "monthly-refresh-orchestration"
+EXPECTED_BASE_SHA = "860b077cb3c4c637f5b9404e3b7cb843cf9688f2"
 DEFAULT_ROOT = Path("/Users/chineduezebuiroh/Desktop/GitHub Projects/realestate-intel")
 AUDIT_ROOT = Path("/tmp/realestate-intel-durable-audit")
 
@@ -85,7 +85,7 @@ def command_is_read_only(command: list[str]) -> bool:
             return command[4:] == ["--tags"]
         return len(command) > 1 and command[1] in {
             "branch", "rev-parse", "remote", "status", "show-ref", "tag",
-            "ls-tree", "show",
+            "ls-tree", "show", "merge-base",
         }
     if command[:2] == ["gh", "auth"]:
         return command[2:] == ["status"]
@@ -127,23 +127,46 @@ def _tracked_status(root: Path) -> str:
     return _git(root, "status", "--porcelain", "--untracked-files=no")
 
 
-def _assert_context(root: Path) -> dict[str, str]:
-    if _git(root, "branch", "--show-current") != EXPECTED_BRANCH:
-        raise RuntimeError(f"expected branch {EXPECTED_BRANCH}")
-    if _git(root, "rev-parse", "HEAD") != EXPECTED_HEAD:
-        raise RuntimeError(f"expected HEAD {EXPECTED_HEAD}")
+def _validate_checkout(root: Path) -> dict[str, str]:
+    """Prove the execution checkout descends from the audited baseline."""
+    branch = _git(root, "branch", "--show-current")
+    head = _git(root, "rev-parse", "HEAD")
+    resolved_base = _git(root, "rev-parse", "--verify", f"{EXPECTED_BASE_SHA}^{{commit}}")
+    if resolved_base != EXPECTED_BASE_SHA:
+        raise RuntimeError(
+            f"expected baseline commit {EXPECTED_BASE_SHA} resolved as {resolved_base}"
+        )
+    ancestry = _run(
+        ["git", "merge-base", "--is-ancestor", EXPECTED_BASE_SHA, "HEAD"],
+        cwd=root,
+        check=False,
+    )
+    if ancestry.returncode != 0:
+        raise RuntimeError(
+            f"execution HEAD {head} does not descend from audited "
+            f"{EXPECTED_BASE_BRANCH} baseline {EXPECTED_BASE_SHA}"
+        )
     status = _tracked_status(root)
     if status:
         raise RuntimeError(f"tracked working tree is not clean:\n{status}")
+    return {
+        "execution_branch": branch,
+        "execution_head": head,
+        "expected_base_branch": EXPECTED_BASE_BRANCH,
+        "expected_base_sha": EXPECTED_BASE_SHA,
+    }
+
+
+def _assert_context(root: Path) -> dict[str, str]:
+    checkout = _validate_checkout(root)
     origin = _git(root, "remote", "get-url", "origin")
     _run(["gh", "auth", "status"], cwd=root)
     access = _gh_json(root, f"repos/{REPO}")
     return {
-        "repository_root": str(root), "branch": EXPECTED_BRANCH,
-        "head": EXPECTED_HEAD, "origin_url": origin,
+        "repository_root": str(root), "origin_url": origin,
         "github_full_name": access["full_name"],
         "github_default_branch": access["default_branch"],
-    }
+    } | checkout
 
 
 def _prepare_output() -> None:
