@@ -17,6 +17,8 @@ import re
 VERSION = "cohort_promotion_record_v1"
 OPERATION_ORDER = ("accept_source_set", "accept_canonical_market",
                    "accept_sources", "consume_redfin")
+SOURCE_TRANSITION_ORDER = ("fred_macro", "ces", "laus", "redfin", "bps", "acs",
+                           "bea_gdp_qtr", "bea_gdp_ann", "census_nrc")
 SHA = re.compile(r"[0-9a-f]{64}")
 
 
@@ -30,6 +32,8 @@ def create_promotion_record(*, cycle_id: str, source_set_id: str,
     physical_family_sources = {"census_acs1", "census_acs5", "census_bps", "census_bps_provisional"}
     if physical_family_sources & set(target_source_pointers):
         raise PublicationError("physical family pointers cannot participate in promotion")
+    if set(target_source_pointers) != set(SOURCE_TRANSITION_ORDER):
+        raise PublicationError("promotion requires the exact nine-member logical cohort")
     semantic = {"schema_version": VERSION, "cycle_id": cycle_id,
         "source_set_id": source_set_id, "source_set_semantic_sha256": source_set_semantic_sha256,
         "canonical_artifact_id": canonical_artifact_id,
@@ -78,7 +82,8 @@ def promotion_progress(record: dict[str, Any], catalog: dict[str, Any], readines
     records = {(r["object_type"], r["object_id"]): r for r in catalog["immutable_records"]}
     if ("source_set", record["source_set_id"]) not in records or ("canonical_market", record["canonical_artifact_id"]) not in records:
         raise PublicationError("promotion target object is not cataloged")
-    for source, target in record["target_source_pointers"].items():
+    for source in SOURCE_TRANSITION_ORDER:
+        target = record["target_source_pointers"][source]
         if ("source", target) not in records or records[("source", target)]["metadata"].get("source_id") != source:
             raise PublicationError(f"promotion source target is not cataloged: {source}")
     match = [r for r in readiness.get("records", []) if r.get("readiness_id") == record["readiness_id"]]
@@ -119,7 +124,8 @@ def recover_promotion(record: dict[str, Any], catalog: dict[str, Any], readiness
         out = activate_object(out, "canonical_market", record["canonical_artifact_id"]); operations += 1
     if out["accepted"].get("canonical_market") != record["canonical_artifact_id"]:
         return out, ready, promotion_progress(record, out, ready)
-    for source, target in record["target_source_pointers"].items():
+    for source in SOURCE_TRANSITION_ORDER:
+        target = record["target_source_pointers"][source]
         if _pointer(out["accepted"]["source"].get(source), record["expected_source_pointers"][source], target, source) and allowed():
             out = activate_source(out, source, target); operations += 1
         if out["accepted"]["source"].get(source) != target:

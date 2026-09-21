@@ -10,6 +10,7 @@ from core.source_artifacts.source_set_v2 import (FAMILY_MAP_VERSION, create_sour
     governed_config_hashes)
 from jobs.monthly_refresh.production import validate_source_result
 from jobs.monthly_refresh.readiness import eligible_record
+from jobs.monthly_refresh.phase3 import validate_logical_plan
 from sources.census_bps.artifact import family_resolution_config_hashes
 from sources.census_acs.artifact import (CONTRACT_VERSION as ACS_CONTRACT_VERSION,
     governed_config_hashes as acs_governed_config_hashes)
@@ -61,6 +62,7 @@ def validate_nrc_cohort_contract(record: Mapping[str, Any]) -> None:
 
 
 def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
+        logical_plan: dict[str, Any],
         physical_results: list[dict[str, Any]], catalog: dict[str, Any], readiness: dict[str, Any],
         resolution: dict[str, Any], acs_resolution: dict[str, Any],
         family_parent_republications: list[dict[str, Any]],
@@ -68,6 +70,9 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
         repository_root: Path = Path(".")) -> dict[str, Any]:
     """Map complete physical results to exact logical assembly inputs."""
     validate_catalog(catalog)
+    planned = validate_logical_plan(logical_plan)
+    if logical_plan["cycle_id"] != cycle_id:
+        raise ValueError("logical cohort plan cycle mismatch")
     expected_physical = {"bea_gdp_ann", "bea_gdp_qtr", "census_bps", "census_nrc",
                          "census_bps_provisional", "ces", "fred_macro", "laus", "redfin"}
     by_source = {}
@@ -102,11 +107,20 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
     if {p["source_id"] for p in parents} != {"census_bps", "census_bps_provisional"}:
         raise ValueError("BPS family parent inventory mismatch")
     republications = {r.get("source_id"):r for r in family_parent_republications}
-    if set(republications) != {"census_bps", "census_bps_provisional"}:
+    if not set(republications) <= {"census_bps", "census_bps_provisional"}:
         raise ValueError("BPS family republication inventory mismatch")
     for parent in parents:
         result = by_source[parent["source_id"]]
-        republication = republications[parent["source_id"]]
+        direct_identity=(result["candidate_artifact_id"],result["artifact_content_hash"],result["package_sha256"])
+        parent_identity=(parent["artifact_id"],parent["artifact_content_hash"],parent["package_sha256"])
+        if direct_identity == parent_identity:
+            record = _catalog_source(catalog, parent["source_id"], parent["artifact_id"])
+            if record["artifact_content_hash"] != parent["artifact_content_hash"] or record["package_sha256"] != parent["package_sha256"]:
+                raise ValueError("BPS family parent catalog identity mismatch")
+            continue
+        republication = republications.get(parent["source_id"])
+        if republication is None:
+            raise ValueError("BPS family parent does not match its cycle candidate or governed republication")
         expected_republication = {"schema_version":"bps_source_republication_v1",
             "parent_cycle_id":cycle_id, "source_contract_version":"bps_governed_source_v1",
             "parent_candidate_artifact_id":result["candidate_artifact_id"],
@@ -123,6 +137,9 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
         record = _catalog_source(catalog, parent["source_id"], parent["artifact_id"])
         if record["artifact_content_hash"] != parent["artifact_content_hash"] or record["package_sha256"] != parent["package_sha256"]:
             raise ValueError("BPS family parent catalog identity mismatch")
+    if set(republications) != {p["source_id"] for p in parents
+                               if p["artifact_id"] != by_source[p["source_id"]]["candidate_artifact_id"]}:
+        raise ValueError("BPS family contains unused republication evidence")
     logical_bps = _catalog_source(catalog, "bps", resolution["output_artifact_id"])
     if logical_bps["artifact_content_hash"] != resolution["output_content_hash"] \
             or logical_bps["package_sha256"] != resolution["output_package_sha256"]:
@@ -193,6 +210,12 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
                 for p in acs_parents]}]}
     if {entry["source_id"] for entry in entries} != LOGICAL_COHORT_SOURCES:
         raise AssertionError("logical cohort inventory drift")
+    actual = {entry["source_id"]: (entry["artifact_id"], entry["artifact_content_hash"],
+                                   entry["package_sha256"]) for entry in entries}
+    expected = {source: (item["artifact_id"], item["artifact_content_hash"], item["package_sha256"])
+                for source, item in planned.items()}
+    if actual != expected:
+        raise ValueError("Source Set inputs differ from the exact logical cohort plan")
     return create_source_set_v2(output, target_month=target_month, created_at=created_at,
         builder_git_sha=builder_git_sha, entries=entries,
         config_hashes=governed_config_hashes(repository_root), family_resolution=family_map)

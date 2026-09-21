@@ -33,19 +33,17 @@ LEGACY_GEO_IDS = [
 SOURCE_HISTORY_POLICY = {
     # keep all available history
     "redfin": None,
-    "census_acs1": None,
-    "census_acs5": None,
+    "acs": None,
     "bea_gdp_ann": None,
     "bea_gdp_qtr": None,
-    "census_nrc_fred": None,
+    "census_nrc": None,
 
     # cap long monthly / routine macro series
     "ces": {"years": 20},
     "laus": {"years": 20},
     "fred_macro": {"years": 20},
     "fred_unemp": {"years": 20},
-    "census_bps": {"years": 20},
-    "census_bps_provisional": {"years": 20},
+    "bps": {"years": 20},
 }
 
 DEFAULT_HISTORY_POLICY = None
@@ -184,14 +182,14 @@ def create_bps_view(serving: duckdb.DuckDBPyConnection) -> None:
             """
             SELECT source_id, COUNT(*) AS rows
             FROM fact_timeseries
-            WHERE source_id IN ('census_bps', 'census_bps_provisional')
+            WHERE source_id = 'bps'
             GROUP BY 1
             """
         ).fetchall()
     )
 
-    if "census_bps" not in source_counts:
-        print("[snapshot][warn] skipping fact_timeseries_bps view: census_bps missing")
+    if "bps" not in source_counts:
+        print("[snapshot][warn] skipping fact_timeseries_bps view: bps missing")
         return
 
     serving.execute(
@@ -199,22 +197,7 @@ def create_bps_view(serving: duckdb.DuckDBPyConnection) -> None:
         CREATE OR REPLACE VIEW fact_timeseries_bps AS
         SELECT *
         FROM fact_timeseries
-        WHERE source_id = 'census_bps'
-
-        UNION ALL
-
-        SELECT p.*
-        FROM fact_timeseries p
-        WHERE p.source_id = 'census_bps_provisional'
-          AND NOT EXISTS (
-              SELECT 1
-              FROM fact_timeseries c
-              WHERE c.source_id = 'census_bps'
-                AND c.geo_id = p.geo_id
-                AND c.metric_id = p.metric_id
-                AND c.date = p.date
-                AND c.property_type_id = p.property_type_id
-          )
+        WHERE source_id = 'bps'
         """
     )
 

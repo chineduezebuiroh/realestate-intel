@@ -333,7 +333,7 @@ jobs:
   logical-cohort-plan:
     needs: [barrier, resolve-bps-family, resolve-acs-family]
     runs-on: ubuntu-latest
-    permissions: {contents: read}
+    permissions: {contents: write}
     env: {PYTHONPATH: .}
     steps:
       - uses: actions/checkout@v4
@@ -350,6 +350,14 @@ jobs:
           printf '%s' "$ACS" > "$RUNNER_TEMP/acs.json"
           python -m jobs.monthly_refresh.cohort logical-plan --physical-evidence "$RUNNER_TEMP/physical.json" --bps-resolution "$RUNNER_TEMP/bps.json" --acs-resolution "$RUNNER_TEMP/acs.json" --output "$RUNNER_TEMP/logical-plan.json"
           cat "$RUNNER_TEMP/logical-plan.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Persist create-once Phase 2 handoff on production authority
+        env: {GITHUB_TOKEN: '${{ github.token }}'}
+        run: |
+          python -m jobs.monthly_refresh.cohort_plan_store \
+            --repository "$GITHUB_REPOSITORY" --branch main \
+            --plan "$RUNNER_TEMP/logical-plan.json" \
+            --output "$RUNNER_TEMP/durable-logical-plan.json"
+          cat "$RUNNER_TEMP/durable-logical-plan.json" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: governed-logical-cohort-plan

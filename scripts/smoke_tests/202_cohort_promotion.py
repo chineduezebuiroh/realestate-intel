@@ -117,13 +117,26 @@ results.append({"schema_version":"monthly_source_execution_result_v1", "source_i
     "retryability":"not_applicable", "evidence_uri":redfin_record["logical_artifact_uri"],
     "accepted_pointer_changed":False})
 
+direct = {r["source_id"]:{"source_id":r["source_id"], "artifact_id":r["candidate_artifact_id"],
+    "artifact_content_hash":r["artifact_content_hash"], "package_sha256":r["package_sha256"]}
+    for r in results if r["source_id"] not in {"census_bps","census_bps_provisional"}}
+direct["bps"]={"source_id":"bps", "artifact_id":resolution["output_artifact_id"],
+    "artifact_content_hash":resolution["output_content_hash"], "package_sha256":resolution["output_package_sha256"]}
+direct["acs"]={"source_id":"acs", "artifact_id":acs_resolution["output_artifact_id"],
+    "artifact_content_hash":acs_resolution["output_content_hash"], "package_sha256":acs_resolution["output_package_sha256"]}
+logical_order=("fred_macro","ces","laus","redfin","bps","acs","bea_gdp_qtr","bea_gdp_ann","census_nrc")
+logical_plan={"schema_version":"monthly_logical_cohort_plan_v1", "cycle_id":CYCLE,
+    "logical_source_inventory":list(logical_order), "sources":[direct[s] for s in logical_order]}
+
 with tempfile.TemporaryDirectory() as td:
     root = Path(td)
     source_set = build_logical_source_set(output=root/"source-set.json", cycle_id=CYCLE,
+        logical_plan=logical_plan,
         target_month="2026-07", physical_results=results, catalog=catalog, readiness=readiness,
         resolution=resolution, acs_resolution=acs_resolution, family_parent_republications=republications,
         created_at="first", builder_git_sha="git-a")
     repeat = build_logical_source_set(output=root/"source-set-repeat.json", cycle_id=CYCLE,
+        logical_plan=logical_plan,
         target_month="2026-07", physical_results=results, catalog=catalog, readiness=readiness,
         resolution=resolution, acs_resolution=acs_resolution, family_parent_republications=republications,
         created_at="second", builder_git_sha="git-b")
@@ -133,6 +146,7 @@ with tempfile.TemporaryDirectory() as td:
     try:
         try:
             build_logical_source_set(output=root/"drifted-source-set.json", cycle_id=CYCLE,
+                logical_plan=logical_plan,
                 target_month="2026-07", physical_results=results, catalog=catalog,
                 readiness=readiness, resolution=resolution, acs_resolution=acs_resolution,
                 family_parent_republications=republications, created_at="drift",
@@ -156,6 +170,7 @@ with tempfile.TemporaryDirectory() as td:
     physical_candidate["output_artifact_id"] = acs1_id
     try:
         build_logical_source_set(output=root/"physical-acs.json", cycle_id=CYCLE,
+            logical_plan=logical_plan,
             target_month="2026-07", physical_results=results, catalog=catalog, readiness=readiness,
             resolution=resolution, acs_resolution=physical_candidate,
             family_parent_republications=republications, created_at="physical", builder_git_sha="git")

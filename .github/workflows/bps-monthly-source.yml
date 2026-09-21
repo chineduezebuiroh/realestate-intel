@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       result_json: '${{ steps.result.outputs.result_json }}'
-    env: {PYTHONPATH: .}
+    env: {PYTHONPATH: ., DURABLE_AUTHORITY_BRANCH: main}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,7 +26,7 @@ jobs:
             --source-id '${{ inputs.source_id }}' \
             --cycle-id '${{ inputs.cycle_id }}' \
             --mode '${{ inputs.invocation_mode }}' \
-            --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" \
+            --repository "$GITHUB_REPOSITORY" --branch "$DURABLE_AUTHORITY_BRANCH" \
             --workspace "$RUNNER_TEMP/bps" --output "$RUNNER_TEMP/result.json"
           echo "result_json=$(jq -c . "$RUNNER_TEMP/result.json")" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/result.json" >> "$GITHUB_STEP_SUMMARY"
