@@ -22,7 +22,7 @@ jobs:
   resolve:
     runs-on: ubuntu-latest
     outputs: {resolution_json: '${{ steps.resolve.outputs.resolution_json }}'}
-    env: {PYTHONPATH: .}
+    env: {PYTHONPATH: ., DURABLE_AUTHORITY_BRANCH: main}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,7 +33,7 @@ jobs:
         env: {GITHUB_TOKEN: '${{ github.token }}'}
         run: |
           python -m jobs.monthly_refresh.bps_family_resolution \
-            --repository "$GITHUB_REPOSITORY" --branch "$GITHUB_REF_NAME" \
+            --repository "$GITHUB_REPOSITORY" --branch "$DURABLE_AUTHORITY_BRANCH" \
             --cycle-id '${{ inputs.cycle_id }}' \
             --compiled-artifact-id '${{ inputs.compiled_artifact_id }}' \
             --provisional-artifact-id '${{ inputs.provisional_artifact_id }}' \

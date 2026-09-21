@@ -32,18 +32,13 @@ from core.source_artifacts.publication import PublicationError
 from jobs.monthly_refresh.cohort_promotion import build_logical_source_set
 from core.source_artifacts.source_set_v2 import source_set_semantic_sha256
 from jobs.monthly_refresh.readiness import validate_readiness
+from jobs.monthly_refresh.phase3 import authorization_token
+from jobs.monthly_refresh.cohort_plan_store import GitHubCohortPlanStore, validate_durable_plan
 
 CATALOG_PATH = "config/artifact_catalog.json"
 READINESS_PATH = "config/monthly_refresh_readiness.json"
 RECORD_ROOT = "config/cohort_promotion_records"
-JULY_CYCLE = "monthly_cycle__2026-07__7cab1c5df177a1e4"
-JULY_RESOLUTION = "bps_family_resolution__457b5a17a73da623cfcfea08"
-LIVE_CONFIRMATION = "PROMOTE_GOVERNED_COHORT"
-BUILD_PROVENANCE = "governed-july-cohort-adapter-v1"
-BUILD_TIME = "2026-07-31T23:59:59Z"
-REPUBLICATION_IDS = {
-    "census_bps": "source_republication__census_bps__c20f4259f4cae4c9802e",
-    "census_bps_provisional": "source_republication__census_bps_provisional__bbcce0aab4e203176b14"}
+BUILD_PROVENANCE = "governed-monthly-phase3-adapter-v1"
 
 
 class GitHubJSONCAS:
@@ -93,14 +88,16 @@ def _publish_object(*, api: GitHubAPI, cas: GitHubCatalogCAS, package: Path,
         _verify_object_record(api, record, package.parent / (object_id + "-reuse"))
         return record
     publisher = GitHubReleaseArtifactPublisher(api)
-    tag = {"source_set":"source-set", "canonical_market":"canonical-market"}[object_type] + "/" + object_id
+    tag = {"source_set":"source-set", "canonical_market":"canonical-market",
+           "serving_market":"serving-market"}[object_type] + "/" + object_id
     updated, receipt, _ = publish_object(publisher=publisher, catalog=catalog, package=package,
         logical_uri=uri, object_id=object_id, object_type=object_type,
         artifact_content_hash=content_hash, object_metadata=metadata, member_hashes=members,
         remote_repository=api.repository, release_tag=tag, release_id=1, asset_id=1,
         asset_filename=object_id+".tar", publisher_git_sha=git_sha, published_at=_utc(),
-        contract_versions=["source_set_manifest_v2" if object_type == "source_set"
-                           else "canonical_market_artifact_v1"])
+        contract_versions=[{"source_set":"source_set_manifest_v2",
+                            "canonical_market":"canonical_market_artifact_v1",
+                            "serving_market":"serving_market_artifact_v1"}[object_type]])
     record = next(r for r in updated["immutable_records"] if r["object_id"] == object_id)
     cas.add(record, receipt)
     durable, _ = cas.read()
@@ -176,56 +173,81 @@ def execute_to_completion(record: dict[str, Any], catalog_cas: GitHubCatalogCAS,
     return {"operations": operations, "exact_rerun_noop": True, "progress": repeat["progress"]}
 
 
-def _durable_inputs(api: GitHubAPI, branch: str, cycle_id: str,
-                    acs_resolution_id: str) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
-    sources = ("bea_gdp_ann", "bea_gdp_qtr", "census_bps",
-               "census_bps_provisional", "ces", "fred_macro", "laus")
-    results = [_read_required(GitHubJSONCAS(api,
-        f"config/monthly_source_cycle_results/{cycle_id}/{source}.json", branch))["result"] for source in sources]
-    resolution = _read_required(GitHubJSONCAS(api,
-        f"config/bps_family_resolutions/{JULY_RESOLUTION}.json", branch))
-    acs_resolution = _read_required(GitHubJSONCAS(api,
-        f"config/acs_family_resolutions/{acs_resolution_id}.json", branch))
-    republications = [_read_required(GitHubJSONCAS(api,
-        f"config/monthly_source_republications/{cycle_id}/{source}/{REPUBLICATION_IDS[source]}.json", branch))
-        for source in ("census_bps", "census_bps_provisional")]
-    return results, resolution, acs_resolution, republications
+def _durable_inputs(api: GitHubAPI, branch: str, cycle_id: str) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    plan = GitHubCohortPlanStore(api, branch).get(cycle_id)
+    results = list(plan["physical_results"])
+    physical = {item["source_id"]:item for item in plan["physical_candidates"]}
+    for result in results:
+        expected=physical[result["source_id"]]
+        if (result["candidate_artifact_id"],result["artifact_content_hash"],result["package_sha256"]) != \
+                (expected["artifact_id"],expected["artifact_content_hash"],expected["package_sha256"]):
+            raise PublicationError(f"durable cycle result drift from logical plan: {result['source_id']}")
+    resolution, acs_resolution = plan["family_resolutions"]["bps"], plan["family_resolutions"]["acs"]
+    republications=[]
+    for source in ("census_bps","census_bps_provisional"):
+        parent=next(p for p in resolution["parents"] if p["source_id"]==source)
+        if parent["artifact_id"]==physical[source]["artifact_id"]:
+            continue
+        directory=f"config/monthly_source_republications/{cycle_id}/{source}"
+        items,_=api.request("GET",f"/contents/{urllib.parse.quote(directory,safe='/')}?ref={urllib.parse.quote(branch)}")
+        matches=[]
+        for item in items:
+            value=_read_required(GitHubJSONCAS(api,item["path"],branch))
+            if value.get("candidate_artifact_id") == parent["artifact_id"]: matches.append(value)
+        if len(matches)!=1: raise PublicationError(f"exact BPS parent republication does not resolve once: {source}")
+        republications.append(matches[0])
+    return plan, results, resolution, acs_resolution, republications
 
 
 def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
-        git_sha: str, mutate: bool, acs_resolution_id: str) -> dict[str, Any]:
-    if cycle_id != JULY_CYCLE: raise PublicationError("adapter is pinned to the governed July cycle")
-    if mutate:
-        raise PublicationError(
-            "ACS/BEA-inclusive cohort integration is preflight-only pending promotion authorization")
+        git_sha: str, mutate: bool,
+        supplied_authorization: str = "") -> dict[str, Any]:
+    if mutate and not supplied_authorization:
+        raise PublicationError("live promotion requires exact preflight authorization")
     workspace.mkdir(parents=True, exist_ok=True)
     catalog_cas = GitHubCatalogCAS(api, CATALOG_PATH, branch)
     readiness_store = GitHubJSONCAS(api, READINESS_PATH, branch)
     catalog, _ = catalog_cas.read(); readiness = _read_required(readiness_store)
     validate_readiness(readiness, catalog=catalog, policy_path=Path("config/monthly_refresh_policy.json"))
     serving_before = deepcopy(catalog["accepted"].get("serving_market"))
-    results, resolution, acs_resolution, republications = _durable_inputs(
-        api, branch, cycle_id, acs_resolution_id)
-    redfin = next(r for r in readiness["records"] if r["cycle_id"] == cycle_id)
-    redfin_record = next(r for r in catalog["immutable_records"] if r["object_id"] == redfin["candidate_artifact_id"])
-    results.append({"schema_version":"monthly_source_execution_result_v1", "source_id":"redfin",
-        "cycle_id":cycle_id, "status":"succeeded", "candidate_artifact_id":redfin_record["object_id"],
-        "artifact_content_hash":redfin_record["artifact_content_hash"], "package_sha256":redfin_record["package_sha256"],
-        "publication_state":"published_verified", "validation_status":"passed",
-        "provider_release_id":redfin_record["metadata"]["provider_release_id"],
-        "observation_max":redfin_record["metadata"]["observation_max"],
-        "prior_artifact_id":catalog["accepted"]["source"].get("redfin"), "source_change_detected":True,
-        "retryability":"not_applicable", "evidence_uri":redfin_record["logical_artifact_uri"],
-        "accepted_pointer_changed":False})
+    if mutate:
+        record=_read_required(GitHubJSONCAS(api,f"{RECORD_ROOT}/{cycle_id}.json",branch))
+        if supplied_authorization != authorization_token(record):
+            raise PublicationError("live authorization is not bound to the exact durable promotion plan")
+        outcome=execute_to_completion(record,catalog_cas,readiness_store)
+        final_catalog,_=catalog_cas.read()
+        if final_catalog["accepted"].get("serving_market")!=serving_before:
+            raise PublicationError("serving authority changed during cohort promotion")
+        return {"cycle_id":cycle_id,"promotion_id":record["promotion_id"],
+            "live_promotion_performed":True,"provider_discovery_performed":False,
+            "redfin_acquisition_performed":False,**outcome}
+    logical_plan, results, resolution, acs_resolution, republications = _durable_inputs(api,branch,cycle_id)
+    redfin_matches=[r for r in readiness["records"] if r["cycle_id"] == cycle_id]
+    if len(redfin_matches)!=1: raise PublicationError("exact cycle Redfin readiness does not resolve once")
+    redfin=redfin_matches[0]
+    redfin_records=[r for r in catalog["immutable_records"] if r["object_type"]=="source" and r["object_id"] == redfin["candidate_artifact_id"]]
+    if len(redfin_records)!=1: raise PublicationError("Redfin readiness artifact does not resolve once")
+    redfin_record=redfin_records[0]
+    planned_redfin=next(r for r in results if r["source_id"]=="redfin")
+    if planned_redfin["candidate_artifact_id"]!=redfin_record["object_id"]:
+        raise PublicationError("Redfin readiness/result identity mismatch")
     # Construction remains deterministic on an exact rerun after consumption;
     # the durable value is never changed here and the recovery engine below
     # rejects consumption unless every preceding target is already complete.
     assembly_readiness = deepcopy(readiness)
     next(r for r in assembly_readiness["records"] if r["readiness_id"] == redfin["readiness_id"])["consumed"] = False
+    validate_durable_plan(logical_plan)
+    redfin_pin=next(p for p in logical_plan["physical_candidates"] if p["source_id"]=="redfin")
+    if (redfin_record["object_id"],redfin_record["artifact_content_hash"],redfin_record["package_sha256"]) != \
+            (redfin_pin["artifact_id"],redfin_pin["artifact_content_hash"],redfin_pin["package_sha256"]):
+        raise PublicationError("Redfin readiness drift from durable logical plan")
+    target_month=cycle_id.split("__")[1]
+    build_time=target_month+"-01T00:00:00Z"
     source_set = build_logical_source_set(output=workspace/"source-set.json", cycle_id=cycle_id,
-        target_month="2026-07", physical_results=results, catalog=catalog, readiness=assembly_readiness,
+        logical_plan=logical_plan,
+        target_month=target_month, physical_results=[r for r in results if r["source_id"] not in {"census_acs1","census_acs5"}], catalog=catalog, readiness=assembly_readiness,
         resolution=resolution, acs_resolution=acs_resolution,
-        family_parent_republications=republications, created_at=BUILD_TIME,
+        family_parent_republications=republications, created_at=build_time,
         builder_git_sha=BUILD_PROVENANCE)
     ss_package = build_object_package({"source-set.json":workspace/"source-set.json"}, workspace/"source-set.tar")
     resolver = GitHubReleaseArtifactResolver(catalog, api, workspace/"sources")
@@ -238,7 +260,7 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
         dependency_lock_identity="requirements-sha256:"+sha256_file(Path("requirements.txt")), assembly_revision=1,
         compressed_package_sha256=sha256_file(workspace/"market.duckdb"), table_inventory=["fact_timeseries","source_artifact_metadata"],
         **{k:validation[k] for k in ("row_count","source_count","geography_count","metric_count","first_date","last_date","duplicate_key_count")},
-        validation_status="passed", assembly_warnings=[], builder_git_sha=BUILD_PROVENANCE, built_at=BUILD_TIME)
+        validation_status="passed", assembly_warnings=[], builder_git_sha=BUILD_PROVENANCE, built_at=build_time)
     market = create_canonical_market_manifest(workspace/"canonical-market.json",
                                                database_path=workspace/"market.duckdb", **manifest_values)
     market_package = build_object_package({"canonical-market.json":workspace/"canonical-market.json",
@@ -257,8 +279,8 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
     summary = {"cycle_id":cycle_id, "source_set_id":source_set["source_set_id"],
         "canonical_artifact_id":market["market_artifact_id"], "provider_discovery_performed":False,
         "promotion_id":proposed_record["promotion_id"], "promotion_plan_validated":True,
+        "authorization_token":authorization_token(proposed_record),
         "live_promotion_performed":False, "mutate":mutate}
-    if not mutate: return summary
     ss_record = _publish_object(api=api, cas=catalog_cas, package=workspace/"source-set.tar",
         object_id=source_set["source_set_id"], object_type="source_set", content_hash=sha256_json(source_set),
         metadata={"cycle_id":cycle_id,"source_set_semantic_sha256":source_set_semantic_sha256(source_set)},
@@ -282,27 +304,21 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
         expected_canonical=frozen_expected_canonical, readiness_id=redfin["readiness_id"],
         resolution_id=resolution["resolution_id"])
     record, created = persist_prepared(record_store, record)
-    outcome = execute_to_completion(record, catalog_cas, readiness_store)
-    final_catalog, _ = catalog_cas.read()
-    if final_catalog["accepted"].get("serving_market") != serving_before:
-        raise PublicationError("serving authority changed during cohort promotion")
-    summary.update(live_promotion_performed=True, promotion_id=record["promotion_id"],
-                   prepared_record_created=created, **outcome)
+    summary.update(promotion_id=record["promotion_id"], authorization_token=authorization_token(record),
+                   prepared_record_created=created, immutable_objects_published=True)
     return summary
 
 
 def main() -> int:
     parser=argparse.ArgumentParser(); parser.add_argument("--repository",required=True)
     parser.add_argument("--branch",required=True); parser.add_argument("--cycle-id",required=True)
-    parser.add_argument("--acs-resolution-id",required=True)
     parser.add_argument("--workspace",type=Path,required=True); parser.add_argument("--git-sha",required=True)
-    parser.add_argument("--live",action="store_true"); parser.add_argument("--confirm",default="")
+    parser.add_argument("--live",action="store_true"); parser.add_argument("--authorization-token",default="")
     parser.add_argument("--output",type=Path,required=True); args=parser.parse_args()
-    if args.live and args.confirm != LIVE_CONFIRMATION:
-        raise SystemExit("live execution requires exact confirmation: "+LIVE_CONFIRMATION)
-    api=GitHubAPI(args.repository,os.environ.get("GITHUB_TOKEN",""), read_only=not args.live)
+    api=GitHubAPI(args.repository,os.environ.get("GITHUB_TOKEN",""))
     report=run(api=api,branch=args.branch,cycle_id=args.cycle_id,workspace=args.workspace,
-               git_sha=args.git_sha,mutate=args.live,acs_resolution_id=args.acs_resolution_id)
+               git_sha=args.git_sha,mutate=args.live,
+               supplied_authorization=args.authorization_token)
     write_canonical_json(args.output,report); print(json.dumps(report,sort_keys=True)); return 0
 
 

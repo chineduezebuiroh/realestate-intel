@@ -77,6 +77,9 @@ def test_exact_physical_barrier_and_logical_plan_are_closed_and_non_mutating():
         acs_resolution=resolution("acs", {"census_acs1","census_acs5"}))
     assert tuple(plan["logical_source_inventory"]) == LOGICAL_DIRECT_SOURCES
     assert len(plan["sources"]) == 9
+    assert plan["plan_id"].startswith("logical_cohort_plan__")
+    assert len(plan["physical_results"]) == 11
+    assert set(plan["family_resolutions"]) == {"bps", "acs"}
     assert not {"census_bps","census_bps_provisional","census_acs1","census_acs5","census_nrc_fred"} & {x["source_id"] for x in plan["sources"]}
     assert "census_nrc" in {x["source_id"] for x in plan["sources"]}
     assert all(plan[key] is False for key in ("accepted_pointers_advanced","source_set_created","canonical_market_created","serving_market_created","redfin_consumption_committed"))
@@ -105,6 +108,7 @@ def test_master_orders_both_dynamic_resolvers_after_common_barrier():
     text=Path(".github/workflows/monthly-refresh-production.yml").read_text()
     assert "needs.barrier.outputs.bps_artifact_id" in text
     assert "needs.barrier.outputs.acs1_artifact_id" in text
+    assert "cohort_plan_store" in text and "--branch main" in text
 
 
 def test_real_phase2_interfaces_produce_exact_preflight_plan_without_io(monkeypatch):

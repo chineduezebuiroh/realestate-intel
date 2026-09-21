@@ -109,6 +109,6 @@ def test_resume_reuses_durable_bea_results_without_provider_discovery():
 
 
 def test_deferred_promotion_guard_rejects_mutation_before_any_api_access(tmp_path):
-    with pytest.raises(PublicationError, match="preflight-only"):
-        run(api=None, branch="main", cycle_id="monthly_cycle__2026-07__7cab1c5df177a1e4",
-            workspace=tmp_path, git_sha="fixture", mutate=True, acs_resolution_id="fixture")
+        with pytest.raises(PublicationError, match="preflight authorization"):
+            run(api=None, branch="main", cycle_id="monthly_cycle__2026-07__7cab1c5df177a1e4",
+                workspace=tmp_path, git_sha="fixture", mutate=True)

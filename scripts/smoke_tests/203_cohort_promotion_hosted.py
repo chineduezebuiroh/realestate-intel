@@ -23,15 +23,15 @@ live_path=Path(".github/workflows/cohort-promotion-live.yml")
 live=yaml.safe_load(live_path.read_text()); live_triggers=live.get(True,live.get("on"))
 assert set(live_triggers)=={"workflow_dispatch"}
 inputs=live_triggers["workflow_dispatch"]["inputs"]
-assert set(inputs)=={"cycle_id","intent","confirmation","acs_resolution_id"}
+assert set(inputs)=={"cycle_id","intent","confirmation"}
 assert live["permissions"]=={"contents":"write"}
 live_text=live_path.read_text()
-assert "PROMOTE_GOVERNED_COHORT" in live_text and "--live" in live_text
+assert "authorization_token emitted by preflight" in live_text and "--live" in live_text
 assert "schedule:" not in live_text and "push:" not in live_text
 assert "cohort_promotion_hosted" in live_text
-assert '--acs-resolution-id "${{ inputs.acs_resolution_id }}"' in live_text
+assert "acs_resolution_id" not in live_text
 adapter_text=Path("jobs/monthly_refresh/cohort_promotion_hosted.py").read_text()
-assert "ACS/BEA-inclusive cohort integration is preflight-only" in adapter_text
+assert "authorization is not bound to the exact durable promotion plan" in adapter_text
 
 # Code executes from the workflow-dispatch ref, while durable control-plane
 # reads and CAS writes continue to target the authority branch.
@@ -46,12 +46,13 @@ adapter=next(step for step in steps if step.get("name")=="Execute exact hosted a
 assert f"--branch {authority_branch}" in adapter["run"]
 assert "--branch monthly-refresh-orchestration" not in adapter["run"]
 assert 'if [[ "$INTENT" == live ]]' in adapter["run"]
-assert 'args+=(--live --confirm "$CONFIRMATION")' in adapter["run"]
+assert 'args+=(--live --authorization-token "$CONFIRMATION")' in adapter["run"]
 assert "--live" not in adapter["run"].split('if [[ "$INTENT" == live ]]')[0]
 job_gate=live["jobs"]["promote"]["if"]
 assert "inputs.intent == 'preflight'" in job_gate
 assert "inputs.intent == 'live'" in job_gate
-assert "inputs.confirmation == 'PROMOTE_GOVERNED_COHORT'" in job_gate
+assert "inputs.confirmation ==" not in job_gate
+assert "monthly_cycle__2026-07" not in job_gate
 print("Smoke 203 manual live cohort workflow passed")
 
 migration_path=Path(".github/workflows/control-plane-migration.yml")

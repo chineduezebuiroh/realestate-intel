@@ -13,6 +13,7 @@ from .publication import ArtifactPublisher, PublicationError
 from .hashing import sha256_json
 from .market_artifact import validate_canonical_market_artifact
 from .source_set_v2 import validate_source_set_v2
+from .serving_market import validate_serving_manifest
 
 
 def build_object_package(files: dict[str, Path], output: Path) -> dict[str, Any]:
@@ -34,7 +35,8 @@ def build_object_package(files: dict[str, Path], output: Path) -> dict[str, Any]
 def validate_object_package(package: Path, output: Path, *, object_type: str,
                             expected: dict[str, Any]) -> Path:
     allowed = {"source_set":{"source-set.json"},
-               "canonical_market":{"canonical-market.json","market.duckdb"}}.get(object_type)
+               "canonical_market":{"canonical-market.json","market.duckdb"},
+               "serving_market":{"serving-market.json","market_serving.duckdb"}}.get(object_type)
     if allowed is None: raise PublicationError("unsupported governed object package type")
     if output.exists(): raise FileExistsError(output)
     output.mkdir(parents=True)
@@ -51,14 +53,19 @@ def validate_object_package(package: Path, output: Path, *, object_type: str,
                 (output/member.name).write_bytes(stream.read())
         if {name:sha256_file(output/name) for name in sorted(allowed)} != expected["member_hashes"]:
             raise PublicationError("governed object member hash mismatch")
-        manifest_name="source-set.json" if object_type=="source_set" else "canonical-market.json"
+        manifest_name={"source_set":"source-set.json","canonical_market":"canonical-market.json",
+                       "serving_market":"serving-market.json"}[object_type]
         manifest=json.loads((output/manifest_name).read_text())
         if object_type=="source_set":
             validate_source_set_v2(manifest); object_id=manifest["source_set_id"]
-        else:
+        elif object_type=="canonical_market":
             validate_canonical_market_artifact(manifest); object_id=manifest["market_artifact_id"]
             if sha256_file(output/"market.duckdb") != manifest["database_sha256"]:
                 raise PublicationError("canonical database transport hash mismatch")
+        else:
+            validate_serving_manifest(manifest); object_id=manifest["serving_artifact_id"]
+            if sha256_file(output/"market_serving.duckdb") != manifest["database_sha256"]:
+                raise PublicationError("serving database transport hash mismatch")
         if object_id != expected["object_id"] or sha256_json(manifest) != expected["artifact_content_hash"]:
             raise PublicationError("governed object semantic identity mismatch")
         return output

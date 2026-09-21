@@ -13,18 +13,8 @@ GEO_MANIFEST_PATH = Path("config/geo_manifest.generated.csv")
 
 
 EXPECTED_SOURCES = {
-    "redfin",
-    "ces",
-    "laus",
-    "fred_macro",
-    "fred_unemp",
-    "bea_gdp_ann",
-    "bea_gdp_qtr",
-    "census_acs1",
-    "census_acs5",
-    "census_bps",
-    "census_bps_provisional",
-    "census_nrc_fred",
+    "redfin", "ces", "laus", "fred_macro", "bea_gdp_ann", "bea_gdp_qtr",
+    "acs", "bps", "census_nrc",
 }
 
 EXPECTED_CORE_METRICS = {
@@ -37,10 +27,8 @@ EXPECTED_CORE_METRICS = {
     "new_listings",
 
     # ACS
-    "census_acs1_pop_total",
-    "census_acs1_median_household_income",
-    "census_acs5_pop_total",
-    "census_acs5_median_household_income",
+    "census_acs_pop_total",
+    "census_acs_median_household_income",
 
     # BEA
     "bea_agdp_real_total_chained2017",
@@ -73,9 +61,8 @@ SOURCE_FLAG_MAP = {
     "fred_macro": "include_fred",
     "bea_gdp_ann": "include_bea_agdp",
     "bea_gdp_qtr": "include_bea_qgdp",
-    "census_acs1": "include_census",
-    "census_acs5": "include_census",
-    "census_bps": "include_census_bps",
+    "acs": "include_census",
+    "bps": "include_census_bps",
 }
 
 
@@ -98,8 +85,8 @@ def truthy(series: pd.Series) -> pd.Series:
     return series.astype(str).str.strip().str.lower().isin({"1", "true", "yes", "y"})
 
 
-def main() -> int:
-    con = duckdb.connect(DB_PATH)
+def validate_snapshot_path(path: Path | str) -> dict[str, object]:
+    con = duckdb.connect(str(path), read_only=True)
     geo = load_manifest()
 
     # 1. Expected sources exist
@@ -193,7 +180,15 @@ def main() -> int:
     """).fetchdf().to_string(index=False))
 
     print("[serving:validate] OK")
+    rows=con.execute("select count(*) from fact_timeseries").fetchone()[0]
+    duplicates=con.execute("select count(*) from (select 1 from fact_timeseries group by geo_id,metric_id,date,property_type_id,source_id having count(*)>1)").fetchone()[0]
     con.close()
+    return {"status":"passed","row_count":rows,"source_count":len(sources),
+            "sources":sorted(sources),"duplicate_key_count":duplicates}
+
+
+def main() -> int:
+    validate_snapshot_path(DB_PATH)
     return 0
 
 

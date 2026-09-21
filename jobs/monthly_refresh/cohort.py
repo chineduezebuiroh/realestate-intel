@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core.source_artifacts.hashing import write_canonical_json
+from core.source_artifacts.hashing import sha256_json
 from jobs.monthly_refresh.production import evaluate_barrier, validate_source_result
 from jobs.monthly_refresh.readiness import eligible_record
 
@@ -208,8 +209,10 @@ def logical_cohort_plan(*, physical_evidence: dict[str, Any],
                 "package_sha256": record.get("output_package_sha256"),
                 "resolution_id": record.get("resolution_id")}
 
-    bps = family(bps_resolution, "bps", {"census_bps", "census_bps_provisional"})
-    acs = family(acs_resolution, "acs", {"census_acs1", "census_acs5"})
+    bps_record = bps_resolution.get("record", bps_resolution)
+    acs_record = acs_resolution.get("record", acs_resolution)
+    bps = family(bps_record, "bps", {"census_bps", "census_bps_provisional"})
+    acs = family(acs_record, "acs", {"census_acs1", "census_acs5"})
     direct = [{"source_id": source, "artifact_id": by_source[source]["candidate_artifact_id"],
                "artifact_content_hash": by_source[source]["artifact_content_hash"],
                "package_sha256": by_source[source]["package_sha256"]}
@@ -217,15 +220,25 @@ def logical_cohort_plan(*, physical_evidence: dict[str, Any],
     indexed = {item["source_id"]: item for item in [*direct, bps, acs]}
     if set(indexed) != set(LOGICAL_DIRECT_SOURCES):
         raise AssertionError("logical/direct cohort inventory drift")
-    return {"schema_version": "monthly_logical_cohort_plan_v1",
+    payload = {"schema_version": "monthly_logical_cohort_plan_v1", "plan_id": "",
             "cycle_id": physical_evidence["cycle_id"],
             "physical_source_inventory": list(REQUIRED_SOURCES),
+            "physical_candidates": [{"source_id": source,
+                "artifact_id": by_source[source]["candidate_artifact_id"],
+                "artifact_content_hash": by_source[source]["artifact_content_hash"],
+                "package_sha256": by_source[source]["package_sha256"]}
+                for source in REQUIRED_SOURCES],
+            "physical_results": [by_source[source] for source in REQUIRED_SOURCES],
             "logical_source_inventory": list(LOGICAL_DIRECT_SOURCES),
             "sources": [indexed[source] for source in LOGICAL_DIRECT_SOURCES],
+            "family_resolutions": {"bps": bps_record, "acs": acs_record},
             "family_resolution_order": ["physical_barrier", "bps", "acs", "logical_plan"],
             "accepted_pointers_advanced": False, "source_set_created": False,
             "canonical_market_created": False, "serving_market_created": False,
             "redfin_consumption_committed": False}
+    payload["plan_id"] = "logical_cohort_plan__" + sha256_json(
+        {key:value for key,value in payload.items() if key != "plan_id"})[:24]
+    return payload
 
 
 def main() -> int:
