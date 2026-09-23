@@ -14,6 +14,7 @@ from jobs.monthly_refresh.production import validate_source_result
 from jobs.monthly_refresh.redfin import (JULY_ARTIFACT_ID, JULY_DATA_SHA256,
                                          bootstrap_accepted, run)
 from sources.redfin.governance import FAMILIES, GovernanceError, bootstrap
+from sources.redfin.ingest import register_drop
 from sources.redfin.state import STATE_SCHEMA
 
 
@@ -85,13 +86,43 @@ with TemporaryDirectory() as td:
     ledger=json.loads((root/"ledger.json").read_text()); assert len(ledger["cycles"])==1
     assert next(iter(ledger["cycles"].values()))["state"]=="candidate_ready"
     assert catalog["accepted"]["source"]["redfin"]==prior_id
+
+    # A separately registered newer drop remains discoverable after its inbox
+    # registration command has cleared incoming.  It must win over the older
+    # candidate-ready cycle without changing accepted state or its pointer.
+    september=raw_root/"drops"/"2026-09"; september.mkdir()
+    for family in FAMILIES: raw(september/f"redfin_{names[family]}.csv","2026-09")
+    register_drop("2026-09",raw_root)
+    discovered=run(accepted_state=state,raw_root=raw_root,workspace_root=root/"candidates",
+      ledger_path=root/"ledger.json",evidence_root=root/"evidence",catalog=catalog,publisher=publisher,
+      repository_root=Path("."),git_sha="fixture")
+    assert discovered["provider_release_id"]=="2026-09"
+    assert discovered["cycle_id"].startswith("monthly_cycle__2026-09__")
+    assert digest(state)==accepted_before and catalog["accepted"]["source"]["redfin"]==prior_id
+
+    # An older unledgered registration cannot displace the newer applicable
+    # cycle.  The empty-inbox rerun resumes and reuses the exact September pin.
+    june=raw_root/"drops"/"2026-06"; june.mkdir()
+    for family in FAMILIES: raw(june/f"redfin_{names[family]}.csv","2026-06")
+    register_drop("2026-06",raw_root)
+    resumed=run(accepted_state=state,raw_root=raw_root,workspace_root=root/"candidates",
+      ledger_path=root/"ledger.json",evidence_root=root/"evidence",catalog=catalog,publisher=publisher,
+      repository_root=Path("."),git_sha="fixture")
+    assert resumed["cycle_id"]==discovered["cycle_id"]
+    assert resumed["candidate_artifact_id"]==discovered["candidate_artifact_id"]
+    assert resumed["package_sha256"]==discovered["package_sha256"]
+    assert digest(state)==accepted_before and catalog["accepted"]["source"]["redfin"]==prior_id
+
     # Routine bootstrap is forbidden and auth failures are actionable before any remote work.
-    for family in FAMILIES: raw(raw_root/"incoming"/f"redfin_{names[family]}.csv","2026-09")
+    for family in FAMILIES: raw(raw_root/"incoming"/f"redfin_{names[family]}.csv","2026-10")
     try:
         run(accepted_state=root/"missing.duckdb",raw_root=raw_root,workspace_root=root/"other",
           ledger_path=root/"other-ledger.json",evidence_root=root/"other-evidence",catalog=catalog,publisher=publisher)
     except GovernanceError as exc: assert "never bootstrap" in str(exc)
     else: raise AssertionError("missing accepted state was bootstrapped")
+    failed=json.loads((root/"other-ledger.json").read_text())
+    failed_cycle=next(iter(failed["cycles"].values()))
+    assert failed_cycle["drop_id"]=="2026-10" and failed_cycle["state"]=="failed_terminal"
 
     # The explicit bootstrap compares parquet directly through the read-only
     # accepted-state connection. Publication and catalog boundaries stay fake.

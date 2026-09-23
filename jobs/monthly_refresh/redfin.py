@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -43,6 +44,7 @@ EVIDENCE_ROOT = Path("artifacts/audit/redfin_monthly")
 LEDGER_PATH = Path("data/redfin/state/monthly_source_ledger.json")
 LEDGER_STATES = {"registered", "validated", "candidate_running", "candidate_ready",
                  "failed_retryable", "failed_terminal"}
+DROP_ELIGIBLE_STATES = {"registered", "validated"}
 
 
 def drop_content_hash(metadata: dict[str, Any]) -> str:
@@ -77,6 +79,52 @@ def _update(path: Path, cycle: str, **values: Any) -> dict[str, Any]:
     if pinned and values.get("candidate_artifact_id") not in (None, pinned):
         raise GovernanceError("candidate identity drift for existing Redfin cycle")
     item.update(values); _save_ledger(path, ledger); return item
+
+
+def _select_registered_or_resumable_drop(*, raw_root: Path, ledger_path: Path,
+                                         policy_hash: str) -> dict[str, Any] | None:
+    """Select the newest governed drop across durable registration and resume state.
+
+    A registered drop is new only when its identity under the current policy is
+    absent from the ledger.  Comparing by the YYYY-MM drop identity prevents an
+    older unledgered registration from displacing a newer resumable cycle.
+    """
+    ledger = _ledger(ledger_path)
+    candidates: list[tuple[str, int, str, dict[str, Any]]] = []
+    represented_cycles = set(ledger["cycles"])
+    for cycle, item in ledger["cycles"].items():
+        if item.get("state") not in LEDGER_STATES:
+            continue
+        drop_id = item.get("drop_id")
+        if not isinstance(drop_id, str) or not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", drop_id):
+            raise GovernanceError(f"invalid drop identity in Redfin ledger cycle {cycle}")
+        candidates.append((drop_id, 0, cycle, {
+            "status": "already_registered", "drop_id": drop_id,
+            "path": str(raw_root / "drops" / drop_id),
+        }))
+
+    drops = raw_root / "drops"
+    for folder in sorted(drops.iterdir()) if drops.is_dir() else ():
+        if not folder.is_dir() or not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", folder.name):
+            continue
+        metadata_path = folder / "metadata.json"
+        if not metadata_path.is_file():
+            continue
+        metadata = read_json(metadata_path)
+        if metadata.get("drop_id") != folder.name:
+            raise GovernanceError(f"registered Redfin drop identity mismatch: {folder}")
+        if metadata.get("status") not in DROP_ELIGIBLE_STATES:
+            continue
+        content_hash = drop_content_hash(metadata)
+        applicable_cycle = cycle_id(redfin_drop_id=folder.name, redfin_drop_hash=content_hash,
+                                    target_month=folder.name, policy_sha256=policy_hash)
+        if applicable_cycle in represented_cycles:
+            continue
+        candidates.append((folder.name, 1, applicable_cycle, {
+            "status": "already_registered", "drop_id": folder.name, "path": str(folder),
+        }))
+    selected = max(candidates, default=None)
+    return selected[3] if selected else None
 
 
 def _candidate_rows(db: Path) -> int:
@@ -156,21 +204,19 @@ def run(*, accepted_state: Path = ACCEPTED_STATE, raw_root: Path = RAW_ROOT,
     """Execute or resume one exact governed drop. ``publisher`` must publish and catalog."""
     prior = accepted_record(catalog)
     incoming = raw_root / "incoming"
+    policy_hash = sha256_file(policy_path)
     if raw_files(incoming):
         registration = register_incoming(raw_root, clear_incoming=True)
         drop_id = registration["drop_id"]
     else:
-        ready = [(key, value) for key, value in _ledger(ledger_path)["cycles"].items()
-                 if value.get("state") in {"registered", "validated", "candidate_running", "candidate_ready",
-                                           "failed_retryable", "failed_terminal"}]
-        if not ready:
+        registration = _select_registered_or_resumable_drop(
+            raw_root=raw_root, ledger_path=ledger_path, policy_hash=policy_hash)
+        if registration is None:
             return {"schema_version":"redfin_monthly_not_ready_v1", "source_id":SOURCE_ID,
                     "status":"not_ready", "reason":"managed inbox contains no governed drop"}
-        _, last = sorted(ready)[-1]; drop_id = last["drop_id"]
-        registration = {"status":"already_registered", "drop_id":drop_id,
-                        "path":str(raw_root / "drops" / drop_id)}
+        drop_id = registration["drop_id"]
     metadata = read_json(raw_root / "drops" / drop_id / "metadata.json")
-    content_hash = drop_content_hash(metadata); policy_hash = sha256_file(policy_path)
+    content_hash = drop_content_hash(metadata)
     cycle = cycle_id(redfin_drop_id=drop_id, redfin_drop_hash=content_hash,
                      target_month=drop_id, policy_sha256=policy_hash)
     evidence = evidence_root / cycle; evidence.mkdir(parents=True, exist_ok=True)
