@@ -19,8 +19,9 @@ returns `monthly_source_execution_result_v1`. It never assembles or promotes a
 source set/market, builds serving, runs Macro Regime, promotes local state, or
 moves `accepted.source.redfin`.
 
-Production is pinned to
-`chineduezebuiroh/realestate-intel@monthly-refresh-orchestration`. Authentication
+Production is pinned to the governed repository. The producer code executes from
+`chineduezebuiroh/realestate-intel@monthly-refresh-orchestration`, while its
+durable catalog and readiness authority is `main`. Authentication
 comes from `gh auth token`; the token is neither printed nor persisted.
 
 ## Accepted state and bootstrap prerequisite
@@ -108,7 +109,7 @@ PYTHONPATH=. python -m jobs.monthly_refresh.redfin
 
 The two state hashes must match. The rerun must return the same cycle, artifact,
 Release/asset, and package identities with no catalog duplicate and no pointer
-movement. Inspect the exact Release and integration-branch catalog, then stop:
+movement. Inspect the exact Release and `main` authority catalog, then stop:
 do not promote, assemble canonical market, build serving, or run Macro Regime.
 
 ## Stable identity and July bootstrap transition
