@@ -64,6 +64,9 @@ Release IDs are evidence, never cycle identity.
 `candidate_running`, `candidate_ready`, `failed_retryable`, and
 `failed_terminal`. It pins drop/prior/candidate/package identities. It never
 writes `consumed_successfully`, which remains reserved for cohort completion.
+Empty-inbox resume excludes `failed_terminal`; that state remains durable
+failure evidence until an operator correction creates a different applicable
+cycle identity or new incoming work is explicitly registered.
 Evidence under `artifacts/audit/redfin_monthly/<cycle_id>/` contains identity,
 validation, candidate, publication/catalog, result, and failure summaries but
 never provider files or secrets.
