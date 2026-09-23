@@ -32,7 +32,12 @@ from sources.redfin.validate import validate_drop
 
 SOURCE_ID = "redfin"
 REPOSITORY = "chineduezebuiroh/realestate-intel"
-BRANCH = "monthly-refresh-orchestration"
+# The checkout containing this producer and the branch owning production state
+# are deliberately separate governance concepts.  Code may continue to execute
+# from the migration branch, while all durable control-plane CAS operations are
+# against the production authority.
+EXECUTION_BRANCH = "monthly-refresh-orchestration"
+DURABLE_AUTHORITY_BRANCH = "main"
 CATALOG_PATH = "config/artifact_catalog.json"
 READINESS_PATH = "config/monthly_refresh_readiness.json"
 POLICY_PATH = Path("config/monthly_refresh_policy.json")
@@ -304,17 +309,23 @@ def _gh_token() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository", default=REPOSITORY); parser.add_argument("--branch", default=BRANCH)
+    parser.add_argument("--repository", default=REPOSITORY)
+    parser.add_argument("--branch", default=EXECUTION_BRANCH,
+        help="execution/code branch (retained for hosted CLI compatibility)")
+    parser.add_argument("--authority-branch", default=DURABLE_AUTHORITY_BRANCH,
+        help="durable catalog and readiness authority (production is fixed to main)")
     parser.add_argument("--accepted-state", type=Path, default=ACCEPTED_STATE)
     parser.add_argument("--raw-root", type=Path, default=RAW_ROOT); parser.add_argument("--workspace", type=Path, default=WORKSPACE_ROOT)
     parser.add_argument("--ledger", type=Path, default=LEDGER_PATH); parser.add_argument("--evidence-root", type=Path, default=EVIDENCE_ROOT)
     parser.add_argument("--bootstrap-accepted-artifact", type=Path,
         help="explicit one-time migration of the exact proven July artifact; does not start a monthly cycle")
     args = parser.parse_args()
-    if args.repository != REPOSITORY or args.branch != BRANCH:
-        parser.error(f"production runner is governed for {REPOSITORY}@{BRANCH}")
+    if args.repository != REPOSITORY or args.branch != EXECUTION_BRANCH:
+        parser.error(f"production runner execution is governed for {REPOSITORY}@{EXECUTION_BRANCH}")
+    if args.authority_branch != DURABLE_AUTHORITY_BRANCH:
+        parser.error(f"production runner durable authority is governed for {DURABLE_AUTHORITY_BRANCH}")
     token = _gh_token(); api = GitHubAPI(args.repository, token)
-    cas = GitHubCatalogCAS(api, CATALOG_PATH, args.branch, fixture=False); catalog, _ = cas.read()
+    cas = GitHubCatalogCAS(api, CATALOG_PATH, args.authority_branch, fixture=False); catalog, _ = cas.read()
     git_sha = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
     def publish(artifact: Path, workspace: Path) -> dict[str, Any]:
         workspace.mkdir(parents=True, exist_ok=True)
@@ -329,13 +340,13 @@ def main() -> int:
         record = make_record(drop_id=identity["drop_id"], drop_content_hash=identity["drop_content_hash"],
             target_month=identity["target_month"], cycle=identity["cycle_id"], artifact=artifact)
         encoded = READINESS_PATH.replace("/", "%2F")
-        item, _ = api.request("GET", f"/contents/{encoded}?ref={args.branch}", expected=(200,404))
+        item, _ = api.request("GET", f"/contents/{encoded}?ref={args.authority_branch}", expected=(200,404))
         state = json.loads(base64.b64decode(item["content"])) if item else empty_readiness()
         updated, changed = add_readiness(state, record, catalog=current_catalog, policy_path=POLICY_PATH)
         if not changed: return False
         payload = {"message":f"Record Redfin readiness {record['readiness_id']}",
             "content":base64.b64encode((json.dumps(updated,sort_keys=True,separators=(",",":"))+"\n").encode()).decode(),
-            "branch":args.branch}
+            "branch":args.authority_branch}
         if item: payload["sha"] = item["sha"]
         api.request("PUT", f"/contents/{encoded}", payload=payload, expected=(200,201))
         return True
