@@ -10,8 +10,10 @@ import duckdb
 import pandas as pd
 
 from core.source_artifacts.package import build_publication_package
-from jobs.monthly_refresh.production import validate_source_result
+from core.source_artifacts.hashing import sha256_json
+from jobs.monthly_refresh.production import cycle_id, validate_source_result
 from jobs.monthly_refresh.redfin import (JULY_ARTIFACT_ID, JULY_DATA_SHA256,
+                                         _select_registered_or_resumable_drop,
                                          bootstrap_accepted, run)
 from sources.redfin.governance import FAMILIES, GovernanceError, bootstrap
 from sources.redfin.ingest import register_drop
@@ -38,6 +40,56 @@ class BootstrapCatalogFixture:
         assert source_id == "redfin" and artifact_id == JULY_ARTIFACT_ID
         self.activation_calls += 1
         return {}, False
+
+
+def selection_metadata(root: Path, drop_id: str) -> str:
+    folder=root/"drops"/drop_id; folder.mkdir(parents=True)
+    metadata={"drop_id":drop_id,"files":[],"status":"registered"}
+    (folder/"metadata.json").write_text(json.dumps(metadata))
+    return sha256_json({"drop_id":drop_id,"files":[]})
+
+
+with TemporaryDirectory() as td:
+    selection_root=Path(td)/"raw"; bootstrap(selection_root)
+    policy_hash="p"*64
+    august_hash=selection_metadata(selection_root,"2026-08")
+    ledger_path=Path(td)/"ledger.json"
+
+    # A newer terminal cycle is retained as evidence, but cannot suppress a
+    # valid unledgered registration or be silently selected for execution.
+    ledger={"schema_version":"redfin_monthly_cycle_ledger_v1","cycles":{
+      "monthly_cycle__2026-09__terminal":{"drop_id":"2026-09","state":"failed_terminal"}}}
+    ledger_path.write_text(json.dumps(ledger))
+    selected=_select_registered_or_resumable_drop(
+      raw_root=selection_root,ledger_path=ledger_path,policy_hash=policy_hash)
+    assert selected["drop_id"]=="2026-08"
+
+    # Every nonterminal durable execution state remains selectable.  Check each
+    # alone, then together to prove deterministic newest-month ordering.
+    states=(("2026-09","candidate_running"),("2026-10","candidate_ready"),
+            ("2026-11","failed_retryable"))
+    for drop_id,state_name in states:
+        ledger["cycles"]={f"monthly_cycle__{drop_id}__fixture":{
+          "drop_id":drop_id,"state":state_name}}
+        ledger_path.write_text(json.dumps(ledger))
+        selected=_select_registered_or_resumable_drop(
+          raw_root=selection_root,ledger_path=ledger_path,policy_hash=policy_hash)
+        assert selected["drop_id"]==drop_id
+    ledger["cycles"]={f"monthly_cycle__{drop_id}__fixture":{
+      "drop_id":drop_id,"state":state_name} for drop_id,state_name in states}
+    ledger_path.write_text(json.dumps(ledger))
+    selected=_select_registered_or_resumable_drop(
+      raw_root=selection_root,ledger_path=ledger_path,policy_hash=policy_hash)
+    assert selected["drop_id"]=="2026-11"
+
+    # Once the registered identity is represented by terminal evidence, there
+    # is no eligible work and empty-inbox selection remains not-ready.
+    applicable=cycle_id(redfin_drop_id="2026-08",redfin_drop_hash=august_hash,
+      target_month="2026-08",policy_sha256=policy_hash)
+    ledger["cycles"]={applicable:{"drop_id":"2026-08","state":"failed_terminal"}}
+    ledger_path.write_text(json.dumps(ledger))
+    assert _select_registered_or_resumable_drop(
+      raw_root=selection_root,ledger_path=ledger_path,policy_hash=policy_hash) is None
 
 
 with TemporaryDirectory() as td:
@@ -86,6 +138,19 @@ with TemporaryDirectory() as td:
     ledger=json.loads((root/"ledger.json").read_text()); assert len(ledger["cycles"])==1
     assert next(iter(ledger["cycles"].values()))["state"]=="candidate_ready"
     assert catalog["accepted"]["source"]["redfin"]==prior_id
+
+    # Transitional and retryable ledger states resume the same pinned candidate.
+    existing_cycle=next(iter(ledger["cycles"]))
+    for resumable_state in ("candidate_running","failed_retryable"):
+        ledger["cycles"][existing_cycle]["state"]=resumable_state
+        (root/"ledger.json").write_text(json.dumps(ledger))
+        resumed_state=run(accepted_state=state,raw_root=raw_root,workspace_root=root/"candidates",
+          ledger_path=root/"ledger.json",evidence_root=root/"evidence",catalog=catalog,publisher=publisher,
+          repository_root=Path("."),git_sha="fixture")
+        assert resumed_state["cycle_id"]==first["cycle_id"]
+        assert resumed_state["candidate_artifact_id"]==first["candidate_artifact_id"]
+        ledger=json.loads((root/"ledger.json").read_text())
+        assert ledger["cycles"][existing_cycle]["state"]=="candidate_ready"
 
     # A separately registered newer drop remains discoverable after its inbox
     # registration command has cleared incoming.  It must win over the older

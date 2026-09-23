@@ -44,6 +44,7 @@ EVIDENCE_ROOT = Path("artifacts/audit/redfin_monthly")
 LEDGER_PATH = Path("data/redfin/state/monthly_source_ledger.json")
 LEDGER_STATES = {"registered", "validated", "candidate_running", "candidate_ready",
                  "failed_retryable", "failed_terminal"}
+RESUMABLE_LEDGER_STATES = LEDGER_STATES - {"failed_terminal"}
 DROP_ELIGIBLE_STATES = {"registered", "validated"}
 
 
@@ -93,7 +94,7 @@ def _select_registered_or_resumable_drop(*, raw_root: Path, ledger_path: Path,
     candidates: list[tuple[str, int, str, dict[str, Any]]] = []
     represented_cycles = set(ledger["cycles"])
     for cycle, item in ledger["cycles"].items():
-        if item.get("state") not in LEDGER_STATES:
+        if item.get("state") not in RESUMABLE_LEDGER_STATES:
             continue
         drop_id = item.get("drop_id")
         if not isinstance(drop_id, str) or not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", drop_id):
