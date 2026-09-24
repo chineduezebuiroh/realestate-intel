@@ -1,5 +1,5 @@
 """Smoke 175: governed Phase 3B cohort control plane and workflow safety."""
-import hashlib, json
+import copy, hashlib, json
 from urllib.error import HTTPError
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,7 +10,13 @@ from jobs.monthly_refresh.fred_result import build_result
 from jobs.monthly_refresh.production import evaluate_barrier
 
 policy=Path('config/monthly_refresh_policy.json')
-catalog=json.load(open('config/artifact_catalog.json')); readiness=json.load(open('config/monthly_refresh_readiness.json'))
+catalog=json.load(open('config/artifact_catalog.json'))
+# This is the supported pure/local resolver boundary, not the hosted authority
+# acquisition boundary.  Give it an explicit, internally coherent historical
+# fixture rather than inheriting stale execution-checkout control-plane state.
+readiness=copy.deepcopy(json.load(open('config/monthly_refresh_readiness.json')))
+for record in readiness['records']:
+ record['consumed'] = record['target_month'] != '2026-07'
 empty={'schema_version':'monthly_refresh_readiness_v1','records':[]}
 noop=resolve_invocation(mode='normal',policy_path=policy,readiness=empty,catalog=catalog)
 assert noop=={'status':'no_op','reason':'no_eligible_redfin_catalyst','fan_out':False,'invocation_mode':'normal'}

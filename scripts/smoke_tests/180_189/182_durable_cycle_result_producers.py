@@ -3,11 +3,16 @@ import copy, json
 from pathlib import Path
 import yaml
 from core.source_artifacts.publication import IdentityCollisionError
-from jobs.monthly_refresh.cohort import resolve_invocation, resolve_resume_results
+from jobs.monthly_refresh.cohort import required_sources, resolve_invocation, resolve_resume_results
 from jobs.monthly_refresh.cycle_results import add_record, governed_record, load_registry, record_path, semantic_identity
 
 catalog=json.loads(Path("config/artifact_catalog.json").read_text()); policy=json.loads(Path("config/monthly_refresh_policy.json").read_text())
 readiness=json.loads(Path("config/monthly_refresh_readiness.json").read_text()); registry=load_registry(Path("config/monthly_source_cycle_results.json"))
+execution_registry=json.loads(Path("config/monthly_source_execution_registry.json").read_text())
+governed_sources=required_sources(execution_registry)
+assert governed_sources == ("redfin","fred_macro","ces","laus","census_bps",
+    "census_bps_provisional","census_acs1","census_acs5","bea_gdp_qtr",
+    "bea_gdp_ann","census_nrc")
 cycle_id="monthly_cycle__2026-07__7cab1c5df177a1e4"; records={r["source_id"]:r for r in registry["records"]}
 for source in ("fred_macro","ces"):
  proposed=governed_record(records[source]["result"],policy,catalog); assert proposed==records[source]
@@ -62,11 +67,12 @@ for field in ("artifact_content_hash","package_sha256","provider_release_id"):
 wrong=copy.deepcopy(catalog); next(r for r in wrong["immutable_records"] if r["object_id"]==fred["result"]["candidate_artifact_id"])["metadata"]["source_id"]="ces"; reject(fred["result"],wrong)
 
 cycle=resolve_invocation(mode="resume",policy_path=Path("config/monthly_refresh_policy.json"),readiness=readiness,catalog=catalog,supplied_cycle_id=cycle_id)
-for retained,reuse,run in ((fred,["fred_macro","redfin"],["census_bps","census_bps_provisional","ces","laus"]),(ces,["ces","redfin"],["census_bps","census_bps_provisional","fred_macro","laus"])):
- plan=resolve_resume_results(cycle=cycle,catalog=catalog,registry={"schema_version":"monthly_source_cycle_results_v1","records":[retained]},policy=policy)
- assert plan["reuse"]==reuse and plan["run"]==run
-replay=resolve_resume_results(cycle=dict(cycle,invocation_mode="replay"),catalog=catalog,registry=registry,policy=policy)
-assert replay["reuse"]==[] and replay["run"]==["redfin","fred_macro","ces","laus","census_bps","census_bps_provisional"]
+for retained,reuse in ((fred,["fred_macro","redfin"]),(ces,["ces","redfin"])):
+ plan=resolve_resume_results(cycle=cycle,catalog=catalog,registry={"schema_version":"monthly_source_cycle_results_v1","records":[retained]},policy=policy,execution_registry=execution_registry)
+ assert plan["reuse"]==reuse
+ assert plan["run"]==sorted(set(governed_sources)-set(reuse))
+replay=resolve_resume_results(cycle=dict(cycle,invocation_mode="replay"),catalog=catalog,registry=registry,policy=policy,execution_registry=execution_registry)
+assert replay["reuse"]==[] and tuple(replay["run"])==governed_sources
 
 for path in (Path(".github/workflows/fred-monthly-source.yml"),Path(".github/workflows/ces-monthly-source.yml")):
  workflow=yaml.safe_load(path.read_text()); steps=workflow["jobs"]["source"]["steps"]; ids=[s.get("id") for s in steps]

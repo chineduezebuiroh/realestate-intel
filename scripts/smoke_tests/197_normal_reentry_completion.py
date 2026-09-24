@@ -7,13 +7,23 @@ import json
 from pathlib import Path
 
 from core.source_artifacts.publication import IdentityCollisionError
-from jobs.monthly_refresh.cohort import (resolve_invocation, resolve_resume_results,
-                                         resume_plan)
+from jobs.monthly_refresh.cohort import (required_sources, resolve_invocation,
+                                         resolve_resume_results, resume_plan)
 from jobs.monthly_refresh.cycle_results import GitHubCycleResultStore, load_registry
 
 catalog = json.loads(Path("config/artifact_catalog.json").read_text())
-readiness = json.loads(Path("config/monthly_refresh_readiness.json").read_text())
+readiness = copy.deepcopy(json.loads(Path("config/monthly_refresh_readiness.json").read_text()))
+# This historical re-entry smoke exercises the supported pure/local resolver.
+# Its fixture must identify July unambiguously rather than inheriting the stale
+# execution checkout's two eligible production catalysts.
+for readiness_record in readiness["records"]:
+    readiness_record["consumed"] = readiness_record["target_month"] != "2026-07"
 policy = json.loads(Path("config/monthly_refresh_policy.json").read_text())
+execution_registry = json.loads(Path("config/monthly_source_execution_registry.json").read_text())
+governed_sources = required_sources(execution_registry)
+assert governed_sources == ("redfin", "fred_macro", "ces", "laus", "census_bps",
+    "census_bps_provisional", "census_acs1", "census_acs5", "bea_gdp_qtr",
+    "bea_gdp_ann", "census_nrc")
 loaded_registry = load_registry(Path("config/monthly_source_cycle_results.json"))
 cycle = resolve_invocation(mode="normal", policy_path=Path("config/monthly_refresh_policy.json"),
     readiness=readiness, catalog=catalog)
@@ -44,10 +54,12 @@ def fixture_completion(source: str) -> tuple[dict, dict]:
         "metadata":{"source_id":source, "provider_release_id":f"release-{source}"}}
     return durable, catalog_item
 
-provisional, provisional_catalog = fixture_completion("census_bps_provisional")
-compiled, compiled_catalog = fixture_completion("census_bps")
+remaining_sources = tuple(source for source in governed_sources
+                          if source not in {*base_sources, "redfin"})
+fixture_completions = {source: fixture_completion(source) for source in remaining_sources}
 fixture_catalog = copy.deepcopy(catalog)
-fixture_catalog["immutable_records"].extend([provisional_catalog, compiled_catalog])
+fixture_catalog["immutable_records"].extend(
+    catalog_record for _, catalog_record in fixture_completions.values())
 
 def fixture_registry(*additional: dict) -> dict:
     return {"schema_version":loaded_registry["schema_version"],
@@ -56,9 +68,10 @@ def fixture_registry(*additional: dict) -> dict:
 # Reproduce the live re-entry: provider state may now be newer, but completed
 # FRED/CES/LAUS members are removed from fan-out before any source callback.
 four = fixture_registry()
-plan = resolve_resume_results(cycle=cycle, catalog=fixture_catalog, registry=four, policy=policy)
+plan = resolve_resume_results(cycle=cycle, catalog=fixture_catalog, registry=four,
+    policy=policy, execution_registry=execution_registry)
 assert plan["reuse"] == ["ces", "fred_macro", "laus", "redfin"]
-assert plan["run"] == ["census_bps", "census_bps_provisional"]
+assert plan["run"] == sorted(remaining_sources)
 events = []
 def forbidden_completed_execution(source: str) -> None:
     raise AssertionError(f"completed {source} acquisition/publication/result write was invoked")
@@ -68,19 +81,24 @@ for source in plan["run"]:
 assert not any(source in {"fred_macro", "laus"} for source, _ in events)
 assert {r["source_id"] for r in plan["results"]} == {"redfin", "fred_macro", "ces", "laus"}
 
+provisional = fixture_completions["census_bps_provisional"][0]
 five = resolve_resume_results(cycle=cycle, catalog=fixture_catalog,
-    registry=fixture_registry(provisional), policy=policy)
+    registry=fixture_registry(provisional), policy=policy,
+    execution_registry=execution_registry)
 assert five["reuse"] == ["census_bps_provisional", "ces", "fred_macro", "laus", "redfin"]
-assert five["run"] == ["census_bps"]
+assert five["run"] == sorted(set(remaining_sources) - {"census_bps_provisional"})
 
-six = resolve_resume_results(cycle=cycle, catalog=fixture_catalog,
-    registry=fixture_registry(provisional, compiled), policy=policy)
-assert six["reuse"] == ["census_bps", "census_bps_provisional", "ces", "fred_macro", "laus", "redfin"]
-assert six["run"] == []
+complete_records = [record for record, _ in fixture_completions.values()]
+complete = resolve_resume_results(cycle=cycle, catalog=fixture_catalog,
+    registry=fixture_registry(*complete_records), policy=policy,
+    execution_registry=execution_registry)
+assert set(complete["reuse"]) == set(governed_sources)
+assert len(complete["reuse"]) == len(governed_sources) == 11
+assert complete["run"] == []
 
 # The common planner handles all-complete and one-missing states by physical
 # source identity, including the two independent future BPS members.
-required = ("redfin", "fred_macro", "ces", "laus", "census_bps", "census_bps_provisional")
+required = governed_sources
 def successful(source: str) -> dict:
     return {"schema_version":"monthly_source_execution_result_v1", "source_id":source,
         "cycle_id":cycle["cycle_id"], "status":"succeeded", "candidate_artifact_id":f"id-{source}",
@@ -92,7 +110,7 @@ def successful(source: str) -> dict:
 completed = [successful(source) for source in required]
 assert resume_plan(required, completed, expected_cycle_id=cycle["cycle_id"])["run"] == []
 missing = resume_plan(required, completed[:-1], expected_cycle_id=cycle["cycle_id"])
-assert missing["run"] == ["census_bps_provisional"]
+assert missing["run"] == [governed_sources[-1]] == ["census_nrc"]
 
 # Exercise the actual Contents store: its contradictory-write fail-closed
 # policy remains unchanged by the upstream planning correction.
