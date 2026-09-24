@@ -30,6 +30,7 @@ repository-relative paths and full SHA-256:
 * `config/monthly_refresh_policy.json`;
 * `config/source_refresh_revision_policy_v0_2.json`;
 * `config/source_metric_registry.csv`;
+* `config/logical_source_metric_registry.csv`;
 * `config/geo_manifest.generated.csv`.
 
 The list is not empty and is part of semantic identity. No artificial canonical
@@ -37,6 +38,13 @@ assembly config was added: current assembly behavior is versioned by
 `canonical_market_assembly_v1`, while metric/geography behavior is already
 machine-readable. A future genuinely consumed assembly policy must be added to
 the required set in a new contract revision.
+
+Logical family outputs whose resolver changes metric identity are governed by
+`logical_source_metric_registry.csv`.  Its ownership is usable only for a
+logical source declared as a family in the exact Source Set family map. Direct
+metrics remain owned by `source_metric_registry.csv`; a family may also retain
+a metric owned there by one of its exact declared physical parents. Unknown,
+duplicate, or contradictory direct/logical ownership fails closed.
 
 ## Monthly outcomes and eligibility
 
