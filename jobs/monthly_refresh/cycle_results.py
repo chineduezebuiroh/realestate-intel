@@ -121,6 +121,7 @@ class GitHubCycleResultStore:
     """One immutable Contents object per semantic key; sibling sources never share a write."""
     def __init__(self, api: GitHubAPI, branch: str, *, attempts: int = 4):
         self.api, self.branch, self.attempts = api, branch, attempts
+        self.last_commit_sha: str | None = None
 
     def _read(self, path: str) -> tuple[dict[str, Any] | None, str | None]:
         encoded = urllib.parse.quote(path, safe="/")
@@ -143,9 +144,8 @@ class GitHubCycleResultStore:
             if oid is not None:
                 payload["sha"] = oid
             try:
-                self.api.request("PUT", f"/contents/{urllib.parse.quote(path, safe='/')}",
-                                 payload=payload, expected=(200, 201))
-                return value, True
+                response, _ = self.api.request("PUT", f"/contents/{urllib.parse.quote(path, safe='/')}",
+                                               payload=payload, expected=(200, 201))
             except TransientPublicationError:
                 if attempt + 1 == self.attempts:
                     raise
@@ -154,6 +154,12 @@ class GitHubCycleResultStore:
                 # exact record becomes a no-op; a contradiction fails closed.
                 if attempt + 1 == self.attempts:
                     raise PublicationError("cycle-result compare-and-swap retries exhausted")
+            else:
+                persisted, _ = self._read(path)
+                if persisted != value:
+                    raise PublicationError("durable cycle-result read-after-write mismatch")
+                self.last_commit_sha = (response or {}).get("commit", {}).get("sha")
+                return value, True
             time.sleep(0.1 * (attempt + 1))
         raise AssertionError("unreachable")
 
@@ -195,7 +201,9 @@ def main() -> int:
     receipt = {"schema_version": "monthly_source_cycle_result_recording_receipt_v1",
                "cycle_id": stored["cycle_id"], "source_id": stored["source_id"],
                "record_path": record_path(stored["cycle_id"], stored["source_id"]),
-               "record_changed": changed, "semantic_identity": list(semantic_identity(stored))}
+               "record_changed": changed, "authority_branch": args.branch,
+               "commit_sha": store.last_commit_sha,
+               "semantic_identity": list(semantic_identity(stored))}
     write_canonical_json(args.output, receipt); print(json.dumps(receipt, sort_keys=True)); return 0
 
 

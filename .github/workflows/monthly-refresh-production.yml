@@ -1,21 +1,5 @@
 name: Governed monthly refresh production cohort
 on:
-  # Temporary Phase 3B hosted acceptance scaffolding. Remove after this workflow
-  # is registered on the default branch; this is not the production schedule.
-  push:
-    branches: [monthly-refresh-orchestration]
-    paths:
-      - '.github/workflows/monthly-refresh-production.yml'
-      - '.github/workflows/*-monthly-source.yml'
-      - 'jobs/monthly_refresh/*.py'
-      - 'config/monthly_refresh_readiness.json'
-      - 'config/monthly_refresh_policy.json'
-      - 'config/monthly_source_execution_registry.json'
-      - 'config/monthly_source_input_pins/**'
-      - 'config/monthly_source_cycle_results.json'
-      - 'config/monthly_source_cycle_results/**'
-      - 'docs/contracts/monthly_refresh_production_v1.md'
-      - 'scripts/smoke_tests/170_179/175_monthly_source_cohort_orchestrator.py'
   workflow_dispatch:
     inputs:
       mode:
@@ -321,7 +305,7 @@ jobs:
 
   resolve-bps-family:
     needs: [resolve-cycle, barrier]
-    if: needs.barrier.result == 'success'
+    if: ${{ !cancelled() && needs.resolve-cycle.result == 'success' && needs.barrier.result == 'success' }}
     permissions: {contents: write}
     uses: ./.github/workflows/bps-family-resolution.yml
     with:
@@ -331,7 +315,7 @@ jobs:
     secrets: inherit
   resolve-acs-family:
     needs: [resolve-cycle, barrier]
-    if: needs.barrier.result == 'success'
+    if: ${{ !cancelled() && needs.resolve-cycle.result == 'success' && needs.barrier.result == 'success' }}
     permissions: {contents: write}
     uses: ./.github/workflows/acs-family-resolution.yml
     with:
@@ -340,6 +324,7 @@ jobs:
     secrets: inherit
   logical-cohort-plan:
     needs: [barrier, resolve-bps-family, resolve-acs-family]
+    if: ${{ !cancelled() && needs.barrier.result == 'success' && needs.resolve-bps-family.result == 'success' && needs.resolve-acs-family.result == 'success' }}
     runs-on: ubuntu-latest
     permissions: {contents: write}
     env: {PYTHONPATH: .}

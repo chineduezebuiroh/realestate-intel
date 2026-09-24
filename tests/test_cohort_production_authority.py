@@ -92,9 +92,13 @@ def test_resume_plan_reads_catalog_results_and_inventory_from_authority(
     plan = _cli(monkeypatch, capsys, "resume-plan", "--authority-root", str(authority),
                 "--cycle-json", str(cycle_path), "--output", str(tmp_path / "plan.json"))
 
-    assert plan["reuse"] == ["redfin"]
-    assert set(plan["run"]) == set(cohort.REQUIRED_SOURCES) - {"redfin"}
-    assert plan["results"][0]["candidate_artifact_id"] == CANDIDATE
+    durable_sources = {"redfin"} | {
+        path.stem for path in
+        (authority / cohort.RESULT_REGISTRY.with_suffix("") / CYCLE).glob("*.json")}
+    assert set(plan["reuse"]) == durable_sources
+    assert set(plan["run"]) == set(cohort.REQUIRED_SOURCES) - durable_sources
+    assert next(result for result in plan["results"]
+                if result["source_id"] == "redfin")["candidate_artifact_id"] == CANDIDATE
     assert cycle["redfin_candidate_pin"]["candidate_artifact_id"] == CANDIDATE
 
 

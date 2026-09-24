@@ -16,7 +16,6 @@ from core.source_artifacts.validation import validate_artifact
 
 SOURCE_ID = "laus"
 CATALOG_PATH = "config/artifact_catalog.json"
-BRANCH = "monthly-refresh-orchestration"
 
 
 def accepted_uri(catalog: dict[str, Any]) -> str | None:
@@ -140,12 +139,12 @@ def publish(*, artifact: Path, api: GitHubAPI, cas: GitHubCatalogCAS, workspace:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__); sub = parser.add_subparsers(dest="command", required=True)
-    prior = sub.add_parser("resolve-prior"); prior.add_argument("--repository", required=True); prior.add_argument("--current-run-id", type=int, required=True)
+    prior = sub.add_parser("resolve-prior"); prior.add_argument("--repository", required=True); prior.add_argument("--branch", required=True); prior.add_argument("--current-run-id", type=int, required=True)
     prior.add_argument("--workspace", type=Path, required=True); prior.add_argument("--explicit-path", type=Path); prior.add_argument("--output", type=Path, required=True); prior.add_argument("--github-output", type=Path, required=True)
-    pub = sub.add_parser("publish"); pub.add_argument("--repository", required=True); pub.add_argument("--artifact", type=Path, required=True)
+    pub = sub.add_parser("publish"); pub.add_argument("--repository", required=True); pub.add_argument("--branch", required=True); pub.add_argument("--artifact", type=Path, required=True)
     pub.add_argument("--workspace", type=Path, required=True); pub.add_argument("--publisher-git-sha", required=True); pub.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(); token = os.environ.get("GITHUB_TOKEN", "")
-    api = GitHubAPI(args.repository, token); cas = GitHubCatalogCAS(api, CATALOG_PATH, BRANCH, fixture=False)
+    api = GitHubAPI(args.repository, token); cas = GitHubCatalogCAS(api, CATALOG_PATH, args.branch, fixture=False)
     if args.command == "resolve-prior":
         result = resolve_prior(api=api, cas=cas, workspace=args.workspace, repository=args.repository,
             current_run_id=args.current_run_id, token=token, explicit_path=args.explicit_path)

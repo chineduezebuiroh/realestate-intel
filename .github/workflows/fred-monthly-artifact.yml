@@ -18,20 +18,6 @@ on:
         default: false
         type: boolean
 
-  # Temporary acceptance bridge until governed orchestration is available on main.
-  push:
-    branches:
-      - monthly-refresh-orchestration
-    paths:
-      - ".github/workflows/fred-monthly-artifact.yml"
-      - "jobs/monthly_refresh/fred_macro.py"
-      - "sources/fred_macro/**"
-      - "jobs/monthly_refresh/fred_durable.py"
-      - "config/artifact_catalog.json"
-      - "scripts/smoke_tests/160_169/166_fred_monthly_artifact_runner.py"
-      - "scripts/smoke_tests/160_169/167_fred_prior_actions_resolver.py"
-      - "jobs/monthly_refresh/fred_prior_actions.py"
-
 permissions:
   contents: write
   actions: read
@@ -42,6 +28,7 @@ jobs:
     env:
       PYTHONPATH: .
       OUTPUT_ROOT: artifacts/source_artifacts/fred_macro/current_run
+      DURABLE_AUTHORITY_BRANCH: main
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,7 +55,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           EXPLICIT_PRIOR: ${{ inputs.prior_artifact_path }}
         run: |
-          args=(--repository "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --workspace "$RUNNER_TEMP/fred-prior" --output "$RUNNER_TEMP/prior_resolution.json" --github-output "$GITHUB_OUTPUT")
+          args=(--repository "$GITHUB_REPOSITORY" --branch "$DURABLE_AUTHORITY_BRANCH" --current-run-id "$GITHUB_RUN_ID" --workspace "$RUNNER_TEMP/fred-prior" --output "$RUNNER_TEMP/prior_resolution.json" --github-output "$GITHUB_OUTPUT")
           if [ -n "$EXPLICIT_PRIOR" ]; then args+=(--explicit-path "$EXPLICIT_PRIOR"); fi
           python -m jobs.monthly_refresh.fred_durable resolve-prior "${args[@]}"
       - name: Acquire and validate ordinary-current FRED artifact
@@ -90,7 +77,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           ACTIVATE: ${{ inputs.activate_accepted_pointer }}
         run: |
-          args=(publish --repository "$GITHUB_REPOSITORY" --artifact "$OUTPUT_ROOT/artifact" --workspace "$RUNNER_TEMP/fred-publication" --publisher-git-sha "$GITHUB_SHA" --output "$OUTPUT_ROOT/publication.json")
+          args=(publish --repository "$GITHUB_REPOSITORY" --branch "$DURABLE_AUTHORITY_BRANCH" --artifact "$OUTPUT_ROOT/artifact" --workspace "$RUNNER_TEMP/fred-publication" --publisher-git-sha "$GITHUB_SHA" --output "$OUTPUT_ROOT/publication.json")
           if [ "$ACTIVATE" = "true" ]; then args+=(--activate); fi
           python -m jobs.monthly_refresh.fred_durable "${args[@]}"
       - name: Safe workflow summary
