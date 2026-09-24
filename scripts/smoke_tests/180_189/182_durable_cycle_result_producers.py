@@ -13,7 +13,8 @@ governed_sources=required_sources(execution_registry)
 assert governed_sources == ("redfin","fred_macro","ces","laus","census_bps",
     "census_bps_provisional","census_acs1","census_acs5","bea_gdp_qtr",
     "bea_gdp_ann","census_nrc")
-cycle_id="monthly_cycle__2026-07__7cab1c5df177a1e4"; records={r["source_id"]:r for r in registry["records"]}
+cycle_id="monthly_cycle__2026-07__7cab1c5df177a1e4"
+records={r["source_id"]:r for r in registry["records"] if r["cycle_id"]==cycle_id}
 for source in ("fred_macro","ces"):
  proposed=governed_record(records[source]["result"],policy,catalog); assert proposed==records[source]
  assert record_path(cycle_id,source).endswith(f"/{source}.json")

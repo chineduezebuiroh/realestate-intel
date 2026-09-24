@@ -8,7 +8,7 @@ import yaml
 
 from jobs.monthly_refresh.cohort import (
     LOGICAL_DIRECT_SOURCES, REQUIRED_SOURCES, barrier_evidence, logical_cohort_plan,
-    required_sources,
+    required_sources, resume_plan,
 )
 from jobs.monthly_refresh.acs_family_resolution import resolution_record as acs_resolution_record
 from jobs.monthly_refresh.bps_family_resolution import resolution_record as bps_resolution_record
@@ -85,6 +85,21 @@ def test_exact_physical_barrier_and_logical_plan_are_closed_and_non_mutating():
     assert all(plan[key] is False for key in ("accepted_pointers_advanced","source_set_created","canonical_market_created","serving_market_created","redfin_consumption_committed"))
 
 
+def test_completed_exact_cycle_is_fully_reused_by_resume():
+    completed = [result(source) for source in REQUIRED_SOURCES]
+
+    resume = resume_plan(REQUIRED_SOURCES, completed, expected_cycle_id="cycle")
+    evidence = barrier_evidence(
+        cycle={"cycle_id": "cycle", "invocation_mode": "resume"},
+        results=[], reused_results=completed, pins=resume["pins"], github={})
+
+    assert resume["reuse"] == sorted(REQUIRED_SOURCES)
+    assert resume["run"] == []
+    assert evidence["barrier_status"] == "ready"
+    assert evidence["reused_source_ids"] == sorted(REQUIRED_SOURCES)
+    assert evidence["retry_source_ids"] == []
+
+
 def test_logical_plan_rejects_missing_unexpected_and_stale_family_parent():
     evidence=barrier_evidence(cycle={"cycle_id":"cycle","invocation_mode":"replay"},
         results=[result(source) for source in REQUIRED_SOURCES], pins=None, github={})
@@ -109,6 +124,26 @@ def test_master_orders_both_dynamic_resolvers_after_common_barrier():
     assert "needs.barrier.outputs.bps_artifact_id" in text
     assert "needs.barrier.outputs.acs1_artifact_id" in text
     assert "cohort_plan_store" in text and "--branch main" in text
+
+
+def test_master_post_barrier_jobs_override_skips_and_fail_closed():
+    workflow = yaml.safe_load(Path(".github/workflows/monthly-refresh-production.yml").read_text())
+    triggers = workflow.get(True, workflow.get("on"))
+    jobs = workflow["jobs"]
+
+    assert set(triggers) == {"workflow_dispatch"}
+    assert "push" not in triggers
+    assert "schedule" not in triggers
+
+    expected_family_condition = (
+        "${{ !cancelled() && needs.resolve-cycle.result == 'success' && "
+        "needs.barrier.result == 'success' }}")
+    assert jobs["resolve-bps-family"]["if"] == expected_family_condition
+    assert jobs["resolve-acs-family"]["if"] == expected_family_condition
+    assert jobs["logical-cohort-plan"]["if"] == (
+        "${{ !cancelled() && needs.barrier.result == 'success' && "
+        "needs.resolve-bps-family.result == 'success' && "
+        "needs.resolve-acs-family.result == 'success' }}")
 
 
 def test_real_phase2_interfaces_produce_exact_preflight_plan_without_io(monkeypatch):

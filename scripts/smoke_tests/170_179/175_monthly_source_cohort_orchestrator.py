@@ -127,9 +127,12 @@ with TemporaryDirectory() as td:
  assert resume_failure['reused_source_ids']==['redfin'] and resume_failure['retry_source_ids']==['bea_gdp_ann','bea_gdp_qtr','census_acs1','census_acs5','census_bps','census_bps_provisional','census_nrc','ces','fred_macro','laus']
 workflow_text=Path('.github/workflows/monthly-refresh-production.yml').read_text(); workflow=yaml.safe_load(workflow_text)
 # PyYAML parses the YAML 1.1 key `on` as boolean True.
-triggers=workflow.get(True,workflow.get('on')); assert 'workflow_dispatch' in triggers and 'push' in triggers and 'schedule' not in triggers and 'pull_request' not in triggers
-assert triggers['push']['branches']==['monthly-refresh-orchestration'] and 1 <= len(triggers['push']['paths']) <= 12
+triggers=workflow.get(True,workflow.get('on')); assert set(triggers)=={'workflow_dispatch'}
 assert 'always()' in workflow['jobs']['barrier']['if']; assert set(workflow['jobs']['barrier']['needs'])=={'resolve-cycle','redfin','fred','ces','laus','census-bps','census-bps-provisional','census-acs1','census-acs5','bea-gdp-qtr','census-nrc','bea-gdp-ann','laus-satisfaction-repair'}
+family_condition="${{ !cancelled() && needs.resolve-cycle.result == 'success' && needs.barrier.result == 'success' }}"
+assert workflow['jobs']['resolve-bps-family']['if']==family_condition
+assert workflow['jobs']['resolve-acs-family']['if']==family_condition
+assert workflow['jobs']['logical-cohort-plan']['if']=="${{ !cancelled() && needs.barrier.result == 'success' && needs.resolve-bps-family.result == 'success' && needs.resolve-acs-family.result == 'success' }}"
 assert workflow['jobs']['redfin']['needs']=='resolve-cycle' and workflow['jobs']['fred']['needs']=='resolve-cycle' and workflow['jobs']['ces']['needs']=='resolve-cycle'
 assert "run_redfin == 'true'" in workflow['jobs']['redfin']['if']
 assert 'source_target_month' not in workflow['jobs']['fred'].get('with',{})
