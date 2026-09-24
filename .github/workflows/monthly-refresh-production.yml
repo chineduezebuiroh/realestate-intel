@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: .
+      DURABLE_AUTHORITY_BRANCH: main
     outputs:
       fan_out: ${{ steps.resolve.outputs.fan_out }}
       cycle_id: ${{ steps.resolve.outputs.cycle_id }}
@@ -69,6 +70,13 @@ jobs:
       cycle_json: ${{ steps.resolve.outputs.cycle_json }}
     steps:
       - uses: actions/checkout@v4
+      - name: Acquire read-only production authority snapshot
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DURABLE_AUTHORITY_BRANCH }}
+          path: production-authority
+          persist-credentials: false
+          fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -80,7 +88,7 @@ jobs:
           MODE: ${{ inputs.mode || 'normal' }}
           SUPPLIED_CYCLE: ${{ inputs.cycle_id }}
         run: |
-          args=(--mode "$MODE" --output "$RUNNER_TEMP/cycle.json")
+          args=(--mode "$MODE" --authority-root "$GITHUB_WORKSPACE/production-authority" --output "$RUNNER_TEMP/cycle.json")
           if [ -n "$SUPPLIED_CYCLE" ]; then args+=(--cycle-id "$SUPPLIED_CYCLE"); fi
           python -m jobs.monthly_refresh.cohort resolve "${args[@]}"
           cat "$RUNNER_TEMP/cycle.json" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -94,7 +102,7 @@ jobs:
       - id: plan
         if: steps.resolve.outputs.fan_out == 'true'
         run: |
-          python -m jobs.monthly_refresh.cohort resume-plan --cycle-json "$RUNNER_TEMP/cycle.json" --output "$RUNNER_TEMP/plan.json"
+          python -m jobs.monthly_refresh.cohort resume-plan --authority-root "$GITHUB_WORKSPACE/production-authority" --cycle-json "$RUNNER_TEMP/cycle.json" --output "$RUNNER_TEMP/plan.json"
           for source in redfin fred_macro ces laus census_bps census_bps_provisional census_acs1 census_acs5 bea_gdp_qtr bea_gdp_ann census_nrc; do
             key="$source"; [ "$source" = fred_macro ] && key=fred
             echo "run_${key}=$(jq -r --arg s "$source" '.run | contains([$s])' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"

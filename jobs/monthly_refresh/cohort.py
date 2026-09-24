@@ -12,6 +12,19 @@ from jobs.monthly_refresh.production import evaluate_barrier, validate_source_re
 from jobs.monthly_refresh.readiness import eligible_record
 
 EXECUTION_REGISTRY = Path("config/monthly_source_execution_registry.json")
+READINESS = Path("config/monthly_refresh_readiness.json")
+CATALOG = Path("config/artifact_catalog.json")
+RESULT_REGISTRY = Path("config/monthly_source_cycle_results.json")
+POLICY = Path("config/monthly_refresh_policy.json")
+
+
+def _authority_path(root: Path | None, path: Path) -> Path:
+    """Resolve a control-plane input inside one pre-acquired authority snapshot."""
+    if root is None:
+        return path
+    if path.is_absolute() or ".." in path.parts:
+        raise ValueError("authority input paths must remain inside the authority snapshot")
+    return root / path
 
 
 def required_sources(policy: dict[str, Any] | None = None) -> tuple[str, ...]:
@@ -90,13 +103,14 @@ def durable_redfin_result(*, cycle: dict[str, Any], catalog: dict[str, Any]) -> 
 
 
 def durable_automated_results(*, cycle: dict[str, Any], catalog: dict[str, Any],
-                              registry: dict[str, Any], policy: dict[str, Any]) -> list[dict[str, Any]]:
+                              registry: dict[str, Any], policy: dict[str, Any],
+                              execution_registry: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Resolve fail-closed, cycle-scoped successful source pins from durable state."""
     if registry.get("schema_version") != RESULT_REGISTRY_VERSION:
         raise ValueError("unsupported monthly source cycle-result registry")
     if policy.get("source_execution_result_schema") != RESULT_CONTRACT:
         raise ValueError("source result contract is not compatible with durable pins")
-    required = set(required_sources(policy))
+    required = set(required_sources(execution_registry or policy))
     # Hosted execution membership is governed by the execution registry.  The
     # stable refresh policy remains part of cycle identity and deliberately is
     # not rewritten as sources join the hosted barrier.
@@ -137,17 +151,19 @@ def durable_automated_results(*, cycle: dict[str, Any], catalog: dict[str, Any],
 
 
 def resolve_resume_results(*, cycle: dict[str, Any], catalog: dict[str, Any],
-                           registry: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+                           registry: dict[str, Any], policy: dict[str, Any],
+                           execution_registry: dict[str, Any] | None = None) -> dict[str, Any]:
     """Resolve durable completion before fan-out for normal and resume.
 
     Invocation mode does not grant permission to replace an already-complete
     cycle/source result. Replay retains its separate governed execution path.
     """
-    required = required_sources(policy)
+    required = required_sources(execution_registry or policy)
     if cycle["invocation_mode"] == "replay":
         return {"reuse": [], "run": list(required), "results": [], "pins": {}}
     results = [durable_redfin_result(cycle=cycle, catalog=catalog),
-               *durable_automated_results(cycle=cycle, catalog=catalog, registry=registry, policy=policy)]
+               *durable_automated_results(cycle=cycle, catalog=catalog, registry=registry,
+                                          policy=policy, execution_registry=execution_registry)]
     plan = resume_plan(required, results, expected_cycle_id=cycle["cycle_id"])
     return {**plan, "results": results}
 
@@ -244,13 +260,17 @@ def logical_cohort_plan(*, physical_evidence: dict[str, Any],
 def main() -> int:
     parser = argparse.ArgumentParser(); sub = parser.add_subparsers(dest="command", required=True)
     resolve = sub.add_parser("resolve"); resolve.add_argument("--mode", required=True)
-    resolve.add_argument("--readiness", type=Path, default=Path("config/monthly_refresh_readiness.json"))
-    resolve.add_argument("--catalog", type=Path, default=Path("config/artifact_catalog.json"))
-    resolve.add_argument("--cycle-id"); resolve.add_argument("--policy", type=Path, default=Path("config/monthly_refresh_policy.json")); resolve.add_argument("--output", type=Path, required=True)
+    resolve.add_argument("--authority-root", type=Path,
+        help="root of one read-only production authority snapshot")
+    resolve.add_argument("--readiness", type=Path, default=READINESS)
+    resolve.add_argument("--catalog", type=Path, default=CATALOG)
+    resolve.add_argument("--cycle-id"); resolve.add_argument("--policy", type=Path, default=POLICY); resolve.add_argument("--output", type=Path, required=True)
     plan = sub.add_parser("resume-plan"); plan.add_argument("--cycle-json", type=Path, required=True)
-    plan.add_argument("--catalog", type=Path, default=Path("config/artifact_catalog.json"))
-    plan.add_argument("--registry", type=Path, default=Path("config/monthly_source_cycle_results.json"))
-    plan.add_argument("--policy", type=Path, default=Path("config/monthly_refresh_policy.json")); plan.add_argument("--output", type=Path, required=True)
+    plan.add_argument("--authority-root", type=Path,
+        help="root of one read-only production authority snapshot")
+    plan.add_argument("--catalog", type=Path, default=CATALOG)
+    plan.add_argument("--registry", type=Path, default=RESULT_REGISTRY)
+    plan.add_argument("--policy", type=Path, default=POLICY); plan.add_argument("--output", type=Path, required=True)
     barrier = sub.add_parser("barrier"); barrier.add_argument("--cycle-json", type=Path, required=True)
     barrier.add_argument("--result", action="append", type=Path, default=[])
     barrier.add_argument("--reused-result", action="append", type=Path, default=[])
@@ -264,14 +284,22 @@ def main() -> int:
     logical.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "resolve":
-        value = resolve_invocation(mode=args.mode, policy_path=args.policy,
-            readiness=json.loads(args.readiness.read_text()), catalog=json.loads(args.catalog.read_text()),
+        policy = _authority_path(args.authority_root, args.policy)
+        readiness = _authority_path(args.authority_root, args.readiness)
+        catalog = _authority_path(args.authority_root, args.catalog)
+        value = resolve_invocation(mode=args.mode, policy_path=policy,
+            readiness=json.loads(readiness.read_text()), catalog=json.loads(catalog.read_text()),
             supplied_cycle_id=args.cycle_id)
     elif args.command == "resume-plan":
         from jobs.monthly_refresh.cycle_results import load_registry
+        catalog = _authority_path(args.authority_root, args.catalog)
+        registry = _authority_path(args.authority_root, args.registry)
+        policy = _authority_path(args.authority_root, args.policy)
+        execution_registry = _authority_path(args.authority_root, EXECUTION_REGISTRY)
         value = resolve_resume_results(cycle=json.loads(args.cycle_json.read_text()),
-            catalog=json.loads(args.catalog.read_text()), registry=load_registry(args.registry),
-            policy=json.loads(args.policy.read_text()))
+            catalog=json.loads(catalog.read_text()), registry=load_registry(registry),
+            policy=json.loads(policy.read_text()),
+            execution_registry=json.loads(execution_registry.read_text()))
     elif args.command == "barrier":
         cycle = json.loads(args.cycle_json.read_text()); results = [json.loads(p.read_text()) for p in args.result]
         reused_results = [json.loads(p.read_text()) for p in args.reused_result]
