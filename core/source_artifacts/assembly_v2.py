@@ -19,13 +19,29 @@ PROTECTED_DATABASES = {Path("data/market.duckdb").resolve(),
 
 def assemble_source_set_v2(source_set: dict[str, Any], output: Path, resolver: Any, *,
         metric_registry: Path = Path("config/source_metric_registry.csv"),
+        logical_metric_registry: Path = Path("config/logical_source_metric_registry.csv"),
         geo_manifest: Path = Path("config/geo_manifest.generated.csv")) -> dict[str, Any]:
     """Build a new isolated DuckDB using only exact Source Set declarations."""
     validate_source_set_v2(source_set)
     if output.resolve() in PROTECTED_DATABASES:
         raise ValueError("canonical candidate cannot use a production/serving database path")
     metrics = pd.read_csv(metric_registry, dtype=str)
+    logical_metrics = pd.read_csv(logical_metric_registry, dtype=str)
+    required_direct = {"source_id", "metric_id"}
+    required_logical = {"logical_source_id", "metric_id", "family_contract_version"}
+    if not required_direct.issubset(metrics.columns) or set(logical_metrics.columns) != required_logical:
+        raise ValueError("metric ownership registry schema mismatch")
+    direct_identity = metrics[["source_id", "metric_id"]]
+    if direct_identity.isna().any().any() or logical_metrics.isna().any().any() \
+            or direct_identity.apply(lambda column: column.str.strip().eq("").any()).any() \
+            or logical_metrics.apply(lambda column: column.str.strip().eq("").any()).any() \
+            or metrics.metric_id.duplicated().any() or logical_metrics.metric_id.duplicated().any():
+        raise ValueError("duplicate or incomplete metric ownership")
+    overlap = sorted(set(metrics.metric_id) & set(logical_metrics.metric_id))
+    if overlap:
+        raise ValueError(f"contradictory direct/logical metric ownership: {overlap}")
     owners = dict(zip(metrics.metric_id, metrics.source_id))
+    logical_owners = dict(zip(logical_metrics.metric_id, logical_metrics.logical_source_id))
     geographies = set(pd.read_csv(geo_manifest, dtype=str).geo_slug)
     family_owners = {item["logical_source_id"]:{m["source_id"] for m in item["physical_sources"]}
                      for item in source_set["family_resolution"].get("families", [])}
@@ -49,8 +65,12 @@ def assemble_source_set_v2(source_set: dict[str, Any], output: Path, resolver: A
             raise ValueError(f"duplicate canonical key in {entry['source_id']}")
         if not set(frame.geo_id).issubset(geographies):
             raise ValueError(f"ungoverned geography in {entry['source_id']}")
-        allowed_owners = {entry["source_id"], *family_owners.get(entry["source_id"], set())}
-        wrong = sorted(m for m in frame.metric_id.unique() if owners.get(m) not in allowed_owners)
+        source_id = entry["source_id"]
+        parents = family_owners.get(source_id)
+        allowed_owners = {source_id, *(parents or set())}
+        wrong = sorted(m for m in frame.metric_id.unique()
+                       if not (owners.get(m) in allowed_owners
+                               or (parents is not None and logical_owners.get(m) == source_id)))
         if wrong: raise ValueError(f"unauthorized metric ownership for {entry['source_id']}: {wrong}")
         if frame.property_type_id.isna().any() or frame.property_type.isna().any():
             raise ValueError("null property type identity")

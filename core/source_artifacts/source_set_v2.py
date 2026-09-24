@@ -11,7 +11,8 @@ VERSION = "source_set_manifest_v2"
 STATUSES = {"refreshed", "unchanged", "provider_still_stale", "failed"}
 REQUIRED_CONFIGS = {
     "config/monthly_refresh_policy.json", "config/source_refresh_revision_policy_v0_2.json",
-    "config/source_metric_registry.csv", "config/geo_manifest.generated.csv",
+    "config/source_metric_registry.csv", "config/logical_source_metric_registry.csv",
+    "config/geo_manifest.generated.csv",
 }
 SHA = re.compile(r"[0-9a-f]{64}")
 FAMILY_MAP_VERSION = "source_family_resolution_map_v1"
