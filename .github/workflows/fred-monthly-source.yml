@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       result_json: ${{ steps.final.outputs.result_json }}
-    env: {PYTHONPATH: ., OUTPUT_ROOT: artifacts/source_artifacts/fred_macro/current_run}
+    env: {PYTHONPATH: ., OUTPUT_ROOT: artifacts/source_artifacts/fred_macro/current_run, DURABLE_AUTHORITY_BRANCH: main}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,7 +29,7 @@ jobs:
         run: pip install -r requirements.txt
       - id: prior
         env: {GITHUB_TOKEN: '${{ github.token }}'}
-        run: python -m jobs.monthly_refresh.fred_durable resolve-prior --repository "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --workspace "$RUNNER_TEMP/prior" --output "$RUNNER_TEMP/prior.json" --github-output "$GITHUB_OUTPUT"
+        run: python -m jobs.monthly_refresh.fred_durable resolve-prior --repository "$GITHUB_REPOSITORY" --branch "$DURABLE_AUTHORITY_BRANCH" --current-run-id "$GITHUB_RUN_ID" --workspace "$RUNNER_TEMP/prior" --output "$RUNNER_TEMP/prior.json" --github-output "$GITHUB_OUTPUT"
       - id: acquire
         continue-on-error: true
         env:
@@ -43,7 +43,7 @@ jobs:
         if: steps.acquire.outcome == 'success'
         continue-on-error: true
         env: {GITHUB_TOKEN: '${{ github.token }}'}
-        run: python -m jobs.monthly_refresh.fred_durable publish --repository "$GITHUB_REPOSITORY" --artifact "$OUTPUT_ROOT/artifact" --workspace "$RUNNER_TEMP/publication" --publisher-git-sha "$GITHUB_SHA" --output "$OUTPUT_ROOT/publication.json"
+        run: python -m jobs.monthly_refresh.fred_durable publish --repository "$GITHUB_REPOSITORY" --branch "$DURABLE_AUTHORITY_BRANCH" --artifact "$OUTPUT_ROOT/artifact" --workspace "$RUNNER_TEMP/publication" --publisher-git-sha "$GITHUB_SHA" --output "$OUTPUT_ROOT/publication.json"
       - id: result
         if: always()
         env:
@@ -69,7 +69,7 @@ jobs:
         run: |
           printf '%s' "$RESULT_JSON" > "$RUNNER_TEMP/source-result.json"
           python -m jobs.monthly_refresh.cycle_results --repository "$GITHUB_REPOSITORY" \
-            --branch "$GITHUB_REF_NAME" --token "$GITHUB_TOKEN" --result "$RUNNER_TEMP/source-result.json" \
+            --branch "$DURABLE_AUTHORITY_BRANCH" --token "$GITHUB_TOKEN" --result "$RUNNER_TEMP/source-result.json" \
             --output "$OUTPUT_ROOT/cycle-result-recording.json"
       - id: final
         name: Publish result only after required durable recording
