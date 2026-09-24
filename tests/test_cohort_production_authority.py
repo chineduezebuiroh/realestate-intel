@@ -17,11 +17,20 @@ CANDIDATE = "src__redfin__2026-08__r1__f2ca39c3c36a9c2b"
 
 def _authority_snapshot(tmp_path: Path) -> Path:
     root = tmp_path / "authority"
-    for relative in (cohort.READINESS, cohort.CATALOG, cohort.RESULT_REGISTRY,
-                     cohort.POLICY, cohort.EXECUTION_REGISTRY):
+    for relative in (cohort.READINESS, cohort.CATALOG):
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(relative.read_bytes())
+    source_results = cohort.RESULT_REGISTRY.with_suffix("")
+    for source in source_results.glob("*/*.json"):
+        target = root / source
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+    # Model main's real production-state shape: static execution contracts and
+    # the legacy aggregate/bootstrap file are deliberately not authority data.
+    assert not (root / cohort.POLICY).exists()
+    assert not (root / cohort.EXECUTION_REGISTRY).exists()
+    assert not (root / cohort.RESULT_REGISTRY).exists()
     readiness_path = root / cohort.READINESS
     readiness = json.loads(readiness_path.read_text())
     july, august = readiness["records"]
@@ -87,6 +96,27 @@ def test_resume_plan_reads_catalog_results_and_inventory_from_authority(
     assert set(plan["run"]) == set(cohort.REQUIRED_SOURCES) - {"redfin"}
     assert plan["results"][0]["candidate_artifact_id"] == CANDIDATE
     assert cycle["redfin_candidate_pin"]["candidate_artifact_id"] == CANDIDATE
+
+
+def test_resume_loads_canonical_cycle_scoped_results_without_aggregate(
+        tmp_path, monkeypatch, capsys):
+    authority = _authority_snapshot(tmp_path)
+    readiness_path = authority / cohort.READINESS
+    readiness = json.loads(readiness_path.read_text())
+    july = next(record for record in readiness["records"]
+                if record["target_month"] == "2026-07")
+    july["consumed"] = False
+    readiness_path.write_text(json.dumps(readiness))
+    cycle_path = tmp_path / "cycle.json"
+    _cli(monkeypatch, capsys, "resolve", "--mode", "resume",
+         "--cycle-id", july["cycle_id"], "--authority-root", str(authority),
+         "--output", str(cycle_path))
+
+    plan = _cli(monkeypatch, capsys, "resume-plan", "--authority-root", str(authority),
+                "--cycle-json", str(cycle_path), "--output", str(tmp_path / "plan.json"))
+
+    assert {"redfin", "fred_macro", "ces", "laus", "census_bps",
+            "census_bps_provisional"}.issubset(plan["reuse"])
 
 
 def test_authority_identity_drift_fails_closed(tmp_path, monkeypatch):

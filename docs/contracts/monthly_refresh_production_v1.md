@@ -133,8 +133,10 @@ bounded read-after-conflict retries distinguish an exact repeat from a contradic
 aggregation was rejected because sibling failure before the barrier would lose an already-published
 success and force unnecessary reacquisition.
 
-Resume loads the immutable records plus bootstrap index and revalidates compatible entries against the
-catalog, allowing either automated sibling to be reused after the other fails. Replay deliberately
+Resume loads the immutable cycle-scoped records (and an optional bootstrap index when one is present)
+and revalidates compatible entries against the catalog, allowing either automated sibling to be reused
+after the other fails. The execution checkout's empty versioned index is not required to exist in the
+production-authority snapshot. Replay deliberately
 ignores pins and executes all sources; an exact producer write is a no-op and contradictory evidence
 collides. Normal fan-out remains parallel. This lifecycle creates no Source Set, advances no accepted
 pointer, and does not consume Redfin readiness.
