@@ -158,11 +158,17 @@ class GitHubCycleResultStore:
         raise AssertionError("unreachable")
 
 
-def load_registry(index_path: Path, records_root: Path | None = None) -> dict[str, Any]:
-    index = json.loads(index_path.read_text())
-    if index.get("schema_version") != RESULT_REGISTRY_VERSION:
-        raise ValueError("unsupported monthly source cycle-result registry")
-    records = list(index.get("records", []))
+def load_registry(index_path: Path | None = None, records_root: Path | None = None) -> dict[str, Any]:
+    """Load the bootstrap index and/or canonical cycle-scoped result objects."""
+    if index_path is None and records_root is None:
+        raise ValueError("cycle-result index or records root is required")
+    if index_path is not None:
+        index = json.loads(index_path.read_text())
+        if index.get("schema_version") != RESULT_REGISTRY_VERSION:
+            raise ValueError("unsupported monthly source cycle-result registry")
+        records = list(index.get("records", []))
+    else:
+        records = []
     root = records_root or index_path.with_suffix("")
     if root.exists():
         records.extend(json.loads(path.read_text()) for path in sorted(root.glob("*/*.json")))

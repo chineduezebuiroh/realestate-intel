@@ -284,7 +284,9 @@ def main() -> int:
     logical.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "resolve":
-        policy = _authority_path(args.authority_root, args.policy)
+        # Policy is versioned execution code.  Only mutable production state is
+        # resolved from the production-authority snapshot.
+        policy = args.policy
         readiness = _authority_path(args.authority_root, args.readiness)
         catalog = _authority_path(args.authority_root, args.catalog)
         value = resolve_invocation(mode=args.mode, policy_path=policy,
@@ -294,10 +296,15 @@ def main() -> int:
         from jobs.monthly_refresh.cycle_results import load_registry
         catalog = _authority_path(args.authority_root, args.catalog)
         registry = _authority_path(args.authority_root, args.registry)
-        policy = _authority_path(args.authority_root, args.policy)
-        execution_registry = _authority_path(args.authority_root, EXECUTION_REGISTRY)
+        policy = args.policy
+        execution_registry = EXECUTION_REGISTRY
+        # Production stores one immutable object per cycle/source.  The JSON
+        # file is only an optional bootstrap index and is absent on main.
+        records_root = registry.with_suffix("")
+        registry_index = registry if registry.exists() else None
         value = resolve_resume_results(cycle=json.loads(args.cycle_json.read_text()),
-            catalog=json.loads(catalog.read_text()), registry=load_registry(registry),
+            catalog=json.loads(catalog.read_text()),
+            registry=load_registry(registry_index, records_root=records_root),
             policy=json.loads(policy.read_text()),
             execution_registry=json.loads(execution_registry.read_text()))
     elif args.command == "barrier":
