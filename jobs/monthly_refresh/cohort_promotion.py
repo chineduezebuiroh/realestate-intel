@@ -15,11 +15,11 @@ from sources.census_bps.artifact import family_resolution_config_hashes
 from sources.census_acs.artifact import (CONTRACT_VERSION as ACS_CONTRACT_VERSION,
     governed_config_hashes as acs_governed_config_hashes)
 
-NRC_CONTRACT_VERSION = "census_nrc_workbook_parser_v1_openpyxl_3.1.5"
+NRC_CONTRACT_VERSION = "census_nrc_workbook_parser_v2_governed_geo_openpyxl_3.1.5"
 NRC_METRICS = ("census_housing_starts_total_saar",
                "census_housing_completions_total_saar")
-NRC_GEOGRAPHIES = ("us_nation", "us_region_northeast", "us_region_midwest",
-                   "us_region_south", "us_region_west")
+NRC_GOVERNED_CANDIDATE_GEOGRAPHIES = ("united_states__nation", "northeast_region__region",
+                                      "south_region__region", "west_region__region")
 
 
 LOGICAL_COHORT_SOURCES = frozenset({"acs", "bea_gdp_ann", "bea_gdp_qtr", "bps",
@@ -52,7 +52,7 @@ def validate_nrc_cohort_contract(record: Mapping[str, Any]) -> None:
     expected = {
         "source_contract_version": NRC_CONTRACT_VERSION,
         "metric_inventory": sorted(NRC_METRICS),
-        "geography_inventory": sorted(NRC_GEOGRAPHIES),
+        "geography_inventory": sorted(NRC_GOVERNED_CANDIDATE_GEOGRAPHIES),
         "unit": "thousands_of_housing_units_saar",
         "numeric_scale_factor": 1,
         "canonical_schema": "source_artifact_v1",

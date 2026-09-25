@@ -7,6 +7,29 @@ from .models import CANONICAL_COLUMNS, CANONICAL_KEY, SCHEMA_VERSION
 
 class ArtifactValidationError(RuntimeError): pass
 
+def validate_governed_geographies(data: pd.DataFrame, manifest_path: Path, *,
+                                  expected: set[str] | None = None) -> set[str]:
+    """Validate canonical row identities against an explicit runtime authority.
+
+    This helper is intentionally opt-in while existing production publishers are
+    migrated.  Callers remain responsible for hashing the same manifest into
+    artifact identity.
+    """
+    manifest = pd.read_csv(manifest_path, dtype=str).fillna("")
+    if not {"geo_slug", "level"}.issubset(manifest.columns) \
+            or manifest["geo_slug"].eq("").any() or manifest["geo_slug"].duplicated().any():
+        raise ArtifactValidationError("governed geography manifest is invalid")
+    actual = set(data["geo_id"].astype(str))
+    governed = set(manifest["geo_slug"].astype(str))
+    ungoverned = sorted(actual - governed)
+    if ungoverned:
+        raise ArtifactValidationError(f"ungoverned geography: {ungoverned}")
+    if expected is not None and actual != expected:
+        raise ArtifactValidationError(
+            f"governed geography inventory mismatch: missing={sorted(expected-actual)}, "
+            f"unexpected={sorted(actual-expected)}")
+    return actual
+
 def validate_artifact(path: Path, *, expected_source_id: str|None=None, max_single_asset_bytes: int|None=None) -> dict:
     try: manifest=json.loads((path/"manifest.json").read_text())
     except Exception as exc: raise ArtifactValidationError("invalid manifest") from exc

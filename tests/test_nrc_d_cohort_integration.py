@@ -12,7 +12,7 @@ from jobs.monthly_refresh.cohort import barrier_evidence, required_sources
 from jobs.monthly_refresh.cohort_promotion import (
     LOGICAL_COHORT_SOURCES,
     NRC_CONTRACT_VERSION,
-    NRC_GEOGRAPHIES,
+    NRC_GOVERNED_CANDIDATE_GEOGRAPHIES,
     NRC_METRICS,
     PHYSICAL_FAMILY_SOURCES,
     validate_nrc_cohort_contract,
@@ -21,7 +21,8 @@ from jobs.monthly_refresh.cohort_promotion import (
 
 def contract_metadata() -> dict:
     return {"source_id": "census_nrc", "source_contract_version": NRC_CONTRACT_VERSION,
-        "metric_inventory": sorted(NRC_METRICS), "geography_inventory": sorted(NRC_GEOGRAPHIES),
+        "metric_inventory": sorted(NRC_METRICS),
+        "geography_inventory": sorted(NRC_GOVERNED_CANDIDATE_GEOGRAPHIES),
         "unit": "thousands_of_housing_units_saar", "numeric_scale_factor": 1,
         "canonical_schema": "source_artifact_v1"}
 
@@ -63,6 +64,13 @@ def test_nrc_contract_evidence_is_exact_and_fail_closed():
     for field in ("source_contract_version", "metric_inventory", "geography_inventory",
                   "unit", "numeric_scale_factor", "canonical_schema"):
         broken = copy.deepcopy(record); broken["metadata"].pop(field)
+        with pytest.raises(ValueError, match="contract evidence mismatch"):
+            validate_nrc_cohort_contract(broken)
+    for invalid in (["us_nation", "us_region_northeast", "us_region_midwest",
+                     "us_region_south", "us_region_west"],
+                    ["united_states__nation", "northeast_region__region",
+                     "midwest_region__region", "south_region__region", "west_region__region"]):
+        broken = copy.deepcopy(record); broken["metadata"]["geography_inventory"] = sorted(invalid)
         with pytest.raises(ValueError, match="contract evidence mismatch"):
             validate_nrc_cohort_contract(broken)
 

@@ -12,11 +12,16 @@ import requests
 
 from core.source_artifacts.artifact import create_artifact
 from core.source_artifacts.hashing import sha256_file
+from core.source_artifacts.validation import validate_governed_geographies
 from jobs.monthly_refresh.source_inputs import provider_pin, verify_member_bytes
 from sources.census_nrc.parser import (CENSUS_INPUTS, PARSER_CONTRACT_VERSION, SOURCE_ID,
-                                       parse_census_workbook)
+                                       GEOGRAPHIES, METRICS, parse_census_workbook)
 
 MEMBERS = frozenset(CENSUS_INPUTS)
+GEO_MANIFEST = Path("config/geo_manifest.generated.csv")
+PROVIDER_GEOGRAPHIES = frozenset(GEOGRAPHIES.values())
+GOVERNED_GEOGRAPHIES = frozenset({"united_states__nation", "northeast_region__region",
+                                  "south_region__region", "west_region__region"})
 
 
 def _now() -> str:
@@ -66,15 +71,39 @@ def recover_pinned_workbooks(pin: Mapping[str, Any], workspace: Path) -> dict[st
 
 
 def candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], output: Path,
-              cycle_id: str, git_sha: str = "unknown", repository_root: Path = Path(".")) -> dict[str, Any]:
+              cycle_id: str, git_sha: str = "unknown", repository_root: Path = Path("."),
+              revision: int = 1, supersedes_artifact_id: str | None = None,
+              artifact_created_at: str | None = None) -> dict[str, Any]:
     verify_member_bytes(pin, paths); rows = []; workbooks = {}
     for kind in sorted(MEMBERS):
         parsed, diagnostics = parse_census_workbook(paths[kind].read_bytes(), kind)
         rows.extend(parsed); workbooks[kind] = diagnostics
-    frame = pd.DataFrame(rows).drop(columns=["provider", "native_id"]).assign(source_id=SOURCE_ID)
-    if set(frame.geo_id) != {"us_nation", "us_region_northeast", "us_region_midwest",
-                            "us_region_south", "us_region_west"}:
-        raise ValueError("NRC candidate geography reconciliation failed")
+    provider_frame = pd.DataFrame(rows).drop(columns=["provider", "native_id"]).assign(source_id=SOURCE_ID)
+    provider_pairs = set(zip(provider_frame.geo_id, provider_frame.metric_id))
+    expected_provider_pairs = {(geo, metric) for geo in PROVIDER_GEOGRAPHIES for metric in METRICS}
+    if set(provider_frame.geo_id) != set(PROVIDER_GEOGRAPHIES) or provider_pairs != expected_provider_pairs:
+        raise ValueError("NRC provider-shape reconciliation failed")
+    geo_manifest = repository_root / GEO_MANIFEST
+    governed_slugs = set(pd.read_csv(geo_manifest, dtype=str).geo_slug.astype(str))
+    governed_mask = provider_frame.geo_id.isin(governed_slugs)
+    frame = provider_frame.loc[governed_mask].copy()
+    excluded = provider_frame.loc[~governed_mask].copy()
+    validate_governed_geographies(frame, geo_manifest, expected=set(GOVERNED_GEOGRAPHIES))
+    governed_pairs = set(zip(frame.geo_id, frame.metric_id))
+    expected_governed_pairs = {(geo, metric) for geo in GOVERNED_GEOGRAPHIES for metric in METRICS}
+    if governed_pairs != expected_governed_pairs:
+        raise ValueError("NRC governed-intersection reconciliation failed")
+    excluded_geographies = []
+    for geo_id, group in excluded.groupby("geo_id", sort=True):
+        metrics = sorted(group.metric_id.unique().tolist())
+        excluded_geographies.append({"canonical_geo_slug": geo_id,
+            "classification": "OUT_OF_GOVERNANCE",
+            "disposition": "EXCLUDED_FROM_CANONICAL_CANDIDATE",
+            "metrics_present": metrics, "provider_row_count": len(group)})
+    if revision == 1 and supersedes_artifact_id is not None:
+        raise ValueError("NRC r1 cannot supersede an artifact")
+    if revision > 1 and not supersedes_artifact_id:
+        raise ValueError("corrected NRC revision requires supersedes_artifact_id")
     target = str(frame.date.max())[:7]
     semantic_input = hashlib.sha256("\n".join(
         f"{kind}:{pin['members'][kind]['sha256']}" for kind in sorted(MEMBERS)).encode()).hexdigest()
@@ -83,7 +112,20 @@ def candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], output: Path
         "input_members": [{"kind": k, "url": pin["members"][k]["url"],
                            "sha256": pin["members"][k]["sha256"],
                            "size_bytes": pin["members"][k]["size_bytes"]} for k in sorted(MEMBERS)],
-        "parser_contract_version": PARSER_CONTRACT_VERSION, "workbooks": workbooks}
+        "parser_contract_version": PARSER_CONTRACT_VERSION, "workbooks": workbooks,
+        "provider_shape_validation_status": "passed",
+        "provider_geography_inventory": sorted(PROVIDER_GEOGRAPHIES),
+        "provider_applicability_pairs": [{"geo_id": geo, "metric_id": metric}
+            for geo, metric in sorted(provider_pairs)],
+        "governed_intersection_validation_status": "passed",
+        "governed_geography_inventory": sorted(GOVERNED_GEOGRAPHIES),
+        "governed_applicability_pairs": [{"geo_id": geo, "metric_id": metric}
+            for geo, metric in sorted(governed_pairs)],
+        "excluded_geographies": excluded_geographies,
+        "excluded_row_count_by_metric": {metric:int((excluded.metric_id == metric).sum())
+            for metric in sorted(METRICS)},
+        "geography_governance_manifest": str(GEO_MANIFEST),
+        "geography_governance_manifest_sha256": sha256_file(geo_manifest)}
     parser_path = repository_root / "sources/census_nrc/parser.py"
     manifest = create_artifact(output, frame, source_id=SOURCE_ID, source_family=SOURCE_ID,
         source_type="government_survey", provider="U.S. Census Bureau",
@@ -92,8 +134,12 @@ def candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], output: Path
         retrieved_at=max(pin["members"][k]["retrieved_at"] for k in MEMBERS), target_month=target,
         source_request_identity=semantic_input,
         source_urls_or_endpoint_identity=[CENSUS_INPUTS[k][0] for k in sorted(MEMBERS)],
-        raw_source_lineage=evidence, config_hashes={"nrc_parser_sha256": sha256_file(parser_path)},
+        raw_source_lineage=evidence, config_hashes={
+            "config/geo_manifest.generated.csv": sha256_file(geo_manifest),
+            "sources/census_nrc/parser.py": sha256_file(parser_path)},
         git_sha=git_sha, source_contract_version=PARSER_CONTRACT_VERSION,
+        revision=revision, supersedes_artifact_id=supersedes_artifact_id,
+        artifact_created_at=artifact_created_at,
         manifest_extensions={"governed_contract": {
             "metric_inventory": sorted(frame.metric_id.unique().tolist()),
             "geography_inventory": sorted(frame.geo_id.unique().tolist()),

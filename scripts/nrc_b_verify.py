@@ -29,6 +29,10 @@ import openpyxl
 from openpyxl.utils.exceptions import InvalidFileException
 
 LEGACY_SOURCE_ID = "census_nrc_fred"
+LEGACY_R1_GEOGRAPHIES = {"us_nation":"united_states__nation",
+    "us_region_northeast":"northeast_region__region",
+    "us_region_midwest":"midwest_region__region", "us_region_south":"south_region__region",
+    "us_region_west":"west_region__region"}
 FRED_SERIES = {
     "HOUST": ("US", STARTS), "HOUSTNE": ("NE", STARTS),
     "HOUSTMW": ("MW", STARTS), "HOUSTS": ("S", STARTS),
@@ -127,9 +131,9 @@ def legacy_inventory(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     for geo, metric, period, ptid, pt, value, source in raw:
         if value is None:
             nulls += 1; continue
-        if geo not in GEOGRAPHIES.values() or metric not in METRICS:
+        if geo not in LEGACY_R1_GEOGRAPHIES or metric not in METRICS:
             raise ValueError(f"unexpected legacy identity: {geo}/{metric}")
-        rows.append({"geo_id": geo, "metric_id": metric, "date": month_end(period),
+        rows.append({"geo_id": LEGACY_R1_GEOGRAPHIES[geo], "metric_id": metric, "date": month_end(period),
                      "property_type_id": str(ptid), "property_type": str(pt),
                      "value": str(Decimal(str(value))), "provider": "legacy",
                      "native_id": str(source)})
@@ -143,34 +147,40 @@ def legacy_inventory(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
                  "property_type_ids": sorted({str(x[3]) for x in raw}),
                  "property_types": sorted({str(x[4]) for x in raw}),
                  "null_value_count": nulls, "duplicate_key_count": len(rows)-len(normalized),
-                 "national_row_count": sum(r["geo_id"] == "us_nation" for r in normalized),
+                 "national_row_count": sum(r["geo_id"] == "united_states__nation" for r in normalized),
                  "series": {k: {"count": len(v), "first": min(v), "last": max(v)}
                             for k, v in sorted(by_pair.items())}}
     return normalized, inventory
 
 
 def geography_reconciliation(path: Path) -> list[dict[str, str]]:
-    """Prove governed IDs against the repository geography manifest."""
+    """Separate required provider shape from current governed applicability."""
     expected = {
-        "United States": ("US", "us_nation", "united_states__nation", "nation"),
-        "Northeast": ("NE", "us_region_northeast", "northeast_region__region", "region"),
-        "Midwest": ("MW", "us_region_midwest", "midwest_region__region", "region"),
-        "South": ("S", "us_region_south", "south_region__region", "region"),
-        "West": ("W", "us_region_west", "west_region__region", "region"),
+        "United States": ("US", "united_states__nation", "us_nation", "nation"),
+        "Northeast": ("NE", "northeast_region__region", "us_region_northeast", "region"),
+        "Midwest": ("MW", "midwest_region__region", "us_region_midwest", "region"),
+        "South": ("S", "south_region__region", "us_region_south", "region"),
+        "West": ("W", "west_region__region", "us_region_west", "region"),
     }
     with path.open(newline="", encoding="utf-8-sig") as handle:
-        records = {row["geo_id"]: row for row in csv.DictReader(handle)}
+        records = {row["geo_slug"]: row for row in csv.DictReader(handle)}
     result = []
     for label, (code, governed, legacy, level) in expected.items():
         record = records.get(governed)
-        if record is None or record.get("level") != level:
+        if record is not None and record.get("level") != level:
+            raise ProviderContractError(
+                f"geography manifest level mismatch for {label} identity {governed}/{level}")
+        if record is None and code != "MW":
             raise ProviderContractError(
                 f"geography manifest lacks governed {label} identity {governed}/{level}")
         result.append({"provider_label": label, "provider_code": code,
-                       "governed_canonical_geo_id": governed,
-                       "legacy_ingestion_geo_id": legacy,
+                       "canonical_geo_slug": governed,
+                       "legacy_r1_geo_id": legacy,
                        "manifest_level": level,
-                       "manifest_geo_name": record.get("geo_name", "")})
+                       "manifest_geo_name": record.get("geo_name", "") if record else "",
+                       "classification": "GOVERNED" if record else "OUT_OF_GOVERNANCE",
+                       "disposition": "INCLUDED_IN_CANONICAL_CANDIDATE" if record
+                           else "EXCLUDED_FROM_CANONICAL_CANDIDATE"})
     return result
 
 
@@ -222,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Read-only NRC-B provider verifier")
     parser.add_argument("--legacy-db", type=Path, required=True)
     parser.add_argument("--workspace", type=Path, required=True)
-    parser.add_argument("--geo-manifest", type=Path, default=Path("config/geo_manifest.csv"))
+    parser.add_argument("--geo-manifest", type=Path, default=Path("config/geo_manifest.generated.csv"))
     parser.add_argument("--skip-census", action="store_true")
     parser.add_argument("--skip-fred", action="store_true")
     parser.add_argument("--offline", action="store_true",
@@ -303,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         reasons = Counter()
         for item in report["provider_legacy_parity"]["details"]:
             if item["classification"] != "PROVIDER_ONLY": continue
-            if item["geo_id"] == "us_nation": reason = "NATIONAL_ABSENT_FROM_LEGACY"
+            if item["geo_id"] == "united_states__nation": reason = "NATIONAL_ABSENT_FROM_LEGACY"
             elif item["date"] > legacy_latest: reason = "AFTER_LEGACY_SNAPSHOT"
             else: reason = "OTHER_PROVIDER_ONLY"
             item["provider_only_reason"] = reason; reasons[reason] += 1

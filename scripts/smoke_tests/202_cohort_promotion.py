@@ -88,9 +88,9 @@ for number, source in enumerate(("bea_gdp_ann", "bea_gdp_qtr"), 4):
 nrc_id = "src__census_nrc__2026-08__r1__94a8e9dc77b9063b"
 nrc_record = acs_record("census_nrc", nrc_id,
     "94a8e9dc77b9063befc592de1f64678ac143bb4609307861ab075c37ff815982", "9"*64, 6)
-nrc_record["metadata"].update({"source_contract_version":"census_nrc_workbook_parser_v1_openpyxl_3.1.5",
+nrc_record["metadata"].update({"source_contract_version":"census_nrc_workbook_parser_v2_governed_geo_openpyxl_3.1.5",
     "metric_inventory":["census_housing_completions_total_saar","census_housing_starts_total_saar"],
-    "geography_inventory":["us_nation","us_region_midwest","us_region_northeast","us_region_south","us_region_west"],
+    "geography_inventory":["northeast_region__region","south_region__region","united_states__nation","west_region__region"],
     "unit":"thousands_of_housing_units_saar", "numeric_scale_factor":1,
     "canonical_schema":"source_artifact_v1",
     "provider_release_id":"nrc-workbooks:84f66e94466844bc93d40ffee06571e2026f09e9bbea9250eee19f89dfbb8676",
