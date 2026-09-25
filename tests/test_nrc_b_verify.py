@@ -13,7 +13,7 @@ from scripts.nrc_b_verify import (
 )
 
 
-def row(geo="us_nation", metric=STARTS, period="2026-01", value="1500"):
+def row(geo="united_states__nation", metric=STARTS, period="2026-01", value="1500"):
     return {"geo_id": geo, "metric_id": metric, "date": month_end(period),
             "property_type_id": "all", "property_type": "all", "value": value,
             "provider": "fixture", "native_id": "x"}
@@ -22,7 +22,8 @@ def row(geo="us_nation", metric=STARTS, period="2026-01", value="1500"):
 def workbook(kind="starts", *, saar=True, units=True, headers=True,
              duplicate=False, unavailable=False, month_header=True,
              date_value=None, sheet_names=None, leading_month=None,
-             footer_rows=None, all_missing=False, unavailable_token="(NA)"):
+             footer_rows=None, all_missing=False, unavailable_token="(NA)",
+             geography_headers=None):
     from openpyxl import Workbook
 
     book = Workbook()
@@ -41,8 +42,8 @@ def workbook(kind="starts", *, saar=True, units=True, headers=True,
     sheet.append(["Thousands of units. Detail may not add to total because of rounding."
                   if units else "Individual units"])
     sheet.append([])
-    sheet.append(["Month" if month_header else "Period", "United States",
-                  "Northeast", "Midwest", "South", "West"])
+    sheet.append(["Month" if month_header else "Period", *(geography_headers or
+                  ["United States", "Northeast", "Midwest", "South", "West"])])
     sheet.append([None, "Total", "Total", "Total", "Total", "Total"])
     if leading_month is not None:
         sheet.append([leading_month])
@@ -87,6 +88,16 @@ def test_workbook_parser_selects_five_totals_and_metric_identity():
     assert starts[0]["value"] != "1500000"
     assert {x["date"] for x in starts} == {"2026-01-31", "2026-02-28"}
     assert contract["unit"] == "thousands_of_housing_units_saar"
+
+
+@pytest.mark.parametrize("geographies", [
+    ["United States", "Northeast", "South", "West"],
+    ["United States", "Northeast", "Central", "South", "West"],
+    ["United States", "Northeast", "Midwest", "South", "Unknown"],
+])
+def test_provider_geography_shape_requires_exact_five(geographies):
+    with pytest.raises(ProviderContractError, match="provider geography"):
+        parse_census_workbook(workbook(geography_headers=geographies), "starts")
 
 
 def test_workbook_unavailable_marker_is_not_synthesized():
@@ -214,19 +225,25 @@ def test_hashes_deterministic_and_inventory_excludes_value():
 def test_per_series_history_summary_reports_continuity_and_gap():
     continuous = [row(period="2026-01"), row(period="2026-02")]
     summary = _provider_summary(continuous)
-    series = summary["series"][f"{STARTS}|us_nation"]
+    series = summary["series"][f"{STARTS}|united_states__nation"]
     assert series["observation_count"] == 2
     assert series["continuous_within_observed_bounds"] is True
     gap = _provider_summary([row(period="2026-01"), row(period="2026-03")])
-    assert gap["series"][f"{STARTS}|us_nation"]["missing_periods_within_bounds"] == ["2026-02-28"]
+    assert gap["series"][f"{STARTS}|united_states__nation"]["missing_periods_within_bounds"] == ["2026-02-28"]
 
 
 def test_geography_reconciliation_uses_governed_manifest():
-    result = geography_reconciliation(__import__("pathlib").Path("config/geo_manifest.csv"))
-    assert [item["governed_canonical_geo_id"] for item in result] == [
-        "us_nation", "us_region_northeast", "us_region_midwest",
-        "us_region_south", "us_region_west"]
-    assert result[1]["legacy_ingestion_geo_id"] == "northeast_region__region"
+    result = geography_reconciliation(__import__("pathlib").Path("config/geo_manifest.generated.csv"))
+    assert [item["canonical_geo_slug"] for item in result] == [
+        "united_states__nation", "northeast_region__region", "midwest_region__region",
+        "south_region__region", "west_region__region"]
+    assert result[1]["legacy_r1_geo_id"] == "us_region_northeast"
+    assert [item for item in result if item["classification"] == "OUT_OF_GOVERNANCE"] == [{
+        "provider_label":"Midwest", "provider_code":"MW",
+        "canonical_geo_slug":"midwest_region__region", "legacy_r1_geo_id":"us_region_midwest",
+        "manifest_level":"region", "manifest_geo_name":"",
+        "classification":"OUT_OF_GOVERNANCE",
+        "disposition":"EXCLUDED_FROM_CANONICAL_CANDIDATE"}]
 
 
 def test_duplicate_and_unexpected_identity_fail_closed():

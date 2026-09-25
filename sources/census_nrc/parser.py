@@ -16,14 +16,15 @@ SOURCE_ID = "census_nrc"
 STARTS = "census_housing_starts_total_saar"
 COMPLETIONS = "census_housing_completions_total_saar"
 METRICS = (STARTS, COMPLETIONS)
-GEOGRAPHIES = {"US": "us_nation", "NE": "us_region_northeast",
-               "MW": "us_region_midwest", "S": "us_region_south", "W": "us_region_west"}
+GEOGRAPHIES = {"US": "united_states__nation", "NE": "northeast_region__region",
+               "MW": "midwest_region__region", "S": "south_region__region",
+               "W": "west_region__region"}
 CENSUS_INPUTS = {
     "starts": ("https://www.census.gov/construction/nrc/xls/starts_cust.xlsx", STARTS),
     "completions": ("https://www.census.gov/construction/nrc/xls/comps_cust.xlsx", COMPLETIONS),
 }
 KEY_FIELDS = ("geo_id", "metric_id", "date", "property_type_id")
-PARSER_CONTRACT_VERSION = "census_nrc_workbook_parser_v1_openpyxl_3.1.5"
+PARSER_CONTRACT_VERSION = "census_nrc_workbook_parser_v2_governed_geo_openpyxl_3.1.5"
 
 
 class ProviderContractError(ValueError):
@@ -100,7 +101,7 @@ def parse_census_workbook(payload: bytes, kind: str) -> tuple[list[dict[str, Any
         if not upper or str(upper[0]).strip() != "Month": continue
         headers = [str(v).strip() for v in upper[1:] if v not in (None, "")]
         if len(headers) != 5 or set(headers) != set(provider_geos):
-            raise ProviderContractError(f"unexpected Census governed geography headers: {headers}")
+            raise ProviderContractError(f"unexpected Census provider geography headers: {headers}")
         columns, current = {}, None
         for col in range(max(len(upper), len(lower))):
             top = str(upper[col]).strip() if col < len(upper) and upper[col] is not None else ""
@@ -128,7 +129,7 @@ def parse_census_workbook(payload: bytes, kind: str) -> tuple[list[dict[str, Any
             rows.append(_row(provider_geos[label], metric, observed, raw, native_id=kind))
     normalized = validate_rows(r for r in rows if r is not None)
     if {(r["geo_id"], r["metric_id"]) for r in normalized} != {(g, metric) for g in GEOGRAPHIES.values()}:
-        raise ProviderContractError(f"Census {kind} workbook lacks one or more governed series")
+        raise ProviderContractError(f"Census {kind} workbook lacks one or more provider series")
     return normalized, {"workbook_kind": kind, "sheet_names": sheets, "worksheet": "Seasonally Adjusted",
         "date_cell_contract": "openpyxl date/datetime; first day of month",
         "unit": "thousands_of_housing_units_saar", "numeric_scale_factor": 1,

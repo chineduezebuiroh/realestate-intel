@@ -150,6 +150,13 @@ def test_contradictory_direct_and_logical_ownership_fails_closed(tmp_path: Path)
             LocalArtifactResolver({manifest["artifact_uri"]:directory}), metric_registry=direct_path)
 
 
+def test_assembly_rejects_ungoverned_canonical_artifact_without_aliasing(tmp_path: Path):
+    frame = pd.DataFrame([_row("ces", "ces_total_nonfarm_sa", 1)]).assign(
+        geo_id="midwest_region__region")
+    with pytest.raises(ValueError, match="ungoverned geography in ces"):
+        _assemble(tmp_path, {"ces":frame}, set())
+
+
 def test_physical_family_source_cannot_enter_logical_inventory(tmp_path: Path):
     acs = pd.DataFrame([_row("acs", "census_acs_pop_total", 1)])
     _, _, source_set = _assemble(tmp_path / "valid", {"acs":acs}, {"acs"})
