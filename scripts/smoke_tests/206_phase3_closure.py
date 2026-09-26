@@ -62,10 +62,10 @@ try: authorize({"promotion_record":changed,"authorization_token":preflight["auth
 except PublicationError: pass
 else: raise AssertionError("stale authorization accepted a changed plan")
 
-# The two object transitions, nine sources in governed order, then Redfin last.
+# The two object transitions, ten sources in governed order, then Redfin last.
 state,ready=catalog,readiness
 observed=[]
-for _ in range(12):
+for _ in range(13):
     before=copy.deepcopy(state); before_ready=copy.deepcopy(ready)
     state,ready,progress=recover_promotion(promotion,state,ready,max_operations=1)
     if before["accepted"].get("source_set") != state["accepted"].get("source_set"): observed.append("accepted.source_set")

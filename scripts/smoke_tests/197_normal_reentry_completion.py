@@ -21,7 +21,7 @@ for readiness_record in readiness["records"]:
 policy = json.loads(Path("config/monthly_refresh_policy.json").read_text())
 execution_registry = json.loads(Path("config/monthly_source_execution_registry.json").read_text())
 governed_sources = required_sources(execution_registry)
-assert governed_sources == ("redfin", "fred_macro", "ces", "laus", "census_bps",
+assert governed_sources == ("redfin", "fred_macro", "fred_unemp", "ces", "laus", "census_bps",
     "census_bps_provisional", "census_acs1", "census_acs5", "bea_gdp_qtr",
     "bea_gdp_ann", "census_nrc")
 loaded_registry = load_registry(Path("config/monthly_source_cycle_results.json"))
@@ -93,7 +93,7 @@ complete = resolve_resume_results(cycle=cycle, catalog=fixture_catalog,
     registry=fixture_registry(*complete_records), policy=policy,
     execution_registry=execution_registry)
 assert set(complete["reuse"]) == set(governed_sources)
-assert len(complete["reuse"]) == len(governed_sources) == 11
+assert len(complete["reuse"]) == len(governed_sources) == 12
 assert complete["run"] == []
 
 # The common planner handles all-complete and one-missing states by physical

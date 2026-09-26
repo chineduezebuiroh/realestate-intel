@@ -83,6 +83,18 @@ for number, source in enumerate(("bea_gdp_ann", "bea_gdp_qtr"), 4):
         "observation_max":record["metadata"]["observation_max"], "prior_artifact_id":None,
         "source_change_detected":True, "retryability":"not_applicable",
         "evidence_uri":record["logical_artifact_uri"], "accepted_pointer_changed":False})
+# FRED unemployment is an independent direct source, never an alias of fred_macro.
+fred_unemp_id = "src__fred_unemp__2026-07__r1__" + "u" * 16
+fred_unemp_record = acs_record("fred_unemp", fred_unemp_id, "7"*64, "8"*64, 7)
+catalog["immutable_records"].append(fred_unemp_record)
+results.append({"schema_version":"monthly_source_execution_result_v1", "source_id":"fred_unemp",
+    "cycle_id":CYCLE, "status":"succeeded", "candidate_artifact_id":fred_unemp_id,
+    "artifact_content_hash":fred_unemp_record["artifact_content_hash"],
+    "package_sha256":fred_unemp_record["package_sha256"], "publication_state":"published_verified",
+    "validation_status":"passed", "provider_release_id":fred_unemp_record["metadata"]["provider_release_id"],
+    "observation_max":fred_unemp_record["metadata"]["observation_max"], "prior_artifact_id":None,
+    "source_change_detected":True, "retryability":"not_applicable",
+    "evidence_uri":fred_unemp_record["logical_artifact_uri"], "accepted_pointer_changed":False})
 # NRC is a direct physical entry. Its catalog evidence is the frozen parser,
 # metric, geography, unit, scale, and canonical-schema contract.
 nrc_id = "src__census_nrc__2026-08__r1__94a8e9dc77b9063b"
@@ -124,7 +136,7 @@ direct["bps"]={"source_id":"bps", "artifact_id":resolution["output_artifact_id"]
     "artifact_content_hash":resolution["output_content_hash"], "package_sha256":resolution["output_package_sha256"]}
 direct["acs"]={"source_id":"acs", "artifact_id":acs_resolution["output_artifact_id"],
     "artifact_content_hash":acs_resolution["output_content_hash"], "package_sha256":acs_resolution["output_package_sha256"]}
-logical_order=("fred_macro","ces","laus","redfin","bps","acs","bea_gdp_qtr","bea_gdp_ann","census_nrc")
+logical_order=("fred_macro","fred_unemp","ces","laus","redfin","bps","acs","bea_gdp_qtr","bea_gdp_ann","census_nrc")
 logical_plan={"schema_version":"monthly_logical_cohort_plan_v1", "cycle_id":CYCLE,
     "logical_source_inventory":list(logical_order), "sources":[direct[s] for s in logical_order]}
 
@@ -159,7 +171,7 @@ with tempfile.TemporaryDirectory() as td:
         concept.write_bytes(original)
     assert source_set["source_set_id"] == repeat["source_set_id"]
     assert source_set["included_source_inventory"] == [
-        "acs", "bea_gdp_ann", "bea_gdp_qtr", "bps", "census_nrc", "ces", "fred_macro", "laus", "redfin"]
+        "acs", "bea_gdp_ann", "bea_gdp_qtr", "bps", "census_nrc", "ces", "fred_macro", "fred_unemp", "laus", "redfin"]
     assert {"bea_gdp_ann", "bea_gdp_qtr"}.issubset(
         {entry["source_id"] for entry in source_set["sources"]})
     assert all(family["logical_source_id"] != "bea"

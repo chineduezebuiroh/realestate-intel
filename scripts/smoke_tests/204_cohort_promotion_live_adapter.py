@@ -41,7 +41,7 @@ class JSONCAS:
     def write(self,value,oid,message):
         assert oid==self.oid; self.value=copy.deepcopy(value); self.oid="3"*40; self.writes+=1
 
-sources=("fred_macro","ces","laus","redfin","bps","acs","bea_gdp_qtr","bea_gdp_ann","census_nrc")
+sources=("fred_macro","fred_unemp","ces","laus","redfin","bps","acs","bea_gdp_qtr","bea_gdp_ann","census_nrc")
 targets={s:f"src__{s}__2026-07__r1__{'1'*16}" for s in sources}
 catalog=empty_catalog()
 catalog["immutable_records"]=[source_record(s,a,i+1) for i,(s,a) in enumerate(targets.items())]

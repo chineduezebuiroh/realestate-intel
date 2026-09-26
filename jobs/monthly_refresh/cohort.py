@@ -44,11 +44,11 @@ def required_sources(policy: dict[str, Any] | None = None) -> tuple[str, ...]:
 
 # Compatibility export for source-specific smoke/tooling. Runtime paths resolve
 # membership from policy rather than this value.
-REQUIRED_SOURCES = ("redfin", "fred_macro", "ces", "laus", "census_bps",
+REQUIRED_SOURCES = ("redfin", "fred_macro", "fred_unemp", "ces", "laus", "census_bps",
                     "census_bps_provisional", "census_acs1", "census_acs5",
                     "bea_gdp_qtr", "bea_gdp_ann",
                     "census_nrc")
-LOGICAL_DIRECT_SOURCES = ("fred_macro", "ces", "laus", "redfin", "bps", "acs",
+LOGICAL_DIRECT_SOURCES = ("fred_macro", "fred_unemp", "ces", "laus", "redfin", "bps", "acs",
                           "bea_gdp_qtr", "bea_gdp_ann", "census_nrc")
 FAMILY_PHYSICAL_SOURCES = frozenset({"census_bps", "census_bps_provisional",
                                      "census_acs1", "census_acs5"})
@@ -205,7 +205,7 @@ def logical_cohort_plan(*, physical_evidence: dict[str, Any],
     candidates = physical_evidence.get("candidates", [])
     by_source = {item.get("source_id"): item for item in candidates}
     if len(by_source) != len(candidates) or set(by_source) != set(REQUIRED_SOURCES):
-        raise ValueError("exact 11-source physical barrier inventory mismatch")
+        raise ValueError("exact 12-source physical barrier inventory mismatch")
     if any(not item.get("candidate_artifact_id") for item in candidates):
         raise ValueError("physical candidate identity is absent")
 

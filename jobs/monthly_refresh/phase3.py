@@ -27,7 +27,7 @@ def validate_logical_plan(plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
     if len(indexed) != len(sources) or tuple(plan.get("logical_source_inventory", ())) != SOURCE_TRANSITION_ORDER:
         raise PublicationError("logical cohort plan is duplicated or unordered")
     if set(indexed) != set(SOURCE_TRANSITION_ORDER) or set(indexed) & FORBIDDEN:
-        raise PublicationError("logical cohort plan must contain exactly nine governed sources")
+        raise PublicationError("logical cohort plan must contain exactly ten governed sources")
     for source, item in indexed.items():
         if not item.get("artifact_id") or not item.get("artifact_content_hash") or not item.get("package_sha256"):
             raise PublicationError(f"logical cohort identity incomplete: {source}")

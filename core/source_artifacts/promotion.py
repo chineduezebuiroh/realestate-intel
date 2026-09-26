@@ -14,11 +14,14 @@ from .hashing import sha256_json
 from .publication import IdentityCollisionError, PublicationError
 import re
 
-VERSION = "cohort_promotion_record_v1"
+LEGACY_VERSION = "cohort_promotion_record_v1"
+VERSION = "cohort_promotion_record_v2"
 OPERATION_ORDER = ("accept_source_set", "accept_canonical_market",
                    "accept_sources", "consume_redfin")
-SOURCE_TRANSITION_ORDER = ("fred_macro", "ces", "laus", "redfin", "bps", "acs",
-                           "bea_gdp_qtr", "bea_gdp_ann", "census_nrc")
+LEGACY_SOURCE_TRANSITION_ORDER = ("fred_macro", "ces", "laus", "redfin", "bps", "acs",
+                                  "bea_gdp_qtr", "bea_gdp_ann", "census_nrc")
+SOURCE_TRANSITION_ORDER = ("fred_macro", "fred_unemp", "ces", "laus", "redfin", "bps",
+                           "acs", "bea_gdp_qtr", "bea_gdp_ann", "census_nrc")
 SHA = re.compile(r"[0-9a-f]{64}")
 
 
@@ -33,7 +36,7 @@ def create_promotion_record(*, cycle_id: str, source_set_id: str,
     if physical_family_sources & set(target_source_pointers):
         raise PublicationError("physical family pointers cannot participate in promotion")
     if set(target_source_pointers) != set(SOURCE_TRANSITION_ORDER):
-        raise PublicationError("promotion requires the exact nine-member logical cohort")
+        raise PublicationError("promotion requires the exact ten-member logical cohort")
     semantic = {"schema_version": VERSION, "cycle_id": cycle_id,
         "source_set_id": source_set_id, "source_set_semantic_sha256": source_set_semantic_sha256,
         "canonical_artifact_id": canonical_artifact_id,
@@ -52,15 +55,26 @@ def validate_promotion_record(record: dict[str, Any]) -> dict[str, Any]:
         "source_set_semantic_sha256", "canonical_artifact_id", "canonical_artifact_hash",
         "expected_source_pointers", "target_source_pointers", "expected_source_set",
         "expected_canonical", "readiness_id", "resolution_id", "operation_order"}
-    if set(record) != required or record.get("schema_version") != VERSION \
+    if set(record) != required or record.get("schema_version") not in {LEGACY_VERSION, VERSION} \
             or tuple(record.get("operation_order", ())) != OPERATION_ORDER:
         raise PublicationError("promotion record schema/order mismatch")
+    order = _transition_order(record)
+    if (set(record["expected_source_pointers"]) != set(order) or
+            set(record["target_source_pointers"]) != set(order)):
+        raise PublicationError("promotion source inventory does not match its contract version")
     if not SHA.fullmatch(record["source_set_semantic_sha256"]) or not SHA.fullmatch(record["canonical_artifact_hash"]):
         raise PublicationError("promotion content hash invalid")
     semantic = {k: record[k] for k in required - {"promotion_id"}}
     if "cohort_promotion__" + sha256_json(semantic)[:24] != record["promotion_id"]:
         raise PublicationError("promotion identity mismatch")
     return record
+
+
+
+def _transition_order(record: dict[str, Any]) -> tuple[str, ...]:
+    """Select membership from the immutable record version without reinterpreting v1."""
+    return (LEGACY_SOURCE_TRANSITION_ORDER if record.get("schema_version") == LEGACY_VERSION
+            else SOURCE_TRANSITION_ORDER)
 
 
 def add_promotion_record(existing: dict[str, Any] | None, proposed: dict[str, Any]) -> tuple[dict[str, Any], bool]:
@@ -82,7 +96,7 @@ def promotion_progress(record: dict[str, Any], catalog: dict[str, Any], readines
     records = {(r["object_type"], r["object_id"]): r for r in catalog["immutable_records"]}
     if ("source_set", record["source_set_id"]) not in records or ("canonical_market", record["canonical_artifact_id"]) not in records:
         raise PublicationError("promotion target object is not cataloged")
-    for source in SOURCE_TRANSITION_ORDER:
+    for source in _transition_order(record):
         target = record["target_source_pointers"][source]
         if ("source", target) not in records or records[("source", target)]["metadata"].get("source_id") != source:
             raise PublicationError(f"promotion source target is not cataloged: {source}")
@@ -124,7 +138,7 @@ def recover_promotion(record: dict[str, Any], catalog: dict[str, Any], readiness
         out = activate_object(out, "canonical_market", record["canonical_artifact_id"]); operations += 1
     if out["accepted"].get("canonical_market") != record["canonical_artifact_id"]:
         return out, ready, promotion_progress(record, out, ready)
-    for source in SOURCE_TRANSITION_ORDER:
+    for source in _transition_order(record):
         target = record["target_source_pointers"][source]
         if _pointer(out["accepted"]["source"].get(source), record["expected_source_pointers"][source], target, source) and allowed():
             out = activate_source(out, source, target); operations += 1

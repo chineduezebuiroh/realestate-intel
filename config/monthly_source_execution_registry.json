@@ -16,6 +16,14 @@
       "dependencies": []
     },
     {
+      "source_id": "fred_unemp",
+      "required": true,
+      "hosted_cohort_enabled": true,
+      "provider_input_policy": "durable_embedded_normalized_input_pin",
+      "dependencies": [],
+      "cadence": "monthly"
+    },
+    {
       "source_id": "ces",
       "required": true,
       "hosted_cohort_enabled": true,

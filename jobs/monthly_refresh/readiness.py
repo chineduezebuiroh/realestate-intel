@@ -12,6 +12,11 @@ from jobs.monthly_refresh.production import cycle_id
 
 SCHEMA = "monthly_refresh_readiness_v1"
 RECORD_SCHEMA = "redfin_candidate_readiness_v1"
+# Readiness identities already persisted under this policy hash remain immutable
+# when execution-only boundaries are implemented in later repository versions.
+LEGACY_POLICY_SHA256S = frozenset({
+    "d118561d16133c29d59a63c4c5361c2cd4a3390f276c67654cb582109412b578",
+})
 
 
 def readiness_id(cycle: str) -> str:
@@ -31,9 +36,10 @@ def validate_record(record: dict[str, Any], *, catalog: dict[str, Any], policy_p
     if record["source_id"] != "redfin" or record["publication_state"] != "published_immutable_verified" \
             or record["validation_status"] != "passed" or type(record["consumed"]) is not bool:
         raise ValueError("Redfin readiness is not validated and durably verified")
-    expected_cycle = cycle_id(redfin_drop_id=record["drop_id"], redfin_drop_hash=record["drop_content_hash"],
-        target_month=record["target_month"], policy_sha256=sha256_file(policy_path))
-    if record["cycle_id"] != expected_cycle or record["readiness_id"] != readiness_id(expected_cycle):
+    expected_cycles = {cycle_id(redfin_drop_id=record["drop_id"],
+        redfin_drop_hash=record["drop_content_hash"], target_month=record["target_month"],
+        policy_sha256=digest) for digest in {sha256_file(policy_path), *LEGACY_POLICY_SHA256S}}
+    if record["cycle_id"] not in expected_cycles or record["readiness_id"] != readiness_id(record["cycle_id"]):
         raise ValueError("Redfin readiness cycle identity mismatch")
     validate_catalog(catalog)
     matches = [r for r in catalog["immutable_records"] if r["object_type"] == "source"

@@ -6,7 +6,12 @@
     "enabled": false,
     "not_ready_behavior": "successful_noop"
   },
-  "cycle_identity_fields": ["redfin_drop_id", "redfin_drop_content_hash", "target_month", "policy_sha256"],
+  "cycle_identity_fields": [
+    "redfin_drop_id",
+    "redfin_drop_content_hash",
+    "target_month",
+    "policy_sha256"
+  ],
   "readiness_catalyst": {
     "source_id": "redfin",
     "required_lifecycle_state": "validated",
@@ -21,19 +26,172 @@
   },
   "source_execution_result_schema": "monthly_source_execution_result_v1",
   "sources": [
-    {"source_id":"redfin","required":true,"acquisition_mode":"manual_landing","execution_boundary":"redfin_monthly_source_runner","dependencies":[],"readiness_behavior":"cycle_catalyst","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":60,"max_attempts_per_cycle":3},
-    {"source_id":"fred_macro","required":true,"acquisition_mode":"automated","execution_boundary":"fred_monthly_artifact_reusable_workflow","dependencies":[],"readiness_behavior":"run_when_cycle_ready","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":45,"max_attempts_per_cycle":3},
-    {"source_id":"ces","required":true,"acquisition_mode":"automated","execution_boundary":"pending_governed_source_workflow","dependencies":[],"readiness_behavior":"run_when_cycle_ready","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":45,"max_attempts_per_cycle":3},
-    {"source_id":"laus","required":true,"acquisition_mode":"automated","execution_boundary":"pending_governed_source_workflow","dependencies":[],"readiness_behavior":"run_when_cycle_ready","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":45,"max_attempts_per_cycle":3},
-    {"source_id":"fred_unemp","required":true,"acquisition_mode":"automated","execution_boundary":"pending_governed_source_workflow","dependencies":[],"readiness_behavior":"run_when_cycle_ready","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":45,"max_attempts_per_cycle":3},
-    {"source_id":"census_bps","required":true,"acquisition_mode":"automated","execution_boundary":"pending_governed_source_workflow","dependencies":[],"readiness_behavior":"run_when_cycle_ready","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":45,"max_attempts_per_cycle":3},
-    {"source_id":"census_bps_provisional","required":true,"acquisition_mode":"automated","execution_boundary":"pending_governed_source_workflow","dependencies":["census_bps"],"readiness_behavior":"run_after_dependencies","promotion_policy":"cohort_controlled","source_set_required":true,"timeout_minutes":30,"max_attempts_per_cycle":3}
+    {
+      "source_id": "redfin",
+      "required": true,
+      "acquisition_mode": "manual_landing",
+      "execution_boundary": "redfin_monthly_source_runner",
+      "dependencies": [],
+      "readiness_behavior": "cycle_catalyst",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 60,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "fred_macro",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "fred_monthly_artifact_reusable_workflow",
+      "dependencies": [],
+      "readiness_behavior": "run_when_cycle_ready",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 45,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "ces",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "pending_governed_source_workflow",
+      "dependencies": [],
+      "readiness_behavior": "run_when_cycle_ready",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 45,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "laus",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "pending_governed_source_workflow",
+      "dependencies": [],
+      "readiness_behavior": "run_when_cycle_ready",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 45,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "fred_unemp",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "fred_unemp_monthly_source_reusable_workflow",
+      "dependencies": [],
+      "readiness_behavior": "run_when_cycle_ready",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 45,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "census_bps",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "pending_governed_source_workflow",
+      "dependencies": [],
+      "readiness_behavior": "run_when_cycle_ready",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 45,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "census_bps_provisional",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "pending_governed_source_workflow",
+      "dependencies": [
+        "census_bps"
+      ],
+      "readiness_behavior": "run_after_dependencies",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 30,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "census_acs1",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "acs_monthly_source_reusable_workflow",
+      "dependencies": [],
+      "readiness_behavior": "run_when_cycle_ready",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 45,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "census_acs5",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "acs_monthly_source_reusable_workflow",
+      "dependencies": [],
+      "readiness_behavior": "run_when_cycle_ready",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 45,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "bea_gdp_qtr",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "bea_monthly_source_reusable_workflow",
+      "dependencies": [],
+      "readiness_behavior": "run_when_cycle_ready",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 45,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "bea_gdp_ann",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "bea_monthly_source_reusable_workflow",
+      "dependencies": [],
+      "readiness_behavior": "run_when_cycle_ready",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 45,
+      "max_attempts_per_cycle": 3
+    },
+    {
+      "source_id": "census_nrc",
+      "required": true,
+      "acquisition_mode": "automated",
+      "execution_boundary": "nrc_monthly_source_reusable_workflow",
+      "dependencies": [],
+      "readiness_behavior": "run_when_cycle_ready",
+      "promotion_policy": "cohort_controlled",
+      "source_set_required": true,
+      "timeout_minutes": 45,
+      "max_attempts_per_cycle": 3
+    }
   ],
   "production_experiment_id": "governed_production",
   "production_policy_source": "version-controlled production registries",
   "source_refresh_policy": "verification_only_until_delete-first_jobs_are_transactionally_hardened",
-  "manual_prerequisite_sources": ["redfin"],
-  "monthly_required_sources": ["ces", "laus", "fred_macro", "fred_unemp", "census_bps", "census_bps_provisional"],
-  "slower_cadence_sources": ["bea_gdp_qtr", "bea_gdp_ann", "census_acs1", "census_acs5"],
+  "manual_prerequisite_sources": [
+    "redfin"
+  ],
+  "monthly_required_sources": [
+    "ces",
+    "laus",
+    "fred_macro",
+    "fred_unemp",
+    "census_bps",
+    "census_bps_provisional"
+  ],
+  "slower_cadence_sources": [
+    "bea_gdp_qtr",
+    "bea_gdp_ann",
+    "census_acs1",
+    "census_acs5"
+  ],
   "notes": "This pointer selects settled registries, not an old artifact directory. It does not recalibrate or change analytical policy."
 }

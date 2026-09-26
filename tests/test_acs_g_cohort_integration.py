@@ -34,7 +34,7 @@ def promotion(targets: dict[str, str]) -> dict:
 def test_acs_is_one_logical_cohort_member_and_physical_products_are_not_members():
     assert LOGICAL_COHORT_SOURCES == {
         "acs", "bea_gdp_ann", "bea_gdp_qtr", "bps", "census_nrc", "ces",
-        "fred_macro", "laus", "redfin"
+        "fred_macro", "fred_unemp", "laus", "redfin"
     }
     assert {"census_acs1", "census_acs5"}.isdisjoint(LOGICAL_COHORT_SOURCES)
     assert {"census_acs1", "census_acs5"}.issubset(PHYSICAL_FAMILY_SOURCES)

@@ -64,3 +64,18 @@ Publication and durable cycle-result recording are hosted operations against
 execution may publish immutable input/candidate/result records, but it must not
 change `accepted.source`, `accepted.source_set`, `accepted.canonical_market`,
 `accepted.serving_market`, or Redfin readiness.
+
+## Monthly cohort integration
+
+Future governed cohorts execute exactly twelve physical barrier members:
+`redfin`, `fred_macro`, `fred_unemp`, `ces`, `laus`, `census_bps`,
+`census_bps_provisional`, `census_acs1`, `census_acs5`, `bea_gdp_qtr`,
+`bea_gdp_ann`, and `census_nrc`. Their Source Set resolves to exactly ten
+logical/direct entries: `fred_macro`, `fred_unemp`, `ces`, `laus`, `redfin`,
+`bps`, `acs`, `bea_gdp_qtr`, `bea_gdp_ann`, and `census_nrc`.
+
+`fred_unemp` is a direct source owning `fred_unemployment_rate_sa`; it is not a
+`fred_macro` member and is not canonically coalesced with LAUS. Promotion record
+v2 requires all ten entries. Persisted v1 nine-entry promotion records retain
+v1 validation and transition order, so their immutable identities are not
+reinterpreted.

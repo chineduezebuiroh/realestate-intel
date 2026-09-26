@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 from core.source_artifacts.publication import IdentityCollisionError
-from jobs.monthly_refresh.cohort import required_sources
+from jobs.monthly_refresh.cohort import REQUIRED_SOURCES, required_sources
 from jobs.monthly_refresh.source_inputs import (FilePinStore, add_pin,
     discover_persist_execute, provider_pin, verify_member_bytes)
 
@@ -78,8 +78,9 @@ with tempfile.TemporaryDirectory() as value:
     else: raise AssertionError("execution began without durable persistence")
 
 policy = json.loads(Path("config/monthly_source_execution_registry.json").read_text())
-assert required_sources(policy) == ("redfin", "fred_macro", "ces", "laus", "census_bps", "census_bps_provisional", "bea_gdp_qtr", "bea_gdp_ann")
+assert required_sources(policy) == REQUIRED_SOURCES
 by_id = {item["source_id"]: item for item in policy["members"]}
+assert by_id["fred_unemp"]["provider_input_policy"] == "durable_embedded_normalized_input_pin"
 for source in ("fred_macro", "ces", "laus"):
     assert by_id[source]["provider_input_policy"] == "legacy_candidate_evidence"
 for source in ("census_bps", "census_bps_provisional"):
