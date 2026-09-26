@@ -8,6 +8,7 @@ from .hashing import sha256_file, sha256_json, write_canonical_json
 from .publication import PublicationError
 
 VERSION = "canonical_market_artifact_v1"
+CORRECTION_VERSION = "canonical_market_artifact_v2"
 SHA = re.compile(r"[0-9a-f]{64}")
 
 
@@ -15,7 +16,10 @@ def _identity(manifest: dict[str, Any]) -> dict[str, Any]:
     keys = ("source_set_id", "source_set_semantic_sha256", "canonical_assembly_contract_version",
             "canonical_schema_identity", "config_hashes", "builder_contract_identity",
             "dependency_lock_identity", "assembly_revision", "database_sha256")
-    return {k: manifest[k] for k in keys}
+    identity = {k: manifest[k] for k in keys}
+    if manifest.get("schema_version") == CORRECTION_VERSION:
+        identity["supersedes_artifact_id"] = manifest["supersedes_artifact_id"]
+    return identity
 
 
 def validate_canonical_market_artifact(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -25,7 +29,16 @@ def validate_canonical_market_artifact(manifest: dict[str, Any]) -> dict[str, An
                 "database_filename", "database_sha256", "compressed_package_sha256", "table_inventory", "row_count",
                 "source_count", "geography_count", "metric_count", "first_date", "last_date", "duplicate_key_count",
                 "validation_status", "assembly_warnings", "builder_git_sha", "built_at"}
-    if set(manifest) != required or manifest["schema_version"] != VERSION: raise PublicationError("canonical market artifact schema mismatch")
+    if manifest.get("schema_version") == CORRECTION_VERSION:
+        required |= {"supersedes_artifact_id"}
+    if set(manifest) != required or manifest.get("schema_version") not in {VERSION, CORRECTION_VERSION}:
+        raise PublicationError("canonical market artifact schema mismatch")
+    if manifest["schema_version"] == CORRECTION_VERSION:
+        if (manifest["assembly_revision"] < 2 or
+                not re.fullmatch(r"market__\d{4}-\d{2}__r\d+__[0-9a-f]{16}",
+                                 manifest["supersedes_artifact_id"]) or
+                manifest["supersedes_artifact_id"] == manifest["market_artifact_id"]):
+            raise PublicationError("corrected canonical supersession identity invalid")
     for key in ("source_set_semantic_sha256", "source_set_package_sha256", "database_sha256", "compressed_package_sha256"):
         if not SHA.fullmatch(manifest[key]): raise PublicationError(f"invalid canonical market hash: {key}")
     if not manifest["source_set_id"].startswith("source_set__") or manifest["validation_status"] != "passed" or manifest["duplicate_key_count"] != 0:
@@ -37,8 +50,12 @@ def validate_canonical_market_artifact(manifest: dict[str, Any]) -> dict[str, An
     return manifest
 
 
-def create_canonical_market_manifest(output: Path, *, database_path: Path, **values: Any) -> dict[str, Any]:
-    manifest = {"schema_version": VERSION, "market_artifact_id": "", "database_filename": "market.duckdb",
+def create_canonical_market_manifest(output: Path, *, database_path: Path,
+        supersedes_artifact_id: str | None = None, **values: Any) -> dict[str, Any]:
+    manifest = {"schema_version": CORRECTION_VERSION if supersedes_artifact_id else VERSION,
+                "market_artifact_id": "", "database_filename": "market.duckdb",
                 "database_sha256": sha256_file(database_path), **values}
+    if supersedes_artifact_id is not None:
+        manifest["supersedes_artifact_id"] = supersedes_artifact_id
     manifest["market_artifact_id"] = "market__" + manifest["source_set_id"].split("__")[1] + "__r" + str(manifest["assembly_revision"]) + "__" + sha256_json(_identity(manifest))[:16]
     validate_canonical_market_artifact(manifest); write_canonical_json(output, manifest); return manifest
