@@ -1,0 +1,63 @@
+name: August FRED unemployment forward correction
+on:
+  workflow_dispatch:
+    inputs:
+      intent:
+        description: Prepare immutable targets/preflight or run authorized recovery
+        required: true
+        default: preflight
+        type: choice
+        options: [preflight, live]
+      confirmation:
+        description: Live only; exact authorization token emitted by preflight
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: august-fred-unemp-forward-correction
+  cancel-in-progress: false
+
+jobs:
+  correct:
+    runs-on: ubuntu-latest
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: "${{ github.ref_name }}"}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Acquire and publish the governed source input/candidate
+        if: inputs.intent == 'preflight'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python -m jobs.monthly_refresh.fred_unemp_hosted \
+            --mode normal --repository "$GITHUB_REPOSITORY" --branch main \
+            --cycle-id monthly_cycle__2026-08__a9e022a980d29cd7 \
+            --workspace "$RUNNER_TEMP/fred-unemp" --output "$RUNNER_TEMP/fred-unemp-result.json"
+      - name: Prepare or recover the exact correction
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INTENT: ${{ inputs.intent }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          args=(--repository "$GITHUB_REPOSITORY" --branch main
+            --workspace "$RUNNER_TEMP/forward-correction" --git-sha "$GITHUB_SHA"
+            --output "$RUNNER_TEMP/forward-correction-report.json")
+          if [[ "$INTENT" == live ]]; then
+            args+=(--live --authorization-token "$CONFIRMATION")
+          fi
+          python -m jobs.monthly_refresh.august_fred_unemp_forward_correction_hosted "${args[@]}"
+          cat "$RUNNER_TEMP/forward-correction-report.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: august-fred-unemp-forward-correction-${{ inputs.intent }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/fred-unemp-result.json
+            ${{ runner.temp }}/forward-correction-report.json

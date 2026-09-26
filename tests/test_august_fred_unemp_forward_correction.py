@@ -18,6 +18,8 @@ from core.source_artifacts.promotion import LEGACY_SOURCE_TRANSITION_ORDER, LEGA
 from core.source_artifacts.publication import IdentityCollisionError, PublicationError
 from core.source_artifacts.source_set_v2 import (create_source_set_v2,
     governed_config_hashes)
+from jobs.monthly_refresh.august_fred_unemp_forward_correction_hosted import (
+    authority_snapshot, execute_one, persist_record)
 
 CYCLE = "monthly_cycle__2026-08__a9e022a980d29cd7"
 OLD_SET = "source_set__2026-08__v2__fde2413d93948bee"
@@ -243,3 +245,77 @@ def test_correction_record_is_create_once():
     changed = copy.deepcopy(record); changed["governed_hashes"]["policy"] = "0"*64
     with pytest.raises(PublicationError):
         add_correction_record(record, changed)
+
+
+class _CatalogCAS:
+    def __init__(self, value):
+        self.value = copy.deepcopy(value)
+        self.writes = 0
+
+    def read(self):
+        return copy.deepcopy(self.value), f"oid-{self.writes}"
+
+    def _write(self, value, oid, message):
+        assert oid == f"oid-{self.writes}"
+        assert "Advance accepted-cohort correction" in message
+        self.value = copy.deepcopy(value)
+        self.writes += 1
+
+
+class _JSONStore:
+    path = "fixture.json"
+
+    def __init__(self, value=None):
+        self.value = copy.deepcopy(value)
+        self.writes = 0
+
+    def read(self):
+        return copy.deepcopy(self.value), f"json-{self.writes}" if self.value else None
+
+    def write(self, value, oid, message):
+        self.value = copy.deepcopy(value)
+        self.writes += 1
+
+
+def test_hosted_adapter_commits_one_catalog_cas_and_never_writes_readiness():
+    catalog, readiness, _original, record = _state()
+    catalog_cas, readiness_store = _CatalogCAS(catalog), _JSONStore(readiness)
+    result = execute_one(record, catalog_cas, readiness_store,
+        supplied_authorization=authorization_token(record))
+    assert result["changed"] is True and catalog_cas.writes == 1
+    assert result["progress"]["next_operation"] == "accept_corrected_canonical"
+    assert readiness_store.writes == 0 and readiness_store.value == readiness
+    assert catalog_cas.value["accepted"]["source_set"] == NEW_SET
+    assert catalog_cas.value["accepted"]["canonical_market"] == OLD_MARKET
+
+
+def test_hosted_adapter_rejects_bad_token_before_catalog_cas():
+    catalog, readiness, _original, record = _state()
+    catalog_cas, readiness_store = _CatalogCAS(catalog), _JSONStore(readiness)
+    with pytest.raises(PublicationError, match="authorization"):
+        execute_one(record, catalog_cas, readiness_store, supplied_authorization="bad")
+    assert catalog_cas.writes == readiness_store.writes == 0
+
+
+def test_hosted_correction_record_store_is_create_once_and_snapshots_full_authority():
+    catalog, readiness, _original, record = _state()
+    store = _JSONStore()
+    durable, created = persist_record(store, record)
+    assert created is True and durable == record and store.writes == 1
+    durable, created = persist_record(store, record)
+    assert created is False and durable == record and store.writes == 1
+    snapshot = authority_snapshot(catalog, readiness)
+    catalog["accepted"]["serving_market"] = "changed"
+    readiness["records"][0]["consumed"] = False
+    assert snapshot["accepted"]["serving_market"] is None
+    assert snapshot["readiness"]["records"][0]["consumed"] is True
+
+
+def test_manual_workflow_keeps_preflight_and_live_acquisition_boundaries_separate():
+    workflow = Path(".github/workflows/august-fred-unemp-forward-correction.yml").read_text()
+    assert "options: [preflight, live]" in workflow
+    assert "if: inputs.intent == 'preflight'" in workflow
+    assert "jobs.monthly_refresh.fred_unemp_hosted" in workflow
+    assert "jobs.monthly_refresh.august_fred_unemp_forward_correction_hosted" in workflow
+    assert "--live --authorization-token \"$CONFIRMATION\"" in workflow
+    assert "serving_hosted" not in workflow
