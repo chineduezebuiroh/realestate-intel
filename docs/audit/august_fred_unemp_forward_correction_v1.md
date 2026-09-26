@@ -102,7 +102,32 @@ path resets a pointer backward.  A hosted production wrapper must apply at most
 one returned operation per catalog blob CAS, reread both authorities, and
 repeat this recovery evaluation.
 
-## Precise next production sequence (not executed here)
+## Hosted production adapter
+
+`jobs.monthly_refresh.august_fred_unemp_forward_correction_hosted` implements
+the durable boundary around this contract.  Preflight resolves the source pin,
+cycle result, accepted objects, original v1 promotion, family lineage, catalog,
+and consumed readiness freshly from the production authority.  It publishes
+and reads back only immutable Source Set/canonical objects, creates or reuses
+the exact correction record, reruns the pure preflight against freshly read
+authority, and exports the plan-bound authorization token.  Snapshots of the
+complete accepted object and readiness document are compared before and after
+preparation.
+
+Live mode does not rebuild or publish.  It requires the exact stored-plan
+token, reads catalog and readiness before each operation, asks the pure
+recovery engine for at most one transition, commits only that catalog value by
+blob CAS, and then rereads both authorities.  Readiness has no write path in
+this loop and serving is rejected if non-null.  An exact completed rerun must
+be a no-op.
+
+The manual workflow `.github/workflows/august-fred-unemp-forward-correction.yml`
+keeps the two intents explicit.  Preflight first invokes the existing governed
+`fred_unemp` lifecycle for the exact August cycle and then invokes the adapter;
+live skips all source acquisition and accepts the separately reviewed token.
+Neither intent includes serving promotion.
+
+## Precise production sequence
 
 1. On production authority, run the governed `fred_unemp` hosted source job for
    the exact August cycle.  Acquire all six FRED series once, persist the real
@@ -127,9 +152,9 @@ repeat this recovery evaluation.
 
 ## Residual production risks
 
-The hosted durable CAS wrapper is intentionally not introduced in this offline
-task, and real source/Source Set/canonical identities do not yet exist.  The
-production task must ensure publication metadata carries both supersession
-parents and must retain the accepted-state/readiness snapshot between each CAS
-retry.  Provider truth can change before acquisition; the durable pin and
+The real source/Source Set/canonical identities do not exist until an
+authorized workflow preflight successfully prepares them on durable `main`.
+Provider truth can change before first acquisition; the durable pin and
 candidate validation, rather than this correction plan, govern that boundary.
+The generated correction token authorizes only the three accepted-pointer
+transitions above and never authorizes serving or any readiness mutation.
