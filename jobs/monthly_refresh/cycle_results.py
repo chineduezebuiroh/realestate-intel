@@ -131,6 +131,10 @@ class GitHubCycleResultStore:
             return None, None
         return json.loads(base64.b64decode(item["content"])), item["sha"]
 
+    def get(self, cycle_id: str, source_id: str) -> dict[str, Any] | None:
+        """Read one exact cycle/source authority without listing mutable state."""
+        return self._read(record_path(cycle_id, source_id))[0]
+
     def put(self, record: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
         path = record_path(record["cycle_id"], record["source_id"])
         for attempt in range(self.attempts):
