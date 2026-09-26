@@ -69,16 +69,16 @@ def produced_resolution(logical: str, parents: tuple[str, str]) -> dict:
 def test_exact_physical_barrier_and_logical_plan_are_closed_and_non_mutating():
     registry=json.loads(Path("config/monthly_source_execution_registry.json").read_text())
     assert required_sources(registry) == REQUIRED_SOURCES
-    assert len(REQUIRED_SOURCES) == 11
+    assert len(REQUIRED_SOURCES) == 12
     evidence=barrier_evidence(cycle={"cycle_id":"cycle","invocation_mode":"resume"},
         results=[result(source) for source in REQUIRED_SOURCES], pins=None, github={})
     plan=logical_cohort_plan(physical_evidence=evidence,
         bps_resolution=resolution("bps", {"census_bps","census_bps_provisional"}),
         acs_resolution=resolution("acs", {"census_acs1","census_acs5"}))
     assert tuple(plan["logical_source_inventory"]) == LOGICAL_DIRECT_SOURCES
-    assert len(plan["sources"]) == 9
+    assert len(plan["sources"]) == 10
     assert plan["plan_id"].startswith("logical_cohort_plan__")
-    assert len(plan["physical_results"]) == 11
+    assert len(plan["physical_results"]) == 12
     assert set(plan["family_resolutions"]) == {"bps", "acs"}
     assert not {"census_bps","census_bps_provisional","census_acs1","census_acs5","census_nrc_fred"} & {x["source_id"] for x in plan["sources"]}
     assert "census_nrc" in {x["source_id"] for x in plan["sources"]}
@@ -108,7 +108,7 @@ def test_logical_plan_rejects_missing_unexpected_and_stale_family_parent():
         logical_cohort_plan(physical_evidence=evidence,
             bps_resolution=resolution("bps", {"census_bps","census_bps_provisional"}), acs_resolution=stale)
     incomplete=dict(evidence, candidates=evidence["candidates"][:-1])
-    with pytest.raises(ValueError, match="11-source"):
+    with pytest.raises(ValueError, match="12-source"):
         logical_cohort_plan(physical_evidence=incomplete,
             bps_resolution=resolution("bps", {"census_bps","census_bps_provisional"}),
             acs_resolution=resolution("acs", {"census_acs1","census_acs5"}))
@@ -174,7 +174,7 @@ def test_real_phase2_interfaces_produce_exact_preflight_plan_without_io(monkeypa
         bps_resolution=bps, acs_resolution=acs)
     final = [item["source_id"] for item in plan["sources"]]
     assert final == list(LOGICAL_DIRECT_SOURCES)
-    assert final == ["fred_macro", "ces", "laus", "redfin", "bps", "acs",
+    assert final == ["fred_macro", "fred_unemp", "ces", "laus", "redfin", "bps", "acs",
                      "bea_gdp_qtr", "bea_gdp_ann", "census_nrc"]
     assert not ({"census_bps", "census_bps_provisional", "census_acs1", "census_acs5",
                  "census_nrc_fred"} & set(final))

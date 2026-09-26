@@ -23,7 +23,8 @@ NRC_GOVERNED_CANDIDATE_GEOGRAPHIES = ("united_states__nation", "northeast_region
 
 
 LOGICAL_COHORT_SOURCES = frozenset({"acs", "bea_gdp_ann", "bea_gdp_qtr", "bps",
-                                    "census_nrc", "ces", "fred_macro", "laus", "redfin"})
+                                    "census_nrc", "ces", "fred_macro", "fred_unemp",
+                                    "laus", "redfin"})
 PHYSICAL_FAMILY_SOURCES = frozenset({"census_acs1", "census_acs5",
                                      "census_bps", "census_bps_provisional"})
 
@@ -75,6 +76,7 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
         raise ValueError("logical cohort plan cycle mismatch")
     expected_physical = {"bea_gdp_ann", "bea_gdp_qtr", "census_bps", "census_nrc",
                          "census_bps_provisional", "ces", "fred_macro", "laus", "redfin"}
+    expected_physical.add("fred_unemp")
     by_source = {}
     for result in physical_results:
         result = validate_source_result(result, expected_cycle_id=cycle_id)

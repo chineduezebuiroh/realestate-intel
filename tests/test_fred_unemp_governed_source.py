@@ -232,4 +232,18 @@ def test_hosted_workflow_is_independent_and_main_authoritative():
     assert "actions/checkout@v4" in workflow
     assert "DURABLE_AUTHORITY_BRANCH: main" in workflow
     assert "jobs.monthly_refresh.fred_unemp_hosted" in workflow
-    assert "fred-unemp-monthly-source.yml" not in master
+    assert "uses: ./.github/workflows/fred-unemp-monthly-source.yml" in master
+    assert "resume_fred_unemp_result" in master
+    assert "FRED_UNEMP_RESULT" in master
+
+
+def test_execution_registry_declares_embedded_normalized_pin_lifecycle():
+    registry=json.loads(Path("config/monthly_source_execution_registry.json").read_text())
+    members={item["source_id"]:item for item in registry["members"]}
+    assert tuple(members) == ("redfin", "fred_macro", "fred_unemp", "ces", "laus",
+        "census_bps", "census_bps_provisional", "census_acs1", "census_acs5",
+        "bea_gdp_qtr", "bea_gdp_ann", "census_nrc")
+    assert members["fred_unemp"] == {"source_id":"fred_unemp", "required":True,
+        "hosted_cohort_enabled":True,
+        "provider_input_policy":"durable_embedded_normalized_input_pin", "dependencies":[],
+        "cadence":"monthly"}

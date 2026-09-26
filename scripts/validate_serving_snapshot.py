@@ -13,7 +13,7 @@ GEO_MANIFEST_PATH = Path("config/geo_manifest.generated.csv")
 
 
 EXPECTED_SOURCES = {
-    "redfin", "ces", "laus", "fred_macro", "bea_gdp_ann", "bea_gdp_qtr",
+    "redfin", "ces", "laus", "fred_macro", "fred_unemp", "bea_gdp_ann", "bea_gdp_qtr",
     "acs", "bps", "census_nrc",
 }
 
@@ -39,6 +39,7 @@ EXPECTED_CORE_METRICS = {
     "fred_fedfunds",
     "fred_gs10",
     "fred_spread_2y_10y",
+    "fred_unemployment_rate_sa",
     "census_housing_starts_total_saar",
     "census_housing_completions_total_saar",
 }
@@ -116,6 +117,13 @@ def validate_snapshot_path(path: Path | str) -> dict[str, object]:
     missing_metrics = sorted(EXPECTED_CORE_METRICS - metrics)
     if missing_metrics:
         fail(f"missing expected core metrics: {missing_metrics}")
+
+    fred_unemp_metrics = {r[0] for r in con.execute("""
+        SELECT DISTINCT metric_id FROM fact_timeseries WHERE source_id = 'fred_unemp'
+    """).fetchall()}
+    if fred_unemp_metrics != {"fred_unemployment_rate_sa"}:
+        fail("fred_unemp must own exactly fred_unemployment_rate_sa; "
+             f"found {sorted(fred_unemp_metrics)}")
 
     # 3. No legacy geo IDs
     legacy = con.execute("""
