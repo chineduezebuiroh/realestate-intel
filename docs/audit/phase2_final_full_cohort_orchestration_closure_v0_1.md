@@ -1,5 +1,13 @@
 # Phase 2 final full-cohort orchestration closure
 
+> **Inventory correction (2026-09-25):** the “final” eleven-physical / nine-
+> logical inventory below inadvertently omitted the still-required independent
+> `fred_unemp` direct source.  `docs/contracts/fred_unemp_governed_source_v1.md`
+> freezes its source lifecycle.  The intended future cohort is twelve physical /
+> ten logical, but master cohort and promotion integration remain deliberately
+> deferred; this historical document continues to describe the currently
+> implemented master behavior until that reviewed follow-up.
+
 Phase 2 closes orchestration only. It does not accept, promote, materialize, or
 publish downstream state.
 

@@ -1,0 +1,47 @@
+name: Governed FRED unemployment monthly source
+on:
+  workflow_call:
+    inputs:
+      invocation_mode: {required: true, type: string}
+      cycle_id: {required: true, type: string}
+    secrets:
+      FRED_API_KEY: {required: true}
+    outputs:
+      result_json: {value: '${{ jobs.execute.outputs.result_json }}'}
+  workflow_dispatch:
+    inputs:
+      invocation_mode:
+        description: Governed immutable-input lifecycle mode
+        required: true
+        type: choice
+        options: [normal, resume, replay]
+      cycle_id:
+        description: Exact deterministic monthly cycle ID
+        required: true
+        type: string
+permissions: {contents: write}
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    outputs: {result_json: '${{ steps.result.outputs.result_json }}'}
+    env:
+      PYTHONPATH: .
+      # The dispatched ref supplies migration code. Durable control-plane state
+      # is read/written only on main by the hosted adapter.
+      DURABLE_AUTHORITY_BRANCH: main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - id: result
+        env:
+          GITHUB_TOKEN: '${{ github.token }}'
+          FRED_API_KEY: '${{ secrets.FRED_API_KEY }}'
+        run: |
+          python -m jobs.monthly_refresh.fred_unemp_hosted \
+            --cycle-id '${{ inputs.cycle_id }}' --mode '${{ inputs.invocation_mode }}' \
+            --repository "$GITHUB_REPOSITORY" --branch "$DURABLE_AUTHORITY_BRANCH" \
+            --workspace "$RUNNER_TEMP/fred-unemp" --output "$RUNNER_TEMP/result.json"
+          echo "result_json=$(jq -c . "$RUNNER_TEMP/result.json")" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/result.json" >> "$GITHUB_STEP_SUMMARY"
