@@ -26,7 +26,7 @@ jobs:
     env: {PYTHONPATH: .}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: "${{ github.ref_name }}"}
+        with: {ref: 97e12e510a0ea1b245b601bdf730a0ac904f2d70}
       - uses: actions/setup-python@v5
         with: {python-version: '3.11', cache: pip}
       - run: pip install -r requirements.txt
