@@ -41,12 +41,17 @@ def build_corrected_source_set(output: Path, *, accepted_source_set: dict[str, A
         raise PublicationError("correction requires exact historical nine-source Source Set")
     if fred_unemp_entry.get("source_id") != "fred_unemp":
         raise PublicationError("correction addition must be fred_unemp")
+    family_resolution = deepcopy(old["family_resolution"])
+    if family_resolution:
+        for inventory in ("logical_source_inventory", "physical_source_inventory"):
+            family_resolution[inventory] = sorted(
+                {*family_resolution[inventory], "fred_unemp"})
     corrected = create_source_set_v2(output, target_month=old["target_month"],
         created_at=created_at, builder_git_sha=builder_git_sha,
         entries=[*deepcopy(old["sources"]), deepcopy(fred_unemp_entry)],
         config_hashes=deepcopy(old["config_hashes"]),
         contract_versions=deepcopy(old["contract_versions"]),
-        family_resolution=deepcopy(old["family_resolution"]))
+        family_resolution=family_resolution)
     old_ids = {item["source_id"]: item["artifact_id"] for item in old["sources"]}
     new_ids = {item["source_id"]: item["artifact_id"] for item in corrected["sources"]}
     if any(new_ids[source] != artifact_id for source, artifact_id in old_ids.items()):

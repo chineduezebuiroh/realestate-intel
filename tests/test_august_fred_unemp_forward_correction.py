@@ -17,7 +17,7 @@ from core.source_artifacts.market_artifact import (CORRECTION_VERSION,
 from core.source_artifacts.promotion import LEGACY_SOURCE_TRANSITION_ORDER, LEGACY_VERSION
 from core.source_artifacts.publication import IdentityCollisionError, PublicationError
 from core.source_artifacts.source_set_v2 import (create_source_set_v2,
-    governed_config_hashes)
+    governed_config_hashes, validate_source_set_v2)
 from jobs.monthly_refresh.august_fred_unemp_forward_correction_hosted import (
     authority_snapshot, execute_one, persist_record)
 
@@ -188,20 +188,64 @@ def _entry(source: str, artifact: str):
         "carry_forward_policy_allowed":False}
 
 
-def test_corrected_source_set_adds_exactly_one_member_and_preserves_old(tmp_path):
+def test_corrected_source_set_adds_direct_source_without_changing_family_lineage(tmp_path):
     old_path = tmp_path / "old.json"
+    entries = [_entry(source, OLD_IDS[source]) for source in UNCHANGED]
+    by_source = {entry["source_id"]: entry for entry in entries}
+    families = []
+    physical_inventory = set(UNCHANGED) - {"bps", "acs"}
+    for logical, physical_sources, resolution_id in (
+            ("bps", ("census_bps", "census_bps_provisional"),
+             "bps_family_resolution__fixture"),
+            ("acs", ("census_acs1", "census_acs5"),
+             "acs_family_resolution__fixture")):
+        entry = by_source[logical]
+        physical_inventory.update(physical_sources)
+        families.append({"logical_source_id":logical, "resolution_id":resolution_id,
+            "output_artifact_id":entry["artifact_id"],
+            "output_content_hash":entry["artifact_content_hash"],
+            "output_package_sha256":entry["package_sha256"],
+            "physical_sources":[{"source_id":source, "artifact_id":f"src__{source}__fixture",
+                "artifact_content_hash":"3"*64, "package_sha256":"4"*64}
+                for source in physical_sources]})
+    family_resolution = {"schema_version":"source_family_resolution_map_v1",
+        "cycle_id":CYCLE, "physical_source_inventory":sorted(physical_inventory),
+        "logical_source_inventory":sorted(UNCHANGED), "families":families}
     old = create_source_set_v2(old_path, target_month="2026-08",
         created_at="2026-08-01T00:00:00Z", builder_git_sha="fixture",
-        entries=[_entry(source, OLD_IDS[source]) for source in UNCHANGED],
-        config_hashes=governed_config_hashes(Path(".")))
+        entries=entries, config_hashes=governed_config_hashes(Path(".")),
+        family_resolution=family_resolution)
     old_bytes = old_path.read_bytes()
+    old_family = copy.deepcopy(old["family_resolution"])
     corrected = build_corrected_source_set(tmp_path / "corrected.json", accepted_source_set=old,
         fred_unemp_entry=_entry("fred_unemp", FRED_ID),
         created_at="2026-08-02T00:00:00Z", builder_git_sha="fixture")
     assert old_path.read_bytes() == old_bytes
+    assert old["family_resolution"] == old_family
     assert corrected["included_source_inventory"] == sorted(SOURCES)
+    assert corrected["family_resolution"]["logical_source_inventory"] == sorted(SOURCES)
+    assert corrected["family_resolution"]["physical_source_inventory"] == sorted(
+        [*old_family["physical_source_inventory"], "fred_unemp"])
+    assert corrected["family_resolution"]["families"] == old_family["families"]
     assert len(corrected["sources"]) == 10
-    assert {e["artifact_id"] for e in corrected["sources"]} - set(OLD_IDS.values()) == {FRED_ID}
+    corrected_ids = {entry["source_id"]:entry["artifact_id"]
+                     for entry in corrected["sources"]}
+    assert {source:corrected_ids[source] for source in UNCHANGED} == OLD_IDS
+    assert set(corrected_ids) - set(OLD_IDS) == {"fred_unemp"}
+    assert corrected_ids["fred_unemp"] == FRED_ID
+    assert validate_source_set_v2(corrected) is corrected
+
+
+def test_corrected_source_set_preserves_empty_family_resolution(tmp_path):
+    old = create_source_set_v2(tmp_path / "old-no-families.json", target_month="2026-08",
+        created_at="2026-08-01T00:00:00Z", builder_git_sha="fixture",
+        entries=[_entry(source, OLD_IDS[source]) for source in UNCHANGED],
+        config_hashes=governed_config_hashes(Path(".")))
+    corrected = build_corrected_source_set(tmp_path / "corrected-no-families.json",
+        accepted_source_set=old, fred_unemp_entry=_entry("fred_unemp", FRED_ID),
+        created_at="2026-08-02T00:00:00Z", builder_git_sha="fixture")
+    assert corrected["family_resolution"] == {}
+    assert validate_source_set_v2(corrected) is corrected
 
 
 def _database(path: Path, include_fred: bool):
