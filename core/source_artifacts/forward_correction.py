@@ -251,7 +251,7 @@ def preflight_correction(record: dict[str, Any], catalog: dict[str, Any],
         raise PublicationError("preflight expected-old accepted state is stale")
     validate_promotion_record(original_promotion)
     if (original_promotion["schema_version"] != LEGACY_VERSION or
-            tuple(original_promotion["target_source_pointers"]) != LEGACY_SOURCE_TRANSITION_ORDER or
+            set(original_promotion["target_source_pointers"]) != set(LEGACY_SOURCE_TRANSITION_ORDER) or
             original_promotion["promotion_id"] != record["original_promotion_id"] or
             original_promotion["cycle_id"] != record["cycle_id"] or
             original_promotion["source_set_id"] != record["expected_source_set"] or

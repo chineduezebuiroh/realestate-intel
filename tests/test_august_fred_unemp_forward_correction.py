@@ -80,7 +80,7 @@ def _state():
         "source_set_id":OLD_SET, "source_set_semantic_sha256":"a"*64,
         "canonical_artifact_id":OLD_MARKET, "canonical_artifact_hash":"b"*64,
         "expected_source_pointers":{source:None for source in LEGACY_SOURCE_TRANSITION_ORDER},
-        "target_source_pointers":{source:OLD_IDS[source] for source in LEGACY_SOURCE_TRANSITION_ORDER},
+        "target_source_pointers":dict(sorted(OLD_IDS.items())),
         "expected_source_set":None, "expected_canonical":None,
         "readiness_id":readiness_record["readiness_id"], "resolution_id":"bps-resolution",
         "operation_order":["accept_source_set","accept_canonical_market","accept_sources","consume_redfin"]}
@@ -104,7 +104,7 @@ def _state():
     return catalog, readiness, original, record
 
 
-def test_preflight_accepts_historical_v1_and_mutates_nothing(monkeypatch):
+def test_preflight_accepts_canonical_key_order_historical_v1_and_mutates_nothing(monkeypatch):
     monkeypatch.setattr("socket.create_connection", lambda *_a, **_k:
                         (_ for _ in ()).throw(AssertionError("provider/network acquisition attempted")))
     production_paths = [Path("config/artifact_catalog.json"),
@@ -121,6 +121,17 @@ def test_preflight_accepts_historical_v1_and_mutates_nothing(monkeypatch):
     assert all(record["target_source_pointers"][s] == OLD_IDS[s] for s in UNCHANGED)
     assert record["target_source_pointers"]["fred_unemp"] == FRED_ID
     assert {path:path.read_bytes() for path in production_paths} == production_bytes
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra"])
+def test_preflight_rejects_nonexact_historical_source_inventory(mutation):
+    catalog, readiness, original, record = _state()
+    if mutation == "missing":
+        original["target_source_pointers"].pop("laus")
+    else:
+        original["target_source_pointers"]["unexpected"] = "src__unexpected__fixture"
+    with pytest.raises(PublicationError, match="source inventory"):
+        preflight_correction(record, catalog, readiness, original)
 
 
 @pytest.mark.parametrize("mutation", ["unconsumed", "wrong_cycle", "wrong_artifact", "changed_record"])
