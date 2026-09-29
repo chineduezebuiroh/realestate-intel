@@ -26,7 +26,7 @@ jobs:
     env: {PYTHONPATH: .}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: 36cafe5d1a6be0b7b9c8ba8b0362fb745fb552cc}
+        with: {ref: c98652268049848c7dabf8d6e138dd75a472b897}
       - uses: actions/setup-python@v5
         with: {python-version: '3.11', cache: pip}
       - run: pip install -r requirements.txt
