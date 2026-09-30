@@ -1,0 +1,46 @@
+name: Governed serving market promotion (manual only)
+on:
+  workflow_dispatch:
+    inputs:
+      intent:
+        description: Prepare immutably or perform the separately authorized serving CAS
+        required: true
+        default: preflight
+        type: choice
+        options: [preflight, live]
+      authorization_token:
+        description: For live only, paste the exact token emitted by serving preflight
+        required: false
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: governed-serving-market-promotion
+  cancel-in-progress: false
+jobs:
+  serving:
+    runs-on: ubuntu-latest
+    env: {PYTHONPATH: .}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: "${{ github.ref_name }}"}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Execute exact accepted-canonical serving transaction
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INTENT: ${{ inputs.intent }}
+          AUTHORIZATION: ${{ inputs.authorization_token }}
+        run: |
+          args=(--repository "$GITHUB_REPOSITORY" --branch main
+            --workspace "$RUNNER_TEMP/serving" --git-sha "$GITHUB_SHA"
+            --output "$RUNNER_TEMP/serving-report.json")
+          if [[ "$INTENT" == live ]]; then args+=(--live --authorization-token "$AUTHORIZATION"); fi
+          python -m jobs.monthly_refresh.serving_hosted "${args[@]}"
+          cat "$RUNNER_TEMP/serving-report.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: serving-market-${{ inputs.intent }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/serving-report.json
