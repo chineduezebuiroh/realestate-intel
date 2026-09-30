@@ -1,0 +1,85 @@
+"""Smoke 182: parallel-safe automated-source durable result producers."""
+import copy, json
+from pathlib import Path
+import yaml
+from core.source_artifacts.publication import IdentityCollisionError
+from jobs.monthly_refresh.cohort import required_sources, resolve_invocation, resolve_resume_results
+from jobs.monthly_refresh.cycle_results import add_record, governed_record, load_registry, record_path, semantic_identity
+
+catalog=json.loads(Path("config/artifact_catalog.json").read_text()); policy=json.loads(Path("config/monthly_refresh_policy.json").read_text())
+readiness=json.loads(Path("config/monthly_refresh_readiness.json").read_text()); registry=load_registry(Path("config/monthly_source_cycle_results.json"))
+execution_registry=json.loads(Path("config/monthly_source_execution_registry.json").read_text())
+governed_sources=required_sources(execution_registry)
+assert governed_sources == ("redfin","fred_macro","ces","laus","census_bps",
+    "census_bps_provisional","census_acs1","census_acs5","bea_gdp_qtr",
+    "bea_gdp_ann","census_nrc")
+cycle_id="monthly_cycle__2026-07__7cab1c5df177a1e4"
+records={r["source_id"]:r for r in registry["records"] if r["cycle_id"]==cycle_id}
+for source in ("fred_macro","ces"):
+ proposed=governed_record(records[source]["result"],policy,catalog); assert proposed==records[source]
+ assert record_path(cycle_id,source).endswith(f"/{source}.json")
+ same,changed=add_record(proposed,copy.deepcopy(proposed)); assert not changed and semantic_identity(same)==semantic_identity(proposed)
+ conflict=copy.deepcopy(proposed); conflict["result"]["package_sha256"]="0"*64
+ try: add_record(proposed,conflict)
+ except IdentityCollisionError as exc: assert "collision" in str(exc)
+ else: raise AssertionError("contradictory repeat did not fail closed")
+
+# Execution diagnostics may differ across replays of the same governed candidate.
+ces=records["ces"]
+for stored_change,fresh_change in ((True,False),(False,True)):
+ stored=copy.deepcopy(ces); stored["result"]["source_change_detected"]=stored_change
+ fresh=copy.deepcopy(ces); fresh["result"]["source_change_detected"]=fresh_change
+ fresh["result"].update({"retryability":"terminal","observation_max":"2099-12-31",
+                         "evidence_uri":"artifact://execution/another-receipt"})
+ same,changed=add_record(stored,fresh)
+ assert not changed and same==stored
+
+for field in ("candidate_artifact_id","artifact_content_hash","package_sha256",
+              "provider_release_id","prior_artifact_id"):
+ conflict=copy.deepcopy(ces)
+ conflict["result"][field]="different-governed-identity"
+ try: add_record(ces,conflict)
+ except IdentityCollisionError: pass
+ else: raise AssertionError(f"{field} mismatch did not collide")
+
+for field,value in (("status","failed"),("validation_status","failed"),
+                    ("publication_state","not_published"),("accepted_pointer_changed",True),
+                    ("schema_version","incompatible")):
+ contradiction=copy.deepcopy(ces); contradiction["result"][field]=value
+ try: add_record(ces,contradiction)
+ except ValueError: pass
+ else: raise AssertionError(f"{field} success invariant was not enforced")
+
+fred,ces=records["fred_macro"],records["ces"]
+for order in ((fred,ces),(ces,fred)):
+ store={}
+ for proposed in order:
+  path=record_path(proposed["cycle_id"],proposed["source_id"]); store[path],changed=add_record(store.get(path),proposed); assert changed
+ assert {r["source_id"]:semantic_identity(r) for r in store.values()}=={"fred_macro":semantic_identity(fred),"ces":semantic_identity(ces)}
+
+def reject(result,cat=catalog):
+ try: governed_record(result,policy,cat)
+ except ValueError: return
+ raise AssertionError("invalid evidence became durable")
+unverified=copy.deepcopy(fred["result"]); unverified["publication_state"]="not_published"; reject(unverified)
+missing=copy.deepcopy(catalog); missing["immutable_records"]=[r for r in missing["immutable_records"] if r["object_id"]!=fred["result"]["candidate_artifact_id"]]; reject(fred["result"],missing)
+for field in ("artifact_content_hash","package_sha256","provider_release_id"):
+ bad=copy.deepcopy(fred["result"]); bad[field]="0"*64; reject(bad)
+wrong=copy.deepcopy(catalog); next(r for r in wrong["immutable_records"] if r["object_id"]==fred["result"]["candidate_artifact_id"])["metadata"]["source_id"]="ces"; reject(fred["result"],wrong)
+
+cycle=resolve_invocation(mode="resume",policy_path=Path("config/monthly_refresh_policy.json"),readiness=readiness,catalog=catalog,supplied_cycle_id=cycle_id)
+for retained,reuse in ((fred,["fred_macro","redfin"]),(ces,["ces","redfin"])):
+ plan=resolve_resume_results(cycle=cycle,catalog=catalog,registry={"schema_version":"monthly_source_cycle_results_v1","records":[retained]},policy=policy,execution_registry=execution_registry)
+ assert plan["reuse"]==reuse
+ assert plan["run"]==sorted(set(governed_sources)-set(reuse))
+replay=resolve_resume_results(cycle=dict(cycle,invocation_mode="replay"),catalog=catalog,registry=registry,policy=policy,execution_registry=execution_registry)
+assert replay["reuse"]==[] and tuple(replay["run"])==governed_sources
+
+for path in (Path(".github/workflows/fred-monthly-source.yml"),Path(".github/workflows/ces-monthly-source.yml")):
+ workflow=yaml.safe_load(path.read_text()); steps=workflow["jobs"]["source"]["steps"]; ids=[s.get("id") for s in steps]
+ assert ids.index("publish")<ids.index("result")<ids.index("record")<ids.index("final")
+ assert workflow["jobs"]["source"]["outputs"]["result_json"]=="${{ steps.final.outputs.result_json }}"
+ record=next(s for s in steps if s.get("id")=="record"); assert "cycle_results" in record["run"] and record["continue-on-error"] is True
+assert all(r["result"]["accepted_pointer_changed"] is False for r in records.values())
+master=Path(".github/workflows/monthly-refresh-production.yml").read_text(); assert "source_set_created" not in master and "redfin_consumption_committed" not in master
+print("Smoke 182 durable automated-source cycle results passed")

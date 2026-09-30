@@ -1,0 +1,1 @@
+{"fixture_csv_sha256":"ca51aca857ec9dcec8ae18a49d19ef77ffb338bc8390d5ccf163c6fcb3e96961","fixture_schema":"bps_pinned_fixture_v1","nonnumeric_tokens":{"D":1},"notes":"Synthetic bounded fixture only; D is intentionally unexplained and is not admitted by the governed adapter."}

@@ -1,7 +1,9 @@
 from __future__ import annotations
 # scripts/build_serving_snapshot.py
 
+import argparse
 import duckdb
+from pathlib import Path
 
 from core.config import (
     FULL_DB_PATH,
@@ -31,19 +33,17 @@ LEGACY_GEO_IDS = [
 SOURCE_HISTORY_POLICY = {
     # keep all available history
     "redfin": None,
-    "census_acs1": None,
-    "census_acs5": None,
+    "acs": None,
     "bea_gdp_ann": None,
     "bea_gdp_qtr": None,
-    "census_nrc_fred": None,
+    "census_nrc": None,
 
     # cap long monthly / routine macro series
     "ces": {"years": 20},
     "laus": {"years": 20},
     "fred_macro": {"years": 20},
     "fred_unemp": {"years": 20},
-    "census_bps": {"years": 20},
-    "census_bps_provisional": {"years": 20},
+    "bps": {"years": 20},
 }
 
 DEFAULT_HISTORY_POLICY = None
@@ -182,14 +182,14 @@ def create_bps_view(serving: duckdb.DuckDBPyConnection) -> None:
             """
             SELECT source_id, COUNT(*) AS rows
             FROM fact_timeseries
-            WHERE source_id IN ('census_bps', 'census_bps_provisional')
+            WHERE source_id = 'bps'
             GROUP BY 1
             """
         ).fetchall()
     )
 
-    if "census_bps" not in source_counts:
-        print("[snapshot][warn] skipping fact_timeseries_bps view: census_bps missing")
+    if "bps" not in source_counts:
+        print("[snapshot][warn] skipping fact_timeseries_bps view: bps missing")
         return
 
     serving.execute(
@@ -197,22 +197,7 @@ def create_bps_view(serving: duckdb.DuckDBPyConnection) -> None:
         CREATE OR REPLACE VIEW fact_timeseries_bps AS
         SELECT *
         FROM fact_timeseries
-        WHERE source_id = 'census_bps'
-
-        UNION ALL
-
-        SELECT p.*
-        FROM fact_timeseries p
-        WHERE p.source_id = 'census_bps_provisional'
-          AND NOT EXISTS (
-              SELECT 1
-              FROM fact_timeseries c
-              WHERE c.source_id = 'census_bps'
-                AND c.geo_id = p.geo_id
-                AND c.metric_id = p.metric_id
-                AND c.date = p.date
-                AND c.property_type_id = p.property_type_id
-          )
+        WHERE source_id = 'bps'
         """
     )
 
@@ -279,20 +264,20 @@ def validate_snapshot(serving: duckdb.DuckDBPyConnection) -> None:
             print(f"[snapshot][warn] known view missing from serving snapshot: {view_name}")
 
 
-def main() -> int:
-    if not FULL_DB_PATH.exists():
-        raise SystemExit(f"[snapshot][fatal] full DB not found: {FULL_DB_PATH}")
+def build_candidate(full_db: Path, candidate: Path) -> Path:
+    """Build a complete snapshot without touching the live serving database."""
+    if not full_db.exists():
+        raise SystemExit(f"[snapshot][fatal] full DB not found: {full_db}")
 
-    SERVING_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if SERVING_DB_PATH.exists():
-        SERVING_DB_PATH.unlink()
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.unlink(missing_ok=True)
 
-    print(f"[snapshot] full DB: {FULL_DB_PATH}")
-    print(f"[snapshot] serving DB: {SERVING_DB_PATH}")
+    print(f"[snapshot] full DB: {full_db}")
+    print(f"[snapshot] candidate DB: {candidate}")
     print(f"[snapshot] serving start date: {SERVING_START_DATE}")
 
-    serving = duckdb.connect(str(SERVING_DB_PATH))
-    serving.execute(f"ATTACH '{FULL_DB_PATH}' AS full_db")
+    serving = duckdb.connect(str(candidate))
+    serving.execute(f"ATTACH '{full_db}' AS full_db")
 
     for table_name in DIM_TABLES:
         copy_table_if_exists(serving, "full_db", table_name)
@@ -303,8 +288,31 @@ def main() -> int:
 
     serving.close()
 
-    size_mb = SERVING_DB_PATH.stat().st_size / (1024 * 1024)
-    print(f"[snapshot] done: {SERVING_DB_PATH} ({size_mb:,.1f} MB)")
+    size_mb = candidate.stat().st_size / (1024 * 1024)
+    print(f"[snapshot] candidate complete: {candidate} ({size_mb:,.1f} MB)")
+    return candidate
+
+
+def promote_candidate(candidate: Path, serving_db: Path) -> None:
+    """Atomically replace the live snapshot; candidate and live must share a filesystem."""
+    if not candidate.is_file():
+        raise FileNotFoundError(candidate)
+    serving_db.parent.mkdir(parents=True, exist_ok=True)
+    candidate.replace(serving_db)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--full-db", type=Path, default=FULL_DB_PATH)
+    parser.add_argument("--serving-db", type=Path, default=SERVING_DB_PATH)
+    parser.add_argument("--candidate", type=Path)
+    parser.add_argument("--promote", action="store_true")
+    args = parser.parse_args()
+    candidate = args.candidate or args.serving_db.with_name(args.serving_db.stem + ".candidate.duckdb")
+    build_candidate(args.full_db, candidate)
+    if args.promote:
+        promote_candidate(candidate, args.serving_db)
+        print(f"[snapshot] promoted atomically: {args.serving_db}")
     return 0
 
 

@@ -1,0 +1,17 @@
+{
+  "schema_version": "laus_annual_processing_policy_v1",
+  "source_id": "laus",
+  "enabled": true,
+  "authoritative_provider_hosts": ["bls.gov", "www.bls.gov"],
+  "authoritative_evidence_type": "official_bls_publication",
+  "required_processing_classes": ["model_based_state", "substate_nonmodeled"],
+  "series_prefix_processing_class": {
+    "CN": "substate_nonmodeled",
+    "MT": "substate_nonmodeled",
+    "ST": "model_based_state"
+  },
+  "ordinary_mode": "ordinary_overlap",
+  "annual_deep_mode": "annual_deep",
+  "annual_deep_start_year": 1976,
+  "notes": "The official BLS LAUS Atom surface provides January reference-release facts. RSS alone does not establish annual-processing applicability or class completion. Separately governed applicability may start WATCHING; only normalized class-specific official BLS completion evidence may establish readiness. No reviewed API or download completion marker has been established."
+}

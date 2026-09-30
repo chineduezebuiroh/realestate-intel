@@ -20,7 +20,7 @@ class GovernanceError(RuntimeError):
 
 
 def bootstrap(root: Path = RAW_ROOT) -> None:
-    for relative in ("baseline/2026-07", "drops", "current", "quarantine"):
+    for relative in ("baseline/2026-07", "drops", "current", "quarantine", "incoming"):
         (root / relative).mkdir(parents=True, exist_ok=True)
 
 

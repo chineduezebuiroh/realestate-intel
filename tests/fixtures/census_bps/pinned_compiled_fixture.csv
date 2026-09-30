@@ -1,0 +1,6 @@
+period,year,month,location_type,state_fips,county_fips,total_units
+Monthly,2026,4,Country,,,1234
+Monthly,2026,4,State,06,,0
+Monthly,2026,4,County,06,06001,17
+Monthly,2026,3,County,06,06001,D
+Annual,2026,0,Country,,,9999

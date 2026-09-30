@@ -1,5 +1,11 @@
 name: Governed ACS logical family resolution
 on:
+  workflow_call:
+    inputs:
+      acs1_artifact_id: {required: true, type: string}
+      acs5_artifact_id: {required: true, type: string}
+    outputs:
+      resolution_json: {value: '${{ jobs.resolve.outputs.resolution_json }}'}
   workflow_dispatch:
     inputs:
       acs1_artifact_id:
@@ -18,6 +24,7 @@ permissions:
 jobs:
   resolve:
     runs-on: ubuntu-latest
+    outputs: {resolution_json: '${{ steps.resolve.outputs.resolution_json }}'}
     env:
       PYTHONPATH: .
       # The dispatched ref supplies resolver code; production durable state is
@@ -29,6 +36,7 @@ jobs:
         with: {python-version: '3.11', cache: pip}
       - run: pip install -r requirements.txt
       - name: Resolve exact immutable ACS parents
+        id: resolve
         env: {GITHUB_TOKEN: '${{ github.token }}'}
         run: |
           python -m jobs.monthly_refresh.acs_family_resolution \
@@ -37,6 +45,7 @@ jobs:
             --acs5-artifact-id '${{ inputs.acs5_artifact_id }}' \
             --workspace "$RUNNER_TEMP/acs-family-resolution" \
             --output "$RUNNER_TEMP/acs-family-resolution.json"
+          echo "resolution_json=$(jq -c . "$RUNNER_TEMP/acs-family-resolution.json")" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/acs-family-resolution.json" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:

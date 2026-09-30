@@ -1,0 +1,51 @@
+name: BPS pinned-release verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_month:
+        description: Explicit Census compiled release (YYYY-MM)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Verify pinned official Census release read-only
+        env:
+          RELEASE_MONTH: ${{ inputs.release_month }}
+        run: |
+          PYTHONPATH=. python -m jobs.monthly_refresh.bps_bootstrap \
+            --release-month "$RELEASE_MONTH" \
+            --legacy data/market_serving.duckdb \
+            --output "bps-verification-$RELEASE_MONTH"
+      - name: Job summary
+        if: always()
+        env:
+          RELEASE_MONTH: ${{ inputs.release_month }}
+        run: |
+          root="bps-verification-$RELEASE_MONTH"
+          if test -f "$root/provider_contract_diagnostics.json"; then
+            echo '## BPS pinned-release verification' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$root/provider_contract_diagnostics.json" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bps-pinned-verification-${{ inputs.release_month }}
+          path: bps-verification-${{ inputs.release_month }}/
+          if-no-files-found: error
+          retention-days: 30

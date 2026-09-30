@@ -13,7 +13,7 @@ on:
         type: choice
         options: [preflight, live]
       confirmation:
-        description: For live only, enter PROMOTE_GOVERNED_COHORT
+        description: For live only, paste the exact authorization_token emitted by preflight
         required: false
         type: string
 
@@ -27,9 +27,7 @@ concurrency:
 jobs:
   promote:
     if: >-
-      inputs.cycle_id == 'monthly_cycle__2026-07__7cab1c5df177a1e4' &&
-      (inputs.intent == 'preflight' ||
-       (inputs.intent == 'live' && inputs.confirmation == 'PROMOTE_GOVERNED_COHORT'))
+      inputs.intent == 'preflight' || inputs.intent == 'live'
     runs-on: ubuntu-latest
     env: {PYTHONPATH: .}
     steps:
@@ -48,7 +46,7 @@ jobs:
             --cycle-id "${{ inputs.cycle_id }}" --workspace "$RUNNER_TEMP/cohort"
             --git-sha "$GITHUB_SHA" --output "$RUNNER_TEMP/cohort-report.json")
           if [[ "$INTENT" == live ]]; then
-            args+=(--live --confirm "$CONFIRMATION")
+            args+=(--live --authorization-token "$CONFIRMATION")
           fi
           python -m jobs.monthly_refresh.cohort_promotion_hosted "${args[@]}"
           cat "$RUNNER_TEMP/cohort-report.json" >> "$GITHUB_STEP_SUMMARY"
