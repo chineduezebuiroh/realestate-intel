@@ -26,26 +26,32 @@ laus_unemployment_rate,laus,laus_unemployment_rate_nsa,LAUS Unemployment Rate,Se
 
 fred_unemployment_rate,fred_unemp,fred_unemployment_rate_sa,FRED Unemployment Rate,Unemployment rate from FRED,nation|state,monthly,Percent,SA,true,
 
-ces_total_nonfarm,ces,ces_total_nonfarm_sa,CES Total Nonfarm Employment,Seasonally adjusted total nonfarm employment,state|cbsa_metro,monthly,Jobs,SA,true,
-ces_total_private,ces,ces_total_private_sa,CES Total Private Employment,Seasonally adjusted total private employment,state|cbsa_metro,monthly,Jobs,SA,true,
-ces_construction,ces,ces_construction_sa,CES Construction Employment,Seasonally adjusted construction employment,state|cbsa_metro,monthly,Jobs,SA,true,
+ces_total_nonfarm,ces,ces_total_nonfarm_sa,CES Total Nonfarm Employment,Seasonally adjusted total nonfarm employment,state|cbsa_metro,monthly,thousands_of_jobs,SA,true,
+ces_total_private,ces,ces_total_private_sa,CES Total Private Employment,Seasonally adjusted total private employment,state|cbsa_metro,monthly,thousands_of_jobs,SA,true,
+ces_construction,ces,ces_construction_sa,CES Construction Employment,Seasonally adjusted construction employment,state|cbsa_metro,monthly,thousands_of_jobs,SA,true,
 
-bps_total_units,census_bps,census_bp_total_units,Building Permits Total Units,Total permitted housing units,state|county|place,monthly,Units,NSA,true,
+bps_total_units,census_bps,census_bp_total_units,Building Permits Total Units,Total permitted housing units,nation|state|county|cbsa_metro,monthly,Units,NSA,true,
 bps_total_buildings,census_bps,census_bp_total_bldgs,Building Permits Total Buildings,Total permitted buildings,state|county|place,monthly,Buildings,NSA,true,
 bps_total_value,census_bps,census_bp_total_value,Building Permits Total Value,Total permitted construction value,state|county|place,monthly,USD,NSA,true,
 bps_1_unit,census_bps,census_bp_1_unit,Building Permits 1-Unit,Permitted single-family units,state|county|place,monthly,Units,NSA,true,
 bps_5plus_units,census_bps,census_bp_5plus_units,Building Permits 5+ Units,Permitted multifamily units in buildings with five or more units,state|county|place,monthly,Units,NSA,true,
 
-nrc_housing_starts,census_nrc_fred,census_housing_starts_total_saar,Housing Starts,Housing starts at seasonally adjusted annual rate,nation|region,monthly,Units SAAR,SA,true,
-nrc_housing_completions,census_nrc_fred,census_housing_completions_total_saar,Housing Completions,Housing completions at seasonally adjusted annual rate,nation|region,monthly,Units SAAR,SA,true,
+nrc_housing_starts,census_nrc,census_housing_starts_total_saar,Housing Starts,Housing starts at seasonally adjusted annual rate,nation|region,monthly,thousands_of_housing_units_saar,SA,true,
+nrc_housing_completions,census_nrc,census_housing_completions_total_saar,Housing Completions,Housing completions at seasonally adjusted annual rate,nation|region,monthly,thousands_of_housing_units_saar,SA,true,
 
 fred_mortgage_30y,fred_macro,fred_mortgage_30y_avg,30-Year Mortgage Rate,Average 30-year fixed mortgage rate,nation,monthly,Percent,NSA,true,
 fred_mortgage_15y,fred_macro,fred_mortgage_15y_avg,15-Year Mortgage Rate,Average 15-year fixed mortgage rate,nation,monthly,Percent,NSA,true,
+fred_mortgage_5y_arm,fred_macro,fred_mortgage_5y_arm_avg,5/1 ARM Mortgage Rate,Average 5/1 adjustable-rate mortgage rate,nation,monthly,Percent,NSA,true,
 fred_fedfunds,fred_macro,fred_fedfunds,Fed Funds Rate,Effective federal funds rate,nation,monthly,Percent,SA,true,
 fred_10y,fred_macro,fred_gs10,Treasury 10-Year Yield,10-year Treasury constant maturity rate,nation,monthly,Percent,NSA,true,
 fred_2y,fred_macro,fred_gs2,Treasury 2-Year Yield,2-year Treasury constant maturity rate,nation,monthly,Percent,NSA,true,
+fred_30y,fred_macro,fred_gs30,Treasury 30-Year Yield,30-year Treasury constant maturity rate,nation,monthly,Percent,NSA,true,
 fred_2y10y_spread,fred_macro,fred_spread_2y_10y,2Y-10Y Physical Treasury Spread,Physical provider identity is 2Y - 10Y; canonical spread_10y_2y is sign-inverted to governed 10Y - 2Y at canonical resolution,nation,monthly,Percentage points,NSA,true,
+fred_10y30y_spread,fred_macro,fred_spread_10y_30y,10Y-30Y Treasury Spread,10-year Treasury minus 30-year Treasury spread,nation,monthly,Percentage points,NSA,true,
+fred_2y30y_spread,fred_macro,fred_spread_2y_30y,2Y-30Y Treasury Spread,2-year Treasury minus 30-year Treasury spread,nation,monthly,Percentage points,NSA,true,
+fred_2y_fedfunds_spread,fred_macro,fred_spread_2y_fedfunds,2Y-Fed Funds Spread,2-year Treasury minus fed funds spread,nation,monthly,Percentage points,NSA,true,
 fred_10y_fedfunds_spread,fred_macro,fred_spread_10y_fedfunds,10Y-Fed Funds Spread,10-year Treasury minus fed funds spread,nation,monthly,Percentage points,NSA,true,
+fred_30y_fedfunds_spread,fred_macro,fred_spread_30y_fedfunds,30Y-Fed Funds Spread,30-year Treasury minus fed funds spread,nation,monthly,Percentage points,NSA,true,
 fred_cpi,fred_macro,fred_cpi_urban_sa_index,CPI Urban SA Index,Consumer Price Index for all urban consumers,nation,monthly,Index,SA,true,
 
 derived_price_to_income,derived,price_to_income,Price-to-Income Ratio,Median sale price divided by median household income,county|zip,annual,Ratio,NSA,true,Derived metric

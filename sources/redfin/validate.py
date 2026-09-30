@@ -34,6 +34,48 @@ def read_raw(path: Path) -> pd.DataFrame:
     return frame
 
 
+def latest_observation_month(path: Path, *, chunksize: int = 100_000) -> str:
+    """Return a raw export's latest month without materializing the export.
+
+    Header normalization is intentionally shared with governed validation and
+    ingestion.  Only the selected period column is streamed.
+    """
+    sep = "\t" if ".tsv" in path.name else ","
+    try:
+        header = pd.read_csv(path, sep=sep, nrows=0)
+        normalized = normalize_columns(header.columns)
+        by_normalized = dict(zip(normalized, header.columns))
+        date_name = (
+            "period_end" if "period_end" in by_normalized else
+            "period_begin" if "period_begin" in by_normalized else None
+        )
+        if not date_name:
+            raise GovernanceError(f"missing period column: {path.name}")
+
+        maximum = None
+        for chunk in pd.read_csv(
+            path,
+            sep=sep,
+            usecols=[by_normalized[date_name]],
+            chunksize=chunksize,
+            low_memory=False,
+        ):
+            chunk.columns = normalize_columns(chunk.columns)
+            dates = pd.to_datetime(chunk[date_name], errors="coerce")
+            if dates.isna().any():
+                raise GovernanceError(f"invalid dates: {path.name}")
+            if not dates.empty:
+                chunk_max = dates.max().to_period("M")
+                maximum = chunk_max if maximum is None else max(maximum, chunk_max)
+    except GovernanceError:
+        raise
+    except Exception as exc:
+        raise GovernanceError(f"cannot inspect endpoint: {path.name}") from exc
+    if maximum is None:
+        raise GovernanceError(f"empty incoming file: {path.name}")
+    return str(maximum)
+
+
 def validate_metric_domains(frame: pd.DataFrame, contract: dict | None = None) -> dict:
     """Aggregate business warnings separately from fail-closed source violations."""
     rules = (contract or load_metric_domain_contract())["metrics"]

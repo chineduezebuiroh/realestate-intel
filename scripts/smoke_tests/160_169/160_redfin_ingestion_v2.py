@@ -5,7 +5,7 @@ from pathlib import Path
 import duckdb, pandas as pd
 
 from sources.redfin.governance import FAMILIES, METRICS, GovernanceError, assert_safe_delete, bootstrap
-from sources.redfin.ingest import build_candidate, infer_family, register_drop
+from sources.redfin.ingest import build_baseline_contribution, build_candidate, build_drop_contribution, infer_family, register_drop
 from sources.redfin.storage import atomic_json, current, promote, quarantine, retain, sha256
 from sources.redfin.transform import apply_candidate
 from sources.redfin.validate import validate_baseline, validate_candidate, validate_drop, validate_serving
@@ -55,8 +55,16 @@ with tempfile.TemporaryDirectory() as td:
  quarantine("2026-09","endpoint mismatch",root)
  # Only nation/state are governed. Same numeric ID cannot cross-map, and five large families are skipped.
  geo=Path(td)/"geo.csv"; pd.DataFrame([{"geo_slug":"nation_geo","level":"nation","redfin_code":"1","include_redfin":"1"},{"geo_slug":"state_geo","level":"state","redfin_code":"1","include_redfin":"1"}]).to_csv(geo,index=False)
+ baseline_contribution=build_baseline_contribution(root,geo,mp)
+ drop_contribution=build_drop_contribution("2026-08",root,geo)
  candidate=Path(td)/"candidate.parquet"; meta=build_candidate("2026-08",candidate,root,geo,mp)
  frame=pd.read_parquet(candidate); assert set(frame.geo_id)=={"nation_geo","state_geo"}; assert set(frame.metric_id)==METRICS and "active_listings" not in set(frame.metric_id)
+ assert list(baseline_contribution.columns)==["geo_id","metric_id","date","property_type_id","value","source_id","property_type"]
+ assert set(baseline_contribution.source_id)=={"redfin"} and set(drop_contribution.source_id)=={"redfin"}
+ assert pd.Timestamp("2026-07-31") in set(pd.to_datetime(baseline_contribution.date))
+ assert pd.Timestamp("2026-07-31") not in set(pd.to_datetime(drop_contribution.date))
+ assert pd.Timestamp("2026-08-31") in set(pd.to_datetime(drop_contribution.date))
+ assert pd.Timestamp("2026-07-31") in set(pd.to_datetime(frame.date)) and pd.Timestamp("2026-08-31") in set(pd.to_datetime(frame.date))
  assert {x["family"] for x in meta["skipped_ungoverned_files"]}==set(FAMILIES)-{"nation","state"}
  report=validate_candidate(candidate,"2026-08",root,geo); assert report["status"]=="candidate_validated"
  # Apply gate and rollback preserve old production. A forced duplicate candidate fails before BEGIN.
@@ -81,10 +89,10 @@ with tempfile.TemporaryDirectory() as td:
  disk.execute("CREATE TABLE fact_timeseries(geo_id TEXT,metric_id TEXT,date DATE,property_type_id TEXT,value DOUBLE,source_id TEXT,property_type TEXT)"); disk.register("fixture",frame); disk.execute("INSERT INTO fact_timeseries SELECT geo_id,metric_id,date,property_type_id,value,'redfin',property_type FROM fixture"); disk.close()
  assert validate_serving(db,"2026-08",geo)["metrics"]==11
  # Promotion creates metadata-only pointer/history; retention keeps three raw snapshots and requires newest promoted boundary.
- m=json.loads((drop/"metadata.json").read_text()); m.update(status="published",publication_status="published",promotion_status="not_promoted"); atomic_json(drop/"metadata.json",m); promote("2026-08",root)
+ m=json.loads((drop/"metadata.json").read_text()); m.update(status="published",publication_status="published",promotion_status="not_promoted",canonical_state_status="reconciled",canonical_artifact_status="validated"); atomic_json(drop/"metadata.json",m); promote("2026-08",root)
  assert current(root)["promoted_drop"]=="2026-08" and (root/"current/history.json").exists() and not list((root/"current").glob("*.csv"))
  for month in ("2026-05","2026-06","2026-07"):
-  folder=root/"drops"/month; folder.mkdir(); atomic_json(folder/"metadata.json",{"drop_id":month,"status":"promoted","publication_status":"published","promotion_status":"promoted","files":[]})
+  folder=root/"drops"/month; folder.mkdir(); atomic_json(folder/"metadata.json",{"drop_id":month,"status":"promoted","publication_status":"published","promotion_status":"promoted","canonical_state_status":"reconciled","canonical_artifact_status":"validated","files":[]})
  assert [Path(p).name for p in retain(root,keep=3,dry_run=True)]==["2026-05"]
  (root/"quarantine/failed").mkdir(); assert "failed" not in [Path(p).name for p in retain(root,keep=3,dry_run=True)]
  # Broad ignore contract: every raw family and generated candidates ignored; governed metadata remains tracked.

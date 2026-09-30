@@ -1,0 +1,4 @@
+Building Permits Survey
+Current preliminary estimates
+Provider layout heading
+"202607","06","001","4","9","Alameda County","1","2","3","1","2","3","1","2","3","1","2","3","1","2","3","1","2","3","1","2","3","1","2","3"

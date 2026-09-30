@@ -73,11 +73,16 @@ def retain(root: Path = RAW_ROOT, keep: int = 3, quarantine_days: int = 90, dry_
     for folder in all_drops:
         if folder.is_dir() and (folder / "metadata.json").exists():
             meta = read_json(folder / "metadata.json")
-            if meta.get("status") in {"published", "promoted"}:
+            if (meta.get("status") in {"published", "promoted"}
+                    and meta.get("canonical_state_status") == "reconciled"
+                    and meta.get("canonical_artifact_status") == "validated"):
                 drops.append(folder)
     if all_drops and (all_drops[0] / "metadata.json").exists():
         newest = read_json(all_drops[0] / "metadata.json")
-        newest_complete = newest.get("status") == "promoted" and newest.get("publication_status") == "published" and newest.get("promotion_status") == "promoted"
+        newest_complete = (newest.get("status") == "promoted" and newest.get("publication_status") == "published"
+                           and newest.get("promotion_status") == "promoted"
+                           and newest.get("canonical_state_status") == "reconciled"
+                           and newest.get("canonical_artifact_status") == "validated")
     if newest_complete:
         eligible.extend(drops[keep:])
     cutoff = datetime.now(timezone.utc) - timedelta(days=quarantine_days)

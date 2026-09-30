@@ -1,0 +1,4 @@
+Building Permits Survey
+Current preliminary estimates
+Provider layout heading
+"202607","488","41860","1","San Francisco-Oakland-Berkeley, CA","1","2","3","1","2","3","1","2","3","1","2","3","1","2","3","1","2","3","1","2","3","1","2","3"

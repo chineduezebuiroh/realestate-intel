@@ -1,0 +1,225 @@
+"""Smoke 173: offline one-command Redfin candidate boundary and state isolation."""
+from __future__ import annotations
+import hashlib
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
+import duckdb
+import pandas as pd
+
+from core.source_artifacts.package import build_publication_package
+from core.source_artifacts.hashing import sha256_json
+from jobs.monthly_refresh.production import cycle_id, validate_source_result
+from jobs.monthly_refresh.redfin import (JULY_ARTIFACT_ID, JULY_DATA_SHA256,
+                                         _select_registered_or_resumable_drop,
+                                         bootstrap_accepted, run)
+from sources.redfin.governance import FAMILIES, GovernanceError, bootstrap
+from sources.redfin.ingest import register_drop
+from sources.redfin.state import STATE_SCHEMA
+
+
+def raw(path: Path, month: str) -> None:
+    row={"period_end":month+"-28","region_id":"1","average_sale_to_list_ratio":100,
+         "homes_sold":2,"inventory":3,"median_days_on_market_days":4,"median_sale_price_nsa":5,
+         "median_sale_price_per_sqft":6,"months_of_supply":7,"new_listings":8,"pending_sales":9,
+         "percent_off_market_in_two_weeks":10,"share_sold_above_original_list":11}
+    pd.DataFrame([row]).to_csv(path,index=False)
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class BootstrapCatalogFixture:
+    def __init__(self) -> None:
+        self.activation_calls = 0
+
+    def activate_source(self, source_id: str, artifact_id: str):
+        assert source_id == "redfin" and artifact_id == JULY_ARTIFACT_ID
+        self.activation_calls += 1
+        return {}, False
+
+
+def selection_metadata(root: Path, drop_id: str) -> str:
+    folder=root/"drops"/drop_id; folder.mkdir(parents=True)
+    metadata={"drop_id":drop_id,"files":[],"status":"registered"}
+    (folder/"metadata.json").write_text(json.dumps(metadata))
+    return sha256_json({"drop_id":drop_id,"files":[]})
+
+
+with TemporaryDirectory() as td:
+    selection_root=Path(td)/"raw"; bootstrap(selection_root)
+    policy_hash="p"*64
+    august_hash=selection_metadata(selection_root,"2026-08")
+    ledger_path=Path(td)/"ledger.json"
+
+    # A newer terminal cycle is retained as evidence, but cannot suppress a
+    # valid unledgered registration or be silently selected for execution.
+    ledger={"schema_version":"redfin_monthly_cycle_ledger_v1","cycles":{
+      "monthly_cycle__2026-09__terminal":{"drop_id":"2026-09","state":"failed_terminal"}}}
+    ledger_path.write_text(json.dumps(ledger))
+    selected=_select_registered_or_resumable_drop(
+      raw_root=selection_root,ledger_path=ledger_path,policy_hash=policy_hash)
+    assert selected["drop_id"]=="2026-08"
+
+    # Every nonterminal durable execution state remains selectable.  Check each
+    # alone, then together to prove deterministic newest-month ordering.
+    states=(("2026-09","candidate_running"),("2026-10","candidate_ready"),
+            ("2026-11","failed_retryable"))
+    for drop_id,state_name in states:
+        ledger["cycles"]={f"monthly_cycle__{drop_id}__fixture":{
+          "drop_id":drop_id,"state":state_name}}
+        ledger_path.write_text(json.dumps(ledger))
+        selected=_select_registered_or_resumable_drop(
+          raw_root=selection_root,ledger_path=ledger_path,policy_hash=policy_hash)
+        assert selected["drop_id"]==drop_id
+    ledger["cycles"]={f"monthly_cycle__{drop_id}__fixture":{
+      "drop_id":drop_id,"state":state_name} for drop_id,state_name in states}
+    ledger_path.write_text(json.dumps(ledger))
+    selected=_select_registered_or_resumable_drop(
+      raw_root=selection_root,ledger_path=ledger_path,policy_hash=policy_hash)
+    assert selected["drop_id"]=="2026-11"
+
+    # Once the registered identity is represented by terminal evidence, there
+    # is no eligible work and empty-inbox selection remains not-ready.
+    applicable=cycle_id(redfin_drop_id="2026-08",redfin_drop_hash=august_hash,
+      target_month="2026-08",policy_sha256=policy_hash)
+    ledger["cycles"]={applicable:{"drop_id":"2026-08","state":"failed_terminal"}}
+    ledger_path.write_text(json.dumps(ledger))
+    assert _select_registered_or_resumable_drop(
+      raw_root=selection_root,ledger_path=ledger_path,policy_hash=policy_hash) is None
+
+
+with TemporaryDirectory() as td:
+    root=Path(td); raw_root=root/"raw"; bootstrap(raw_root)
+    state=root/"accepted.duckdb"; con=duckdb.connect(str(state)); con.execute(STATE_SCHEMA)
+    # A prior-only key proves preserve-prior behavior and lineage survival.
+    con.execute("INSERT INTO canonical_redfin VALUES ('prior','inventory','2026-07-31','all',1,'all','2026-07','2026-07',?,'baseline','prior-artifact','2026-07-31')",["a"*64]); con.close()
+    accepted_before=digest(state)
+    prior_id="src__redfin__2026-07__r1__b10214595868c2ff"
+    catalog={"accepted":{"source":{"redfin":prior_id}},"immutable_records":[{
+      "object_type":"source","object_id":prior_id,"metadata":{"source_id":"redfin","data_sha256":"0"*64}}]}
+    calls=[]
+    def publisher(artifact, workspace):
+        workspace.mkdir(parents=True,exist_ok=True); manifest=json.loads((artifact/"manifest.json").read_text())
+        package=workspace/(manifest["artifact_id"]+".tar"); info=build_publication_package(artifact,package)
+        calls.append(manifest["artifact_id"])
+        return {"package_sha256":info["package_sha256"],"publication_state":"published_verified",
+                "catalog_changed":len(calls)==1,"accepted_pointer_changed":False,
+                "receipt":{"release_id":1,"asset_id":2}}
+    empty=run(accepted_state=state,raw_root=raw_root,workspace_root=root/"candidates",
+      ledger_path=root/"ledger.json",evidence_root=root/"evidence",catalog=catalog,publisher=publisher)
+    assert empty["status"]=="not_ready"
+    names={"nation":"country","state":"states","metro":"metros","county":"counties",
+           "city":"cities","neighborhood":"neighborhoods","zip":"zips"}
+    for family in FAMILIES: raw(raw_root/"incoming"/f"redfin_{names[family]}.csv","2026-08")
+    first=run(accepted_state=state,raw_root=raw_root,workspace_root=root/"candidates",
+      ledger_path=root/"ledger.json",evidence_root=root/"evidence",catalog=catalog,publisher=publisher,
+      repository_root=Path("."),git_sha="fixture")
+    validate_source_result(first,expected_cycle_id=first["cycle_id"])
+    assert digest(state)==accepted_before and first["prior_artifact_id"]==prior_id
+    candidate=next((root/"candidates").glob("*/candidate_redfin.duckdb"))
+    check=duckdb.connect(str(candidate),read_only=True)
+    assert check.execute("select count(*) from canonical_redfin where geo_id='prior'").fetchone()[0]==1
+    assert check.execute("select count(*) from canonical_redfin where latest_source_vintage='2026-08'").fetchone()[0]>0
+    check.close()
+    second=run(accepted_state=state,raw_root=raw_root,workspace_root=root/"candidates",
+      ledger_path=root/"ledger.json",evidence_root=root/"evidence",catalog=catalog,publisher=publisher,
+      repository_root=Path("."),git_sha="fixture")
+    assert second["cycle_id"]==first["cycle_id"] and second["candidate_artifact_id"]==first["candidate_artifact_id"]
+    assert second["artifact_content_hash"]==first["artifact_content_hash"]
+    assert second["package_sha256"]==first["package_sha256"]
+    manifest=json.loads(next((root/"candidates").glob("*/artifact/manifest.json")).read_text())
+    assert manifest["git_sha"]=="operational-evidence-excluded"
+    assert len(calls)==2 and calls[0]==calls[1]
+    assert digest(state)==accepted_before
+    ledger=json.loads((root/"ledger.json").read_text()); assert len(ledger["cycles"])==1
+    assert next(iter(ledger["cycles"].values()))["state"]=="candidate_ready"
+    assert catalog["accepted"]["source"]["redfin"]==prior_id
+
+    # Transitional and retryable ledger states resume the same pinned candidate.
+    existing_cycle=next(iter(ledger["cycles"]))
+    for resumable_state in ("candidate_running","failed_retryable"):
+        ledger["cycles"][existing_cycle]["state"]=resumable_state
+        (root/"ledger.json").write_text(json.dumps(ledger))
+        resumed_state=run(accepted_state=state,raw_root=raw_root,workspace_root=root/"candidates",
+          ledger_path=root/"ledger.json",evidence_root=root/"evidence",catalog=catalog,publisher=publisher,
+          repository_root=Path("."),git_sha="fixture")
+        assert resumed_state["cycle_id"]==first["cycle_id"]
+        assert resumed_state["candidate_artifact_id"]==first["candidate_artifact_id"]
+        ledger=json.loads((root/"ledger.json").read_text())
+        assert ledger["cycles"][existing_cycle]["state"]=="candidate_ready"
+
+    # A separately registered newer drop remains discoverable after its inbox
+    # registration command has cleared incoming.  It must win over the older
+    # candidate-ready cycle without changing accepted state or its pointer.
+    september=raw_root/"drops"/"2026-09"; september.mkdir()
+    for family in FAMILIES: raw(september/f"redfin_{names[family]}.csv","2026-09")
+    register_drop("2026-09",raw_root)
+    discovered=run(accepted_state=state,raw_root=raw_root,workspace_root=root/"candidates",
+      ledger_path=root/"ledger.json",evidence_root=root/"evidence",catalog=catalog,publisher=publisher,
+      repository_root=Path("."),git_sha="fixture")
+    assert discovered["provider_release_id"]=="2026-09"
+    assert discovered["cycle_id"].startswith("monthly_cycle__2026-09__")
+    assert digest(state)==accepted_before and catalog["accepted"]["source"]["redfin"]==prior_id
+
+    # An older unledgered registration cannot displace the newer applicable
+    # cycle.  The empty-inbox rerun resumes and reuses the exact September pin.
+    june=raw_root/"drops"/"2026-06"; june.mkdir()
+    for family in FAMILIES: raw(june/f"redfin_{names[family]}.csv","2026-06")
+    register_drop("2026-06",raw_root)
+    resumed=run(accepted_state=state,raw_root=raw_root,workspace_root=root/"candidates",
+      ledger_path=root/"ledger.json",evidence_root=root/"evidence",catalog=catalog,publisher=publisher,
+      repository_root=Path("."),git_sha="fixture")
+    assert resumed["cycle_id"]==discovered["cycle_id"]
+    assert resumed["candidate_artifact_id"]==discovered["candidate_artifact_id"]
+    assert resumed["package_sha256"]==discovered["package_sha256"]
+    assert digest(state)==accepted_before and catalog["accepted"]["source"]["redfin"]==prior_id
+
+    # Routine bootstrap is forbidden and auth failures are actionable before any remote work.
+    for family in FAMILIES: raw(raw_root/"incoming"/f"redfin_{names[family]}.csv","2026-10")
+    try:
+        run(accepted_state=root/"missing.duckdb",raw_root=raw_root,workspace_root=root/"other",
+          ledger_path=root/"other-ledger.json",evidence_root=root/"other-evidence",catalog=catalog,publisher=publisher)
+    except GovernanceError as exc: assert "never bootstrap" in str(exc)
+    else: raise AssertionError("missing accepted state was bootstrapped")
+    failed=json.loads((root/"other-ledger.json").read_text())
+    failed_cycle=next(iter(failed["cycles"].values()))
+    assert failed_cycle["drop_id"]=="2026-10" and failed_cycle["state"]=="failed_terminal"
+
+    # The explicit bootstrap compares parquet directly through the read-only
+    # accepted-state connection. Publication and catalog boundaries stay fake.
+    bootstrap_artifact=root/"bootstrap-artifact"; bootstrap_artifact.mkdir()
+    bootstrap_row={"geo_id":"fixture","metric_id":"inventory","date":pd.Timestamp("2026-07-31"),
+      "property_type_id":"all","value":42.0,"source_id":"redfin","property_type":"all"}
+    pd.DataFrame([bootstrap_row]).to_parquet(bootstrap_artifact/"data.parquet",index=False)
+    bootstrap_state=root/"bootstrap-accepted.duckdb"; con=duckdb.connect(str(bootstrap_state)); con.execute(STATE_SCHEMA)
+    con.execute("INSERT INTO canonical_redfin VALUES ('fixture','inventory','2026-07-31','all',42,'all','2026-07','2026-07',?,'baseline','prior-artifact','2026-07-31')",["b"*64]); con.close()
+    bootstrap_before=digest(bootstrap_state); bootstrap_manifest={"artifact_id":JULY_ARTIFACT_ID,
+      "data_sha256":JULY_DATA_SHA256,"target_month":"2026-07"}
+    catalog_fixture=BootstrapCatalogFixture(); publication_calls=[]
+    def bootstrap_publisher(*args, **kwargs):
+        publication_calls.append(args)
+        return {"publication_state":"published_verified","accepted_pointer_changed":False}
+    with patch("jobs.monthly_refresh.redfin.validate_artifact",
+               return_value={"manifest":bootstrap_manifest}), \
+         patch("jobs.monthly_refresh.redfin.publish_candidate",side_effect=bootstrap_publisher):
+        bootstrapped=bootstrap_accepted(artifact=bootstrap_artifact,accepted_state=bootstrap_state,
+          workspace=root/"bootstrap-publication",api=object(),cas=catalog_fixture,git_sha="fixture")
+        assert bootstrapped["bootstrap_operation"] and len(publication_calls)==1
+        assert catalog_fixture.activation_calls==1 and not bootstrapped["accepted_pointer_changed"]
+        assert digest(bootstrap_state)==bootstrap_before
+
+        changed=dict(bootstrap_row); changed["value"]=43.0
+        pd.DataFrame([changed]).to_parquet(bootstrap_artifact/"data.parquet",index=False)
+        try:
+            bootstrap_accepted(artifact=bootstrap_artifact,accepted_state=bootstrap_state,
+              workspace=root/"rejected-publication",api=object(),cas=catalog_fixture,git_sha="fixture")
+        except GovernanceError as exc: assert "does not reproduce" in str(exc)
+        else: raise AssertionError("mismatching bootstrap artifact passed parity validation")
+    assert len(publication_calls)==1 and catalog_fixture.activation_calls==1
+    assert digest(bootstrap_state)==bootstrap_before
+
+print("Smoke 173 Redfin monthly source runner passed")

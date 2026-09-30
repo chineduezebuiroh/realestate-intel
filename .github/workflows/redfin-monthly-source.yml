@@ -1,0 +1,48 @@
+name: Redfin governed cohort source
+on:
+  workflow_call:
+    inputs:
+      cycle_id: {required: true, type: string}
+      drop_id: {required: true, type: string}
+      invocation_mode: {required: true, type: string}
+      candidate_artifact_id: {required: true, type: string}
+    outputs:
+      result_json:
+        value: ${{ jobs.source.outputs.result_json }}
+  workflow_dispatch:
+    inputs:
+      cycle_id: {description: Deterministic cycle ID, required: true, type: string}
+      drop_id: {description: Registered governed drop ID, required: true, type: string}
+      invocation_mode:
+        description: Investigation mode
+        required: true
+        default: replay
+        type: choice
+        options: [replay, resume]
+      candidate_artifact_id: {description: Exact durable candidate artifact ID, required: true, type: string}
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    outputs:
+      result_json: ${{ steps.result.outputs.result_json }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install governed dependencies
+        run: pip install -r requirements.txt
+      - id: result
+        env:
+          CYCLE_ID: ${{ inputs.cycle_id }}
+          CANDIDATE_ARTIFACT_ID: ${{ inputs.candidate_artifact_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python -m jobs.monthly_refresh.redfin_resolver --cycle-id "$CYCLE_ID" --candidate-artifact-id "$CANDIDATE_ARTIFACT_ID" --output "$RUNNER_TEMP/result.json"
+          echo "result_json=$(jq -c . "$RUNNER_TEMP/result.json")" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/result.json" | tee -a "$GITHUB_STEP_SUMMARY"

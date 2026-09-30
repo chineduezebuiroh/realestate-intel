@@ -1,0 +1,749 @@
+{
+  "production_governed": false,
+  "runtime_consumed": false,
+  "schema_version": "source_refresh_revision_contract_candidate_v0_1",
+  "sources": [
+    {
+      "acquisition_mode_current": "manual seven full-history files",
+      "availability_detection_current": "registered target metadata exists",
+      "availability_detection_possible": "managed local inbox inspection",
+      "candidate_first_current": true,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "HIGH",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "fallback to July baseline only",
+      "current_overlap_behavior": "target wins over baseline",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "manual ignored raw files",
+        "local canonical DB"
+      ],
+      "github_actions_feasibility": "NO",
+      "governed_geography_scope": "nation|state|cbsa_metro|county|zip",
+      "governed_metric_scope": "11 registry metrics",
+      "historical_revision_behavior": "target can revise baseline overlap; intermediate post-baseline vintages not folded",
+      "monthly_blocking_policy": "waiting/block_analytics until target applied and valid",
+      "open_questions": [
+        "export rolling-window semantics",
+        "per-key ledger design",
+        "month inference"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "monthly",
+      "provider_vintage_lineage_current": "drop hashes/metadata; no durable per-key vintage ledger",
+      "raw_storage_current": "local immutable baseline and three recent raw drops",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "retain current raw policy plus durable normalized per-key vintage deltas/ledger",
+      "recommended_cloud_execution_model": "keep local by design; publish only downstream governed bundle",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "new-release full reconciliation",
+      "refresh_depth_current": "immutable July baseline plus one target snapshot",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [
+        "candidate Parquet",
+        "validation reports"
+      ],
+      "required_local_state": [
+        "seven operator downloads",
+        "immutable baseline",
+        "market.duckdb"
+      ],
+      "required_secrets": [],
+      "revision_evidence_source": "local raw baseline/drop files and hashes",
+      "rollback_current": true,
+      "source_family": "Redfin market data",
+      "source_id": "redfin",
+      "transaction_safety_current": "SAFE explicit transaction and rollback",
+      "used_by_current_macro_regime": true,
+      "validation_current": "baseline/drop/domain/candidate/coverage/serving lifecycle"
+    },
+    {
+      "acquisition_mode_current": "BLS v2 API from generated series spec",
+      "availability_detection_current": "none",
+      "availability_detection_possible": "latest-period/metadata query; verify externally",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "MEDIUM",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "full deletes all CES; incremental deletes missing dates inside staged key window",
+      "current_overlap_behavior": "response wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "canonical DB unavailable",
+        "workflow/module inconsistencies",
+        "no artifact publication"
+      ],
+      "github_actions_feasibility": "YES WITH CHANGES",
+      "governed_geography_scope": "state|cbsa_metro",
+      "governed_metric_scope": "3 employment metrics",
+      "historical_revision_behavior": "ordinary response overlap can replace prior values; provider rules unverified",
+      "monthly_blocking_policy": "block_publication on detected-release ingest/validation failure; warning within governed lag",
+      "open_questions": [
+        "benchmark revision window",
+        "release metadata endpoint"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "monthly",
+      "provider_vintage_lineage_current": "none",
+      "raw_storage_current": "none; ephemeral BLS metadata only",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "immutable normalized response plus request/release/spec hashes",
+      "recommended_cloud_execution_model": "publish immutable normalized source artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "monthly overlap plus annual deep reconciliation",
+      "refresh_depth_current": "full ~60 years or incremental 3-year overlap",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [
+        "tracked ces_series.generated.csv; regenerable BLS lookup cache"
+      ],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [
+        "BLS_API_KEY optional/configured"
+      ],
+      "revision_evidence_source": "none retained",
+      "rollback_current": false,
+      "source_family": "BLS CES",
+      "source_id": "ces",
+      "transaction_safety_current": "UNSAFE delete and insert without explicit transaction",
+      "used_by_current_macro_regime": true,
+      "validation_current": "generated-series coverage and continuity after mutation"
+    },
+    {
+      "acquisition_mode_current": "BLS v2 API with bulk-file fallback",
+      "availability_detection_current": "none",
+      "availability_detection_possible": "latest-period/metadata query; verify externally",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "MEDIUM",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "missing dates in staged series/window deleted; wholly absent series preserved",
+      "current_overlap_behavior": "response wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "canonical DB unavailable",
+        "bulk fallback/cache",
+        "no artifact publication"
+      ],
+      "github_actions_feasibility": "YES WITH CHANGES",
+      "governed_geography_scope": "nation|state|cbsa_metro|county",
+      "governed_metric_scope": "4 labor metrics",
+      "historical_revision_behavior": "overlap replacement and possible series remap; provider rules unverified",
+      "monthly_blocking_policy": "block_publication on detected-release failure; warning within governed lag",
+      "open_questions": [
+        "annual revisions",
+        "series retraction/remap semantics"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "monthly",
+      "provider_vintage_lineage_current": "none",
+      "raw_storage_current": "ephemeral config/bls cache",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "normalized response plus selected-series and release identity",
+      "recommended_cloud_execution_model": "publish immutable normalized source artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "monthly overlap plus annual deep reconciliation",
+      "refresh_depth_current": "full 1976-current or incremental 3-year overlap",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [
+        "tracked LAUS specs; regenerable BLS cache"
+      ],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [
+        "BLS_API_KEY optional/configured"
+      ],
+      "revision_evidence_source": "none retained",
+      "rollback_current": false,
+      "source_family": "BLS LAUS",
+      "source_id": "laus",
+      "transaction_safety_current": "UNSAFE delete/insert without explicit transaction",
+      "used_by_current_macro_regime": true,
+      "validation_current": "expected metric/geo and continuity after mutation"
+    },
+    {
+      "acquisition_mode_current": "latest compiled ZIP discovery/download",
+      "availability_detection_current": "directory filename discovery",
+      "availability_detection_possible": "cheap existing directory discovery",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "MEDIUM",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "entire final slice deleted",
+      "current_overlap_behavior": "new snapshot wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "canonical DB unavailable",
+        "mutable intermediates",
+        "no artifact publication"
+      ],
+      "github_actions_feasibility": "YES WITH CHANGES",
+      "governed_geography_scope": "state|county|place",
+      "governed_metric_scope": "5 permit metrics",
+      "historical_revision_behavior": "snapshot may revise prior observations; external confirmation required",
+      "monthly_blocking_policy": "final blocks on required release failure; provisional warning unless combined coverage stale",
+      "open_questions": [
+        "omission/suppression/retraction semantics",
+        "release schema stability"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "monthly",
+      "provider_vintage_lineage_current": "URL period only; no immutable archive",
+      "raw_storage_current": "overwritten data/census intermediates",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "immutable normalized release snapshot with URL/hash",
+      "recommended_cloud_execution_model": "publish immutable normalized source artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "new-release full reconciliation",
+      "refresh_depth_current": "full compiled snapshot",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [
+        "raw and normalized BPS CSV"
+      ],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [],
+      "revision_evidence_source": "mutable downloaded/raw CSV only",
+      "rollback_current": false,
+      "source_family": "Census BPS final",
+      "source_id": "census_bps",
+      "transaction_safety_current": "UNSAFE source delete then insert",
+      "used_by_current_macro_regime": true,
+      "validation_current": "ingest schema/conflict checks; no comprehensive post-DB validator"
+    },
+    {
+      "acquisition_mode_current": "HTML discovery of current per-level text files",
+      "availability_detection_current": "directory filename discovery",
+      "availability_detection_possible": "cheap existing directory discovery",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "LOW",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "entire provisional slice deleted",
+      "current_overlap_behavior": "new snapshot wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "canonical DB unavailable",
+        "mutable intermediates",
+        "provisional discovery not governed"
+      ],
+      "github_actions_feasibility": "UNKNOWN / YES WITH CHANGES",
+      "governed_geography_scope": "configured state|county|CBSA",
+      "governed_metric_scope": "provisional BPS metrics",
+      "historical_revision_behavior": "snapshot may revise prior observations; external confirmation required",
+      "monthly_blocking_policy": "final blocks on required release failure; provisional warning unless combined coverage stale",
+      "open_questions": [
+        "omission/suppression/retraction semantics",
+        "release schema stability"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "monthly",
+      "provider_vintage_lineage_current": "URL period only; no immutable archive",
+      "raw_storage_current": "overwritten data/census intermediates",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "immutable normalized release snapshot with URL/hash",
+      "recommended_cloud_execution_model": "publish immutable normalized source artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "new-release full reconciliation",
+      "refresh_depth_current": "current provisional payload",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [
+        "raw and normalized BPS CSV"
+      ],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [],
+      "revision_evidence_source": "mutable downloaded/raw CSV only",
+      "rollback_current": false,
+      "source_family": "Census BPS provisional",
+      "source_id": "census_bps_provisional",
+      "transaction_safety_current": "UNSAFE source delete then insert",
+      "used_by_current_macro_regime": false,
+      "validation_current": "conservative schema/discovery checks; optional merged view"
+    },
+    {
+      "acquisition_mode_current": "Census API acs/acs1 by plan year/geo",
+      "availability_detection_current": "locally assumes current year minus two",
+      "availability_detection_possible": "Census dataset metadata/latest available year",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "MEDIUM",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "unstaged keys preserved",
+      "current_overlap_behavior": "staged API value wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "Census secret",
+        "generated untracked plan",
+        "canonical DB unavailable"
+      ],
+      "github_actions_feasibility": "YES WITH CHANGES",
+      "governed_geography_scope": "nation|state|county|cbsa_metro",
+      "governed_metric_scope": "population and median household income",
+      "historical_revision_behavior": "API year overlap replaces values; release/vintage rules unverified",
+      "monthly_blocking_policy": "no_new_release_expected between releases; block_publication after detected release failure/stale lag",
+      "open_questions": [
+        "historical API-year mutability",
+        "release identity"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "annual",
+      "provider_vintage_lineage_current": "plan vintage only; not persisted to fact",
+      "raw_storage_current": "overwritten data/census raw CSV",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "immutable normalized annual release plus query plan/request identity",
+      "recommended_cloud_execution_model": "monthly metadata check; publish normalized annual release artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "new-release full governed-year reconciliation",
+      "refresh_depth_current": "incremental latest ten years; full configured history",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [
+        "ACS query plan",
+        "raw CSV"
+      ],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [
+        "CENSUS_API_KEY"
+      ],
+      "revision_evidence_source": "raw contains plan vintage but is overwritten",
+      "rollback_current": false,
+      "source_family": "Census ACS 1-year",
+      "source_id": "census_acs1",
+      "transaction_safety_current": "UNSAFE key delete/insert without explicit transaction",
+      "used_by_current_macro_regime": true,
+      "validation_current": "year-end, duplicate and nonempty checks after mutation"
+    },
+    {
+      "acquisition_mode_current": "Census API acs/acs5 by plan year/geo",
+      "availability_detection_current": "locally assumes current year minus two",
+      "availability_detection_possible": "Census dataset metadata/latest available year",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "MEDIUM",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "unstaged keys preserved",
+      "current_overlap_behavior": "staged API value wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "Census secret",
+        "generated untracked plan",
+        "canonical DB unavailable"
+      ],
+      "github_actions_feasibility": "YES WITH CHANGES",
+      "governed_geography_scope": "nation|state|county|cbsa_metro",
+      "governed_metric_scope": "population and median household income",
+      "historical_revision_behavior": "API year overlap replaces values; release/vintage rules unverified",
+      "monthly_blocking_policy": "no_new_release_expected between releases; block_publication after detected release failure/stale lag",
+      "open_questions": [
+        "historical API-year mutability",
+        "release identity"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "annual",
+      "provider_vintage_lineage_current": "plan vintage only; not persisted to fact",
+      "raw_storage_current": "overwritten data/census raw CSV",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "immutable normalized annual release plus query plan/request identity",
+      "recommended_cloud_execution_model": "monthly metadata check; publish normalized annual release artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "new-release full governed-year reconciliation",
+      "refresh_depth_current": "incremental latest ten years; full configured history",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [
+        "ACS query plan",
+        "raw CSV"
+      ],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [
+        "CENSUS_API_KEY"
+      ],
+      "revision_evidence_source": "raw contains plan vintage but is overwritten",
+      "rollback_current": false,
+      "source_family": "Census ACS 5-year",
+      "source_id": "census_acs5",
+      "transaction_safety_current": "UNSAFE key delete/insert without explicit transaction",
+      "used_by_current_macro_regime": true,
+      "validation_current": "year-end, duplicate and nonempty checks after mutation"
+    },
+    {
+      "acquisition_mode_current": "ordinary fredapi get_series (not ALFRED)",
+      "availability_detection_current": "none; full get_series is the check",
+      "availability_detection_possible": "bounded last observation or release metadata; verify API",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "MEDIUM",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "unstaged keys preserved",
+      "current_overlap_behavior": "current ordinary observation wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "FRED secret",
+        "canonical DB unavailable",
+        "missing key currently silently skips"
+      ],
+      "github_actions_feasibility": "YES WITH CHANGES",
+      "governed_geography_scope": "nation",
+      "governed_metric_scope": "8 rates/yields/spread/CPI metrics",
+      "historical_revision_behavior": "current response can overwrite overlap; no realtime/vintage chronology",
+      "monthly_blocking_policy": "missing secret or required detected-release failure blocks publication",
+      "open_questions": [
+        "ordinary endpoint revision semantics",
+        "ALFRED/release metadata use"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "mixed daily/weekly/monthly",
+      "provider_vintage_lineage_current": "none; no realtime_start/realtime_end",
+      "raw_storage_current": "none",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "normalized response plus retrieval/series/request hash",
+      "recommended_cloud_execution_model": "publish immutable normalized source artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "monthly full ordinary-series reconciliation; deeper vintage policy TBD",
+      "refresh_depth_current": "full current series",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [
+        "FRED_API_KEY"
+      ],
+      "revision_evidence_source": "none",
+      "rollback_current": false,
+      "source_family": "FRED macro",
+      "source_id": "fred_macro",
+      "transaction_safety_current": "UNSAFE key delete/insert without explicit transaction",
+      "used_by_current_macro_regime": true,
+      "validation_current": "summary only; no governed source-specific post-validator"
+    },
+    {
+      "acquisition_mode_current": "ordinary fredapi get_series (not ALFRED)",
+      "availability_detection_current": "none; full get_series is the check",
+      "availability_detection_possible": "bounded last observation or release metadata; verify API",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "MEDIUM",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "unstaged keys preserved",
+      "current_overlap_behavior": "current ordinary observation wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "FRED secret",
+        "canonical DB unavailable",
+        "missing key currently silently skips"
+      ],
+      "github_actions_feasibility": "YES WITH CHANGES",
+      "governed_geography_scope": "nation|state",
+      "governed_metric_scope": "unemployment rate SA",
+      "historical_revision_behavior": "current response can overwrite overlap; no realtime/vintage chronology",
+      "monthly_blocking_policy": "missing secret or required detected-release failure blocks publication",
+      "open_questions": [
+        "ordinary endpoint revision semantics",
+        "ALFRED/release metadata use"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "monthly",
+      "provider_vintage_lineage_current": "none; no realtime_start/realtime_end",
+      "raw_storage_current": "none",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "normalized response plus retrieval/series/request hash",
+      "recommended_cloud_execution_model": "publish immutable normalized source artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "monthly full ordinary-series reconciliation; deeper vintage policy TBD",
+      "refresh_depth_current": "full current series",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [
+        "FRED_API_KEY"
+      ],
+      "revision_evidence_source": "none",
+      "rollback_current": false,
+      "source_family": "FRED unemployment",
+      "source_id": "fred_unemp",
+      "transaction_safety_current": "UNSAFE key delete/insert without explicit transaction",
+      "used_by_current_macro_regime": true,
+      "validation_current": "summary only; no governed source-specific post-validator"
+    },
+    {
+      "acquisition_mode_current": "BEA Regional SQGDP9, line 1, Year=ALL",
+      "availability_detection_current": "none",
+      "availability_detection_possible": "latest-year query or release metadata; verify API",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "MEDIUM",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "unstaged keys preserved",
+      "current_overlap_behavior": "current response wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "BEA secret",
+        "canonical DB unavailable",
+        "no artifact publication"
+      ],
+      "github_actions_feasibility": "YES WITH CHANGES",
+      "governed_geography_scope": "nation|state",
+      "governed_metric_scope": "quarterly real GDP",
+      "historical_revision_behavior": "overlap replaced; benchmark/release behavior requires provider evidence",
+      "monthly_blocking_policy": "no_new_release_expected between releases; block_publication after release failure/stale lag",
+      "open_questions": [
+        "benchmark revisions",
+        "release metadata endpoint"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "quarterly",
+      "provider_vintage_lineage_current": "table/line retained; no release identity",
+      "raw_storage_current": "overwritten data/bea CSV",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "immutable normalized release with request/table/line/release metadata",
+      "recommended_cloud_execution_model": "publish immutable normalized source artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "new-release full reconciliation",
+      "refresh_depth_current": "all provider-returned history",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [
+        "normalized BEA raw CSV"
+      ],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [
+        "BEA_API_KEY or BEA_API_USER_ID"
+      ],
+      "revision_evidence_source": "mutable normalized raw CSV only",
+      "rollback_current": false,
+      "source_family": "BEA Regional GDP",
+      "source_id": "bea_gdp_qtr",
+      "transaction_safety_current": "UNSAFE key delete/insert without explicit transaction",
+      "used_by_current_macro_regime": true,
+      "validation_current": "summary only; no dedicated governed validator"
+    },
+    {
+      "acquisition_mode_current": "BEA Regional CAGDP9, line 1, Year=ALL",
+      "availability_detection_current": "none",
+      "availability_detection_possible": "latest-year query or release metadata; verify API",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "MEDIUM",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "unstaged keys preserved",
+      "current_overlap_behavior": "current response wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "BEA secret",
+        "canonical DB unavailable",
+        "no artifact publication"
+      ],
+      "github_actions_feasibility": "YES WITH CHANGES",
+      "governed_geography_scope": "nation|state|county",
+      "governed_metric_scope": "annual real GDP",
+      "historical_revision_behavior": "overlap replaced; benchmark/release behavior requires provider evidence",
+      "monthly_blocking_policy": "no_new_release_expected between releases; block_publication after release failure/stale lag",
+      "open_questions": [
+        "benchmark revisions",
+        "release metadata endpoint"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "annual",
+      "provider_vintage_lineage_current": "table/line retained; no release identity",
+      "raw_storage_current": "overwritten data/bea CSV",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "immutable normalized release with request/table/line/release metadata",
+      "recommended_cloud_execution_model": "publish immutable normalized source artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "new-release full plus annual deep reconciliation",
+      "refresh_depth_current": "all provider-returned history",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [
+        "normalized BEA raw CSV"
+      ],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [
+        "BEA_API_KEY or BEA_API_USER_ID"
+      ],
+      "revision_evidence_source": "mutable normalized raw CSV only",
+      "rollback_current": false,
+      "source_family": "BEA Regional GDP",
+      "source_id": "bea_gdp_ann",
+      "transaction_safety_current": "UNSAFE key delete/insert without explicit transaction",
+      "used_by_current_macro_regime": true,
+      "validation_current": "summary only; no dedicated governed validator"
+    },
+    {
+      "acquisition_mode_current": "unauthenticated fredgraph.csv",
+      "availability_detection_current": "none; downloads all ten CSVs",
+      "availability_detection_possible": "bounded observation or release metadata; verify",
+      "candidate_first_current": false,
+      "canonical_key": [
+        "geo_id",
+        "metric_id",
+        "date",
+        "property_type_id"
+      ],
+      "check_cadence": "monthly",
+      "confidence": "MEDIUM",
+      "contract_status": "candidate; not production-governed; not consumed by runtime",
+      "current_absence_behavior": "unstaged keys preserved",
+      "current_overlap_behavior": "current response wins",
+      "external_verification_required": true,
+      "github_actions_blockers": [
+        "canonical DB unavailable",
+        "no artifact publication"
+      ],
+      "github_actions_feasibility": "YES WITH CHANGES",
+      "governed_geography_scope": "nation|four Census regions",
+      "governed_metric_scope": "housing starts and completions SAAR",
+      "historical_revision_behavior": "ordinary current histories may revise; release behavior unverified",
+      "monthly_blocking_policy": "block_publication on required detected-release failure beyond governed lag",
+      "open_questions": [
+        "Census/FRED revision linkage",
+        "release metadata"
+      ],
+      "periodic_reconciliation_needed": true,
+      "provider_publication_cadence": "monthly",
+      "provider_vintage_lineage_current": "none",
+      "raw_storage_current": "overwritten data/census/nrc_fred_raw_long.csv",
+      "recommended_absence_semantics": "preserve_prior",
+      "recommended_archive_policy": "normalized snapshot plus retrieval timestamp/series hashes and original-provider identity",
+      "recommended_cloud_execution_model": "publish immutable normalized source artifact",
+      "recommended_overlap_behavior": "newest_governed_provider_release_wins",
+      "recommended_reconciliation_policy": "monthly full reconciliation",
+      "refresh_depth_current": "full current series",
+      "required_committed_state": [
+        "config/geo_manifest.generated.csv",
+        "config/source_metric_registry.csv"
+      ],
+      "required_generated_state": [
+        "raw long CSV"
+      ],
+      "required_local_state": [
+        "canonical market.duckdb for canonical mutation"
+      ],
+      "required_secrets": [],
+      "revision_evidence_source": "overwritten raw long CSV",
+      "rollback_current": false,
+      "source_family": "Census NRC distributed through FRED",
+      "source_id": "census_nrc_fred",
+      "transaction_safety_current": "UNSAFE key delete/insert without explicit transaction",
+      "used_by_current_macro_regime": true,
+      "validation_current": "schema filtering only; no dedicated post-DB validator"
+    }
+  ],
+  "status": "candidate",
+  "universal_candidate": {
+    "absence_semantics": "preserve_prior_unless_explicit_retraction",
+    "check_cadence": "monthly",
+    "overlap_semantics": "newest_governed_provider_release_wins"
+  }
+}
