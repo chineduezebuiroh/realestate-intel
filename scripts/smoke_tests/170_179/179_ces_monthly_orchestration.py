@@ -31,9 +31,10 @@ with TemporaryDirectory() as td:
  assert failed['retryability']=='retryable'
 workflow=yaml.safe_load(Path('.github/workflows/monthly-refresh-production.yml').read_text())
 assert workflow['jobs']['ces']['needs']=='resolve-cycle'
-assert set(workflow['jobs']['barrier']['needs'])=={'resolve-cycle','redfin','fred','ces','laus','census-bps','census-bps-provisional','laus-satisfaction-repair'}
+assert set(workflow['jobs']['barrier']['needs'])=={'resolve-cycle','redfin','fred','fred-unemp','ces','laus','census-bps','census-bps-provisional','census-acs1','census-acs5','bea-gdp-qtr','bea-gdp-ann','census-nrc','laus-satisfaction-repair'}
 assert 'schedule' not in workflow.get(True,workflow.get('on'))
 source=yaml.safe_load(Path('.github/workflows/ces-monthly-source.yml').read_text())
 assert source.get(True,source.get('on'))['workflow_call']['secrets']['BLS_API_KEY']['required']
-text=Path('jobs/monthly_refresh/cohort.py').read_text(); assert '("redfin", "fred_macro", "ces", "laus", "census_bps", "census_bps_provisional")' in text
+registry=json.loads(Path('config/monthly_source_execution_registry.json').read_text())
+assert len([m for m in registry['members'] if m['required'] and m['hosted_cohort_enabled']]) == 12
 print('Smoke 179 CES monthly orchestration passed')

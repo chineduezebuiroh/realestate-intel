@@ -34,9 +34,14 @@ The versioned policy owns required sources, acquisition modes, workflow boundari
 timeouts, and promotion rules. Missing required results fail closed. Optional sources, when later
 introduced, must have an explicit exclusion policy and cannot silently change the required set.
 
+`timeout_minutes` and `max_attempts_per_cycle` are declarative policy metadata; the master does
+not currently enforce them through a generic timeout or retry controller. Source-specific
+workflows may implement narrower retry behavior (for example, bounded transient FRED acquisition
+retries), which does not imply generic automatic cycle retries.
+
 ## Execution and result interface
 
-The scheduled master performs the readiness check, creates/resumes the cycle ledger, and invokes
+The master performs the readiness check, creates/resumes the cycle ledger, and invokes
 source workflows. Independent nodes run in parallel; only declared dependency edges serialize.
 Each source workflow is also dispatchable alone and owns acquisition/reconciliation/validation,
 immutable publication, and durable verification—but in production candidate mode it MUST NOT move
@@ -296,8 +301,8 @@ attaches the independently resolved provider release, observation maximum, artif
 hashes, and prior identity to that unchanged cycle. Barrier readiness remains mandatory before any
 downstream progression.
 
-The Saturday readiness schedule remains intentionally disabled until the complete downstream
-commit path is governed and accepted. Adding a source consists of a reusable source workflow,
+The Saturday readiness schedule remains intentionally disabled pending a separate, explicit
+post-migration activation change. Adding a source consists of a reusable source workflow,
 policy membership, the common result contract, and one sibling fan-out job; barrier logic remains
 provider-neutral.
 
@@ -318,7 +323,6 @@ revalidate it against the catalog. They cannot synthesize trust. Hosted Redfin d
 only that compact package while FRED runs as a sibling. Barrier `ready` does not promote the cohort
 or consume its catalyst: consumption is written only by the later promotion transaction.
 
-The master temporarily has a path-filtered push trigger limited to
-`monthly-refresh-orchestration`, solely so the not-yet-default-branch workflow can receive hosted
-Phase 3B acceptance. Remove it once the workflow is registered on the default branch. No Saturday
-schedule is enabled. Future automated sources remain parallel reusable-workflow siblings.
+The master is registered on `main`, the sole ordinary production and control-plane authority.
+No branch-specific push trigger and no Saturday schedule is enabled. Future automated sources
+remain parallel reusable-workflow siblings.

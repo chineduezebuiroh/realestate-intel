@@ -30,24 +30,24 @@ replay=resolve_invocation(mode='replay',policy_path=policy,readiness=readiness,c
 
 def result(source,status='succeeded',retry='not_applicable'):
  return {'schema_version':'monthly_source_execution_result_v1','source_id':source,'cycle_id':ready['cycle_id'],'status':status,'candidate_artifact_id':'id-'+source,'artifact_content_hash':'b'*64,'package_sha256':'c'*64,'publication_state':'published_verified' if status=='succeeded' else 'not_published','validation_status':'passed' if status=='succeeded' else 'failed','provider_release_id':'release','observation_max':'2026-07-31','prior_artifact_id':'prior','source_change_detected':False,'retryability':retry,'accepted_pointer_changed':False,'evidence_uri':'artifact://evidence/'+source}
-r,f,c,l,b,p,x1,x5,q,a,n=(result(s) for s in ('redfin','fred_macro','ces','laus','census_bps','census_bps_provisional','census_acs1','census_acs5','bea_gdp_qtr','bea_gdp_ann','census_nrc'))
+r,f,u,c,l,b,p,x1,x5,q,a,n=(result(s) for s in ('redfin','fred_macro','fred_unemp','ces','laus','census_bps','census_bps_provisional','census_acs1','census_acs5','bea_gdp_qtr','bea_gdp_ann','census_nrc'))
 f['observation_max']='2026-08-31'
-ev=barrier_evidence(cycle=replay,results=[r,f,c,l,b,p,x1,x5,q,a,n],pins=None,github={'run_id':'fixture'})
+ev=barrier_evidence(cycle=replay,results=[r,f,u,c,l,b,p,x1,x5,q,a,n],pins=None,github={'run_id':'fixture'})
 assert ev['barrier_status']=='ready' and not ev['source_set_created'] and not ev['accepted_pointers_advanced'] and not ev['redfin_consumption_committed']
 assert ev['reused_source_ids']==[] and ev['retry_source_ids']==[]
 assert ev['cycle_id']==ready['cycle_id'] and next(x for x in ev['candidates'] if x['source_id']=='fred_macro')['observation_max']=='2026-08-31'
 # Reuse evidence follows the explicit validated resume-pin path, not unchanged
 # artifact content returned by a source job.
 fresh_unchanged_fred=dict(f); fresh_unchanged_fred['prior_artifact_id']=fresh_unchanged_fred['candidate_artifact_id']
-one_reused=barrier_evidence(cycle=replay,results=[fresh_unchanged_fred,c,l,b,p,x1,x5,q,a,n],reused_results=[r],pins=None,github={})
+one_reused=barrier_evidence(cycle=replay,results=[fresh_unchanged_fred,u,c,l,b,p,x1,x5,q,a,n],reused_results=[r],pins=None,github={})
 assert one_reused['reused_source_ids']==['redfin'] and one_reused['retry_source_ids']==[]
 assert fresh_unchanged_fred['prior_artifact_id']==fresh_unchanged_fred['candidate_artifact_id']
 assert not fresh_unchanged_fred['source_change_detected']
 assert 'fred_macro' not in one_reused['reused_source_ids']
-both_reused=barrier_evidence(cycle=replay,results=[],reused_results=[r,f,c,l,b,p,x1,x5,q,a,n],pins=None,github={})
-assert both_reused['reused_source_ids']==['bea_gdp_ann','bea_gdp_qtr','census_acs1','census_acs5','census_bps','census_bps_provisional','census_nrc','ces','fred_macro','laus','redfin']
+both_reused=barrier_evidence(cycle=replay,results=[],reused_results=[r,f,u,c,l,b,p,x1,x5,q,a,n],pins=None,github={})
+assert both_reused['reused_source_ids']==['bea_gdp_ann','bea_gdp_qtr','census_acs1','census_acs5','census_bps','census_bps_provisional','census_nrc','ces','fred_macro','fred_unemp','laus','redfin']
 unchanged_redfin=dict(r); unchanged_redfin['prior_artifact_id']=unchanged_redfin['candidate_artifact_id']
-normal_unchanged=barrier_evidence(cycle=replay,results=[unchanged_redfin,f,c,l,b,p,x1,x5,q,a,n],pins=None,github={})
+normal_unchanged=barrier_evidence(cycle=replay,results=[unchanged_redfin,f,u,c,l,b,p,x1,x5,q,a,n],pins=None,github={})
 assert normal_unchanged['barrier_status']=='ready' and normal_unchanged['reused_source_ids']==[]
 retry=result('fred_macro','failed','retryable'); assert evaluate_barrier(expected_cycle_id=ready['cycle_id'],required_source_ids=('redfin','fred_macro'),results=[r,retry]).status=='incomplete_retryable'
 terminal=result('redfin','failed','terminal'); assert evaluate_barrier(expected_cycle_id=ready['cycle_id'],required_source_ids=('redfin','fred_macro'),results=[terminal,f]).status=='failed_terminal'
@@ -124,11 +124,11 @@ with TemporaryDirectory() as td:
  assert missing_run['status']=='failed' and missing_run['retryability']=='terminal'
  resume_failure=barrier_evidence(cycle=replay,results=[publication_transient],reused_results=[r],pins=None,github={})
  assert resume_failure['barrier_status']=='incomplete_retryable'
- assert resume_failure['reused_source_ids']==['redfin'] and resume_failure['retry_source_ids']==['bea_gdp_ann','bea_gdp_qtr','census_acs1','census_acs5','census_bps','census_bps_provisional','census_nrc','ces','fred_macro','laus']
+ assert resume_failure['reused_source_ids']==['redfin'] and resume_failure['retry_source_ids']==['bea_gdp_ann','bea_gdp_qtr','census_acs1','census_acs5','census_bps','census_bps_provisional','census_nrc','ces','fred_macro','fred_unemp','laus']
 workflow_text=Path('.github/workflows/monthly-refresh-production.yml').read_text(); workflow=yaml.safe_load(workflow_text)
 # PyYAML parses the YAML 1.1 key `on` as boolean True.
 triggers=workflow.get(True,workflow.get('on')); assert set(triggers)=={'workflow_dispatch'}
-assert 'always()' in workflow['jobs']['barrier']['if']; assert set(workflow['jobs']['barrier']['needs'])=={'resolve-cycle','redfin','fred','ces','laus','census-bps','census-bps-provisional','census-acs1','census-acs5','bea-gdp-qtr','census-nrc','bea-gdp-ann','laus-satisfaction-repair'}
+assert 'always()' in workflow['jobs']['barrier']['if']; assert set(workflow['jobs']['barrier']['needs'])=={'resolve-cycle','redfin','fred','fred-unemp','ces','laus','census-bps','census-bps-provisional','census-acs1','census-acs5','bea-gdp-qtr','census-nrc','bea-gdp-ann','laus-satisfaction-repair'}
 family_condition="${{ !cancelled() && needs.resolve-cycle.result == 'success' && needs.barrier.result == 'success' }}"
 assert workflow['jobs']['resolve-bps-family']['if']==family_condition
 assert workflow['jobs']['resolve-acs-family']['if']==family_condition
