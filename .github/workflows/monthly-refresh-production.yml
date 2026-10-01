@@ -26,6 +26,7 @@ jobs:
       cycle_id: ${{ steps.resolve.outputs.cycle_id }}
       target_month: ${{ steps.resolve.outputs.target_month }}
       drop_id: ${{ steps.resolve.outputs.drop_id }}
+      invocation_mode: ${{ steps.resolve.outputs.invocation_mode }}
       redfin_pin: ${{ steps.resolve.outputs.redfin_pin }}
       redfin_artifact_id: ${{ steps.resolve.outputs.redfin_artifact_id }}
       resume_redfin_result: ${{ steps.plan.outputs.resume_redfin_result }}
@@ -71,7 +72,9 @@ jobs:
         run: pip install -r requirements.txt
       - id: resolve
         env:
-          MODE: ${{ inputs.mode || 'normal' }}
+          # Scheduled readiness checks are structurally normal-only. Manual
+          # dispatch retains the governed normal/resume/replay selection.
+          MODE: ${{ github.event_name == 'schedule' && 'normal' || (inputs.mode || 'normal') }}
           SUPPLIED_CYCLE: ${{ inputs.cycle_id }}
         run: |
           args=(--mode "$MODE" --authority-root "$GITHUB_WORKSPACE/production-authority" --output "$RUNNER_TEMP/cycle.json")
@@ -82,6 +85,7 @@ jobs:
           echo "cycle_id=$(jq -r '.cycle_id // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
           echo "target_month=$(jq -r '.target_month // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
           echo "drop_id=$(jq -r '.drop_id // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
+          echo "invocation_mode=$(jq -r .invocation_mode "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
           echo "redfin_pin=$(jq -c '.redfin_candidate_pin // {}' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
           echo "redfin_artifact_id=$(jq -r '.redfin_candidate_pin.candidate_artifact_id // empty' "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
           echo "cycle_json=$(jq -c . "$RUNNER_TEMP/cycle.json")" >> "$GITHUB_OUTPUT"
@@ -103,7 +107,7 @@ jobs:
     with:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
       drop_id: ${{ needs.resolve-cycle.outputs.drop_id }}
-      invocation_mode: ${{ inputs.mode }}
+      invocation_mode: ${{ needs.resolve-cycle.outputs.invocation_mode }}
       candidate_artifact_id: ${{ needs.resolve-cycle.outputs.redfin_artifact_id }}
   fred:
     needs: resolve-cycle
@@ -120,7 +124,7 @@ jobs:
     uses: ./.github/workflows/fred-unemp-monthly-source.yml
     with:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
-      invocation_mode: ${{ inputs.mode || 'normal' }}
+      invocation_mode: ${{ needs.resolve-cycle.outputs.invocation_mode }}
     secrets: inherit
   ces:
     needs: resolve-cycle
@@ -139,7 +143,7 @@ jobs:
     with:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
       target_month: ${{ needs.resolve-cycle.outputs.target_month }}
-      invocation_mode: ${{ inputs.mode || 'normal' }}
+      invocation_mode: ${{ needs.resolve-cycle.outputs.invocation_mode }}
     secrets: inherit
   census-bps:
     needs: resolve-cycle
@@ -149,7 +153,7 @@ jobs:
     with:
       source_id: census_bps
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
-      invocation_mode: ${{ inputs.mode || 'normal' }}
+      invocation_mode: ${{ needs.resolve-cycle.outputs.invocation_mode }}
     secrets: inherit
   census-bps-provisional:
     needs: resolve-cycle
@@ -159,7 +163,7 @@ jobs:
     with:
       source_id: census_bps_provisional
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
-      invocation_mode: ${{ inputs.mode || 'normal' }}
+      invocation_mode: ${{ needs.resolve-cycle.outputs.invocation_mode }}
     secrets: inherit
   census-acs1:
     needs: resolve-cycle
@@ -169,7 +173,7 @@ jobs:
     with:
       source_id: census_acs1
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
-      invocation_mode: ${{ inputs.mode || 'normal' }}
+      invocation_mode: ${{ needs.resolve-cycle.outputs.invocation_mode }}
     secrets: inherit
   census-acs5:
     needs: resolve-cycle
@@ -179,7 +183,7 @@ jobs:
     with:
       source_id: census_acs5
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
-      invocation_mode: ${{ inputs.mode || 'normal' }}
+      invocation_mode: ${{ needs.resolve-cycle.outputs.invocation_mode }}
     secrets: inherit
   bea-gdp-qtr:
     needs: resolve-cycle
@@ -189,7 +193,7 @@ jobs:
     with:
       source_id: bea_gdp_qtr
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
-      invocation_mode: ${{ inputs.mode || 'normal' }}
+      invocation_mode: ${{ needs.resolve-cycle.outputs.invocation_mode }}
     secrets: inherit
   bea-gdp-ann:
     needs: resolve-cycle
@@ -199,7 +203,7 @@ jobs:
     with:
       source_id: bea_gdp_ann
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
-      invocation_mode: ${{ inputs.mode || 'normal' }}
+      invocation_mode: ${{ needs.resolve-cycle.outputs.invocation_mode }}
     secrets: inherit
   census-nrc:
     needs: resolve-cycle
@@ -208,11 +212,11 @@ jobs:
     uses: ./.github/workflows/nrc-monthly-source.yml
     with:
       cycle_id: ${{ needs.resolve-cycle.outputs.cycle_id }}
-      invocation_mode: ${{ inputs.mode || 'normal' }}
+      invocation_mode: ${{ needs.resolve-cycle.outputs.invocation_mode }}
     secrets: inherit
   laus-satisfaction-repair:
     needs: resolve-cycle
-    if: inputs.mode == 'resume' && needs.resolve-cycle.outputs.resume_laus_result != ''
+    if: needs.resolve-cycle.outputs.invocation_mode == 'resume' && needs.resolve-cycle.outputs.resume_laus_result != ''
     runs-on: ubuntu-latest
     permissions: {contents: write}
     env: {PYTHONPATH: .}
