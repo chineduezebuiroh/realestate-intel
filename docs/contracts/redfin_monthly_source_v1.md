@@ -19,9 +19,9 @@ returns `monthly_source_execution_result_v1`. It never assembles or promotes a
 source set/market, builds serving, runs Macro Regime, promotes local state, or
 moves `accepted.source.redfin`.
 
-Production is pinned to the governed repository. The producer code executes from
-`chineduezebuiroh/realestate-intel@monthly-refresh-orchestration`, while its
-durable catalog and readiness authority is `main`. Authentication
+Production is pinned to the governed repository. The producer code and its
+durable catalog and readiness authority execute from
+`chineduezebuiroh/realestate-intel@main`. Authentication
 comes from `gh auth token`; the token is neither printed nor persisted.
 
 ## Accepted state and bootstrap prerequisite

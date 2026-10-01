@@ -32,11 +32,10 @@ from sources.redfin.validate import validate_drop
 
 SOURCE_ID = "redfin"
 REPOSITORY = "chineduezebuiroh/realestate-intel"
-# The checkout containing this producer and the branch owning production state
-# are deliberately separate governance concepts.  Code may continue to execute
-# from the migration branch, while all durable control-plane CAS operations are
-# against the production authority.
-EXECUTION_BRANCH = "monthly-refresh-orchestration"
+# Ordinary producer code and durable control-plane state both execute from the
+# sole production authority branch.  Keep the constants separate because the
+# execution and CAS boundaries remain distinct governance concepts.
+EXECUTION_BRANCH = "main"
 DURABLE_AUTHORITY_BRANCH = "main"
 CATALOG_PATH = "config/artifact_catalog.json"
 READINESS_PATH = "config/monthly_refresh_readiness.json"

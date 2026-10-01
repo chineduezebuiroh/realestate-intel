@@ -26,8 +26,10 @@ CYCLE = "monthly_cycle__2026-07__7cab1c5df177a1e4"
 ROOT = Path("config/monthly_source_cycle_results") / CYCLE
 catalog = json.loads(Path("config/artifact_catalog.json").read_text())
 readiness = json.loads(Path("config/monthly_refresh_readiness.json").read_text())
+next(record for record in readiness["records"] if record["cycle_id"] == CYCLE)["consumed"] = False
 resolution = json.loads(Path("config/bps_family_resolutions/bps_family_resolution__457b5a17a73da623cfcfea08.json").read_text())
-results = [json.loads(path.read_text())["result"] for path in sorted(ROOT.glob("*.json"))]
+results = [json.loads(path.read_text())["result"] for path in sorted(ROOT.glob("*.json"))
+           if path.stem in {"census_bps", "census_bps_provisional", "ces", "fred_macro", "laus"}]
 republications = [json.loads(path.read_text()) for path in sorted(Path("config/monthly_source_republications",CYCLE).glob("*/*.json"))]
 
 # The live ACS objects remain on main and are not copied into this implementation
@@ -36,7 +38,7 @@ def acs_record(source, artifact_id, content, package, number):
     return {"object_type":"source", "object_id":artifact_id,
         "logical_artifact_uri":f"artifact://source/{source}/{artifact_id}",
         "remote_repository":"fixture/repo", "release_tag":f"source-artifact/{source}/{artifact_id}",
-        "release_id":900000+number, "asset_id":910000+number, "asset_filename":artifact_id+".tar",
+        "release_id":9900000+number, "asset_id":9910000+number, "asset_filename":artifact_id+".tar",
         "package_sha256":package, "artifact_content_hash":content,
         "publication_receipt_id":f"publication_receipt__acs_fixture_{number}",
         "publication_state":"published_immutable_verified", "metadata":{"source_id":source,
@@ -45,7 +47,7 @@ def acs_record(source, artifact_id, content, package, number):
 
 acs1_id="src__census_acs1__2024-12__r1__"+"1"*16
 acs5_id="src__census_acs5__2024-12__r1__"+"5"*16
-acs_id="src__acs__2024-12__r1__fce37b9e694903b0"
+acs_id="src__acs__2024-12__r1__dddddddddddddddd"
 acs_parents=[{"role":"acs1", "source_id":"census_acs1", "artifact_id":acs1_id,
     "artifact_content_hash":"1"*64, "package_sha256":"2"*64, "data_sha256":"3"*64},
     {"role":"acs5", "source_id":"census_acs5", "artifact_id":acs5_id,
@@ -66,10 +68,13 @@ acs_resolution={"schema_version":"acs_family_resolution_record_v1",
     "output_package_sha256":"8"*64, "diagnostics":{}, "accepted_pointer_changed":False,
     "source_set_created":False, "duckdb_mutated":False, "serving_db_mutated":False,
     "provider_discovery_performed":False}
-catalog["immutable_records"].extend([
+fixture_records = [
     acs_record("census_acs1",acs1_id,"1"*64,"2"*64,1),
     acs_record("census_acs5",acs5_id,"5"*64,"6"*64,2),
-    acs_record("acs",acs_id,acs_semantic["output_content_hash"],"8"*64,3)])
+    acs_record("acs",acs_id,acs_semantic["output_content_hash"],"8"*64,3)]
+existing_ids = {record["object_id"] for record in catalog["immutable_records"]}
+catalog["immutable_records"].extend(record for record in fixture_records
+                                    if record["object_id"] not in existing_ids)
 # BEA's two products are ordinary independent governed entries, not a family.
 for number, source in enumerate(("bea_gdp_ann", "bea_gdp_qtr"), 4):
     artifact_id = f"src__{source}__2026-03__r1__" + str(number) * 16
@@ -97,9 +102,9 @@ results.append({"schema_version":"monthly_source_execution_result_v1", "source_i
     "evidence_uri":fred_unemp_record["logical_artifact_uri"], "accepted_pointer_changed":False})
 # NRC is a direct physical entry. Its catalog evidence is the frozen parser,
 # metric, geography, unit, scale, and canonical-schema contract.
-nrc_id = "src__census_nrc__2026-08__r1__94a8e9dc77b9063b"
+nrc_id = "src__census_nrc__2026-08__r1__eeeeeeeeeeeeeeee"
 nrc_record = acs_record("census_nrc", nrc_id,
-    "94a8e9dc77b9063befc592de1f64678ac143bb4609307861ab075c37ff815982", "9"*64, 6)
+    "94a8e9dc77b9063befc592de1f64678ac143bb4609307861ab075c37ff815982", "9"*64, 11)
 nrc_record["metadata"].update({"source_contract_version":"census_nrc_workbook_parser_v2_governed_geo_openpyxl_3.1.5",
     "metric_inventory":["census_housing_completions_total_saar","census_housing_starts_total_saar"],
     "geography_inventory":["northeast_region__region","south_region__region","united_states__nation","west_region__region"],
@@ -258,7 +263,7 @@ with tempfile.TemporaryDirectory() as td:
     promotion = create_promotion_record(cycle_id=CYCLE, source_set_id=source_set["source_set_id"],
         source_set_semantic_sha256=ss_hash, canonical_artifact_id=market_id,
         canonical_artifact_hash=market_hash, expected_source_pointers=expected,
-        target_source_pointers=targets, expected_source_set=None,
+        target_source_pointers=targets, expected_source_set=working["accepted"].get("source_set"),
         expected_canonical=working["accepted"]["canonical_market"],
         readiness_id=readiness["records"][0]["readiness_id"], resolution_id=resolution["resolution_id"])
     assert add_promotion_record(None,promotion)[1]

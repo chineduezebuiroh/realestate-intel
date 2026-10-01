@@ -8,11 +8,8 @@ on:
         default: normal
         type: choice
         options: [normal, resume, replay]
-      redfin_drop_id: {description: Explicit registered drop ID (required for resume/replay), required: false, type: string}
-      redfin_drop_content_hash: {description: Explicit registered drop content SHA-256, required: false, type: string}
-      target_month: {description: Explicit target month YYYY-MM, required: false, type: string}
       cycle_id: {description: Explicit deterministic cycle ID (required for resume/replay), required: false, type: string}
-# Saturday readiness cron intentionally disabled until Phase 3C+ acceptance.
+# Saturday readiness cron intentionally disabled pending explicit post-migration activation.
 permissions:
   contents: read
 jobs:
