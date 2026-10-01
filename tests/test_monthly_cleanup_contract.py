@@ -67,9 +67,13 @@ def test_no_active_runtime_uses_retired_migration_branch():
     assert all('monthly-refresh-orchestration' not in path.read_text() for path in active)
 
 
-def test_schedule_remains_disabled_in_policy_and_workflow():
-    assert _json('config/monthly_refresh_policy.json')['schedule_policy']['enabled'] is False
-    assert 'schedule' not in _triggers(_workflow())
+def test_schedule_is_enabled_without_changing_its_policy_contract():
+    schedule = _json('config/monthly_refresh_policy.json')['schedule_policy']
+    assert schedule == {
+        'cadence': 'weekly_saturday_readiness_check',
+        'enabled': True,
+        'not_ready_behavior': 'successful_noop',
+    }
 
 
 def test_consumed_legacy_readiness_survives_new_policy_hash(tmp_path):
