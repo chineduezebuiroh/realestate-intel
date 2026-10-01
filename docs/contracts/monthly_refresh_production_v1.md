@@ -4,7 +4,7 @@
 > in [Redfin monthly source execution v1](redfin_monthly_source_v1.md), stopping
 > before this contract's barrier and cohort promotion.
 
-**Status:** normative design; no production schedule is enabled.
+**Status:** normative production contract; the weekly hosted readiness schedule is enabled.
 
 ## Identities, readiness, and inventory
 
@@ -259,10 +259,17 @@ matrix is compact but cannot dynamically call different reusable workflows and m
 retry/output handling awkward. Dispatch-and-poll weakens joins, needs broader tokens, and introduces
 API/race complexity. A monolithic script would erase source boundaries.
 
-Eventually enable one Saturday schedule (time chosen operationally) on the master only. Each check
-locks/reads the durable Redfin ledger: not ready exits successfully before secrets or acquisition;
-ready resumes/creates the deterministic cycle and fans out. Source workflows have manual dispatch,
-not independent routine schedules.
+The master has one weekly hosted readiness schedule: `0 2 * * 0`, which executes at 02:00 UTC
+Sunday. This is Saturday evening in U.S. Eastern time: 10:00 PM Saturday EDT and 9:00 PM Saturday
+EST. The seasonal one-hour local shift is intentional and accepted. This is a readiness/normal-cycle
+trigger, not an automatic production-promotion trigger. Each check reads the durable Redfin ledger:
+with no eligible Redfin catalyst it exits successfully before provider/source fan-out; with an
+eligible catalyst the existing governed normal source and cohort-plan path proceeds. Source
+workflows have manual dispatch, not independent routine schedules.
+
+Automated execution stops at logical cohort-plan persistence. Cohort acceptance/promotion remains
+a separate human-authorized operation, and serving promotion remains a separate, later
+human-authorized operation.
 
 ## Downstream boundary and responsibilities
 
@@ -301,10 +308,9 @@ attaches the independently resolved provider release, observation maximum, artif
 hashes, and prior identity to that unchanged cycle. Barrier readiness remains mandatory before any
 downstream progression.
 
-The Saturday readiness schedule remains intentionally disabled pending a separate, explicit
-post-migration activation change. Adding a source consists of a reusable source workflow,
-policy membership, the common result contract, and one sibling fan-out job; barrier logic remains
-provider-neutral.
+The enabled weekly schedule invokes only the governed `normal` readiness path. Adding a source
+consists of a reusable source workflow, policy membership, the common result contract, and one
+sibling fan-out job; barrier logic remains provider-neutral.
 
 ### Hosted Redfin durable candidate boundary
 
@@ -323,6 +329,7 @@ revalidate it against the catalog. They cannot synthesize trust. Hosted Redfin d
 only that compact package while FRED runs as a sibling. Barrier `ready` does not promote the cohort
 or consume its catalyst: consumption is written only by the later promotion transaction.
 
-The master is registered on `main`, the sole ordinary production and control-plane authority.
-No branch-specific push trigger and no Saturday schedule is enabled. Future automated sources
-remain parallel reusable-workflow siblings.
+The master is registered on `main`, the sole ordinary production and control-plane authority. It
+has no branch-specific push trigger; its sole schedule is the weekly Saturday-evening Eastern
+readiness check described above. Future automated sources remain parallel reusable-workflow
+siblings.

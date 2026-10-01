@@ -3,10 +3,34 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import json
+import yaml
+
 from jobs.monthly_refresh.cohort import resolve_invocation
 
 
 WORKFLOW = Path(".github/workflows/monthly-refresh-production.yml")
+
+
+def _workflow():
+    value = yaml.safe_load(WORKFLOW.read_text())
+    return value.get(True, value.get("on")), value["jobs"]
+
+
+def test_exact_weekly_readiness_trigger_and_policy_are_active():
+    triggers, _ = _workflow()
+    assert set(triggers) == {"workflow_dispatch", "schedule"}
+    assert triggers["schedule"] == [{"cron": "0 2 * * 0"}]
+    assert "push" not in triggers
+    assert set(triggers["workflow_dispatch"]["inputs"]) == {"mode", "cycle_id"}
+    assert triggers["workflow_dispatch"]["inputs"]["mode"]["default"] == "normal"
+
+    policy = json.loads(Path("config/monthly_refresh_policy.json").read_text())
+    assert policy["schedule_policy"] == {
+        "cadence": "weekly_saturday_readiness_check",
+        "enabled": True,
+        "not_ready_behavior": "successful_noop",
+    }
 
 
 def test_schedule_mode_is_structurally_normal_only_and_shared_by_all_callers():
@@ -53,3 +77,12 @@ def test_normal_no_eligible_redfin_remains_no_op(tmp_path: Path):
 
     assert value == {"status": "no_op", "reason": "no_eligible_redfin_catalyst",
                      "fan_out": False, "invocation_mode": "normal"}
+
+    # Every provider/source and downstream job is gated behind fan_out, either
+    # directly or through the barrier, so this resolution cannot progress.
+    _, jobs = _workflow()
+    assert all("fan_out == 'true'" in jobs[name]["if"] for name in (
+        "redfin", "fred", "fred-unemp", "ces", "laus", "census-bps",
+        "census-bps-provisional", "census-acs1", "census-acs5",
+        "bea-gdp-qtr", "bea-gdp-ann", "census-nrc"))
+    assert "fan_out == 'true'" in jobs["barrier"]["if"]

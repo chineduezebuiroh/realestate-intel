@@ -127,7 +127,8 @@ with TemporaryDirectory() as td:
  assert resume_failure['reused_source_ids']==['redfin'] and resume_failure['retry_source_ids']==['bea_gdp_ann','bea_gdp_qtr','census_acs1','census_acs5','census_bps','census_bps_provisional','census_nrc','ces','fred_macro','fred_unemp','laus']
 workflow_text=Path('.github/workflows/monthly-refresh-production.yml').read_text(); workflow=yaml.safe_load(workflow_text)
 # PyYAML parses the YAML 1.1 key `on` as boolean True.
-triggers=workflow.get(True,workflow.get('on')); assert set(triggers)=={'workflow_dispatch'}
+triggers=workflow.get(True,workflow.get('on')); assert set(triggers)=={'workflow_dispatch','schedule'}
+assert triggers['schedule']==[{'cron':'0 2 * * 0'}]
 assert 'always()' in workflow['jobs']['barrier']['if']; assert set(workflow['jobs']['barrier']['needs'])=={'resolve-cycle','redfin','fred','fred-unemp','ces','laus','census-bps','census-bps-provisional','census-acs1','census-acs5','bea-gdp-qtr','census-nrc','bea-gdp-ann','laus-satisfaction-repair'}
 family_condition="${{ !cancelled() && needs.resolve-cycle.result == 'success' && needs.barrier.result == 'success' }}"
 assert workflow['jobs']['resolve-bps-family']['if']==family_condition

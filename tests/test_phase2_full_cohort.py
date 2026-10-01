@@ -131,9 +131,9 @@ def test_master_post_barrier_jobs_override_skips_and_fail_closed():
     triggers = workflow.get(True, workflow.get("on"))
     jobs = workflow["jobs"]
 
-    assert set(triggers) == {"workflow_dispatch"}
+    assert set(triggers) == {"workflow_dispatch", "schedule"}
     assert "push" not in triggers
-    assert "schedule" not in triggers
+    assert triggers["schedule"] == [{"cron": "0 2 * * 0"}]
 
     expected_family_condition = (
         "${{ !cancelled() && needs.resolve-cycle.result == 'success' && "

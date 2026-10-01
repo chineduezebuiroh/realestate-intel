@@ -3,7 +3,7 @@
   "orchestration_mode": "cohort_controlled_production",
   "schedule_policy": {
     "cadence": "weekly_saturday_readiness_check",
-    "enabled": false,
+    "enabled": true,
     "not_ready_behavior": "successful_noop"
   },
   "cycle_identity_fields": [
