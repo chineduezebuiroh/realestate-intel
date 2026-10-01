@@ -201,7 +201,8 @@ def main() -> int:
     evidence = json.loads(args.source_evidence.read_text()) if args.source_evidence else None
     record = governed_record(json.loads(args.result.read_text()), json.loads(args.policy.read_text()), catalog,
                              source_evidence=evidence)
-    stored, changed = GitHubCycleResultStore(api, args.branch).put(record)
+    store = GitHubCycleResultStore(api, args.branch)
+    stored, changed = store.put(record)
     receipt = {"schema_version": "monthly_source_cycle_result_recording_receipt_v1",
                "cycle_id": stored["cycle_id"], "source_id": stored["source_id"],
                "record_path": record_path(stored["cycle_id"], stored["source_id"]),
