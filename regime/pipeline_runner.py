@@ -34,6 +34,7 @@ from regime.validation import (
 )
 from regime.freshness import evaluate_derived_input_freshness
 from regime.smoothing_run import apply_smoothing_experiment
+from regime.serving_input import load_serving_input
 
 
 DEFAULT_CONFIG_PATHS = [
@@ -174,6 +175,7 @@ def run_regime_pipeline(
     validation_geo_ids: list[str] | None = None,
     serving_db_path: str | Path = "data/market_serving.duckdb",
     run_metadata: dict[str, Any] | None = None,
+    expected_serving_db_sha256: str | None = None,
     smoothing_experiment_id: (
         str | None
     ) = None,
@@ -196,9 +198,16 @@ def run_regime_pipeline(
             f"Serving database not found: {serving_db_path}"
         )
 
+    config = load_regime_config(validate=True)
+    serving_input = load_serving_input(
+        config, serving_db_path,
+        expected_sha256=expected_serving_db_sha256,
+        require_scoring_inputs=True,
+    )
     store = RegimeArtifactStore(artifact_root)
 
     metadata: dict[str, Any] = {
+        **serving_input.provenance,
         "pipeline_version": "C4.3b_v1",
         "started_at_utc": _utc_now_iso(),
         "serving_db_path": str(serving_db_path),
@@ -209,6 +218,14 @@ def run_regime_pipeline(
     }
 
     if run_metadata:
+        reserved = set(metadata) | {
+            "completed_at_utc", "failed_at_utc", "stage_summaries",
+            "error_type", "error_message", "traceback",
+            "run_id", "experiment_id", "status", "artifacts",
+        }
+        conflicts = reserved & set(run_metadata)
+        if conflicts:
+            raise ValueError(f"Run metadata overrides reserved provenance: {sorted(conflicts)}")
         metadata.update(run_metadata)
 
     store.initialize_run(
@@ -233,6 +250,7 @@ def run_regime_pipeline(
             build_canonical_source_metrics_with_lineage(
                 config=config,
                 db_path=serving_db_path,
+                serving_observations=serving_input.observations,
             )
         )
 

@@ -9,7 +9,7 @@ import numpy as np
 
 from regime._00_config_loader import RegimeConfig, load_regime_config
 from regime.derived_metrics import build_derived_metrics_with_lineage
-from regime.canonical_metrics import resolve_canonical_metrics
+from regime.serving_input import load_serving_input
 from regime.calendar_ma import calendar_moving_average, calendarize_comparable_series
 
 
@@ -357,6 +357,8 @@ def _validate_canonical_source_metrics(
 def build_canonical_source_metrics_with_lineage(
     config: RegimeConfig | None = None,
     db_path: str | Path = SERVING_DB,
+    *,
+    serving_observations: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Build the immutable canonical pre-feature observation frame and
@@ -370,49 +372,10 @@ def build_canonical_source_metrics_with_lineage(
             validate=True
         )
 
-    raw_source = load_raw_metric_series(
-        config,
-        db_path=db_path,
-    )
-
     canonical_source = (
-        resolve_canonical_metrics(
-            raw_source,
-            config,
-        )
-        .copy()
-    )
-
-    required_source_columns = {
-        "geo_id",
-        "date",
-        "canonical_metric_key",
-        "value",
-        "source_metric_key",
-    }
-
-    required_derived_columns = {
-        "geo_id",
-        "date",
-        "canonical_metric_key",
-        "value",
-    }
-
-    missing_source_columns = (
-        required_source_columns
-        - set(canonical_source.columns)
-    )
-
-    if missing_source_columns:
-        raise ValueError(
-            "Canonical metric resolution is missing "
-            f"columns: {sorted(missing_source_columns)}"
-        )
-
-    canonical_source["metric_origin"] = (
-        canonical_source["source_metric_key"]
-        .astype(str)
-        .str.strip()
+        load_serving_input(config, db_path).observations
+        if serving_observations is None
+        else _validate_canonical_source_metrics(serving_observations)
     )
 
     derived, derived_lineage = (
@@ -435,6 +398,7 @@ def build_canonical_source_metrics_with_lineage(
     ]
 
     if not derived.empty:
+        required_derived_columns = {"geo_id", "date", "canonical_metric_key", "value"}
         missing_derived_columns = (
             required_derived_columns
             - set(derived.columns)

@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import duckdb
 import pandas as pd
 
 
@@ -165,9 +164,9 @@ def validate_regime_config(config: RegimeConfig) -> None:
         )
 
 
-    missing_dimension_coverage = sorted(source_keys - dim_keys)
-    if missing_dimension_coverage:
-        raise ValueError(f"Source metrics missing dimension rows: {missing_dimension_coverage}")
+    # Source ownership includes provider metrics outside the analytical model.
+    # Validate all feature/dimension references above, but do not require every
+    # registered provider metric to become a dimension member.
 
     for name, df, col in [
         ("feature_weight", config.features, "feature_weight"),
@@ -191,34 +190,6 @@ def validate_regime_config(config: RegimeConfig) -> None:
             "Axis registry references dimensions not present in metric_dimension_registry: "
             f"{unknown_axis_dims}"
         )
-
-    if SERVING_DB.exists():
-        con = duckdb.connect(str(SERVING_DB))
-        facts = con.execute("""
-            SELECT DISTINCT source_id, metric_id
-            FROM fact_timeseries
-        """).fetchdf()
-        con.close()
-
-        check_source_metrics = config.source_metrics[
-            config.source_metrics["source_id"] != "derived"
-        ].copy()
-        
-        merged = check_source_metrics.merge(
-            facts,
-            on=["source_id", "metric_id"],
-            how="left",
-            indicator=True,
-        )
-
-        missing_facts = merged[merged["_merge"] == "left_only"]
-        if not missing_facts.empty:
-            raise ValueError(
-                "Source registry metrics missing from serving DB:\n"
-                + missing_facts[["metric_key", "source_id", "metric_id"]]
-                    .to_string(index=False)
-            )
-
 
     active_dims = (
         config.metric_dimensions[
