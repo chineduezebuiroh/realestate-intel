@@ -115,8 +115,27 @@ def load_serving_input(
     if "bps" in sources and not set(facts.loc[facts.source_id.eq("bps"), "metric_id"]).issubset(bps_definitions.metric_id):
         raise ValueError("Unknown BPS logical metric")
 
-    # Retain property type until proving it can be projected onto engine grain.
+    # Identity integrity precedes analytical membership and canonical coverage.
+    # Registered diagnostics are authorized inputs even when the model excludes
+    # them. An unauthorized observation is never legitimate source absence.
+    if "census_bps_provisional" in sources:
+        raise ValueError("Unsupported physical BPS provisional input; consume governed logical BPS")
     pairs = set(zip(config.source_metrics.source_id, config.source_metrics.metric_id))
+    authorized = pairs | {("acs", metric) for metric in ACS_METRICS} | {
+        ("bps", metric) for metric in bps_definitions.metric_id
+    }
+    supported_sources = {source for source, _ in authorized}
+    owned_metrics = {metric for _, metric in authorized}
+    invalid = sorted({
+        (str(source), str(metric))
+        for source, metric in zip(facts.source_id, facts.metric_id)
+        if (source in supported_sources or metric in owned_metrics)
+        and (source, metric) not in authorized
+    })
+    if invalid:
+        raise ValueError(f"Unauthorized serving source/metric identity: {invalid}")
+
+    # Retain property type until proving it can be projected onto engine grain.
     known = pd.Series([(s, m) in pairs for s, m in zip(facts.source_id, facts.metric_id)], index=facts.index)
     supported = facts[known | facts.source_id.isin(FAMILY_PHYSICAL_SOURCES)].copy()
     grain = ["geo_id", "date", "source_id", "metric_id"]

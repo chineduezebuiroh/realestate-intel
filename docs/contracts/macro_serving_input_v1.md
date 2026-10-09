@@ -12,6 +12,14 @@ enter `population`/`median_household_income`; governed logical BPS enters existi
 BPS canonical metrics through registry membership. Diagnostic metrics remain
 excluded. No analytical registry, transform, weight or policy changes.
 
+Before filtering, registered source/metric ownership and explicit logical-family
+equivalents authorize incoming identities independently of analytical membership.
+Unknown metrics under supported sources and registered metrics under unauthorized
+sources fail, including optional active metrics. Registered diagnostics pass
+identity validation without becoming scoring inputs. Unsupported physical BPS
+provisional observations fail explicitly; family resolution remains upstream.
+Genuine source absence retains existing fallback behavior and missingness rules.
+
 ACS logical identity authority is `logical_source_metric_registry.csv`. Logical
 ACS origins are `acs:<metric_id>`; BPS origins are `bps:<metric_id>`. These do not
 assert a winning physical parent. ACS1/ACS5 selection and compiled/provisional

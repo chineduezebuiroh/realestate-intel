@@ -121,3 +121,62 @@ def test_legitimate_temporal_missingness_is_preserved(tmp_path):
     result = observations(tmp_path, [row("bps", "census_bp_total_units", date="2024-01-01"),
         row("bps", "census_bp_total_units", date="2024-07-01")])
     assert set(result.date) == {pd.Timestamp("2024-01-01"), pd.Timestamp("2024-07-01")}
+
+
+@pytest.mark.parametrize("source,metric", [
+    ("laus", "laus_labor_force_sa"),
+    ("ces_new", "ces_total_nonfarm_sa"),
+    ("fred_macro", "fred_mortgage_15y_new"),
+    ("bps_new", "census_bp_total_units"),
+])
+def test_identity_drift_fails_despite_canonical_coverage(tmp_path, source, metric):
+    from test_regime_frozen_input_compatibility import fixture_rows
+    rows = fixture_rows(months=2)
+    original = {
+        "laus": "laus_labor_force_nsa",
+        "ces_new": "ces_total_nonfarm_sa",
+        "fred_macro": "fred_mortgage_15y_avg",
+        "bps_new": "census_bp_total_units",
+    }[source]
+    changed = False
+    for record in rows:
+        if record["metric_id"] == original and (source != "laus" or not changed):
+            record["source_id"], record["metric_id"] = source, metric
+            changed = True
+    assert changed
+    path = database(tmp_path / "drift.duckdb", rows)
+    with pytest.raises(ValueError, match="Unauthorized serving source/metric identity"):
+        load_serving_input(load_regime_config(), path, require_scoring_inputs=True)
+
+
+def test_provisional_only_physical_bps_fails_explicitly(tmp_path):
+    with pytest.raises(ValueError, match="Unsupported physical BPS provisional input"):
+        observations(tmp_path, [row("census_bps_provisional", "census_bp_total_units")])
+
+
+def test_registered_diagnostic_and_non_model_inputs_are_not_scored(tmp_path):
+    result = observations(tmp_path, [row("fred_unemp", "fred_unemployment_rate_sa"),
+        row("fred_macro", "fred_gs30"), row("ces", "ces_total_private_sa"),
+        row("bps", "census_bp_total_bldgs"), row("bps", "census_bp_total_units")])
+    assert set(result.canonical_metric_key) == {"permit_activity"}
+
+
+def test_genuine_absence_and_sparse_history_preserve_fallback(tmp_path):
+    from test_regime_frozen_input_compatibility import fixture_rows
+    rows = [r for r in fixture_rows(months=2)
+            if r["source_id"] != "ces" and r["metric_id"] != "fred_mortgage_15y_avg"]
+    # Keep required evidence somewhere, without imposing a geography/date grid.
+    for record in rows:
+        if record["metric_id"] == "laus_labor_force_nsa":
+            record["geo_id"] = "united_states__nation"
+    rows = [r for r in rows if not (r["metric_id"] == "laus_labor_force_nsa"
+                                   and r["date"] == pd.Timestamp("2010-02-28"))]
+    path = database(tmp_path / "sparse.duckdb", rows)
+    result = load_serving_input(load_regime_config(), path, require_scoring_inputs=True).observations
+    assert "mortgage_15y" not in set(result.canonical_metric_key)
+    employment = result[result.canonical_metric_key.eq("employment")]
+    assert len(employment) == 2
+    assert set(employment.metric_origin) == {"laus_employment"}
+    labor = result[result.canonical_metric_key.eq("labor_force")]
+    assert len(labor) == 1
+    assert labor.geo_id.tolist() == ["united_states__nation"]
