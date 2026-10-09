@@ -119,6 +119,20 @@ def test_real_acs_resolution_and_bps_family_pass_logical_assembly(tmp_path: Path
     finally:
         connection.close()
 
+    # The governed identities must survive serving construction and Macro intake.
+    from scripts.build_serving_snapshot import build_candidate
+    from regime._00_config_loader import load_regime_config
+    from regime.serving_input import load_serving_input
+    serving = build_candidate(database, tmp_path / "serving.duckdb")
+    observations = load_serving_input(load_regime_config(), serving).observations
+    assert observations.set_index("canonical_metric_key").value.to_dict() == {
+        "population": 10, "median_household_income": 20, "permit_activity": 30,
+    }
+    assert set(observations.metric_origin) == {
+        "acs:census_acs_pop_total", "acs:census_acs_median_household_income",
+        "bps:census_bp_total_units",
+    }
+
 
 @pytest.mark.parametrize(("source", "families", "metric"), [
     ("acs", {"acs"}, "unregistered_acs_metric"),

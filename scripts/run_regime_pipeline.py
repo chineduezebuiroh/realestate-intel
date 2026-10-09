@@ -38,6 +38,12 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--expected-serving-db-sha256",
+        default=None,
+        help="Expected SHA256 of the exact serving input; mismatch fails before run creation.",
+    )
+
+    parser.add_argument(
         "--validation-geo",
         action="append",
         dest="validation_geos",
@@ -82,6 +88,7 @@ def main() -> int:
         validation_geo_ids=args.validation_geos,
         serving_db_path=Path(args.serving_db),
         run_metadata=metadata,
+        expected_serving_db_sha256=args.expected_serving_db_sha256,
         smoothing_experiment_id=args.smoothing_experiment_id,
     )
 
