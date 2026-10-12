@@ -22,7 +22,6 @@ from core.source_artifacts.hashing import canonical_json_bytes, sha256_json, wri
 from core.source_artifacts.models import CANONICAL_COLUMNS, CANONICAL_KEY
 from core.source_artifacts.publication import IdentityCollisionError, TransientPublicationError
 from core.source_artifacts.validation import validate_artifact
-from jobs.monthly_refresh.bps_hosted import publish_candidate
 from sources.census_acs.artifact import CONTRACT_VERSION, governed_config_hashes, geography_plan
 
 RESOLVER_VERSION = "acs_family_resolver_v1"
@@ -163,24 +162,12 @@ def build_family_artifact(*, acs1_artifact: Path, acs5_artifact: Path,
 
 
 def resolution_record(*, manifest: Mapping[str, Any], catalog_record: Mapping[str, Any]) -> dict[str, Any]:
-    family = manifest.get("family_resolution", {})
-    if (manifest.get("source_id") != FAMILY_SOURCE_ID or catalog_record.get("object_id") != manifest.get("artifact_id") or
-            catalog_record.get("artifact_content_hash") != manifest.get("artifact_content_hash") or
-            catalog_record.get("publication_state") != "published_immutable_verified"):
-        raise ValueError("ACS family artifact publication identity mismatch")
-    semantic = {"resolver_version": RESOLVER_VERSION, "resolution_policy_version": POLICY_VERSION,
-        "source_contract_version": CONTRACT_VERSION, "parents": family["parents"],
-        "config_hashes": manifest["config_hashes"], "physical_to_logical_metric_mapping": dict(sorted(PHYSICAL_TO_LOGICAL.items())),
-        "output_artifact_id": manifest["artifact_id"], "output_content_hash": manifest["artifact_content_hash"]}
-    return {"schema_version": RECORD_VERSION, "resolution_id": "acs_family_resolution__" + sha256_json(semantic)[:24],
-        **semantic, "output_package_sha256": catalog_record["package_sha256"], "diagnostics": family["diagnostics"],
-        "accepted_pointer_changed": False, "source_set_created": False, "duckdb_mutated": False,
-        "serving_db_mutated": False, "provider_discovery_performed": False}
+    raise ValueError("manifest-only ACS record construction is retired; use acs_history_family.resolution_record with verified packages")
 
 
 def add_record(existing: Mapping[str, Any] | None, proposed: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
     flags = ("accepted_pointer_changed", "source_set_created", "duckdb_mutated", "serving_db_mutated", "provider_discovery_performed")
-    if proposed.get("schema_version") != RECORD_VERSION or any(proposed.get(k) is not False for k in flags):
+    if proposed.get("schema_version") not in {RECORD_VERSION, "acs_family_resolution_record_v3"} or any(proposed.get(k) is not False for k in flags):
         raise ValueError("invalid ACS family resolution record")
     if existing is None:
         return dict(proposed), True
@@ -193,7 +180,16 @@ class GitHubFamilyResolutionStore:
     def __init__(self, api: GitHubAPI, branch: str, attempts: int = 4):
         self.api, self.branch, self.attempts = api, branch, attempts
 
-    def put(self, record: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
+    def put(self, record: Mapping[str, Any], *, artifact: Path, catalog_record: dict,
+            validation_inputs: dict) -> tuple[dict[str, Any], bool]:
+        from jobs.monthly_refresh.acs_history_family import validate_record
+        if self.branch != "main":
+            raise ValueError("ACS resolution records require main authority")
+        governance = validation_inputs["governance"]
+        governance.require_production()
+        validate_record(dict(record), artifact=artifact, catalog_record=catalog_record, **validation_inputs)
+        governance.require_destination(self.api.repository)
+        governance.current_commit(self.api.repository)
         path = f"config/acs_family_resolutions/{record['resolution_id']}.json"
         encoded = urllib.parse.quote(path, safe="/")
         for attempt in range(self.attempts):
@@ -202,12 +198,11 @@ class GitHubFamilyResolutionStore:
             value, changed = add_record(existing, record)
             if not changed:
                 return value, False
-            payload = {"message": f"Record {record['resolution_id']}",
-                "content": base64.b64encode(canonical_json_bytes(value)).decode(), "branch": self.branch}
-            if item:
-                payload["sha"] = item["sha"]
             try:
-                self.api.request("PUT", f"/contents/{encoded}", payload=payload, expected=(200, 201))
+                from jobs.monthly_refresh.acs_authoritative_write import write_current
+                write_current(api=self.api, branch=self.branch, path=path, value=value,
+                    expected_sha=item["sha"] if item else None,
+                    message=f"Record {record['resolution_id']}", governance=governance)
                 return value, True
             except TransientPublicationError:
                 if attempt + 1 == self.attempts:
@@ -228,14 +223,22 @@ def main() -> int:
     if any(artifact_id not in records for _, artifact_id in requested.values()):
         raise ValueError("requested ACS parent is absent from durable artifact catalog")
     resolver = GitHubReleaseArtifactResolver(catalog, api, args.workspace / "parents")
-    paths = {role: resolver.resolve(f"artifact://source/{source}/{artifact_id}") for role, (source, artifact_id) in requested.items()}
-    built = build_family_artifact(acs1_artifact=paths["acs1"], acs5_artifact=paths["acs5"],
-        acs1_record=records[args.acs1_artifact_id], acs5_record=records[args.acs5_artifact_id],
-        output=args.workspace / "family-artifact", git_sha=os.environ.get("GITHUB_SHA", "unknown"))
-    publication = publish_candidate(artifact=args.workspace / "family-artifact", source_id=FAMILY_SOURCE_ID,
-        api=api, cas=cas, workspace=args.workspace / "publication", git_sha=os.environ.get("GITHUB_SHA", "unknown"))
-    record = resolution_record(manifest=built["manifest"], catalog_record=publication["record"])
-    durable, changed = GitHubFamilyResolutionStore(api, args.branch).put(record)
+    from jobs.monthly_refresh.acs_scope import ACSGovernance
+    from jobs.monthly_refresh.acs_history_family import build_family, resolve_inputs, resolution_record as historical_record, publish_family
+    governance = ACSGovernance.load_production(api.repository, api.token)
+    governance.require_production()
+    parents = [{"source_id": source, "artifact_id": artifact_id,
+        "artifact_content_hash": records[artifact_id]["artifact_content_hash"],
+        "package_sha256": records[artifact_id]["package_sha256"],
+        "data_sha256": records[artifact_id]["metadata"]["data_sha256"]}
+        for source, artifact_id in requested.values()]
+    inputs = resolve_inputs(parents=parents, resolver=resolver, catalog=catalog, governance=governance)
+    build_family(output=args.workspace / "family-artifact", **inputs)
+    publication = publish_family(artifact=args.workspace / "family-artifact", api=api, cas=cas,
+        workspace=args.workspace / "publication", git_sha=os.environ.get("GITHUB_SHA", "unknown"), **inputs)
+    record = historical_record(artifact=publication["artifact"], catalog_record=publication["record"], **inputs)
+    durable, changed = GitHubFamilyResolutionStore(api, args.branch).put(record, artifact=publication["artifact"],
+        catalog_record=publication["record"], validation_inputs=inputs)
     result = {"record": durable, "record_changed": changed, "candidate_reused": publication["reused"]}
     write_canonical_json(args.output, result); print(json.dumps(result, sort_keys=True)); return 0
 

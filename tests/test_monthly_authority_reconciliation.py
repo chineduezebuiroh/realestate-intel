@@ -198,18 +198,40 @@ def test_shared_catalog_conflict_is_explicit_and_resumable():
     assert {r["object_id"] for r in records}.issubset({r["object_id"] for r in durable["immutable_records"]})
 
 
-def test_parallel_family_resolution_record_conflict_is_explicit_and_resumable():
+def test_parallel_family_resolution_record_conflict_is_explicit_and_resumable(tmp_path):
     bps = {"schema_version":"bps_family_resolution_record_v1", "resolution_id":"bps-fixture",
         "accepted_pointer_changed":False, "source_set_created":False, "duckdb_mutated":False,
         "redfin_consumed":False, "provider_discovery_performed":False}
-    acs = {"schema_version":"acs_family_resolution_record_v1", "resolution_id":"acs-fixture",
-        "accepted_pointer_changed":False, "source_set_created":False, "duckdb_mutated":False,
-        "serving_db_mutated":False, "provider_discovery_performed":False}
-    api = ContentsAPI({})
+    from test_acs_historical_materialization import make_family, record
+    from jobs.monthly_refresh.acs_history_family import resolution_record
+    inputs, manifest = make_family(tmp_path, namespace="production")
+    rec = record(tmp_path / "logical", manifest, tmp_path)
+    acs = resolution_record(artifact=tmp_path / "logical", catalog_record=rec, **inputs)
+    validated = dict(artifact=tmp_path / "logical", catalog_record=rec, validation_inputs=inputs)
+    from test_acs_boundary_hardening import AuthorityAPI
+    class AuthorityContents(ContentsAPI):
+        def __init__(self):
+            super().__init__({})
+            self.git = AuthorityAPI(on_write=self.committed)
+        def committed(self, value, oid):
+            key = ("main", self.path)
+            self.objects[key] = value
+            self.generation[key] = self.generation.get(key, 0) + 1
+            self.puts.append(key)
+        def request(self, method, url, **kwargs):
+            if url.startswith("/git/"):
+                if url == "/git/trees": self.path = kwargs["payload"]["tree"][0]["path"]
+                if url == "/git/refs/heads/main" and self.conflict_once == ("main", self.path):
+                    self.conflict_once = None
+                    raise PublicationError("non-fast-forward main")
+                return self.git.request(method, url, **kwargs)
+            url = url.replace("?ref=" + "a" * 40, "?ref=main")
+            return super().request(method, url, **kwargs)
+    api = AuthorityContents()
     BPSResolutionStore(api, "main").put(bps)
-    acs_key = ("main", "config/acs_family_resolutions/acs-fixture.json")
+    acs_key = ("main", f"config/acs_family_resolutions/{acs['resolution_id']}.json")
     api.conflict_once = acs_key
-    with pytest.raises(PublicationError): ACSResolutionStore(api, "main").put(acs)
-    ACSResolutionStore(api, "main").put(acs)
+    with pytest.raises(PublicationError): ACSResolutionStore(api, "main").put(acs, **validated)
+    ACSResolutionStore(api, "main").put(acs, **validated)
     assert api.objects[("main", "config/bps_family_resolutions/bps-fixture.json")] == bps
     assert api.objects[acs_key] == acs

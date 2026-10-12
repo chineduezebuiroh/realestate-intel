@@ -10,7 +10,6 @@ from jobs.monthly_refresh.cohort import (
     LOGICAL_DIRECT_SOURCES, REQUIRED_SOURCES, barrier_evidence, logical_cohort_plan,
     required_sources, resume_plan,
 )
-from jobs.monthly_refresh.acs_family_resolution import resolution_record as acs_resolution_record
 from jobs.monthly_refresh.bps_family_resolution import resolution_record as bps_resolution_record
 
 
@@ -62,8 +61,8 @@ def produced_resolution(logical: str, parents: tuple[str, str]) -> dict:
         "artifact_content_hash": manifest["artifact_content_hash"],
         "package_sha256": ("4" if logical == "bps" else "5") * 64,
         "publication_state": "published_immutable_verified"}
-    builder = bps_resolution_record if logical == "bps" else acs_resolution_record
-    return {"record": builder(manifest=manifest, catalog_record=catalog_record)}
+    assert logical == "bps"
+    return {"record": bps_resolution_record(manifest=manifest, catalog_record=catalog_record)}
 
 
 def test_exact_physical_barrier_and_logical_plan_are_closed_and_non_mutating():
@@ -146,13 +145,30 @@ def test_master_post_barrier_jobs_override_skips_and_fail_closed():
         "needs.resolve-acs-family.result == 'success' }}")
 
 
-def test_real_phase2_interfaces_produce_exact_preflight_plan_without_io(monkeypatch):
+def test_real_phase2_interfaces_produce_exact_preflight_plan_without_io(monkeypatch, tmp_path):
     """Exercise barrier -> real resolution records -> logical plan, entirely offline."""
     def network_forbidden(*_args, **_kwargs):
         raise AssertionError("Phase 2 integration proof attempted network/provider access")
 
     monkeypatch.setattr("socket.create_connection", network_forbidden)
+    from test_acs_historical_materialization import make_family, record
+    from jobs.monthly_refresh.acs_history_family import resolution_record
+    from core.source_artifacts.storage import LocalArtifactResolver
+    inputs, manifest = make_family(tmp_path, namespace="production")
+    rec = record(tmp_path / "logical", manifest, tmp_path)
+    inputs["records"][rec["object_id"]] = rec
+    inputs["paths"][rec["object_id"]] = tmp_path / "logical"
+    acs = {"record": resolution_record(artifact=tmp_path / "logical", catalog_record=rec, **inputs)}
+    catalog = {"immutable_records": list(inputs["records"].values())}
+    resolver = LocalArtifactResolver({f"artifact://source/{r['metadata']['source_id']}/{aid}": inputs["paths"][aid]
+                                     for aid, r in inputs["records"].items()})
+    validation = dict(catalog=catalog, resolver=resolver, governance=inputs["governance"])
     physical = [authoritative_result(source) for source in REQUIRED_SOURCES]
+    for result in physical:
+        if result["source_id"] in {"census_acs1", "census_acs5"}:
+            parent = acs["record"]["context"]["historical_states"][result["source_id"]]["inventory"]["parents"][-1]
+            result.update(candidate_artifact_id=parent["artifact_id"], artifact_content_hash=parent["artifact_content_hash"],
+                          package_sha256=parent["package_sha256"])
     evidence = barrier_evidence(cycle={"cycle_id":"cycle","invocation_mode":"resume"},
         results=physical, pins=None, github={})
     assert evidence["barrier_status"] == "ready"
@@ -160,7 +176,6 @@ def test_real_phase2_interfaces_produce_exact_preflight_plan_without_io(monkeypa
     assert "census_nrc_fred" not in {item["source_id"] for item in evidence["candidates"]}
 
     bps = produced_resolution("bps", ("census_bps", "census_bps_provisional"))
-    acs = produced_resolution("acs", ("census_acs1", "census_acs5"))
     assert {p["source_id"] for p in bps["record"]["parents"]} == {
         "census_bps", "census_bps_provisional"}
     assert {p["source_id"] for p in acs["record"]["parents"]} == {
@@ -171,7 +186,7 @@ def test_real_phase2_interfaces_produce_exact_preflight_plan_without_io(monkeypa
         assert record["provider_discovery_performed"] is False
 
     plan = logical_cohort_plan(physical_evidence=evidence,
-        bps_resolution=bps, acs_resolution=acs)
+        bps_resolution=bps, acs_resolution=acs, acs_validation=validation)
     final = [item["source_id"] for item in plan["sources"]]
     assert final == list(LOGICAL_DIRECT_SOURCES)
     assert final == ["fred_macro", "fred_unemp", "ces", "laus", "redfin", "bps", "acs",

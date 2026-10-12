@@ -198,7 +198,7 @@ def barrier_evidence(*, cycle: dict[str, Any], results: list[dict[str, Any]],
 
 def logical_cohort_plan(*, physical_evidence: dict[str, Any],
                         bps_resolution: dict[str, Any],
-                        acs_resolution: dict[str, Any]) -> dict[str, Any]:
+                        acs_resolution: dict[str, Any], acs_validation: dict[str, Any] | None = None) -> dict[str, Any]:
     """Validate post-barrier family outputs and return a non-promoting input plan."""
     if physical_evidence.get("barrier_status") != "ready":
         raise ValueError("logical planning requires a ready physical barrier")
@@ -228,7 +228,28 @@ def logical_cohort_plan(*, physical_evidence: dict[str, Any],
     bps_record = bps_resolution.get("record", bps_resolution)
     acs_record = acs_resolution.get("record", acs_resolution)
     bps = family(bps_record, "bps", {"census_bps", "census_bps_provisional"})
-    acs = family(acs_record, "acs", {"census_acs1", "census_acs5"})
+    if acs_record.get("schema_version") == "acs_family_resolution_record_v3":
+        from jobs.monthly_refresh.acs_history_family import validate_cohort
+        if acs_validation is None:
+            raise ValueError("historical ACS logical plan requires independent package validation")
+        validate_cohort(acs_record, **acs_validation)
+        # Cycle results identify single-vintage acquisition; historical parents
+        # are complete states. Require the cycle candidate to be in the governed
+        # inventory, never equate those two layers' artifact IDs.
+        for source in ("census_acs1", "census_acs5"):
+            inventory = acs_record["context"]["historical_states"][source]["inventory"]
+            candidate = by_source[source]
+            if not any(p["artifact_id"] == candidate["candidate_artifact_id"]
+                       and p["artifact_content_hash"] == candidate["artifact_content_hash"]
+                       and p["package_sha256"] == candidate["package_sha256"] for p in inventory["parents"]):
+                raise ValueError("ACS cycle acquisition absent from governed historical inventory")
+        acs = {"source_id": "acs", "artifact_id": acs_record["output_artifact_id"],
+               "artifact_content_hash": acs_record["output_content_hash"],
+               "package_sha256": acs_record["output_package_sha256"], "resolution_id": acs_record["resolution_id"]}
+    else:
+        if acs_validation is not None:
+            raise ValueError("production logical plan requires historical ACS resolution v3")
+        acs = family(acs_record, "acs", {"census_acs1", "census_acs5"})
     direct = [{"source_id": source, "artifact_id": by_source[source]["candidate_artifact_id"],
                "artifact_content_hash": by_source[source]["artifact_content_hash"],
                "package_sha256": by_source[source]["package_sha256"]}
@@ -252,6 +273,9 @@ def logical_cohort_plan(*, physical_evidence: dict[str, Any],
             "accepted_pointers_advanced": False, "source_set_created": False,
             "canonical_market_created": False, "serving_market_created": False,
             "redfin_consumption_committed": False}
+    if acs_record.get("schema_version") == "acs_family_resolution_record_v3":
+        from jobs.monthly_refresh.acs_attestation import issue
+        payload, _ = issue(payload, acs_record, **acs_validation)
     payload["plan_id"] = "logical_cohort_plan__" + sha256_json(
         {key:value for key,value in payload.items() if key != "plan_id"})[:24]
     return payload

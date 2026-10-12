@@ -47,3 +47,11 @@ and the metric mapping. The separately stored
 identical reuse is a no-op and contradiction fails closed. It explicitly records
 that accepted state, Source Sets, DuckDB, serving data, and provider discovery
 were not mutated.
+
+## Historical successor
+
+The v1 single-vintage artifacts remain immutable historical records. New hosted
+ACS publication and preparation require the independently governed historical
+layer and v3 resolution records described in
+[ACS historical materialization v2](acs_historical_materialization_v2.md).
+Legacy pure frame/build APIs remain available for archived offline proofs only.

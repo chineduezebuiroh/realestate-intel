@@ -68,7 +68,7 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
         resolution: dict[str, Any], acs_resolution: dict[str, Any],
         family_parent_republications: list[dict[str, Any]],
         created_at: str, builder_git_sha: str,
-        repository_root: Path = Path(".")) -> dict[str, Any]:
+        repository_root: Path = Path("."), acs_validation: dict[str, Any] | None = None) -> dict[str, Any]:
     """Map complete physical results to exact logical assembly inputs."""
     validate_catalog(catalog)
     planned = validate_logical_plan(logical_plan)
@@ -147,25 +147,36 @@ def build_logical_source_set(*, output: Path, cycle_id: str, target_month: str,
             or logical_bps["package_sha256"] != resolution["output_package_sha256"]:
         raise ValueError("BPS logical output identity mismatch")
 
-    required_acs_resolution = {"schema_version":"acs_family_resolution_record_v1",
-        "resolver_version":"acs_family_resolver_v1",
-        "resolution_policy_version":"acs1_preferred_observation_key_v1",
-        "source_contract_version":ACS_CONTRACT_VERSION}
-    if any(acs_resolution.get(k) != v for k, v in required_acs_resolution.items()):
-        raise ValueError("ACS family resolution contract mismatch")
-    if any(acs_resolution.get(field) is not False for field in ("accepted_pointer_changed",
-            "source_set_created", "duckdb_mutated", "serving_db_mutated",
-            "provider_discovery_performed")):
-        raise ValueError("ACS family resolution contains forbidden side effects")
-    acs_hashes = acs_governed_config_hashes(repository_root)
-    if acs_resolution.get("config_hashes") != acs_hashes:
-        raise ValueError("ACS family resolution governed config drift")
-    acs_semantic_fields = ("resolver_version", "resolution_policy_version",
-        "source_contract_version", "parents", "config_hashes",
-        "physical_to_logical_metric_mapping", "output_artifact_id", "output_content_hash")
-    acs_semantic = {key:acs_resolution[key] for key in acs_semantic_fields}
-    if acs_resolution.get("resolution_id") != "acs_family_resolution__" + sha256_json(acs_semantic)[:24]:
-        raise ValueError("ACS family resolution identity mismatch")
+    historical_acs = acs_resolution.get("schema_version") == "acs_family_resolution_record_v3"
+    if historical_acs:
+        from jobs.monthly_refresh.acs_history_family import validate_cohort
+        if acs_validation is None:
+            raise ValueError("historical ACS requires independent package validation at cohort preparation")
+        validate_cohort(acs_resolution, catalog=catalog, repository_root=repository_root, **acs_validation)
+    else:
+        # Retained for archived v1/offline cohort proofs only. Hosted preparation
+        # always supplies acs_validation and refuses legacy single-vintage ACS.
+        if acs_validation is not None:
+            raise ValueError("production cohort requires historical ACS resolution v3")
+        required_acs_resolution = {"schema_version":"acs_family_resolution_record_v1",
+            "resolver_version":"acs_family_resolver_v1",
+            "resolution_policy_version":"acs1_preferred_observation_key_v1",
+            "source_contract_version":ACS_CONTRACT_VERSION}
+        if any(acs_resolution.get(k) != v for k, v in required_acs_resolution.items()):
+            raise ValueError("ACS family resolution contract mismatch")
+        if any(acs_resolution.get(field) is not False for field in ("accepted_pointer_changed",
+                "source_set_created", "duckdb_mutated", "serving_db_mutated",
+                "provider_discovery_performed")):
+            raise ValueError("ACS family resolution contains forbidden side effects")
+        acs_hashes = acs_governed_config_hashes(repository_root)
+        if acs_resolution.get("config_hashes") != acs_hashes:
+            raise ValueError("ACS family resolution governed config drift")
+        acs_semantic_fields = ("resolver_version", "resolution_policy_version",
+            "source_contract_version", "parents", "config_hashes",
+            "physical_to_logical_metric_mapping", "output_artifact_id", "output_content_hash")
+        acs_semantic = {key:acs_resolution[key] for key in acs_semantic_fields}
+        if acs_resolution.get("resolution_id") != "acs_family_resolution__" + sha256_json(acs_semantic)[:24]:
+            raise ValueError("ACS family resolution identity mismatch")
     acs_parents = sorted(acs_resolution.get("parents", []), key=lambda p:p["source_id"])
     if {p.get("source_id") for p in acs_parents} != {"census_acs1", "census_acs5"}:
         raise ValueError("ACS family parent inventory mismatch")
