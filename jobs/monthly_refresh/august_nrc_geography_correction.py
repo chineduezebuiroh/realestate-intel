@@ -178,6 +178,13 @@ def build_reconciliation_plan(*, manifest: Mapping[str, Any], package_sha256: st
     return payload
 
 
+def require_correction_plan_write(plan):
+    """NRC's legacy adapter cannot authorize ACS-containing durable plan writes."""
+    if ("acs" in plan.get("family_resolutions", {}) or
+            any(s.get("source_id") == "acs" for s in plan.get("sources", []))):
+        raise PublicationError("ACS-containing NRC correction requires the governed ACS durable-store boundary")
+
+
 def main() -> int:
     from jobs.monthly_refresh.nrc_monthly import candidate, recover_pinned_workbooks
     from jobs.monthly_refresh.cohort_promotion_hosted import GitHubJSONCAS
@@ -219,6 +226,7 @@ def main() -> int:
               "mutation_performed":False, "r2_manifest":built["manifest"]}
     if args.live:
         if args.authorize != token: raise PublicationError("live correction authorization mismatch")
+        require_correction_plan_write(existing_plan)
         publication = publish_candidate(artifact=artifact, source_id=SOURCE_ID, api=api,
             cas=catalog_cas, workspace=args.workspace/"publication", git_sha=args.git_sha,
             logical_source_id=SOURCE_ID)
@@ -226,6 +234,7 @@ def main() -> int:
         final_result = corrected_result(existing_result, publication["record"], policy, durable_catalog)
         final_plan = corrected_logical_plan(existing_plan, final_result)
         if existing_plan != final_plan:
+            require_correction_plan_write(final_plan)
             plan_store.write(final_plan, plan_oid, "Correct August logical cohort plan to NRC r2")
         if existing_result != final_result:
             result_store.write(final_result, result_oid, "Correct August NRC cycle authority to governed geography r2")

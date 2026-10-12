@@ -58,6 +58,9 @@ def validate_durable_plan(plan: dict[str, Any]) -> dict[str, Any]:
         if any(resolution.get(flag) is not False for flag in
                ("accepted_pointer_changed", "source_set_created", "provider_discovery_performed")):
             raise PublicationError(f"{logical} durable resolution contains mutation")
+    if families["acs"].get("schema_version") == "acs_family_resolution_record_v3":
+        from jobs.monthly_refresh.acs_attestation import check
+        check(plan, families["acs"])
     semantic = {key:value for key,value in plan.items() if key != "plan_id"}
     if plan.get("plan_id") != "logical_cohort_plan__" + sha256_json(semantic)[:24]:
         raise PublicationError("durable logical cohort plan identity mismatch")
@@ -82,15 +85,23 @@ class GitHubCohortPlanStore:
         value = json.loads(base64.b64decode(item["content"]))
         if value.get("cycle_id") != cycle_id: raise PublicationError("durable logical cohort cycle mismatch")
         return validate_durable_plan(value)
-    def put(self, plan: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    def put(self, plan: dict[str, Any], *, acs_proof=None) -> tuple[dict[str, Any], bool]:
+        validate_durable_plan(plan)
+        # Every valid cohort plan contains ACS, regardless of its schema label.
+        from jobs.monthly_refresh.acs_attestation import check, require, authority
+        check(plan, plan["family_resolutions"]["acs"])
+        require(plan, acs_proof, preparing=True)
+        governance = authority(plan, acs_proof, self.api.repository, preparing=True)
+        governance.current_commit(self.api.repository)
         path = urllib.parse.quote(self.path(plan["cycle_id"]), safe="/")
         item, _ = self.api.request("GET", f"/contents/{path}?ref={urllib.parse.quote(self.branch)}", expected=(200,404))
         existing = json.loads(base64.b64decode(item["content"])) if item else None
         value, changed = add_plan(existing, plan)
         if changed:
-            payload={"message":f"Record {value['plan_id']}","content":base64.b64encode(canonical_json_bytes(value)).decode(),"branch":self.branch}
-            if item: payload["sha"]=item["sha"]
-            self.api.request("PUT",f"/contents/{path}",payload=payload,expected=(200,201))
+            from jobs.monthly_refresh.acs_authoritative_write import write_current
+            write_current(api=self.api, branch=self.branch, path=self.path(plan["cycle_id"]),
+                value=value, expected_sha=item["sha"] if item else None,
+                message=f"Record {value['plan_id']}", governance=governance)
         durable=self.get(plan["cycle_id"])
         if durable != value: raise PublicationError("durable logical cohort plan reread contradiction")
         return durable, changed
@@ -101,7 +112,19 @@ def main() -> int:
     parser.add_argument("--branch",required=True); parser.add_argument("--plan",type=Path,required=True)
     parser.add_argument("--output",type=Path,required=True); args=parser.parse_args()
     api=GitHubAPI(args.repository,os.environ.get("GITHUB_TOKEN","")); plan=json.loads(args.plan.read_text())
-    durable,changed=GitHubCohortPlanStore(api,args.branch).put(plan)
+    proof = None
+    if any(s.get("source_id") == "acs" for s in plan.get("sources", [])):
+        from jobs.monthly_refresh.acs_attestation import check, verify
+        from jobs.monthly_refresh.acs_scope import ACSGovernance
+        from core.source_artifacts.github_release import GitHubCatalogCAS, GitHubReleaseArtifactResolver
+        evidence = check(plan, plan["family_resolutions"]["acs"])
+        governance = ACSGovernance.load_production(api.repository, api.token)
+        catalog, _ = GitHubCatalogCAS(api, "config/artifact_catalog.json", args.branch).read()
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            resolver = GitHubReleaseArtifactResolver(catalog, api, Path(directory))
+            proof = verify(plan, governance=governance, catalog=catalog, resolver=resolver)
+    durable,changed=GitHubCohortPlanStore(api,args.branch).put(plan, acs_proof=proof)
     report={"plan":durable,"created":changed,"provider_discovery_performed":False,"accepted_state_mutated":False}
     write_canonical_json(args.output,report); print(json.dumps(report,sort_keys=True)); return 0
 

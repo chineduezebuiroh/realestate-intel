@@ -108,7 +108,7 @@ def _publish_object(*, api: GitHubAPI, cas: GitHubCatalogCAS, package: Path,
     return exact[0]
 
 
-def _verify_object_record(api: GitHubAPI, record: dict[str, Any], directory: Path) -> None:
+def _verify_object_record(api: GitHubAPI, record: dict[str, Any], directory: Path) -> Path:
     """Reread exact numeric Release/asset and validate downloaded object bytes."""
     release, _ = api.request("GET", f"/releases/{record['release_id']}")
     assets = [a for a in release.get("assets", []) if a.get("id") == record["asset_id"]]
@@ -125,26 +125,119 @@ def _verify_object_record(api: GitHubAPI, record: dict[str, Any], directory: Pat
             stream = archive.extractfile(member)
             if stream is None: raise PublicationError("durable object package member unreadable")
             member_hashes[member.name] = hashlib.sha256(stream.read()).hexdigest()
-    validate_object_package(downloaded, directory / "extracted", object_type=record["object_type"],
+    return validate_object_package(downloaded, directory / "extracted", object_type=record["object_type"],
         expected={"object_id":record["object_id"], "artifact_content_hash":record["artifact_content_hash"],
                   "member_hashes":member_hashes})
 
 
-def persist_prepared(store: GitHubJSONCAS, proposed: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    existing, oid = store.read(); value, changed = add_promotion_record(existing, proposed)
+def _core(record):
+    return {k: v for k, v in record.items() if k != "acs_validation"}
+
+
+def _acs_gate(record, proof, *, preparing=False):
+    if "acs" in record.get("target_source_pointers", {}):
+        from jobs.monthly_refresh.acs_attestation import check, require
+        check(record)
+        require(record, proof, preparing=preparing)
+
+
+def _promotion_objects_at(record, catalog, api, workspace):
+    """Bind ACS evidence to actual immutable source-set and canonical bytes."""
+    from jobs.monthly_refresh.acs_attestation import check
+    evidence = check(record)
+    resolution = evidence["resolution"]
+    def exact(kind, identity):
+        matches = [r for r in catalog["immutable_records"]
+                   if r["object_type"] == kind and r["object_id"] == identity]
+        if len(matches) != 1:
+            raise PublicationError("ACS promotion immutable object does not resolve once")
+        return matches[0]
+    ss = exact("source_set", record["source_set_id"])
+    market = exact("canonical_market", record["canonical_artifact_id"])
+    source_set = json.loads((_verify_object_record(api, ss, workspace / "source-set-proof") / "source-set.json").read_text())
+    canonical = json.loads((_verify_object_record(api, market, workspace / "canonical-proof") / "canonical-market.json").read_text())
+    acs = [s for s in source_set["sources"] if s["source_id"] == "acs"]
+    families = [f for f in source_set.get("family_resolution", {}).get("families", [])
+                if f.get("logical_source_id") == "acs"]
+    expected_family = {"logical_source_id": "acs", "resolution_id": resolution["resolution_id"],
+                       **{k: resolution[k] for k in ("output_artifact_id", "output_content_hash", "output_package_sha256")},
+                       "physical_sources": [{k: p[k] for k in ("source_id", "artifact_id", "artifact_content_hash", "package_sha256")}
+                                            for p in resolution["parents"]]}
+    if families != [expected_family]:
+        raise PublicationError("ACS promotion family lineage differs from reconstructed resolution")
+    if (len(acs) != 1 or any(acs[0].get(k) != resolution[v] for k, v in
+            (("artifact_id", "output_artifact_id"), ("artifact_content_hash", "output_content_hash"),
+             ("package_sha256", "output_package_sha256")))
+            or record["target_source_pointers"].get("acs") != resolution["output_artifact_id"]
+            or source_set["source_set_id"] != record["source_set_id"]
+            or source_set_semantic_sha256(source_set) != record["source_set_semantic_sha256"]
+            or {s["source_id"]: s["artifact_id"] for s in source_set["sources"]} != record["target_source_pointers"]
+            or canonical["source_set_id"] != record["source_set_id"]
+            or canonical["source_set_semantic_sha256"] != record["source_set_semantic_sha256"]
+            or canonical["source_set_package_sha256"] != ss["package_sha256"]
+            or sha256_json(canonical) != record["canonical_artifact_hash"]):
+        raise PublicationError("ACS attestation does not bind promoted immutable objects")
+
+
+def _promotion_objects(record, catalog, api, workspace):
+    import tempfile
+    workspace.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=workspace) as directory:
+        _promotion_objects_at(record, catalog, api, Path(directory))
+
+
+def _recover_acs_proof(record, catalog, api, workspace):
+    if "acs" not in record.get("target_source_pointers", {}):
+        return None
+    from jobs.monthly_refresh.acs_attestation import check, verify
+    from jobs.monthly_refresh.acs_scope import ACSGovernance
+    evidence = check(record)  # Legacy records reject before executor/external writes.
+    governance = ACSGovernance.load_production(api.repository, api.token, snapshot=evidence["governance"])
+    resolver = GitHubReleaseArtifactResolver(catalog, api, workspace / "acs-proof")
+    proof = verify(record, governance=governance, catalog=catalog, resolver=resolver,
+                   promotion_api=api, promotion_workspace=workspace)
+    return proof
+
+
+def persist_prepared(store: GitHubJSONCAS, proposed: dict[str, Any], *, acs_proof=None) -> tuple[dict[str, Any], bool]:
+    _acs_gate(proposed, acs_proof, preparing=True)
+    governance = None
+    if "acs" in proposed.get("target_source_pointers", {}):
+        from jobs.monthly_refresh.acs_attestation import authority
+        governance = authority(proposed, acs_proof, store.api.repository, preparing=True)
+        governance.current_commit(store.api.repository)
+    existing, oid = store.read()
+    add_promotion_record(_core(existing) if existing else None, _core(proposed))
+    if existing is not None and existing != proposed:
+        raise PublicationError("contradictory prepared ACS validation evidence")
+    value, changed = deepcopy(proposed), existing is None
     if changed:
-        store.write(value, oid, f"Prepare cohort promotion {value['promotion_id']}")
+        if governance is None:
+            store.write(value, oid, f"Prepare cohort promotion {value['promotion_id']}")
+        else:
+            from jobs.monthly_refresh.acs_authoritative_write import write_current
+            write_current(api=store.api, branch=store.branch, path=store.path,
+                value=value, expected_sha=oid, message=f"Prepare cohort promotion {value['promotion_id']}",
+                governance=governance)
     durable, _ = store.read()
     if durable != value: raise PublicationError("prepared promotion record durable reread contradiction")
     return value, changed
 
 
 def execute_one(record: dict[str, Any], catalog_cas: GitHubCatalogCAS,
-                readiness_store: GitHubJSONCAS) -> dict[str, Any]:
+                readiness_store: GitHubJSONCAS, *, acs_proof=None) -> dict[str, Any]:
     """Classify and commit at most one operation, then reread both authorities."""
+    _acs_gate(record, acs_proof)
+    if "acs" in record.get("target_source_pointers", {}):
+        from jobs.monthly_refresh.acs_attestation import authority
+        authority(record, acs_proof, catalog_cas.api.repository)
+        authority(record, acs_proof, readiness_store.api.repository)
     catalog, catalog_oid = catalog_cas.read(); readiness, readiness_oid = readiness_store.read()
+    if "acs" in record.get("target_source_pointers", {}):
+        from jobs.monthly_refresh.acs_attestation import check_catalog_bindings
+        check_catalog_bindings(record, catalog)
     if readiness is None: raise PublicationError("durable readiness is absent")
-    next_catalog, next_readiness, before = recover_promotion(record, catalog, readiness, max_operations=1)
+    next_catalog, next_readiness, before = recover_promotion(_core(record), catalog, readiness, max_operations=1)
     if next_catalog != catalog and next_readiness != readiness:
         raise AssertionError("one recovery boundary changed two durable authorities")
     if next_catalog != catalog:
@@ -154,20 +247,20 @@ def execute_one(record: dict[str, Any], catalog_cas: GitHubCatalogCAS,
                               f"Consume readiness for {record['promotion_id']}")
     durable_catalog, _ = catalog_cas.read(); durable_readiness, _ = readiness_store.read()
     if durable_readiness is None: raise PublicationError("readiness disappeared after operation")
-    progress = promotion_progress(record, durable_catalog, durable_readiness)
+    progress = promotion_progress(_core(record), durable_catalog, durable_readiness)
     return {"changed": next_catalog != catalog or next_readiness != readiness,
             "before": before, "progress": progress}
 
 
 def execute_to_completion(record: dict[str, Any], catalog_cas: GitHubCatalogCAS,
-                          readiness_store: GitHubJSONCAS) -> dict[str, Any]:
+                          readiness_store: GitHubJSONCAS, *, acs_proof=None) -> dict[str, Any]:
     operations = []
     while True:
-        result = execute_one(record, catalog_cas, readiness_store); operations.append(result)
+        result = execute_one(record, catalog_cas, readiness_store, acs_proof=acs_proof); operations.append(result)
         if result["progress"]["complete"]: break
         if not result["changed"]: raise PublicationError("promotion made no progress before completion")
     # One exact rerun must classify as a no-op.
-    repeat = execute_one(record, catalog_cas, readiness_store)
+    repeat = execute_one(record, catalog_cas, readiness_store, acs_proof=acs_proof)
     if repeat["changed"] or not repeat["progress"]["complete"]:
         raise PublicationError("completed promotion is not idempotent")
     return {"operations": operations, "exact_rerun_noop": True, "progress": repeat["progress"]}
@@ -214,7 +307,8 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
         record=_read_required(GitHubJSONCAS(api,f"{RECORD_ROOT}/{cycle_id}.json",branch))
         if supplied_authorization != authorization_token(record):
             raise PublicationError("live authorization is not bound to the exact durable promotion plan")
-        outcome=execute_to_completion(record,catalog_cas,readiness_store)
+        proof = _recover_acs_proof(record, catalog, api, workspace)
+        outcome=execute_to_completion(record,catalog_cas,readiness_store,acs_proof=proof)
         final_catalog,_=catalog_cas.read()
         if final_catalog["accepted"].get("serving_market")!=serving_before:
             raise PublicationError("serving authority changed during cohort promotion")
@@ -243,14 +337,19 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
         raise PublicationError("Redfin readiness drift from durable logical plan")
     target_month=cycle_id.split("__")[1]
     build_time=target_month+"-01T00:00:00Z"
+    from jobs.monthly_refresh.acs_scope import ACSGovernance
+    governance = ACSGovernance.load_production(api.repository, api.token)
+    resolver = GitHubReleaseArtifactResolver(catalog, api, workspace/"sources")
+    from jobs.monthly_refresh.acs_attestation import check, verify
+    check(logical_plan, acs_resolution)
+    verify(logical_plan, governance=governance, catalog=catalog, resolver=resolver)
     source_set = build_logical_source_set(output=workspace/"source-set.json", cycle_id=cycle_id,
         logical_plan=logical_plan,
         target_month=target_month, physical_results=[r for r in results if r["source_id"] not in {"census_acs1","census_acs5"}], catalog=catalog, readiness=assembly_readiness,
         resolution=resolution, acs_resolution=acs_resolution,
         family_parent_republications=republications, created_at=build_time,
-        builder_git_sha=BUILD_PROVENANCE)
+        builder_git_sha=BUILD_PROVENANCE, acs_validation={"resolver": resolver, "governance": governance})
     ss_package = build_object_package({"source-set.json":workspace/"source-set.json"}, workspace/"source-set.tar")
-    resolver = GitHubReleaseArtifactResolver(catalog, api, workspace/"sources")
     validation = assemble_source_set_v2(source_set, workspace/"market.duckdb", resolver)
     manifest_values = dict(source_set_id=source_set["source_set_id"],
         source_set_semantic_sha256=source_set_semantic_sha256(source_set), source_set_package_sha256=ss_package["package_sha256"],
@@ -281,11 +380,14 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
         "promotion_id":proposed_record["promotion_id"], "promotion_plan_validated":True,
         "authorization_token":authorization_token(proposed_record),
         "live_promotion_performed":False, "mutate":mutate}
-    ss_record = _publish_object(api=api, cas=catalog_cas, package=workspace/"source-set.tar",
+    from jobs.monthly_refresh.acs_authoritative_write import CurrentCatalog
+    governed_catalog = CurrentCatalog(catalog_cas, governance)
+    governance.current_commit(api.repository)
+    ss_record = _publish_object(api=api, cas=governed_catalog, package=workspace/"source-set.tar",
         object_id=source_set["source_set_id"], object_type="source_set", content_hash=sha256_json(source_set),
         metadata={"cycle_id":cycle_id,"source_set_semantic_sha256":source_set_semantic_sha256(source_set)},
         members=ss_package["member_hashes"], git_sha=git_sha)
-    market_record = _publish_object(api=api, cas=catalog_cas, package=workspace/"canonical-market.tar",
+    market_record = _publish_object(api=api, cas=governed_catalog, package=workspace/"canonical-market.tar",
         object_id=market["market_artifact_id"], object_type="canonical_market", content_hash=sha256_json(market),
         metadata={"source_set_id":source_set["source_set_id"],"database_sha256":market["database_sha256"]},
         members=market_package["member_hashes"], git_sha=git_sha)
@@ -303,7 +405,10 @@ def run(*, api: GitHubAPI, branch: str, cycle_id: str, workspace: Path,
         target_source_pointers=targets, expected_source_set=frozen_expected_set,
         expected_canonical=frozen_expected_canonical, readiness_id=redfin["readiness_id"],
         resolution_id=resolution["resolution_id"])
-    record, created = persist_prepared(record_store, record)
+    from jobs.monthly_refresh.acs_attestation import issue
+    record, proof = issue(record, acs_resolution, governance=governance, catalog=prepared_catalog, resolver=resolver,
+                          promotion_api=api, promotion_workspace=workspace / "prepared-proof")
+    record, created = persist_prepared(record_store, record, acs_proof=proof)
     summary.update(promotion_id=record["promotion_id"], authorization_token=authorization_token(record),
                    prepared_record_created=created, immutable_objects_published=True)
     return summary
