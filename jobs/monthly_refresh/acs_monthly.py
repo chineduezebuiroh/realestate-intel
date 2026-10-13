@@ -64,6 +64,36 @@ def acquire_snapshot(*, source_id: str, vintage: int, output: Path,
     return snapshot
 
 
+def snapshot_to_pin(*, cycle_id: str, source_id: str, vintage: int,
+                    snapshot: Mapping[str, Any], path: Path,
+                    retrieved_at: str | None = None,
+                    historical_evidence: Mapping[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Path]]:
+    """Freeze one exact snapshot; shared by monthly and historical acquisition."""
+    if (snapshot.get("source_id") != source_id or snapshot.get("product") != PRODUCTS[source_id]
+            or snapshot.get("vintage") != vintage or snapshot.get("contract_version") != CONTRACT_VERSION):
+        raise ValueError("ACS snapshot source/product/vintage mismatch")
+    if json.loads(path.read_text()) != dict(snapshot):
+        raise ValueError("ACS snapshot bytes differ from selected snapshot")
+    available = [m for m in snapshot["members"] if m["status"] == "available"]
+    if not available:
+        raise ValueError("ACS snapshot has no available members")
+    evidence = {"product": PRODUCTS[source_id], "vintage": vintage,
+        "request_identity": sha256_json([{k: m[k] for k in ("geo_id", "level", "census_code", "request_url", "status")}
+                                          for m in snapshot["members"]]),
+        "available_membership": sorted(m["geo_id"] for m in available),
+        "provider_ineligible": sorted(m["geo_id"] for m in snapshot["members"] if m["status"] != "available"),
+        "excluded_geographies": snapshot["excluded_geographies"]}
+    if historical_evidence is not None:
+        evidence["historical_preflight_sha256"] = sha256_json(historical_evidence)
+        evidence["historical_omission_evidence_ids"] = sorted(
+            r["evidence_id"] for r in historical_evidence.get("omission_evidence", []))
+    member = {"url": f"{API}/{vintage}/{PRODUCTS[source_id]}",
+        "retrieved_at": retrieved_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "sha256": sha256_file(path), "size_bytes": path.stat().st_size, "evidence": evidence}
+    return provider_pin(cycle_id=cycle_id, source_id=source_id,
+        provider_release_id=f"{PRODUCTS[source_id]}:{vintage}", members={"snapshot": member}), {"snapshot": path}
+
+
 def discover_pin(*, cycle_id: str, source_id: str, workspace: Path,
                  vintages: Callable[[str], list[int]] = discover_vintages,
                  acquire: Callable[..., Mapping[str, Any]] = acquire_snapshot,
@@ -77,17 +107,8 @@ def discover_pin(*, cycle_id: str, source_id: str, workspace: Path,
             errors.append(f"{vintage}:{type(exc).__name__}"); continue
         available = [m for m in snapshot["members"] if m["status"] == "available"]
         if not available: errors.append(f"{vintage}:no_available_members"); continue
-        evidence = {"product": PRODUCTS[source_id], "vintage": vintage,
-            "request_identity": sha256_json([{k: m[k] for k in ("geo_id", "level", "census_code", "request_url", "status")}
-                                              for m in snapshot["members"]]),
-            "available_membership": sorted(m["geo_id"] for m in available),
-            "provider_ineligible": sorted(m["geo_id"] for m in snapshot["members"] if m["status"] != "available"),
-            "excluded_geographies": snapshot["excluded_geographies"]}
-        member = {"url": f"{API}/{vintage}/{PRODUCTS[source_id]}",
-            "retrieved_at": retrieved_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "sha256": sha256_file(path), "size_bytes": path.stat().st_size, "evidence": evidence}
-        return provider_pin(cycle_id=cycle_id, source_id=source_id,
-            provider_release_id=f"{PRODUCTS[source_id]}:{vintage}", members={"snapshot": member}), {"snapshot": path}
+        return snapshot_to_pin(cycle_id=cycle_id, source_id=source_id, vintage=vintage,
+            snapshot=snapshot, path=path, retrieved_at=retrieved_at)
     raise RuntimeError(f"no eligible ACS vintage for {source_id}; {errors}")
 
 
@@ -97,10 +118,15 @@ def retrieve_pinned_snapshot(pin: Mapping[str, Any], output: Path, **kwargs: Any
 
 
 def candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], output: Path,
-              cycle_id: str, git_sha: str = "unknown", repository_root: Path = Path(".")) -> dict[str, Any]:
+              cycle_id: str, git_sha: str = "unknown", repository_root: Path = Path("."),
+              artifact_created_at: str | None = None) -> dict[str, Any]:
     verify_member_bytes(pin, paths); source_id = str(pin["source_id"])
     snapshot = json.loads(paths["snapshot"].read_text())
     vintage = int(str(pin["provider_release_id"]).rsplit(":", 1)[1])
+    if (snapshot.get("source_id") != source_id or snapshot.get("product") != PRODUCTS[source_id]
+            or snapshot.get("vintage") != vintage
+            or pin["provider_release_id"] != f"{PRODUCTS[source_id]}:{vintage}"):
+        raise ValueError("ACS snapshot differs from persisted product/vintage pin")
     frame, diagnostics = canonicalize(source_id, vintage, snapshot)
     if diagnostics["available_membership"] != pin["members"]["snapshot"]["evidence"]["available_membership"]:
         raise ValueError("ACS pinned membership differs from candidate snapshot")
@@ -112,5 +138,6 @@ def candidate(*, pin: Mapping[str, Any], paths: Mapping[str, Path], output: Path
         retrieved_at=pin["members"]["snapshot"]["retrieved_at"], target_month=f"{vintage}-12",
         source_request_identity=pin["members"]["snapshot"]["evidence"]["request_identity"],
         source_urls_or_endpoint_identity=[pin["members"]["snapshot"]["url"]], raw_source_lineage=evidence,
-        config_hashes=governed_config_hashes(repository_root), git_sha=git_sha)
+        config_hashes=governed_config_hashes(repository_root), git_sha=git_sha,
+        artifact_created_at=artifact_created_at)
     return {"manifest": manifest, "evidence": evidence}

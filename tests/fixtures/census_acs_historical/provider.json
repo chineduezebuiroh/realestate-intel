@@ -1,0 +1,79 @@
+{
+  "dataset": [
+    {
+      "c_vintage": 2019,
+      "c_dataset": [
+        "acs",
+        "acs1"
+      ],
+      "identifier": "http://api.census.gov/data/2019/acs/acs1"
+    }
+  ],
+  "metadata": {
+    "variables": {
+      "B01003_001E": {
+        "label": "Estimate!!Total",
+        "concept": "TOTAL POPULATION",
+        "predicateType": "int"
+      },
+      "B19013_001E": {
+        "label": "Estimate!!Median household income",
+        "concept": "MEDIAN HOUSEHOLD INCOME",
+        "predicateType": "int"
+      }
+    }
+  },
+  "geography": [
+    {
+      "geo_id": "nation",
+      "level": "nation",
+      "census_code": "1"
+    },
+    {
+      "geo_id": "state",
+      "level": "state",
+      "census_code": "01"
+    },
+    {
+      "geo_id": "county",
+      "level": "county",
+      "census_code": "01001"
+    },
+    {
+      "geo_id": "metro",
+      "level": "cbsa_metro",
+      "census_code": "12345"
+    }
+  ],
+  "fixture_namespace": "test_only",
+  "omission_cases": [
+    {
+      "geo_id": "metro",
+      "http_status": 204,
+      "body": "",
+      "classification": "provider_no_content"
+    },
+    {
+      "geo_id": "nation",
+      "variable": "B19013_001E",
+      "http_status": 200,
+      "value": null,
+      "classification": "provider_null"
+    }
+  ],
+  "opaque_dataset_case": {
+    "c_vintage": 2019,
+    "c_dataset": [
+      "acs",
+      "acs1"
+    ],
+    "identifier": "https://api.census.gov/data/id/fixture_only_acs1_2019",
+    "distribution": [
+      {
+        "accessURL": "http://api.census.gov/data/2019/acs/acs1"
+      }
+    ],
+    "c_variablesLink": "https://api.census.gov/data/2019/acs/acs1/variables.json",
+    "c_geographyLink": "https://api.census.gov/data/2019/acs/acs1/geography.json"
+  }
+}

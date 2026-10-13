@@ -1,0 +1,141 @@
+name: Governed ACS historical acquisition
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Read-only preflight, separate authorization, or authorized acquisition
+        type: choice
+        default: preflight
+        options: [preflight, authorize, execute]
+      source_id:
+        description: Exact independent physical product (preflight only)
+        type: choice
+        default: census_acs1
+        options: [census_acs1, census_acs5]
+      vintages:
+        description: Exact comma-separated years, at most five (preflight only)
+        type: string
+        default: '2024'
+      batch_size:
+        description: Maximum sequential vintage count, 1 through 5
+        type: choice
+        default: '1'
+        options: ['1', '2', '3', '4', '5']
+      evidence_file:
+        description: Optional reviewed provider evidence JSON under config/acs_backfill_reviews
+        type: string
+      plan_file:
+        description: Reviewed plan JSON under config/acs_backfill_reviews (authorize only)
+        type: string
+      reviewed_plan_id:
+        description: Exact content-addressed reviewed plan identity (authorize and execute)
+        type: string
+      authorization_run_id:
+        description: Successful separate authorize run ID (execute only)
+        type: string
+permissions: {contents: read}
+concurrency:
+  group: acs-historical-acquisition-main
+  cancel-in-progress: false
+jobs:
+  review:
+    if: inputs.action != 'execute' && github.ref == 'refs/heads/main' && github.repository == 'chineduezebuiroh/realestate-intel'
+    runs-on: ubuntu-latest
+    permissions: {contents: read}
+    env:
+      PYTHONPATH: .
+      ACTION: '${{ inputs.action }}'
+      SOURCE_ID: '${{ inputs.source_id }}'
+      VINTAGES: '${{ inputs.vintages }}'
+      BATCH_SIZE: '${{ inputs.batch_size }}'
+      EVIDENCE_FILE: '${{ inputs.evidence_file }}'
+      PLAN_FILE: '${{ inputs.plan_file }}'
+      REVIEWED_PLAN_ID: '${{ inputs.reviewed_plan_id }}'
+      GITHUB_TOKEN: '${{ github.token }}'
+      ACTOR: '${{ github.actor }}'
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: main, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Read-only plan or separate authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/review" "$RUNNER_TEMP/work"
+          python - <<'PY'
+          import os, re, shutil, subprocess
+          from pathlib import Path
+          def review_file(name, required=False):
+              value = os.environ[name]
+              if not value and not required:
+                  return None
+              if not re.fullmatch(r'config/acs_backfill_reviews/[A-Za-z0-9_-]+\.json', value):
+                  raise ValueError('review file must be a bounded repository JSON path')
+              path = Path(value)
+              if (any(parent.is_symlink() for parent in [path, *path.parents])
+                      or not path.is_file() or not path.resolve().is_relative_to(Path.cwd().resolve())
+                      or path.resolve().parent != Path('config/acs_backfill_reviews').resolve()):
+                  raise ValueError('unsafe review path')
+              return value
+          base = ['python', '-m', 'jobs.monthly_refresh.acs_backfill', '--workspace', os.environ['RUNNER_TEMP']+'/work']
+          if os.environ['ACTION'] == 'preflight':
+              command = base + ['--source-id', os.environ['SOURCE_ID'], '--vintages', os.environ['VINTAGES'],
+                  '--batch-size', os.environ['BATCH_SIZE'], '--output', os.environ['RUNNER_TEMP']+'/review/plan.json']
+              evidence = review_file('EVIDENCE_FILE')
+              if evidence:
+                  command += ['--evidence', evidence]
+          elif os.environ['ACTION'] == 'authorize':
+              plan = review_file('PLAN_FILE', True)
+              command = base + ['--action', 'authorize', '--plan', plan, '--actor', os.environ['ACTOR'],
+                  '--reviewed-plan-id', os.environ['REVIEWED_PLAN_ID'], '--output', os.environ['RUNNER_TEMP']+'/review/authorization.json']
+              shutil.copyfile(plan, os.environ['RUNNER_TEMP']+'/review/plan.json')
+          else:
+              raise ValueError('invalid action')
+          subprocess.run(command, check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acs-backfill-${{ inputs.action }}
+          path: ${{ runner.temp }}/review/*.json
+          if-no-files-found: error
+          retention-days: 30
+  execute:
+    if: inputs.action == 'execute' && github.ref == 'refs/heads/main' && github.repository == 'chineduezebuiroh/realestate-intel'
+    runs-on: ubuntu-latest
+    permissions: {contents: write, actions: read}
+    env:
+      PYTHONPATH: .
+      REVIEWED_PLAN_ID: '${{ inputs.reviewed_plan_id }}'
+      AUTHORIZATION_RUN_ID: '${{ inputs.authorization_run_id }}'
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: main, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: acs-backfill-authorize
+          run-id: ${{ inputs.authorization_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/review
+      # The CLI independently verifies the authorization run's immutable archive
+      # and exact reviewed files; workflow context never replaces that check.
+      - name: Execute exact reviewed physical acquisition plan
+        env:
+          GITHUB_TOKEN: '${{ github.token }}'
+          CENSUS_API_KEY: '${{ secrets.CENSUS_API_KEY }}'
+        run: |
+          set -euo pipefail
+          python -m jobs.monthly_refresh.acs_backfill --action execute \
+            --plan "$RUNNER_TEMP/review/plan.json" --authorization "$RUNNER_TEMP/review/authorization.json" \
+            --authorization-run-id "$AUTHORIZATION_RUN_ID" --reviewed-plan-id "$REVIEWED_PLAN_ID" \
+            --workspace "$RUNNER_TEMP/work" --output "$RUNNER_TEMP/result.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acs-backfill-execution-diagnostics
+          path: ${{ runner.temp }}/result.json
+          if-no-files-found: ignore
