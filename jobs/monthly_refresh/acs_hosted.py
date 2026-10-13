@@ -17,6 +17,18 @@ from jobs.monthly_refresh.source_inputs import GitHubPinStore, discover_persist_
 from sources.census_acs.artifact import PRODUCTS
 
 
+def publication_result(*, item: Mapping[str, Any], source_id: str, cycle_id: str) -> dict[str, Any]:
+    """Common successful physical ACS result, including historical recovery."""
+    return {"schema_version": "monthly_source_execution_result_v1", "source_id": source_id,
+        "cycle_id": cycle_id, "status": "succeeded", "candidate_artifact_id": item["object_id"],
+        "artifact_content_hash": item["artifact_content_hash"], "package_sha256": item["package_sha256"],
+        "publication_state": "published_verified", "validation_status": "passed",
+        "provider_release_id": item["metadata"]["provider_release_id"],
+        "observation_max": item["metadata"]["observation_max"], "prior_artifact_id": None,
+        "source_change_detected": True, "retryability": "not_applicable",
+        "accepted_pointer_changed": False, "evidence_uri": item["logical_artifact_uri"]}
+
+
 def execute_product(*, source_id: str, mode: str, cycle_id: str, workspace: Path,
                     pin_store: Any, discover: Callable[[], tuple[dict, dict[str, Path]]],
                     retrieve: Callable[[Mapping[str, Any], Path], Any],
@@ -34,14 +46,7 @@ def execute_product(*, source_id: str, mode: str, cycle_id: str, workspace: Path
         if artifact.exists(): shutil.rmtree(artifact)
         built = build(pin=pin, paths=paths, output=artifact, cycle_id=cycle_id)
         publication = dict(publish(artifact, source_id)); item = publication["record"]
-        result = {"schema_version": "monthly_source_execution_result_v1", "source_id": source_id,
-            "cycle_id": cycle_id, "status": "succeeded", "candidate_artifact_id": item["object_id"],
-            "artifact_content_hash": item["artifact_content_hash"], "package_sha256": item["package_sha256"],
-            "publication_state": "published_verified", "validation_status": "passed",
-            "provider_release_id": item["metadata"]["provider_release_id"],
-            "observation_max": item["metadata"]["observation_max"], "prior_artifact_id": None,
-            "source_change_detected": True, "retryability": "not_applicable",
-            "accepted_pointer_changed": False, "evidence_uri": item["logical_artifact_uri"]}
+        result = publication_result(item=item, source_id=source_id, cycle_id=cycle_id)
         record(result, publication["catalog"])
         return {"result": result, "pin": dict(pin), "candidate": built, "publication": publication}
     return discover_persist_execute(mode=mode, store=pin_store, cycle_id=cycle_id,
