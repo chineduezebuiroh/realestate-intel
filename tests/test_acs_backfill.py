@@ -355,6 +355,17 @@ def test_workflow_manual_read_only_default_and_injection_resistance():
     assert "acs-backfill-authorize" in path.read_text()
 
 
+@pytest.mark.parametrize("job_name", ["review", "execute"])
+def test_workflow_ancestry_checks_require_full_checkout_history(job_name):
+    workflow = yaml.safe_load(Path(".github/workflows/acs-historical-backfill.yml").read_text())
+    # Both jobs call repository_identity(), which verifies PR #281 ancestry.
+    checkouts = [step for step in workflow["jobs"][job_name]["steps"]
+                 if step.get("uses", "").startswith("actions/checkout@")]
+    assert checkouts
+    for checkout in checkouts:
+        assert checkout.get("with", {}).get("fetch-depth") == 0
+
+
 def test_main_code_drift_and_truncated_evidence_fail_closed():
     class CompareAPI:
         def __init__(self, files): self.files = files
