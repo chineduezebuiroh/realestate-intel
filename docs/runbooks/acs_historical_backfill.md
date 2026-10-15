@@ -44,6 +44,11 @@ fetches Census data merely to produce an inventory plan.
 
 ## Preflight and review
 
+For separately authorized bounded hosted provider observation capture, see
+[ACS provider evidence](acs_provider_evidence.md). Its output remains a review
+candidate; main evidence adoption, planning and acquisition authorization are
+distinct boundaries.
+
 1. Use the Cloud checkout of `chineduezebuiroh/realestate-intel`. Verify baseline
    `282ba2d4dcb0fa18d1e945fc5f3cb16957d9da32` is an ancestor. Hosted execution code
    and authority must originate from main.

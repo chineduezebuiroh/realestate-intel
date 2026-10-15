@@ -1,0 +1,69 @@
+name: Bounded ACS read-only provider evidence
+on:
+  workflow_dispatch:
+    inputs:
+      source_id:
+        description: Exact independent ordinary product
+        type: choice
+        required: true
+        options: [census_acs1, census_acs5]
+      vintages:
+        description: Explicit comma-separated exact years, 1 through 5 unique vintages
+        type: string
+        required: true
+      batch_size:
+        description: Maximum number of exact vintages
+        type: choice
+        default: '1'
+        options: ['1', '2', '3', '4', '5']
+permissions: {contents: read}
+concurrency:
+  group: acs-provider-evidence-main
+  cancel-in-progress: false
+jobs:
+  evidence:
+    if: github.ref == 'refs/heads/main' && github.repository == 'chineduezebuiroh/realestate-intel'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: main, fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11', cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Capture and validate exact provider evidence
+        env:
+          PYTHONPATH: .
+          CENSUS_API_KEY: '${{ secrets.CENSUS_API_KEY }}'
+          SOURCE_ID: '${{ inputs.source_id }}'
+          VINTAGES: '${{ inputs.vintages }}'
+          BATCH_SIZE: '${{ inputs.batch_size }}'
+        run: |
+          python -m jobs.monthly_refresh.acs_provider_evidence \
+            --source-id "$SOURCE_ID" --vintages "$VINTAGES" --batch-size "$BATCH_SIZE" \
+            --output "$RUNNER_TEMP/acs-provider-evidence"
+      - name: Evidence summary
+        if: always()
+        env:
+          CAPTURE_OUTPUT: '${{ runner.temp }}/acs-provider-evidence'
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['CAPTURE_OUTPUT']) / 'batch-summary.json'
+          if path.exists():
+              s = json.loads(path.read_text())
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+                  out.write(f"{s['source_id']} provider evidence: validated={s['validated']}; "
+                            f"successful={s['successful_vintages']}; failed={s['failed_vintages']}; production writes=false.\n")
+                  for e in s['entries']:
+                      out.write(f"- {e['vintage']}: validated={e['validated']}; "
+                                f"responses={e['captured_responses']}; accounting={json.dumps(e.get('accounting', {}), sort_keys=True)}\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acs-provider-evidence
+          path: ${{ runner.temp }}/acs-provider-evidence/
+          if-no-files-found: warn
+          retention-days: 30
