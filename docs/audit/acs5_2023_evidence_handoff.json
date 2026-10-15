@@ -1,0 +1,41 @@
+{
+  "schema_version": "acs_provider_evidence_handoff_status_v1",
+  "repository": "chineduezebuiroh/realestate-intel",
+  "inspected_main": "55182ef227f1c66f1da91ab102999a1b93187c0b",
+  "run_id": 38598860460,
+  "artifact_id": 11912706827,
+  "artifact_name": "acs5-2023-provider-evidence",
+  "capture_commit": "55182ef227f1c66f1da91ab102999a1b93187c0b",
+  "run_event": "workflow_dispatch",
+  "run_branch": "main",
+  "run_conclusion": "success",
+  "advertised_archive_sha256": "6d96f15258f4e718b3612d1afea635195dde71dc39770831189bd1c26de22b1d",
+  "github_run_and_artifact_metadata": "INDEPENDENTLY_INSPECTED",
+  "raw_archive_access": "BLOCKED_WORKSPACE_PROXY",
+  "independent_byte_verification_this_change": "NOT_COMPLETED",
+  "captured_config_comparison_this_change": "UNKNOWN_REQUIRES_ARCHIVE",
+  "user_reported_prior_verification": {
+    "responses": 225,
+    "requested_geographies": 223,
+    "exclusions": 10,
+    "available_metric_observations": 438,
+    "provider_no_content_metric_observations": 8,
+    "http_204_receipts": 4,
+    "all_body_hashes_and_lengths_verified": true
+  },
+  "evidence_adopted": false,
+  "candidate_evidence_path": "config/acs_backfill_reviews/provider-acs5-2023.json",
+  "candidate_file_prepared": false,
+  "required_adoption_approval": "Separate external review and merge of exact verified evidence onto main per docs/runbooks/acs_historical_backfill.md",
+  "historical_governance_registry": "ABSENT_AT_INSPECTED_MAIN",
+  "scope_gap_approval_required_for_read_only_plan": false,
+  "acquisition_plan_id": null,
+  "plan_blockers": [
+    "Original hosted archive bytes inaccessible for independent replay",
+    "Verified evidence file not reviewed onto main",
+    "Implementation changes require plan generation against final reviewed code/runtime"
+  ],
+  "workflow_dispatched": false,
+  "acquisition_authorized": false,
+  "production_writes": false
+}
