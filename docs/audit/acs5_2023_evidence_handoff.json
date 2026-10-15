@@ -1,7 +1,7 @@
 {
   "schema_version": "acs_provider_evidence_handoff_status_v1",
   "repository": "chineduezebuiroh/realestate-intel",
-  "inspected_main": "55182ef227f1c66f1da91ab102999a1b93187c0b",
+  "inspected_main": "ed6ee07af47677425a176efab6301a652153231c",
   "run_id": 38598860460,
   "artifact_id": 11912706827,
   "artifact_name": "acs5-2023-provider-evidence",
@@ -11,9 +11,9 @@
   "run_conclusion": "success",
   "advertised_archive_sha256": "6d96f15258f4e718b3612d1afea635195dde71dc39770831189bd1c26de22b1d",
   "github_run_and_artifact_metadata": "INDEPENDENTLY_INSPECTED",
-  "raw_archive_access": "BLOCKED_WORKSPACE_PROXY",
-  "independent_byte_verification_this_change": "NOT_COMPLETED",
-  "captured_config_comparison_this_change": "UNKNOWN_REQUIRES_ARCHIVE",
+  "raw_archive_access": "NOT_TRANSFERRED_TO_WORKSPACE",
+  "independent_byte_verification_this_change": "EXACT_UPLOADED_EVIDENCE_AND_REPORT_HASHED; CANDIDATE_CONTRACT_CONFIG_AND_OMISSIONS_VALIDATED",
+  "captured_config_comparison_this_change": "MATCHES_INSPECTED_MAIN",
   "user_reported_prior_verification": {
     "responses": 225,
     "requested_geographies": 223,
@@ -25,17 +25,37 @@
   },
   "evidence_adopted": false,
   "candidate_evidence_path": "config/acs_backfill_reviews/provider-acs5-2023.json",
-  "candidate_file_prepared": false,
+  "candidate_file_prepared": true,
   "required_adoption_approval": "Separate external review and merge of exact verified evidence onto main per docs/runbooks/acs_historical_backfill.md",
   "historical_governance_registry": "ABSENT_AT_INSPECTED_MAIN",
   "scope_gap_approval_required_for_read_only_plan": false,
   "acquisition_plan_id": null,
   "plan_blockers": [
-    "Original hosted archive bytes inaccessible for independent replay",
-    "Verified evidence file not reviewed onto main",
-    "Implementation changes require plan generation against final reviewed code/runtime"
+    "Exact evidence adoption still requires external review and merge onto main",
+    "Read-only plan must use current main code/config/runtime identity and fresh scoped reconciliation"
   ],
   "workflow_dispatched": false,
   "acquisition_authorized": false,
-  "production_writes": false
+  "production_writes": false,
+  "adoption_status": "PROPOSED_FOR_MAIN_REVIEW",
+  "verification_record": "docs/audit/acs5_2023_evidence_verification.json",
+  "verification_record_sha256": "3f84511b5da3e5d5339f8914ee0a361cd2f8ffa5d3799c0f896a4728cd2da363",
+  "evidence_sha256": "7f58229e8fef3a01ad89e985b0166eceb2fa5727fb55d8bf6cb41bf58f4a3aed",
+  "snapshot_sha256": "b3cefd1dc5a38112a1bd4da53ee183013e977f02a3bf846dc1fc2221a301d4b4",
+  "archive_replay_provenance": "User ran the repository offline verifier on the exact archive on their Mac; its unchanged REVIEW_CANDIDATE_ONLY report was transferred with the exact evidence. Raw archive replay was not repeated in this workspace.",
+  "approval_status": "REVIEW_CANDIDATE_ONLY",
+  "candidate_validation": {
+    "interface": "sources.census_acs.historical.validate_evidence",
+    "status": "PASSED",
+    "requested_geographies": 223,
+    "configured_exclusions": 10,
+    "available_metric_observations": 438,
+    "provider_no_content_metric_observations": 8,
+    "exact_http_204_receipts": 4,
+    "variables": [
+      "B01003_001E",
+      "B19013_001E"
+    ],
+    "all_members_and_variables_accounted_once": true
+  }
 }
