@@ -1,6 +1,7 @@
-# ACS1 B1 evidence adoption preparation
+# ACS1 B1 provider evidence adoption review
 
-Status: **BLOCKED ON ORIGINAL ARCHIVE TRANSFER — NO EVIDENCE ADOPTED**.
+Status: **EXACT UPLOADED CANDIDATES VALIDATED — PROPOSED FOR MAIN REVIEW**.
+Evidence remains `REVIEW_CANDIDATE_ONLY`; acquisition is not authorized.
 
 GitHub metadata independently confirms run `38760112145`, artifact
 `11985004807` (`acs-provider-evidence`), main commit
@@ -9,7 +10,14 @@ and advertised ZIP SHA-256
 `02f8ec3e230a70c8e6e7e9be006884ceb4b31571ad47179285c56a9caea91f1f`.
 The connector downloaded to a file-service reference, but workspace transfer
 received proxy CONNECT 403. The digest has **not** been independently computed
-from live archive bytes here. No candidate was reconstructed or adopted.
+from live archive bytes here. The user subsequently ran the PR #287 offline
+verifier on the original ZIP on their Mac and uploaded all seven generated files.
+This change preserves the five per-year candidates, aggregate map and verification
+report byte-for-byte. Uploaded hashes, provenance, current configuration, snapshots,
+metadata and full geography/omission accounting were independently checked here
+with `validate_evidence`. No raw-response replay was repeated in this workspace.
+See `acs1_b1_evidence_verification.json` for the unchanged local-verifier record
+and `acs1_b1_evidence_handoff.json` for this session's checks and exact hashes.
 
 The fixed pilot verifier accepts only a root-level ACS5 2023 archive with 225
 responses and a hard-coded pilot digest. It cannot accept the hosted batch's
@@ -29,7 +37,19 @@ the aggregate must agree; failed/partial batches fail closed without candidates.
 Successful local output preserves all original evidence bytes and is marked
 `REVIEW_CANDIDATE_ONLY`. Credentials are neither requested nor logged.
 
-## Verify and adopt ACS1 B1
+## Validation in this adoption change
+
+All uploaded candidate and report bytes match their preserved repository copies.
+Existing `validate_evidence` passed for every year against current main configuration.
+Relevant provider-evidence, backfill, boundary-hardening, historical-materialization
+and physical-integration regression suites: **294 passed**. Acquisition code,
+workflows, bound configuration and dependencies are unchanged.
+
+## ACS1 B1 verification provenance and next preflight
+
+Steps 1–2 document the successful user-run archive verification. Step 3 is now
+proposed in this PR, based on the uploaded exact outputs; steps 4–5 remain future
+review and execution boundaries. The original ZIP is unavailable here.
 
 1. Transfer the original ZIP, without re-zipping. If available locally, download:
 
@@ -57,9 +77,11 @@ Successful local output preserves all original evidence bytes and is marked
    Also adopt the original, byte-preserved aggregate
    `provider-acs1-2018-2019-2021-2022-2023.json`: the existing hosted preflight
    takes one evidence map. This is the same five year records, not a new capture.
-   No such files are included in this preparation change because live bytes
-   remain inaccessible. A reviewer must independently assess provenance,
-   exclusions and any provider omissions; a successful hash check is not approval.
+   All six evidence files and the unchanged verification report are included
+   in this PR. Every file hash matches the uploaded report; each per-year map
+   equals its corresponding aggregate entry. A reviewer must independently assess
+   provenance, exclusions and provider omissions; successful validation is not
+   acquisition authorization or scope/gap approval.
 4. After that evidence PR merges, the exact read-only B1 invocation is:
 
    ```sh
