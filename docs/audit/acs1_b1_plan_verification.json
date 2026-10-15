@@ -1,0 +1,99 @@
+{
+  "acquisition_authorized": false,
+  "approval_status": "REVIEW_CANDIDATE_ONLY",
+  "archive_bytes": 83369,
+  "archive_crc_verified": true,
+  "archive_members": [
+    "plan.json"
+  ],
+  "archive_sha256": "de4a4759de0b23199ceb59519ad6b0e23e506e41e180e92e4941a77acc2e0da8",
+  "artifact_id": 11998451491,
+  "bound_runtime": {
+    "implementations": {
+      "numpy": {
+        "installed_record_sha256": "4a5e092d61d21bd265ba11b0f34ce00cb095afdd8c086e5041d2324f0e6b847f",
+        "version": "2.4.6"
+      },
+      "pandas": {
+        "installed_record_sha256": "ed35d04876ae7be36207fb4f609ee658b5527ba0f08a84d64e4e30c87efff0eb",
+        "version": "2.2.2"
+      },
+      "pyarrow": {
+        "installed_record_sha256": "5ca5422cd99616ddf3d1986b35b64fc23b632a8eeebceaa2ad04638fcdf3c969",
+        "version": "26.0.0"
+      }
+    },
+    "python_executable_sha256": "d601e62487858384d3000725c3b2e16e86ff11a6ad0b0810b76281e45426ea62",
+    "python_version": "3.11.17 (main, Oct  1 2026, 14:32:31) [GCC 13.3.0]"
+  },
+  "code_config_and_repository_bindings_match_current_main": true,
+  "entries": [
+    {
+      "accounting": {
+        "available": 308,
+        "provider_no_content": 138
+      },
+      "classification": "missing_acquisition",
+      "omission_receipts": 69,
+      "provider_evidence_matches_adopted_main": true,
+      "snapshot_sha256": "b5bfa9f801c1c45d4b53720e0a921ee6234ee125388cf2a9fb391d2e5d45e55c",
+      "vintage": 2018
+    },
+    {
+      "accounting": {
+        "available": 312,
+        "provider_no_content": 134
+      },
+      "classification": "missing_acquisition",
+      "omission_receipts": 67,
+      "provider_evidence_matches_adopted_main": true,
+      "snapshot_sha256": "d5a5bbfdbae8a1cbfcf8efc2c45864fddaa9702975b2985b71a5bc65056ffc1f",
+      "vintage": 2019
+    },
+    {
+      "accounting": {
+        "available": 312,
+        "provider_no_content": 134
+      },
+      "classification": "missing_acquisition",
+      "omission_receipts": 67,
+      "provider_evidence_matches_adopted_main": true,
+      "snapshot_sha256": "73b363d2f5d205c4ae24c74b7db60790efd2050dee207d9824178f1c918e83f6",
+      "vintage": 2021
+    },
+    {
+      "accounting": {
+        "available": 312,
+        "provider_no_content": 134
+      },
+      "classification": "missing_acquisition",
+      "omission_receipts": 67,
+      "provider_evidence_matches_adopted_main": true,
+      "snapshot_sha256": "9eaac33d07b94e881a178fc5cd4aaf437fc639acb5d3ffa8ebfc85162304528b",
+      "vintage": 2022
+    },
+    {
+      "accounting": {
+        "available": 304,
+        "provider_no_content": 142
+      },
+      "classification": "missing_acquisition",
+      "omission_receipts": 71,
+      "provider_evidence_matches_adopted_main": true,
+      "snapshot_sha256": "d137a15834e2c98de1a910541891fd21e03826e4e868ffe3db5b3faec74eeb75",
+      "vintage": 2023
+    }
+  ],
+  "future_hosted_runtime_status": "CONDITIONAL: same setup in authorize and execute jobs; no future job was dispatched or independently attested. Moving runner/Python/package selection does not guarantee identical immutable hashes. Actual runtime must match entire plan identity at each gate, otherwise stop.",
+  "hosted_runtime_provenance": "Successful preflight job 116598965032: ubuntu-24.04 image 20261012.334, CPython 3.11.17, pandas 2.2.2, numpy 2.4.6, pyarrow 26.0.0. The plan binds executable and installed RECORD hashes in addition to versions.",
+  "inspected_main": "0802e4552c84ddfd8d29f3393afa599b96bfd883",
+  "local_runtime_matches": false,
+  "plan_bytes": 873689,
+  "plan_id": "acs_historical_execution_plan_v1__5245626e78a20a39fc51bf499273d8595f796c0186e928d110a046ae1c97a28a",
+  "plan_path": "config/acs_backfill_reviews/plan-acs1-b1-2018-2019-2021-2022-2023.json",
+  "plan_sha256": "cb281aa6f848f56ed02dacc755cbe2670222ec7ddf7fa17eb58c4aca76050157",
+  "run_id": 38786268710,
+  "schema_version": "acs_historical_plan_adoption_review_v1",
+  "scoped_catalog_reconciliation_at_inspected_main": "PASS: all five missing, zero matching physical catalog identities",
+  "workflow_dispatched": false
+}
