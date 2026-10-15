@@ -367,3 +367,86 @@ def test_archive_corruption_or_drift_never_produces_review_candidate(tmp_path, m
     archive, sha = pilot_archive(tmp_path, mutate=change)
     if mutation == "archive": sha = "0" * 64
     with pytest.raises(ValueError): verify_pilot_archive(archive, expected_sha256=sha)
+
+# Batch review is offline tooling, outside acquisition code identity.
+from scripts.verify_acs_provider_evidence_batch import verify_batch_archive
+
+
+def batch_archive(tmp_path, monkeypatch, *, source="census_acs1", years=(2018, 2019, 2021, 2022, 2023), mutate=None):
+    for key, value in {"GITHUB_REPOSITORY": "chineduezebuiroh/realestate-intel",
+                       "GITHUB_RUN_ID": "38760112145", "GITHUB_RUN_ATTEMPT": "1",
+                       "GITHUB_WORKFLOW_REF": "chineduezebuiroh/realestate-intel/.github/workflows/acs-provider-evidence.yml@refs/heads/main"}.items():
+        monkeypatch.setenv(key, value)
+    sessions = iter(Session("204", source=source, year=y) for y in years)
+    output = tmp_path / "batch"
+    result = pilot.capture_batch(output, source_id=source, vintages=list(years), batch_size=len(years),
+        credential=KEY, session_factory=lambda: next(sessions))
+    assert result["validated"]
+    files = {str(p.relative_to(output)): p.read_bytes() for p in output.rglob("*") if p.is_file()}
+    if mutate: mutate(files)
+    archive = tmp_path / "batch.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, body in files.items(): z.writestr(name, body)
+    kwargs = dict(expected_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
+                  source_id=source, vintages=list(years), run_id=38760112145, artifact_id=11985004807,
+                  capture_commit=result["code_commit"])
+    return archive, kwargs, files
+
+
+@pytest.mark.parametrize("source,years", [("census_acs1", (2018, 2019, 2021, 2022, 2023)),
+                                         ("census_acs5", (2022, 2023))])
+def test_offline_batch_verification_preserves_exact_candidates(tmp_path, monkeypatch, source, years):
+    archive, kwargs, files = batch_archive(tmp_path, monkeypatch, source=source, years=years)
+    candidates, report = verify_batch_archive(archive, **kwargs)
+    assert report["validated"] and report["responses_verified"] == len(years) * 225
+    assert report["approval_status"] == "REVIEW_CANDIDATE_ONLY"
+    aggregate_name = f"provider-{source.removeprefix('census_')}-" + "-".join(map(str, years)) + ".json"
+    assert candidates[aggregate_name] == files["provider-evidence.json"]
+    assert report["aggregate_evidence_sha256"] == hashlib.sha256(files["provider-evidence.json"]).hexdigest()
+    for year, entry in zip(years, report["entries"]):
+        assert candidates[f"provider-{source.removeprefix('census_')}-{year}.json"] == files[f"{year}/provider-evidence.json"]
+        assert entry["accounting"] == {"available": 444, "provider_no_content": 2}
+        assert len(entry["omission_receipt_ids"]) == 1
+
+
+@pytest.mark.parametrize("mutation", ["raw", "manifest", "receipt", "year_swap", "extra_year", "path",
+    "config", "batch", "run", "aggregate", "source", "failed"])
+def test_offline_batch_rejects_corruption_scope_and_provenance_drift(tmp_path, monkeypatch, mutation):
+    def change(files):
+        if mutation == "raw": files["2018/responses/002.body"] = b"tampered"
+        elif mutation == "manifest": files["2018/response-manifest.json"] = b"{}"
+        elif mutation == "receipt":
+            value = json.loads(files["2018/provider-evidence.json"])
+            value["2018"]["omission_evidence"] = []
+            files["2018/provider-evidence.json"] = json.dumps(value).encode()
+        elif mutation == "year_swap": files["2018/provider-evidence.json"] = files["2019/provider-evidence.json"]
+        elif mutation == "extra_year": files["2020/provider-evidence.json"] = b"{}"
+        elif mutation == "path": files["../escape"] = b"tampered"
+        elif mutation == "aggregate": files["provider-evidence.json"] = b"{}"
+        else:
+            value = json.loads(files["batch-summary.json"])
+            if mutation == "config": value["config_hashes"] = {}
+            elif mutation == "batch": value["batch_id"] = "tampered"
+            elif mutation == "run": value["hosted_run"]["GITHUB_RUN_ID"] = "1"
+            elif mutation == "source": value["source_id"] = "census_acs5"
+            elif mutation == "failed": value["failed_vintages"] = [2018]
+            files["batch-summary.json"] = json.dumps(value).encode()
+    archive, kwargs, _ = batch_archive(tmp_path, monkeypatch, years=(2018, 2019), mutate=change)
+    with pytest.raises(ValueError): verify_batch_archive(archive, **kwargs)
+
+
+def test_offline_batch_exact_digest_and_unique_scope_required(tmp_path, monkeypatch):
+    archive, kwargs, _ = batch_archive(tmp_path, monkeypatch, years=(2018,))
+    with pytest.raises(ValueError): verify_batch_archive(archive, **{**kwargs, "expected_sha256": "0" * 64})
+    with pytest.raises(ValueError): verify_batch_archive(archive, **{**kwargs, "vintages": [2018, 2018]})
+
+
+def test_offline_batch_cli_failure_emits_no_candidate_directory(tmp_path, monkeypatch, capsys):
+    from scripts import verify_acs_provider_evidence_batch as review
+    output = tmp_path / "reviewed"
+    monkeypatch.setattr("sys.argv", ["review", "--archive", str(tmp_path / "inaccessible.zip"),
+        "--output", str(output), "--expected-sha256", "0" * 64, "--source-id", "census_acs1",
+        "--vintages", "2018", "--run-id", "38760112145", "--artifact-id", "11985004807",
+        "--capture-commit", "a" * 40])
+    assert review.main() == 1 and not output.exists()
+    assert "no candidates emitted" in capsys.readouterr().out

@@ -1,0 +1,79 @@
+{
+  "acquisition_authorized": false,
+  "adoption_status": "PROPOSED_FOR_MAIN_REVIEW",
+  "aggregate_evidence_path": "config/acs_backfill_reviews/provider-acs1-2018-2019-2021-2022-2023.json",
+  "aggregate_evidence_sha256": "b1c4be24d6c08bc6274b55338fce5ae0ef011232900b3575cbe1a3010c75a20e",
+  "approval_status": "REVIEW_CANDIDATE_ONLY",
+  "archive_replay_provenance": "User ran the PR #287 offline batch verifier on the original hosted archive on their Mac. Exact generated evidence and verification report were uploaded. Raw-response replay and archive ZIP hash were not independently repeated in this workspace.",
+  "bound_code_config_workflows_dependencies_unchanged": true,
+  "bound_code_sha256": "6b9d56daab7f272cab0f72887bb046a7e80ba51d8bb392b4127081e72d78aae9",
+  "configured_exclusions_per_vintage": 10,
+  "inspected_main": "33ccf0f4aa15bed052b6f748050e6847fffb3972",
+  "inventory": [
+    {
+      "accounting": {
+        "available": 308,
+        "provider_no_content": 138
+      },
+      "evidence_path": "config/acs_backfill_reviews/provider-acs1-2018.json",
+      "evidence_sha256": "3074442693e2f27a64ec907a3204f15d79490c777434223cc8b56c5a006f6843",
+      "omission_receipts": 69,
+      "snapshot_sha256": "b5bfa9f801c1c45d4b53720e0a921ee6234ee125388cf2a9fb391d2e5d45e55c",
+      "vintage": 2018
+    },
+    {
+      "accounting": {
+        "available": 312,
+        "provider_no_content": 134
+      },
+      "evidence_path": "config/acs_backfill_reviews/provider-acs1-2019.json",
+      "evidence_sha256": "22d481ff668eefac0c004cc43935641b6a61cb390295dedc5e2ffa63134fb9ba",
+      "omission_receipts": 67,
+      "snapshot_sha256": "d5a5bbfdbae8a1cbfcf8efc2c45864fddaa9702975b2985b71a5bc65056ffc1f",
+      "vintage": 2019
+    },
+    {
+      "accounting": {
+        "available": 312,
+        "provider_no_content": 134
+      },
+      "evidence_path": "config/acs_backfill_reviews/provider-acs1-2021.json",
+      "evidence_sha256": "ac8e9cd6fe7987b1c499f11ed7c4fa516d2c7a95b24fc117f3d373b0d21f966e",
+      "omission_receipts": 67,
+      "snapshot_sha256": "73b363d2f5d205c4ae24c74b7db60790efd2050dee207d9824178f1c918e83f6",
+      "vintage": 2021
+    },
+    {
+      "accounting": {
+        "available": 312,
+        "provider_no_content": 134
+      },
+      "evidence_path": "config/acs_backfill_reviews/provider-acs1-2022.json",
+      "evidence_sha256": "1ede0ab1bafd8206cef472ac27dea051b30764e4e68594fb1b90d4d123f9521c",
+      "omission_receipts": 67,
+      "snapshot_sha256": "9eaac33d07b94e881a178fc5cd4aaf437fc639acb5d3ffa8ebfc85162304528b",
+      "vintage": 2022
+    },
+    {
+      "accounting": {
+        "available": 304,
+        "provider_no_content": 142
+      },
+      "evidence_path": "config/acs_backfill_reviews/provider-acs1-2023.json",
+      "evidence_sha256": "fb7e76b48c039b2cb5a2689dbce3856b651f7d0423b5284492ffc03ebec3c330",
+      "omission_receipts": 71,
+      "snapshot_sha256": "d137a15834e2c98de1a910541891fd21e03826e4e868ffe3db5b3faec74eeb75",
+      "vintage": 2023
+    }
+  ],
+  "original_archive_available_in_workspace": false,
+  "previous_pr_head": "65ef54f2ac19d01b92765fea9e82c7d665f9018b",
+  "production_writes": false,
+  "raw_response_replay_this_session": false,
+  "requested_members_per_vintage": 223,
+  "schema_version": "acs_provider_evidence_adoption_handoff_v1",
+  "validation_this_session": "Uploaded candidate byte hashes, aggregate equivalence, report provenance, current configuration, snapshots, metadata, 223-member accounting and omissions validated with existing validate_evidence.",
+  "verification_record": "docs/audit/acs1_b1_evidence_verification.json",
+  "verification_record_sha256": "dbff3cbd5e1c3dbf69a73a6fa4618b7ca70411590cf7813233d42b055d861196",
+  "workflow_dispatched": false
+}
