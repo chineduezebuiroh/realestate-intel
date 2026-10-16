@@ -372,23 +372,23 @@ def test_archive_corruption_or_drift_never_produces_review_candidate(tmp_path, m
 from scripts.verify_acs_provider_evidence_batch import verify_batch_archive
 
 
-def batch_archive(tmp_path, monkeypatch, *, source="census_acs1", years=(2018, 2019, 2021, 2022, 2023), mutate=None):
+def batch_archive(tmp_path, monkeypatch, *, source="census_acs1", years=(2018, 2019, 2021, 2022, 2023), mutate=None, failed_year=None, run_id=38760112145):
     for key, value in {"GITHUB_REPOSITORY": "chineduezebuiroh/realestate-intel",
-                       "GITHUB_RUN_ID": "38760112145", "GITHUB_RUN_ATTEMPT": "1",
+                       "GITHUB_RUN_ID": str(run_id), "GITHUB_RUN_ATTEMPT": "1",
                        "GITHUB_WORKFLOW_REF": "chineduezebuiroh/realestate-intel/.github/workflows/acs-provider-evidence.yml@refs/heads/main"}.items():
         monkeypatch.setenv(key, value)
-    sessions = iter(Session("204", source=source, year=y) for y in years)
+    sessions = iter(Session("unsupported" if y == failed_year else "204", source=source, year=y) for y in years)
     output = tmp_path / "batch"
     result = pilot.capture_batch(output, source_id=source, vintages=list(years), batch_size=len(years),
         credential=KEY, session_factory=lambda: next(sessions))
-    assert result["validated"]
+    assert result["validated"] is (failed_year is None)
     files = {str(p.relative_to(output)): p.read_bytes() for p in output.rglob("*") if p.is_file()}
     if mutate: mutate(files)
     archive = tmp_path / "batch.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
         for name, body in files.items(): z.writestr(name, body)
     kwargs = dict(expected_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
-                  source_id=source, vintages=list(years), run_id=38760112145, artifact_id=11985004807,
+                  source_id=source, vintages=list(years), run_id=run_id, artifact_id=11985004807,
                   capture_commit=result["code_commit"])
     return archive, kwargs, files
 
@@ -450,3 +450,54 @@ def test_offline_batch_cli_failure_emits_no_candidate_directory(tmp_path, monkey
         "--capture-commit", "a" * 40])
     assert review.main() == 1 and not output.exists()
     assert "no candidates emitted" in capsys.readouterr().out
+
+
+def test_partial_archive_requires_explicit_failures_and_never_adopts_them(tmp_path, monkeypatch):
+    archive, kwargs, _ = batch_archive(tmp_path, monkeypatch, source="census_acs5", years=(2020, 2021), failed_year=2021)
+    with pytest.raises(ValueError): verify_batch_archive(archive, **kwargs)
+    candidates, report = verify_batch_archive(archive, **kwargs, failed_vintages=[2021])
+    assert set(candidates) == {"provider-acs5-2020.json"}
+    assert report["vintages"] == [2020] and report["capture_validated"] is False
+    assert report["responses_verified"] == 225
+    assert report["failed_captures_not_adopted"][0]["adopted"] is False
+    with pytest.raises(ValueError): verify_batch_archive(archive, **kwargs, failed_vintages=[2020])
+
+
+def test_partial_failed_raw_corruption_is_not_ignored(tmp_path, monkeypatch):
+    def change(files): files["2021/responses/000.body"] = b"tampered"
+    archive, kwargs, _ = batch_archive(tmp_path, monkeypatch, source="census_acs5", years=(2020, 2021), failed_year=2021, mutate=change)
+    with pytest.raises(ValueError, match="raw response integrity"):
+        verify_batch_archive(archive, **kwargs, failed_vintages=[2021])
+
+
+def test_combined_review_preserves_retry_provenance_and_rejects_duplicates(tmp_path, monkeypatch):
+    from scripts.verify_acs_provider_evidence_batch import combine_reviewed_evidence
+    first = tmp_path / "first"; first.mkdir()
+    retry = tmp_path / "retry"; retry.mkdir()
+    archive, kwargs, _ = batch_archive(first, monkeypatch, source="census_acs5", years=(2020, 2021), failed_year=2021)
+    original = verify_batch_archive(archive, **kwargs, failed_vintages=[2021])
+    archive, kwargs, _ = batch_archive(retry, monkeypatch, source="census_acs5", years=(2021,), run_id=38934844908)
+    recovered = verify_batch_archive(archive, **kwargs)
+    body, report = combine_reviewed_evidence([original, recovered], source_id="census_acs5", vintages=[2020, 2021])
+    assert set(json.loads(body)) == {"2020", "2021"}
+    for candidates, validation in [original, recovered]:
+        for y in validation["vintages"]:
+            assert json.loads(body)[str(y)] == json.loads(candidates[f"provider-acs5-{y}.json"])[str(y)]
+    assert [e["vintage"] for e in report["origins"]] == [2020, 2021]
+    assert report["origins"][1]["archive_sha256"] == recovered[1]["archive_sha256"]
+    assert report["origins"][0]["run_id"] != report["origins"][1]["run_id"]
+    from jobs.monthly_refresh.acs_backfill import make_plan
+    plan, excluded = geography_plan()
+    inventory = [{"vintage": y, "classification": "missing_acquisition", "parents": [],
+                  "verification_requirements": [], "approved_gap": None} for y in [2020, 2021]]
+    proposed = make_plan(source_id="census_acs5", vintages=[2020, 2021], batch_size=2,
+        identity={}, code_commit="a" * 40, inventory=inventory, evidence=json.loads(body),
+        geography=plan, excluded=excluded, authority={})
+    assert all(e["verification_requirement"] is None for e in proposed["entries"])
+
+    with pytest.raises(ValueError, match="duplicate"):
+        combine_reviewed_evidence([original, recovered, recovered], source_id="census_acs5", vintages=[2020, 2021])
+    with pytest.raises(ValueError, match="missing"):
+        combine_reviewed_evidence([original], source_id="census_acs5", vintages=[2020, 2021])
+    with pytest.raises(ValueError, match="source/configuration"):
+        combine_reviewed_evidence([original, recovered], source_id="census_acs1", vintages=[2020, 2021])
