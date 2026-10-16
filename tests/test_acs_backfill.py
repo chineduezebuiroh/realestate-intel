@@ -37,7 +37,7 @@ class Response:
 class Transport:
     def __init__(self, source="census_acs1", year=2019):
         self.source, self.year, self.calls = source, year, []
-    def get(self, url, *, params, timeout):
+    def get(self, url, *, params, timeout, allow_redirects=False):
         self.calls.append((url, params))
         if url.endswith("data.json"):
             return Response({"dataset": [{"c_vintage": self.year,
@@ -512,7 +512,7 @@ def test_repository_remote_identity_including_actions_checkout_format(monkeypatc
 class OmissionTransport(Transport):
     def __init__(self, *, omitted='metro', status=204, body=b'', null_variable=None):
         super().__init__(); self.omitted, self.status, self.body, self.null_variable = omitted, status, body, null_variable
-    def get(self, url, *, params, timeout):
+    def get(self, url, *, params, timeout, allow_redirects=False):
         result = super().get(url, params=params, timeout=timeout)
         if params and params['for'].endswith('12345') and self.omitted == 'metro':
             result = Response(None); result.status_code = self.status; result.content = self.body
@@ -1009,3 +1009,294 @@ def test_opaque_provider_identifiers_require_exact_advertised_dataset_binding(mu
         assert exact_dataset('census_acs1', 2019, discovery) == dataset
     else:
         with pytest.raises(VerificationRequired): exact_dataset('census_acs1', 2019, discovery)
+
+# Historical-only transport recovery; every response is an offline fixture.
+ACQUISITION_SECRET = "fixture-secret-key"
+class AcquisitionClock:
+    def __init__(self): self.now, self.sleeps = 0.0, []
+    def clock(self): return self.now
+    def sleep(self, seconds): self.sleeps.append(seconds); self.now += seconds
+
+
+class AcquisitionSession:
+    def __init__(self, events=(), clock=None):
+        self.events, self.calls, self.clock = list(events), [], clock
+    def get(self, url, *, params, timeout, allow_redirects=False):
+        self.calls.append((url, dict(params or {}), timeout))
+        if self.events:
+            event = self.events.pop(0)
+            if isinstance(event, BaseException): raise event
+            if callable(event): return event()
+            return event
+        return Transport().get(url, params=params, timeout=timeout)
+
+
+def acquisition_response(status, body=b'', **headers):
+    import requests
+    response = requests.Response()
+    response.status_code, response._content, response.encoding = status, body, 'utf-8'
+    response._content_consumed = True
+    response.headers.update(headers)
+    return response
+
+
+def historical_acquire(tmp_path, monkeypatch, session, *, clock=None):
+    from sources.census_acs.historical import acquire_historical_snapshot
+    monkeypatch.setattr('jobs.monthly_refresh.acs_monthly.geography_plan', lambda: (GEOGRAPHY, []))
+    kwargs = {} if clock is None else dict(clock=clock.clock, sleep=clock.sleep)
+    return acquire_historical_snapshot(source_id='census_acs1', vintage=2019,
+        output=tmp_path / 'snapshot', session=session, key=ACQUISITION_SECRET, **kwargs)
+
+
+@pytest.mark.parametrize('event', ['connection', 'timeout', 429, 500, 502, 503, 504])
+def test_historical_retry_recovers_exact_reviewed_snapshot(tmp_path, monkeypatch, event):
+    import requests
+    failures = {'connection': requests.ConnectionError('key=fixture-secret-key'),
+                'timeout': requests.Timeout('key=fixture-secret-key')}
+    failure = failures[event] if isinstance(event, str) else acquisition_response(event)
+    clock = AcquisitionClock(); session = AcquisitionSession([failure], clock)
+    result = historical_acquire(tmp_path, monkeypatch, session, clock=clock)
+    assert result == evidence()['snapshot']
+    assert sha256_json(result) == evidence()['snapshot_sha256']
+    assert len(session.calls) == len(GEOGRAPHY) + 1 and clock.sleeps == [1]
+    assert session.calls[0][1] == session.calls[1][1]
+    assert 'fixture-secret-key' not in (tmp_path / 'snapshot').read_text()
+    assert all(sum(call[2]) <= 60 for call in session.calls)
+
+
+@pytest.mark.parametrize('event,category,status', [('timeout', 'timeout', None),
+    ('connection', 'connection', None), (503, 'http_status', 503)])
+def test_historical_retry_exhaustion_is_bounded_and_sanitized(tmp_path, monkeypatch, event, category, status):
+    import requests
+    from sources.census_acs.historical import HistoricalAcquisitionFailure
+    secret = 'fixture-secret-key'
+    exception = requests.Timeout if event == 'timeout' else requests.ConnectionError
+    events = [exception('https://example.invalid/?key=' + secret)] * 3 if isinstance(event, str) else [acquisition_response(event)] * 3
+    clock = AcquisitionClock(); session = AcquisitionSession(events, clock)
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, session, clock=clock)
+    assert len(session.calls) == 3 and clock.sleeps == [1, 2]
+    d = caught.value.diagnostic
+    assert d == dict(source_id='census_acs1', product='acs/acs1', vintage=2019,
+        request_ordinal=1, request_kind='geography', geography_id=GEOGRAPHY[0]['geo_id'],
+        category=category, http_status=status, attempts_consumed=3)
+    assert secret not in str(caught.value) and 'https:' not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+    assert not (tmp_path / 'snapshot').exists()
+
+
+@pytest.mark.parametrize('status', [301, 400, 401, 403, 404, 408, 501])
+def test_historical_permanent_http_errors_never_retry(tmp_path, monkeypatch, status):
+    from sources.census_acs.historical import HistoricalAcquisitionFailure
+    clock = AcquisitionClock(); session = AcquisitionSession([acquisition_response(status)], clock)
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, session, clock=clock)
+    assert caught.value.diagnostic['http_status'] == status
+    assert caught.value.diagnostic['category'] == 'http_status'
+    assert len(session.calls) == 1 and not clock.sleeps
+
+
+@pytest.mark.parametrize('body,category', [(b'not-json fixture-secret-key', 'invalid_json'),
+    (b'{}', 'invalid_payload'), (b'[]', 'invalid_payload')])
+def test_historical_json_and_payload_errors_do_not_retry(tmp_path, monkeypatch, body, category):
+    from sources.census_acs.historical import HistoricalAcquisitionFailure
+    session = AcquisitionSession([acquisition_response(200, body)])
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, session)
+    assert len(session.calls) == 1 and caught.value.diagnostic['category'] == category
+    assert 'fixture-secret-key' not in str(caught.value)
+    assert not (tmp_path / 'snapshot').exists()
+
+
+def test_historical_retry_retains_empty_204_semantics(tmp_path, monkeypatch):
+    from sources.census_acs.historical import HistoricalAcquisitionFailure
+    session = AcquisitionSession([acquisition_response(503), acquisition_response(204)])
+    snapshot = historical_acquire(tmp_path, monkeypatch, session, clock=AcquisitionClock())
+    expected = evidence()['snapshot']
+    expected['members'][0].update(status='provider_ineligible_no_content', payload=None)
+    assert snapshot == expected
+    validate_snapshot(source_id='census_acs1', vintage=2019, snapshot=snapshot, plan=GEOGRAPHY,
+        excluded=[], omissions=omission_receipts(source_id='census_acs1', vintage=2019, snapshot=snapshot))
+    (tmp_path / 'snapshot').unlink()
+    session = AcquisitionSession([acquisition_response(204, b'fixture-secret-key')])
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, session)
+    assert caught.value.diagnostic['category'] == 'invalid_no_content'
+    assert len(session.calls) == 1 and not (tmp_path / 'snapshot').exists()
+
+
+@pytest.mark.parametrize('header,expected', [('999999999', 10), ('-5', 1),
+    ('invalid fixture-secret-key', 1), ('nan', 1), ('Thu, 01 Jan 1970 00:00:20 GMT', 10)])
+def test_historical_retry_after_is_bounded(header, expected):
+    from sources.census_acs.historical import _retry_delay
+    assert _retry_delay(1, header, lambda: 0) == expected
+
+
+def test_historical_deadline_counts_requests_and_retry_sleep(tmp_path, monkeypatch):
+    from sources.census_acs.historical import HistoricalAcquisitionFailure
+    monkeypatch.setattr('sources.census_acs.historical.ACQUISITION_DEADLINE_SECONDS', 5)
+    clock = AcquisitionClock()
+    def slow():
+        clock.now += 4
+        return acquisition_response(503, **{'Retry-After': '10'})
+    session = AcquisitionSession([slow], clock)
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, session, clock=clock)
+    assert caught.value.diagnostic['category'] == 'deadline_exhausted'
+    assert session.calls[0][2] == (2.5, 2.5)
+    assert len(session.calls) == 1 and not clock.sleeps
+
+
+def test_historical_deadline_rejects_late_success_and_restores_alarm(tmp_path, monkeypatch):
+    import signal
+    from sources.census_acs.historical import HistoricalAcquisitionFailure
+    clock = AcquisitionClock(); before = signal.getsignal(signal.SIGALRM)
+    def late():
+        clock.now = 901
+        return Response([['NAME', 'B01003_001E', 'B19013_001E'], ['fixture', '100', '70000']])
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, AcquisitionSession([late]), clock=clock)
+    assert caught.value.diagnostic['category'] == 'deadline_exhausted'
+    assert caught.value.diagnostic['http_status'] == 200
+    assert signal.getsignal(signal.SIGALRM) == before and signal.getitimer(signal.ITIMER_REAL) == (0, 0)
+    assert not (tmp_path / 'snapshot').exists()
+
+
+def test_historical_hard_deadline_interrupts_inflight_request(tmp_path, monkeypatch):
+    import time
+    from sources.census_acs.historical import HistoricalAcquisitionFailure
+    monkeypatch.setattr('sources.census_acs.historical.ACQUISITION_DEADLINE_SECONDS', .05)
+    def blocked(): time.sleep(2); return acquisition_response(200, b'[]')
+    started = time.monotonic()
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, AcquisitionSession([blocked]))
+    assert caught.value.diagnostic['category'] == 'deadline_exhausted'
+    assert time.monotonic() - started < 1
+    assert not (tmp_path / 'snapshot').exists()
+
+
+def test_historical_metadata_failure_has_no_geography_or_retry(tmp_path, monkeypatch):
+    from sources.census_acs.historical import acquire_historical_snapshot, HistoricalAcquisitionFailure
+    def acquire(**kwargs):
+        return preflight(source_id='census_acs1', vintage=2019,
+            transport=kwargs['session'], plan=GEOGRAPHY, excluded=[])
+    monkeypatch.setattr('jobs.monthly_refresh.acs_monthly.acquire_snapshot', acquire)
+    monkeypatch.setattr('jobs.monthly_refresh.acs_monthly.geography_plan', lambda: (GEOGRAPHY, []))
+    session = AcquisitionSession([acquisition_response(200, b'{"dataset": []}')])
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        acquire_historical_snapshot(source_id='census_acs1', vintage=2019, output=tmp_path / 'snapshot',
+            session=session, key='fixture-secret-key')
+    assert caught.value.diagnostic['category'] == 'metadata_mismatch'
+    assert caught.value.diagnostic['request_kind'] == 'dataset'
+    assert caught.value.diagnostic['geography_id'] is None and len(session.calls) == 1
+
+
+def test_historical_diagnostics_survive_outer_wrapper_without_secret_traceback(tmp_path, monkeypatch):
+    import requests, traceback
+    from sources.census_acs.historical import acquire_historical_snapshot, HistoricalAcquisitionFailure
+    monkeypatch.setattr('jobs.monthly_refresh.acs_monthly.geography_plan', lambda: (GEOGRAPHY, []))
+    session = AcquisitionSession([requests.Timeout('https://secret.invalid/?key=fixture-secret-key')] * 3)
+    monkeypatch.setattr(backfill, 'acquire_historical_snapshot', lambda **kw: acquire_historical_snapshot(
+        **kw, session=session, key=ACQUISITION_SECRET, clock=(clock := AcquisitionClock()).clock, sleep=clock.sleep))
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        backfill.acquire_with_diagnostics(source_id='census_acs1', vintage=2019, output=tmp_path / 'snapshot')
+    trace = ''.join(traceback.format_exception(caught.type, caught.value, caught.tb))
+    assert 'requests.exceptions.Timeout:' not in trace and 'secret.invalid' not in trace
+    assert ACQUISITION_SECRET not in trace
+    assert caught.value.diagnostic['attempts_consumed'] == 3
+
+
+def test_historical_tls_failure_and_missing_credential_do_not_retry(tmp_path, monkeypatch):
+    import requests
+    from sources.census_acs.historical import acquire_historical_snapshot, HistoricalAcquisitionFailure
+    session = AcquisitionSession([requests.exceptions.SSLError('fixture-secret-key')])
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, session)
+    assert caught.value.diagnostic['category'] == 'tls_failure' and len(session.calls) == 1
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        acquire_historical_snapshot(source_id='census_acs1', vintage=2019, output=tmp_path / 'snapshot', key='')
+    assert caught.value.diagnostic['category'] == 'credential_unavailable'
+    assert caught.value.diagnostic['attempts_consumed'] == 0
+
+
+def test_failed_historical_acquisition_leaves_no_durable_writes(tmp_path, monkeypatch):
+    import requests
+    from sources.census_acs.historical import acquire_historical_snapshot, HistoricalAcquisitionFailure
+    p = plan(); auth = backfill.authorize(p, reviewed_plan_id=p['plan_id'], identity=IDENTITY, actor='reviewer')
+    monkeypatch.setattr('jobs.monthly_refresh.acs_monthly.geography_plan', lambda: (GEOGRAPHY, []))
+    store = FilePinStore(tmp_path / 'pins'); calls = []
+    def acquire(**kwargs):
+        clock = AcquisitionClock()
+        return acquire_historical_snapshot(**kwargs, session=AcquisitionSession([requests.Timeout('secret')] * 3),
+            key='fixture-secret-key', clock=clock.clock, sleep=clock.sleep)
+    def write(*args): calls.append(args); raise AssertionError('publication/result write forbidden')
+    with pytest.raises(HistoricalAcquisitionFailure):
+        backfill.execute_batch(plan=p, authorization=auth, reviewed_plan_id=p['plan_id'], identity=IDENTITY,
+            workspace=tmp_path / 'work', pin_store=store, current_inventory=lambda: [missing()],
+            acquire=acquire, retrieve=write, publish=write, record=write)
+    assert not list((tmp_path / 'pins').rglob('*.json')) and not calls
+
+
+def test_historical_request_ordinal_does_not_increment_on_retry(tmp_path, monkeypatch):
+    import requests
+    from sources.census_acs.artifact import request_params
+    from sources.census_acs.historical import HistoricalAcquisitionFailure
+    first = Transport().get('fixture', params=request_params(GEOGRAPHY[0]), timeout=60)
+    session = AcquisitionSession([first, *[requests.Timeout('secret')] * 3])
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, session, clock=AcquisitionClock())
+    assert caught.value.diagnostic['request_ordinal'] == 2
+    assert caught.value.diagnostic['geography_id'] == GEOGRAPHY[1]['geo_id']
+    assert caught.value.diagnostic['attempts_consumed'] == 3 and len(session.calls) == 4
+
+
+def test_historical_recovery_never_retries_snapshot_drift(tmp_path, monkeypatch):
+    from sources.census_acs.artifact import request_params
+    from sources.census_acs.historical import acquire_historical_snapshot
+    first = Transport().get('fixture', params=request_params(GEOGRAPHY[0]), timeout=60)
+    first.payload[1][1] = '101'
+    session = AcquisitionSession([first]); clock = AcquisitionClock()
+    monkeypatch.setattr('jobs.monthly_refresh.acs_monthly.geography_plan', lambda: (GEOGRAPHY, []))
+    def acquire(**kw): return acquire_historical_snapshot(**kw, session=session, key=ACQUISITION_SECRET,
+        clock=clock.clock, sleep=clock.sleep)
+    with pytest.raises(ValueError, match='provider response drift'):
+        backfill.exact_pin(cycle_id='fixture', source_id='census_acs1', vintage=2019,
+            workspace=tmp_path, evidence=evidence(), geography=GEOGRAPHY, excluded=[], acquire=acquire)
+    assert len(session.calls) == len(GEOGRAPHY) and not clock.sleeps
+
+
+def test_historical_deadline_unavailable_fails_before_requests(tmp_path, monkeypatch):
+    from sources.census_acs.historical import HistoricalAcquisitionFailure
+    monkeypatch.setattr('sources.census_acs.historical.threading.current_thread', lambda: object())
+    session = AcquisitionSession()
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, session)
+    assert caught.value.diagnostic['category'] == 'deadline_unavailable' and not session.calls
+
+
+def test_historical_variables_mismatch_is_not_retried(tmp_path, monkeypatch):
+    from sources.census_acs.historical import acquire_historical_snapshot, HistoricalAcquisitionFailure
+    def acquire(**kwargs):
+        return preflight(source_id='census_acs1', vintage=2019,
+            transport=kwargs['session'], plan=GEOGRAPHY, excluded=[])
+    monkeypatch.setattr('jobs.monthly_refresh.acs_monthly.acquire_snapshot', acquire)
+    discovery = Transport().get('data.json', params=None, timeout=60)
+    session = AcquisitionSession([discovery, acquisition_response(200, b'{"variables": {}}')])
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        acquire_historical_snapshot(source_id='census_acs1', vintage=2019, output=tmp_path / 'snapshot',
+            session=session, key=ACQUISITION_SECRET)
+    assert caught.value.diagnostic['category'] == 'metadata_mismatch'
+    assert caught.value.diagnostic['request_kind'] == 'variables'
+    assert caught.value.diagnostic['geography_id'] is None
+    assert caught.value.diagnostic['request_ordinal'] == 2 and len(session.calls) == 2
+
+
+def test_historical_existing_timer_is_never_replaced(tmp_path, monkeypatch):
+    from sources.census_acs.historical import HistoricalAcquisitionFailure
+    monkeypatch.setattr('sources.census_acs.historical.signal.getitimer', lambda kind: (5, 0))
+    def forbidden(*args): raise AssertionError('existing timer must not be changed')
+    monkeypatch.setattr('sources.census_acs.historical.signal.setitimer', forbidden)
+    session = AcquisitionSession()
+    with pytest.raises(HistoricalAcquisitionFailure) as caught:
+        historical_acquire(tmp_path, monkeypatch, session)
+    assert caught.value.diagnostic['category'] == 'deadline_unavailable' and not session.calls

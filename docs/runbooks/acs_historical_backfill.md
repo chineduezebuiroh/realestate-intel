@@ -215,7 +215,7 @@ the exact persisted bytes, not new compatible-looking provider values.
 | Invalid provider response | Malformed shape, wrong geography, duplicate/unexpected headers, invalid/nonfinite/unknown sentinel values fail before pin publication. |
 | Governance/code/configuration drift | New review required; stop remaining batch members and retain immutable published facts for diagnosis. |
 | Inaccessible catalog/package/provider | Stop or classify unknown, never convert access failure to absence. |
-| Secret-bearing transport errors | Provider exception details are replaced with fixed diagnostics; no credentialed URL or raw exception is recorded. |
+| Secret-bearing transport errors | Only typed, allowlisted historical request diagnostics survive the CLI wrapper; no URL, parameter map, header, body, credential or original exception is recorded. |
 
 The generic artifact ID excludes `artifact_created_at`, while manifest/package
 bytes include it. Phase A fixes this specifically for historical acquisition by
@@ -254,3 +254,92 @@ It must separately authorize state acceptance, family resolution and downstream
 promotion. Phase A success does not authorize any of those steps. Retain exact
 plans, authorizations, pins, packages, catalog records and cycle results as the
 handoff evidence. Nothing in this implementation performs production bootstrap.
+
+
+## Historical transport recovery and acquisition deadline
+
+Historical acquisition uses at most **three total attempts per logical request**.
+Only connection failures, timeouts and HTTP **429, 500, 502, 503, 504** are retried.
+Backoff is 1 then 2 seconds; numeric or HTTP-date `Retry-After` may increase that
+wait to at most 10 seconds. Invalid, negative or nonfinite header values cannot
+extend the bound. Redirects are not followed: 3xx responses fail permanently,
+matching the evidence-capture endpoint boundary and avoiding hidden requests.
+HTTP 400/401/403/404 and all other unlisted statuses are not retried. TLS/certificate
+errors, malformed JSON/payloads, metadata mismatches, invalid 204 bodies and
+reviewed snapshot drift also fail without retry. Valid empty 204 behavior and
+existing omission, metadata, snapshot, pin and publication validation are unchanged.
+No reviewed-snapshot fallback is introduced.
+
+Each vintage has one **900-second wall-clock acquisition deadline**, covering all
+geography requests, decoding, output construction, retry waits and `Retry-After`.
+There is no reset per request or retry. Connect and read inactivity timeouts are
+each capped at 30 seconds and half the remaining budget. A wait that cannot fit
+is rejected; late responses cannot proceed to snapshot validation or pinning.
+Socket timeouts alone do not stop an indefinitely trickling body, so a POSIX
+`ITIMER_REAL` alarm interrupts in-flight acquisition as well. It is installed only
+on the main thread with no existing real-time timer, and the original handler is
+restored on every exit. Unsupported contexts fail closed as
+`deadline_unavailable`; they do not silently acquire without a deadline. These
+requirements match the existing Ubuntu GitHub Actions Python entry point. Five
+vintages therefore have at most 75 minutes of acquisition time; control-plane and
+publication work are separate. The alarm does not wrap publication or weaken CAS.
+
+`HistoricalAcquisitionFailure` logs only these trusted fields: source/product,
+vintage, logical request ordinal (retries do not increment it), request kind,
+configured geography ID or null, fixed category, integer HTTP status or null, and
+attempts consumed. Dataset/variables requests, if used by the transport, are
+identified separately and carry no geography ID; ordinary historical acquisition
+continues to make its existing geography requests without adding discovery calls.
+The historical wrapper and backfill CLI preserve this typed message in the
+Actions traceback, suppressing the original exception chain. No raw exception
+text, URL, request parameters, headers, credentials or provider body are logged.
+
+Categories distinguish `connection`, `timeout`, `http_status`, `tls_failure`,
+`invalid_json`, `invalid_payload`, `invalid_no_content`, `invalid_response`,
+`metadata_mismatch`, `credential_unavailable`, `request_identity`,
+`deadline_exhausted`, `deadline_unavailable`, and fixed generic
+`transport_failure`/`acquisition_failure` fallbacks. Geography IDs come only from
+the governed request plan. A failure remains a failure, never evidence of absence.
+An unrecognized error outside the historical adapter retains the fixed redacted
+CLI fallback. A sanitized timeout or 503 diagnoses only that request failure;
+it does not prove the cause of the earlier opaque ACS5 B2 failures.
+
+### Post-merge ACS5 B2 recovery (separate future actions)
+
+Changing `historical.py` / `acs_backfill.py` changes the bound production code
+identity. The old B2 plan `...__ba06f0384549ae1b501c62e957bf496854c46e4be6938b695d48651232349563`
+and authorization run `38956749622` **cannot authorize this implementation**.
+Dependencies, Python selection, governed runtime configuration, evidence and
+geography scope are unchanged. No serialization runtime change is required by
+this patch, but each hosted plan still binds and verifies the actual Python
+executable and installed library RECORD/file hashes; later drift must fail closed.
+
+1. Externally review and merge only this transport change. Preserve the existing
+   adopted ACS5 B2 evidence map unchanged; do not recapture provider evidence.
+2. Separately dispatch the existing read-only preflight against merged main:
+
+   ```sh
+   gh workflow run acs-historical-backfill.yml \
+     --repo chineduezebuiroh/realestate-intel --ref main \
+     -f action=preflight -f source_id=census_acs5 \
+     -f vintages=2018,2019,2020,2021,2022 -f batch_size=5 \
+     -f evidence_file=config/acs_backfill_reviews/provider-acs5-2018-2019-2020-2021-2022.json
+   ```
+
+3. Download `acs-backfill-preflight`, verify/review its **new** plan ID, runtime,
+   evidence and current scoped inventory, then adopt its exact unchanged bytes
+   on main at `config/acs_backfill_reviews/plan-acs5-b2-transport-recovery.json`
+   through a separate plan-adoption review. No new ID is generated in this patch.
+4. After separate authorization approval, dispatch existing `action=authorize`
+   with that `plan_file` and its full new `reviewed_plan_id`. Preserve and verify
+   the resulting `acs-backfill-authorize` artifact and authorization run ID.
+5. Only after separately authorized execution approval, dispatch existing
+   `action=execute` with the same new `reviewed_plan_id` and new
+   `authorization_run_id`. Old IDs are not substitutes. Retain all runtime,
+   inventory, exact snapshot, pin, package, publication and accepted-pointer gates.
+6. Independently verify successful physical release bytes/catalog records and
+   unchanged accepted August pointers. If acquisition fails, inspect only the
+   sanitized category/context; do not repeat opaque retries or loosen checks.
+
+These are future operational boundaries. This implementation performs no
+preflight dispatch, plan generation, authorization, acquisition or production write.
