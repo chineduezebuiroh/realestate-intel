@@ -6,6 +6,12 @@ whole-vintage gaps, crosswalks, or independently approved historical governance.
 from __future__ import annotations
 
 import math
+import json
+import time
+import signal
+import threading
+from email.utils import parsedate_to_datetime
+from datetime import timezone
 from typing import Any, Mapping
 
 from core.source_artifacts.hashing import sha256_json
@@ -18,6 +24,48 @@ OMISSION_VERSION = "acs_historical_omission_evidence_v1"
 
 class VerificationRequired(ValueError):
     """Provider evidence is insufficient for historical execution."""
+
+
+
+ACQUISITION_DEADLINE_SECONDS = 900
+MAX_REQUEST_ATTEMPTS = 3
+RETRYABLE_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
+MAX_RETRY_DELAY_SECONDS = 10
+
+
+class _AcquisitionDeadlineExpired(BaseException):
+    """Interrupt even a slow/trickling in-flight body read on the hosted main thread."""
+
+
+class HistoricalAcquisitionFailure(VerificationRequired):
+    """Only trusted, fixed-vocabulary request context may cross log boundaries."""
+    def __init__(self, *, source_id, vintage, request_ordinal, request_kind,
+                 geography_id, category, http_status, attempts_consumed):
+        self.diagnostic = {"source_id": source_id, "product": PRODUCTS[source_id],
+            "vintage": vintage, "request_ordinal": request_ordinal,
+            "request_kind": request_kind, "geography_id": geography_id,
+            "category": category, "http_status": http_status,
+            "attempts_consumed": attempts_consumed}
+        super().__init__("historical acquisition failed: " + json.dumps(self.diagnostic, sort_keys=True))
+
+
+def _retry_delay(attempt, retry_after, wall_clock):
+    delay = float(2 ** (attempt - 1))
+    if isinstance(retry_after, str) and len(retry_after) <= 128:
+        try:
+            seconds = float(retry_after)
+            if not math.isfinite(seconds):
+                raise ValueError()
+        except ValueError:
+            try:
+                date = parsedate_to_datetime(retry_after)
+                if date.tzinfo is None:
+                    date = date.replace(tzinfo=timezone.utc)
+                seconds = date.timestamp() - wall_clock()
+            except (ValueError, TypeError, OverflowError):
+                seconds = 0
+        delay = max(delay, min(MAX_RETRY_DELAY_SECONDS, max(0, seconds)))
+    return min(delay, MAX_RETRY_DELAY_SECONDS)
 
 
 def exact_dataset(source_id: str, vintage: int, discovery: Mapping[str, Any]) -> dict:
@@ -236,20 +284,148 @@ def validate_evidence(evidence: dict, *, source_id: str, vintage: int,
 
 
 def acquire_historical_snapshot(*, source_id: str, vintage: int, output: Any,
-                                session: Any = None, key: str | None = None) -> dict:
-    """Reuse physical acquisition, strengthening only historical HTTP evidence."""
+                                session: Any = None, key: str | None = None,
+                                clock=time.monotonic, sleep=time.sleep,
+                                wall_clock=time.time) -> dict:
+    """Retry transport failures only; retain ordinary acquisition interpretation.
+
+    The vintage budget covers request time, decoding, backoff and Retry-After.
+    No request or sleep starts beyond its remaining budget; late responses are
+    rejected before snapshot validation/pinning. No reviewed-snapshot fallback.
+    """
+    import os
     import requests
-    from jobs.monthly_refresh.acs_monthly import acquire_snapshot
-    client = session or requests.Session()
+    from jobs.monthly_refresh.acs_monthly import acquire_snapshot, geography_plan
+    if source_id not in PRODUCTS or type(vintage) is not int or not 2005 <= vintage <= 2100:
+        raise ValueError("invalid bounded physical product/vintage")
+    deadline = clock() + ACQUISITION_DEADLINE_SECONDS
+    plan, _ = geography_plan()
+    context = {"source_id": source_id, "vintage": vintage, "request_ordinal": 0,
+               "request_kind": "setup", "geography_id": None,
+               "http_status": None, "attempts_consumed": 0}
+
+    def fail(category):
+        raise HistoricalAcquisitionFailure(**context, category=category) from None
+
+    def remaining():
+        left = deadline - clock()
+        if left <= 0:
+            fail("deadline_exhausted")
+        return left
+
+    credential = (key if key is not None else os.environ.get("CENSUS_API_KEY", "")).strip()
+    if not credential:
+        fail("credential_unavailable")
+    client = session if session is not None else requests.Session()
+
     class CheckedTransport:
-        def get(self, *args, **kwargs):
+        def get(self, url, *, params=None, timeout=60):
+            context.update(request_ordinal=context["request_ordinal"] + 1,
+                           geography_id=None, http_status=None, attempts_consumed=0)
+            endpoint = f"{API}/{vintage}/{PRODUCTS[source_id]}"
+            if url == API + ".json" and params is None:
+                context["request_kind"] = "dataset"
+            elif url == endpoint + "/variables.json" and params is None:
+                context["request_kind"] = "variables"
+            elif url == endpoint:
+                context["request_kind"] = "geography"
+                public = {k: v for k, v in (params or {}).items() if k != "key"}
+                matches = [g for g in plan if request_params(g) == public]
+                if len(matches) != 1:
+                    fail("request_identity")
+                context["geography_id"] = matches[0]["geo_id"]
+            else:
+                context["request_kind"] = "unknown"
+                fail("request_identity")
+            for attempt in range(1, MAX_REQUEST_ATTEMPTS + 1):
+                left = remaining()
+                context.update(attempts_consumed=attempt, http_status=None)
+                response = None
+                category = None
+                try:
+                    # Bound both connect/read inactivity timeouts; their sum fits
+                    # the remaining budget. Requests' body reads are not a hard
+                    # wall-clock timer; remaining() also rejects late completion.
+                    response = client.get(url, params=params,
+                        timeout=(min(30.0, left / 2), min(30.0, left / 2)), allow_redirects=False)
+                except requests.exceptions.SSLError:
+                    fail("tls_failure")
+                except requests.exceptions.Timeout:
+                    category = "timeout"
+                except requests.exceptions.ConnectionError:
+                    category = "connection"
+                except Exception:
+                    fail("transport_failure")
+                if response is not None:
+                    status = getattr(response, "status_code", None)
+                    context["http_status"] = status if type(status) is int and 100 <= status <= 599 else None
+                remaining()
+                if response is None and category is None:
+                    fail("invalid_response")
+                retry_after = None
+                if response is not None:
+                    status = response.status_code
+                    if context["http_status"] is None:
+                        fail("invalid_response")
+                    if status in RETRYABLE_HTTP_STATUSES:
+                        category = "http_status"
+                        retry_after = getattr(response, "headers", {}).get("Retry-After")
+                    else:
+                        if status not in {200, 204}:
+                            fail("http_status")
+                        try:
+                            checked_response(response, allow_no_content=context["request_kind"] == "geography")
+                        except ValueError:
+                            fail("invalid_json" if status == 200 else "invalid_no_content")
+                        except Exception:
+                            fail("invalid_response")
+                        remaining()
+                        return response
+                if response is not None:
+                    close = getattr(response, "close", None)
+                    if close is not None:
+                        close()
+                if attempt == MAX_REQUEST_ATTEMPTS:
+                    fail(category)
+                delay = _retry_delay(attempt, retry_after, wall_clock)
+                if delay >= remaining():
+                    fail("deadline_exhausted")
+                sleep(delay)
+    timer_installed = False
+    previous_handler = None
+    def expired(signum, frame):
+        raise _AcquisitionDeadlineExpired() from None
+    try:
+        # Socket inactivity timeouts alone cannot stop a response that trickles
+        # bytes indefinitely. Hosted acquisition runs on the POSIX main thread;
+        # fail closed rather than silently dropping its wall-clock deadline.
+        if (not hasattr(signal, "setitimer") or threading.current_thread() is not threading.main_thread()
+                or signal.getitimer(signal.ITIMER_REAL)[0] != 0):
+            fail("deadline_unavailable")
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, expired)
+        timer_installed = True
+        signal.setitimer(signal.ITIMER_REAL, remaining())
+        snapshot = acquire_snapshot(source_id=source_id, vintage=vintage, output=output,
+                                    session=CheckedTransport(), key=credential)
+        remaining()
+        return snapshot
+    except _AcquisitionDeadlineExpired:
+        fail("deadline_exhausted")
+    except HistoricalAcquisitionFailure:
+        raise
+    except VerificationRequired:
+        fail("metadata_mismatch" if context["request_kind"] in {"dataset", "variables"} else "invalid_payload")
+    except ValueError:
+        fail("invalid_payload")
+    except Exception:
+        fail("acquisition_failure")
+    finally:
+        if timer_installed:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_handler)
+        if session is None:
             try:
-                response = client.get(*args, **kwargs)
-                checked_response(response, allow_no_content=True)
-                return response
-            except VerificationRequired:
-                raise
+                client.close()
             except Exception:
-                raise VerificationRequired("historical provider transport/schema/parsing failure; details redacted") from None
-    return acquire_snapshot(source_id=source_id, vintage=vintage, output=output,
-                            session=CheckedTransport(), key=key)
+                pass  # Cleanup cannot replace the sanitized failure with transport details.

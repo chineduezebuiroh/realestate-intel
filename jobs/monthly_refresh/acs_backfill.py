@@ -27,7 +27,8 @@ from jobs.monthly_refresh.bps_hosted import CATALOG_PATH, publish_candidate
 from jobs.monthly_refresh.cycle_results import GitHubCycleResultStore, governed_record
 from jobs.monthly_refresh.source_inputs import GitHubPinStore, validate_pin, verify_member_bytes
 from sources.census_acs.artifact import PRODUCTS, VARIABLES, geography_plan, governed_config_hashes
-from sources.census_acs.historical import acquire_historical_snapshot, validate_evidence, validate_snapshot
+from sources.census_acs.historical import (HistoricalAcquisitionFailure, acquire_historical_snapshot,
+                                           validate_evidence, validate_snapshot)
 
 REPOSITORY = "chineduezebuiroh/realestate-intel"
 BASELINE = "282ba2d4dcb0fa18d1e945fc5f3cb16957d9da32"
@@ -246,6 +247,16 @@ def verify_plan(plan: dict, identity: dict) -> None:
         if classification == "missing_acquisition" and not entry["verification_requirement"]:
             validate_evidence(entry["provider_evidence"], source_id=plan["source_id"], vintage=entry["vintage"],
                               plan=plan["geography"], excluded=plan["excluded"])
+
+
+def acquire_with_diagnostics(**kwargs):
+    """Preserve only the historical transport's explicitly sanitized failure."""
+    try:
+        return acquire_historical_snapshot(**kwargs)
+    except HistoricalAcquisitionFailure:
+        raise
+    except Exception:
+        raise ValueError("historical acquisition failed; provider details redacted") from None
 
 
 def exact_pin(*, cycle_id: str, source_id: str, vintage: int, workspace: Path,
@@ -755,11 +766,6 @@ def main() -> int:
                 authority_check()
                 return exact_publish(artifact=path, source_id=source, api=api, cas=cas,
                     workspace=args.workspace / "publication", git_sha=plan["code_commit"])
-            def acquire(**kwargs):
-                try:
-                    return acquire_historical_snapshot(**kwargs)
-                except Exception:
-                    raise ValueError("historical acquisition failed; provider details redacted") from None
             def current():
                 authority_check()
                 return inventory(plan["source_id"], plan["vintages"])
@@ -777,7 +783,7 @@ def main() -> int:
             value = {"plan_id": plan["plan_id"], "executions": execute_batch(plan=plan,
                 authorization=authorization, reviewed_plan_id=args.reviewed_plan_id,
                 identity=identity, workspace=args.workspace, pin_store=pins, current_inventory=current,
-                acquire=acquire, retrieve=retrieve_pinned_snapshot, publish=publish,
+                acquire=acquire_with_diagnostics, retrieve=retrieve_pinned_snapshot, publish=publish,
                 record=record, existing_publication=existing_publication)}
     write_canonical_json(args.output, value)
     print(json.dumps({"action": args.action, "output": str(args.output), "plan_id": value.get("plan_id")}, sort_keys=True))
