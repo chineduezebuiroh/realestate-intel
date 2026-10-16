@@ -1,0 +1,250 @@
+{
+  "acquisition_authorized": false,
+  "adoption_status": "PROPOSED_FOR_MAIN_REVIEW",
+  "approval_status": "REVIEW_CANDIDATE_ONLY",
+  "combined": {
+    "approval_status": "REVIEW_CANDIDATE_ONLY",
+    "combined_evidence_sha256": "c10be7b42488f7c39a6d775d0c1207664c892aa0fd92745bd56a4161d42a83b0",
+    "config_hashes": {
+      "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+      "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+      "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+      "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+    },
+    "origins": [
+      {
+        "accounting": {
+          "available": 446
+        },
+        "archive_sha256": "dd627948708dc38ba74300139bb9ba21c0ed0d20eb7690d97f5d807a3025a6d3",
+        "artifact_id": 12059648541,
+        "batch_id": "acs_provider_capture_batch_v1__4db5c8a34abbeaa83f1f065417bc5c6e51afda5fdabbc5c6efcb99c0c75f3f72",
+        "capture_commit": "ac591182c9b03ccb453315fe328fba32b86bfe8b",
+        "capture_id": "acs_provider_capture_v1__b05d687e91203dcf48d89e7ae092a9b07ac42eec0d335a140935ef985da0fae9",
+        "evidence_sha256": "240dff94e28d3a1db42300ff6f16f9430a36bd99decea7d0fa7a8a9f45173a7f",
+        "omission_receipt_ids": [],
+        "response_manifest_sha256": "074b5978cde2adc6ee8325a809bffa1174524e47eedb8d2271263649b76f291d",
+        "responses_verified": 225,
+        "run_id": 38932974550,
+        "snapshot_sha256": "a8138f4f27b5e1583bfd6bc50eb88cd4ac05ac15b9d9c651b5d9e93fad3e9e15",
+        "vintage": 2018
+      },
+      {
+        "accounting": {
+          "available": 446
+        },
+        "archive_sha256": "dd627948708dc38ba74300139bb9ba21c0ed0d20eb7690d97f5d807a3025a6d3",
+        "artifact_id": 12059648541,
+        "batch_id": "acs_provider_capture_batch_v1__4db5c8a34abbeaa83f1f065417bc5c6e51afda5fdabbc5c6efcb99c0c75f3f72",
+        "capture_commit": "ac591182c9b03ccb453315fe328fba32b86bfe8b",
+        "capture_id": "acs_provider_capture_v1__b84013991e3b78e508a76d10d1c5202c617256e15a2e0a501a9427667103a932",
+        "evidence_sha256": "96d191e05d76ed5b45a65cc52697cacabc6038a7c534b2923c12e4862fd33bad",
+        "omission_receipt_ids": [],
+        "response_manifest_sha256": "f9d67111eb80e2f61c4549cf4a2b767b51039bae47a9804161076506f60887d0",
+        "responses_verified": 225,
+        "run_id": 38932974550,
+        "snapshot_sha256": "332f0e1ceed199c132c2e5484b3c3d17ac1ba33a86837cf84abbfb1bd186769b",
+        "vintage": 2019
+      },
+      {
+        "accounting": {
+          "available": 446
+        },
+        "archive_sha256": "dd627948708dc38ba74300139bb9ba21c0ed0d20eb7690d97f5d807a3025a6d3",
+        "artifact_id": 12059648541,
+        "batch_id": "acs_provider_capture_batch_v1__4db5c8a34abbeaa83f1f065417bc5c6e51afda5fdabbc5c6efcb99c0c75f3f72",
+        "capture_commit": "ac591182c9b03ccb453315fe328fba32b86bfe8b",
+        "capture_id": "acs_provider_capture_v1__96bd088363267154cf83f07f40bfdb8145f24f6fbf9293bed1cf6bd2307dd5c8",
+        "evidence_sha256": "f3911d4fb526a6fac0d5953c5970d978f247efc4677a92b64ee235673eda534f",
+        "omission_receipt_ids": [],
+        "response_manifest_sha256": "930ba7086317ba9227fb46b6531f182efdd92334a11bee4177299084eea42bc7",
+        "responses_verified": 225,
+        "run_id": 38932974550,
+        "snapshot_sha256": "ab6aa38295c5d80ecbac6f73d6c293960c2befa61256ccf8f69af9994ef36a9c",
+        "vintage": 2020
+      },
+      {
+        "accounting": {
+          "available": 446
+        },
+        "archive_sha256": "c803250bc6a7365ce54558877b918f742b0f73f651f557c6bd73c5db1c90ad01",
+        "artifact_id": 12061240264,
+        "batch_id": "acs_provider_capture_batch_v1__2b3d88be645bcbbe84a60edff441590efb5a97ec79c8ae4f46c6a776b3e5e78d",
+        "capture_commit": "ac591182c9b03ccb453315fe328fba32b86bfe8b",
+        "capture_id": "acs_provider_capture_v1__1f6daf9bca2a045fa2663a9705f8cf3ec069ba20774bfe8fe15ad24701b791dd",
+        "evidence_sha256": "92731fc3daa336eb45848c442a7ddfaa1bc54f29eb92d317e3af372b83920228",
+        "omission_receipt_ids": [],
+        "response_manifest_sha256": "fb42793b45c37f03127b495f41431fcff9135e0d3f9e4fcbedc52e8338d56eb5",
+        "responses_verified": 225,
+        "run_id": 38934844908,
+        "snapshot_sha256": "24365f4130ddcbd731ea289138c561cf6ac1ae55b377ad03909d54bf2f41e6b5",
+        "vintage": 2021
+      },
+      {
+        "accounting": {
+          "available": 446
+        },
+        "archive_sha256": "dd627948708dc38ba74300139bb9ba21c0ed0d20eb7690d97f5d807a3025a6d3",
+        "artifact_id": 12059648541,
+        "batch_id": "acs_provider_capture_batch_v1__4db5c8a34abbeaa83f1f065417bc5c6e51afda5fdabbc5c6efcb99c0c75f3f72",
+        "capture_commit": "ac591182c9b03ccb453315fe328fba32b86bfe8b",
+        "capture_id": "acs_provider_capture_v1__2f09ea5446b77e1e192623e5a51f8f394f344348ddbe0b644e1d6069522def80",
+        "evidence_sha256": "afa4f43ea83b74c76591fe4622ce6d7bc07f3d0b8e3a2f6d3c4c6e427fc35848",
+        "omission_receipt_ids": [],
+        "response_manifest_sha256": "86a4313249f3478bb7ef29524f0a53a7d9aa0a542bc410828c1e8b62e32b0c8e",
+        "responses_verified": 225,
+        "run_id": 38932974550,
+        "snapshot_sha256": "9f2238b1fdbf6440d7f921567a6958b0a2e096b2fcc6d54b42cb038aa8bc68da",
+        "vintage": 2022
+      }
+    ],
+    "schema_version": "acs_provider_combined_review_v1",
+    "source_id": "census_acs5",
+    "validated": true,
+    "vintages": [
+      2018,
+      2019,
+      2020,
+      2021,
+      2022
+    ]
+  },
+  "original": {
+    "aggregate_evidence_sha256": "50c2d6cab9250ddfb6712106e0ac358fbbacf186ec1d525fe7a9ad94d46f1e18",
+    "approval_status": "REVIEW_CANDIDATE_ONLY",
+    "archive_sha256": "dd627948708dc38ba74300139bb9ba21c0ed0d20eb7690d97f5d807a3025a6d3",
+    "artifact_id": 12059648541,
+    "batch_id": "acs_provider_capture_batch_v1__4db5c8a34abbeaa83f1f065417bc5c6e51afda5fdabbc5c6efcb99c0c75f3f72",
+    "capture_commit": "ac591182c9b03ccb453315fe328fba32b86bfe8b",
+    "capture_validated": false,
+    "captured_vintages": [
+      2018,
+      2019,
+      2020,
+      2021,
+      2022
+    ],
+    "config_hashes": {
+      "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+      "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+      "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+      "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+    },
+    "entries": [
+      {
+        "accounting": {
+          "available": 446
+        },
+        "capture_id": "acs_provider_capture_v1__b05d687e91203dcf48d89e7ae092a9b07ac42eec0d335a140935ef985da0fae9",
+        "evidence_sha256": "240dff94e28d3a1db42300ff6f16f9430a36bd99decea7d0fa7a8a9f45173a7f",
+        "omission_receipt_ids": [],
+        "response_manifest_sha256": "074b5978cde2adc6ee8325a809bffa1174524e47eedb8d2271263649b76f291d",
+        "responses_verified": 225,
+        "snapshot_sha256": "a8138f4f27b5e1583bfd6bc50eb88cd4ac05ac15b9d9c651b5d9e93fad3e9e15",
+        "vintage": 2018
+      },
+      {
+        "accounting": {
+          "available": 446
+        },
+        "capture_id": "acs_provider_capture_v1__b84013991e3b78e508a76d10d1c5202c617256e15a2e0a501a9427667103a932",
+        "evidence_sha256": "96d191e05d76ed5b45a65cc52697cacabc6038a7c534b2923c12e4862fd33bad",
+        "omission_receipt_ids": [],
+        "response_manifest_sha256": "f9d67111eb80e2f61c4549cf4a2b767b51039bae47a9804161076506f60887d0",
+        "responses_verified": 225,
+        "snapshot_sha256": "332f0e1ceed199c132c2e5484b3c3d17ac1ba33a86837cf84abbfb1bd186769b",
+        "vintage": 2019
+      },
+      {
+        "accounting": {
+          "available": 446
+        },
+        "capture_id": "acs_provider_capture_v1__96bd088363267154cf83f07f40bfdb8145f24f6fbf9293bed1cf6bd2307dd5c8",
+        "evidence_sha256": "f3911d4fb526a6fac0d5953c5970d978f247efc4677a92b64ee235673eda534f",
+        "omission_receipt_ids": [],
+        "response_manifest_sha256": "930ba7086317ba9227fb46b6531f182efdd92334a11bee4177299084eea42bc7",
+        "responses_verified": 225,
+        "snapshot_sha256": "ab6aa38295c5d80ecbac6f73d6c293960c2befa61256ccf8f69af9994ef36a9c",
+        "vintage": 2020
+      },
+      {
+        "accounting": {
+          "available": 446
+        },
+        "capture_id": "acs_provider_capture_v1__2f09ea5446b77e1e192623e5a51f8f394f344348ddbe0b644e1d6069522def80",
+        "evidence_sha256": "afa4f43ea83b74c76591fe4622ce6d7bc07f3d0b8e3a2f6d3c4c6e427fc35848",
+        "omission_receipt_ids": [],
+        "response_manifest_sha256": "86a4313249f3478bb7ef29524f0a53a7d9aa0a542bc410828c1e8b62e32b0c8e",
+        "responses_verified": 225,
+        "snapshot_sha256": "9f2238b1fdbf6440d7f921567a6958b0a2e096b2fcc6d54b42cb038aa8bc68da",
+        "vintage": 2022
+      }
+    ],
+    "failed_captures_not_adopted": [
+      {
+        "adopted": false,
+        "raw_bodies_hash_verified": 177,
+        "response_manifest_sha256": "d1bab6ff69ccc0eaa4f8bf690b13ead3c6df3dbf9f81e45062a2b97959f96a58",
+        "vintage": 2021
+      }
+    ],
+    "repository": "chineduezebuiroh/realestate-intel",
+    "responses_verified": 900,
+    "run_id": 38932974550,
+    "schema_version": "acs_provider_batch_review_v1",
+    "source_id": "census_acs5",
+    "validated": true,
+    "vintages": [
+      2018,
+      2019,
+      2020,
+      2022
+    ]
+  },
+  "production_writes": false,
+  "raw_archive_verification": "Both original ZIP bytes independently hashed, CRC/member allowlists checked, all successful raw responses replayed through existing historical preflight/validate_evidence. Failed original 2021 raw bodies/hash/decoded identities audited only; its evidence is not adopted.",
+  "retry": {
+    "aggregate_evidence_sha256": "92731fc3daa336eb45848c442a7ddfaa1bc54f29eb92d317e3af372b83920228",
+    "approval_status": "REVIEW_CANDIDATE_ONLY",
+    "archive_sha256": "c803250bc6a7365ce54558877b918f742b0f73f651f557c6bd73c5db1c90ad01",
+    "artifact_id": 12061240264,
+    "batch_id": "acs_provider_capture_batch_v1__2b3d88be645bcbbe84a60edff441590efb5a97ec79c8ae4f46c6a776b3e5e78d",
+    "capture_commit": "ac591182c9b03ccb453315fe328fba32b86bfe8b",
+    "capture_validated": true,
+    "captured_vintages": [
+      2021
+    ],
+    "config_hashes": {
+      "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+      "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+      "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+      "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+    },
+    "entries": [
+      {
+        "accounting": {
+          "available": 446
+        },
+        "capture_id": "acs_provider_capture_v1__1f6daf9bca2a045fa2663a9705f8cf3ec069ba20774bfe8fe15ad24701b791dd",
+        "evidence_sha256": "92731fc3daa336eb45848c442a7ddfaa1bc54f29eb92d317e3af372b83920228",
+        "omission_receipt_ids": [],
+        "response_manifest_sha256": "fb42793b45c37f03127b495f41431fcff9135e0d3f9e4fcbedc52e8338d56eb5",
+        "responses_verified": 225,
+        "snapshot_sha256": "24365f4130ddcbd731ea289138c561cf6ac1ae55b377ad03909d54bf2f41e6b5",
+        "vintage": 2021
+      }
+    ],
+    "failed_captures_not_adopted": [],
+    "repository": "chineduezebuiroh/realestate-intel",
+    "responses_verified": 225,
+    "run_id": 38934844908,
+    "schema_version": "acs_provider_batch_review_v1",
+    "source_id": "census_acs5",
+    "validated": true,
+    "vintages": [
+      2021
+    ]
+  },
+  "schema_version": "acs5_b2_evidence_adoption_review_v1",
+  "workflow_dispatched": false
+}
