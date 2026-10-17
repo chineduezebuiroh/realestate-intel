@@ -1,0 +1,104 @@
+{
+  "accepted_pointers": {
+    "canonical_market": "market__2026-08__r2__7793c3e80612bf80",
+    "serving_market": "serving__market__2026-08__r2__7793c3e80612bf80__58610cddf4015d11",
+    "source": {
+      "acs": "src__acs__2024-12__r1__366cf814efe424ef",
+      "bea_gdp_ann": "src__bea_gdp_ann__2024-12__r1__1c51a5b7a95bdc27",
+      "bea_gdp_qtr": "src__bea_gdp_qtr__2026-03__r1__9290d93e61b8e5dd",
+      "bps": "src__bps__2026-08__r1__a25be34c54e12251",
+      "census_nrc": "src__census_nrc__2026-08__r2__569f6385f5eb6d72",
+      "ces": "src__ces__2026-08__r1__c39c12b32234bd93",
+      "fred_macro": "src__fred_macro__2026-09__r1__29a8ac35a657cfce",
+      "fred_unemp": "src__fred_unemp__2026-08__r1__6b2d90c4558e5523",
+      "laus": "src__laus__2026-07__r1__a1b60a2a16d2b99f",
+      "redfin": "src__redfin__2026-08__r1__f2ca39c3c36a9c2b"
+    },
+    "source_set": "source_set__2026-08__v2__b429053765fb9fed"
+  },
+  "accepted_pointers_unchanged": true,
+  "acquisition_authorized": false,
+  "approval_status": "REVIEW_CANDIDATE_ONLY",
+  "archive_crc_and_member_integrity_verified": true,
+  "archive_sha256": "194dada8195a219c4cfa26994f26ab438c61e6c868227ace0fb3a8e07f1a5b1b",
+  "artifact_id": 12075737849,
+  "artifact_name": "acs-backfill-preflight",
+  "bound_runtime": {
+    "implementations": {
+      "numpy": {
+        "installed_record_sha256": "4a5e092d61d21bd265ba11b0f34ce00cb095afdd8c086e5041d2324f0e6b847f",
+        "version": "2.4.6"
+      },
+      "pandas": {
+        "installed_record_sha256": "ed35d04876ae7be36207fb4f609ee658b5527ba0f08a84d64e4e30c87efff0eb",
+        "version": "2.2.2"
+      },
+      "pyarrow": {
+        "installed_record_sha256": "5ca5422cd99616ddf3d1986b35b64fc23b632a8eeebceaa2ad04638fcdf3c969",
+        "version": "26.0.0"
+      }
+    },
+    "python_executable_sha256": "d601e62487858384d3000725c3b2e16e86ff11a6ad0b0810b76281e45426ea62",
+    "python_version": "3.11.17 (main, Oct  1 2026, 14:32:31) [GCC 13.3.0]"
+  },
+  "configuration_hashes_unchanged": true,
+  "configured_exclusions": 10,
+  "destination": "config/acs_backfill_reviews/plan-acs5-b2-transport-recovery.json",
+  "entries": [
+    {
+      "available_metric_observations": 446,
+      "classification": "missing_acquisition",
+      "provider_evidence_unchanged": true,
+      "snapshot_sha256": "a8138f4f27b5e1583bfd6bc50eb88cd4ac05ac15b9d9c651b5d9e93fad3e9e15",
+      "vintage": 2018
+    },
+    {
+      "available_metric_observations": 446,
+      "classification": "missing_acquisition",
+      "provider_evidence_unchanged": true,
+      "snapshot_sha256": "332f0e1ceed199c132c2e5484b3c3d17ac1ba33a86837cf84abbfb1bd186769b",
+      "vintage": 2019
+    },
+    {
+      "available_metric_observations": 446,
+      "classification": "missing_acquisition",
+      "provider_evidence_unchanged": true,
+      "snapshot_sha256": "ab6aa38295c5d80ecbac6f73d6c293960c2befa61256ccf8f69af9994ef36a9c",
+      "vintage": 2020
+    },
+    {
+      "available_metric_observations": 446,
+      "classification": "missing_acquisition",
+      "provider_evidence_unchanged": true,
+      "snapshot_sha256": "24365f4130ddcbd731ea289138c561cf6ac1ae55b377ad03909d54bf2f41e6b5",
+      "vintage": 2021
+    },
+    {
+      "available_metric_observations": 446,
+      "classification": "missing_acquisition",
+      "provider_evidence_unchanged": true,
+      "snapshot_sha256": "9f2238b1fdbf6440d7f921567a6958b0a2e096b2fcc6d54b42cb038aa8bc68da",
+      "vintage": 2022
+    }
+  ],
+  "inspected_main": "6749060f32903901718614a8d70ae73f98c5723c",
+  "local_runtime_matches": false,
+  "merged_transport_pr": 291,
+  "only_changed_semantic_paths": [
+    "/authority/commit",
+    "/code_commit",
+    "/plan_id",
+    "/repository_identity/code_sha256"
+  ],
+  "plan_bytes": 678054,
+  "plan_id": "acs_historical_execution_plan_v1__e66ca5e3b72241d7347da8313421620846d597a0d9f0f3262eda4f8190bf1d9a",
+  "plan_sha256": "8754236d9c9d97c19234afc62a7d18d19bf28bab11dccd74879a811daa8017e7",
+  "previous_plan_sha256": "09ed5e185317386ae3c0bfe53116a6f9300c9323fde20e42d38707a09ceb46e1",
+  "production_writes": false,
+  "provider_evidence_sha256": "c10be7b42488f7c39a6d775d0c1207664c892aa0fd92745bd56a4161d42a83b0",
+  "requested_geographies_per_vintage": 223,
+  "run_id": 38968320918,
+  "schema_version": "acs_historical_plan_adoption_review_v1",
+  "serialization_runtime_unchanged": true,
+  "workflow_dispatched": false
+}
