@@ -1,0 +1,135 @@
+{
+  "accepted_pointers": {
+    "canonical_market": "market__2026-08__r2__7793c3e80612bf80",
+    "serving_market": "serving__market__2026-08__r2__7793c3e80612bf80__58610cddf4015d11",
+    "source": {
+      "acs": "src__acs__2024-12__r1__366cf814efe424ef",
+      "bea_gdp_ann": "src__bea_gdp_ann__2024-12__r1__1c51a5b7a95bdc27",
+      "bea_gdp_qtr": "src__bea_gdp_qtr__2026-03__r1__9290d93e61b8e5dd",
+      "bps": "src__bps__2026-08__r1__a25be34c54e12251",
+      "census_nrc": "src__census_nrc__2026-08__r2__569f6385f5eb6d72",
+      "ces": "src__ces__2026-08__r1__c39c12b32234bd93",
+      "fred_macro": "src__fred_macro__2026-09__r1__29a8ac35a657cfce",
+      "fred_unemp": "src__fred_unemp__2026-08__r1__6b2d90c4558e5523",
+      "laus": "src__laus__2026-07__r1__a1b60a2a16d2b99f",
+      "redfin": "src__redfin__2026-08__r1__f2ca39c3c36a9c2b"
+    },
+    "source_set": "source_set__2026-08__v2__b429053765fb9fed"
+  },
+  "accepted_pointers_unchanged": true,
+  "acquisition_authorized": false,
+  "approval_status": "REVIEW_CANDIDATE_ONLY",
+  "archive_crc_and_member_integrity_verified": true,
+  "archive_sha256": "de8c6e7c39b8fc8975541e5c61eb6c2d44cdcc685c66c818170aef0f0be44db6",
+  "archive_size_bytes": 84161,
+  "artifact_id": 12098612587,
+  "artifact_name": "acs-backfill-preflight",
+  "byte_identical_adoption": true,
+  "code_commit": "e94ccf7ddd444453a63c5aa6da576a22a0aa02b5",
+  "configured_exclusions": 10,
+  "current_code_and_configuration_match": true,
+  "destination": "config/acs_backfill_reviews/plan-acs1-b3-2013-2014-2015-2016-2017.json",
+  "entries": [
+    {
+      "accounting": {
+        "available": 308,
+        "provider_no_content": 138
+      },
+      "adopted_annual_evidence_sha256": "006f2a11d1cdfaf3abad761951e78e258cf263482d96447a3bf1d0c6d2b81207",
+      "classification": "missing_acquisition",
+      "omission_receipts": 69,
+      "provider_evidence_matches_adopted": true,
+      "snapshot_sha256": "e619298edd36161a2d5108a2540a478c933454c15f2eda56b7130aa8532e7136",
+      "vintage": 2013
+    },
+    {
+      "accounting": {
+        "available": 308,
+        "provider_no_content": 138
+      },
+      "adopted_annual_evidence_sha256": "74e23049d61465fe77e1781247036e2a23c843026ab82569e88e6e4cc46b0f77",
+      "classification": "missing_acquisition",
+      "omission_receipts": 69,
+      "provider_evidence_matches_adopted": true,
+      "snapshot_sha256": "84cc2ed66ebab5df28d22e980274dbee7ad560c5142bc98a8f3a3431b012e35e",
+      "vintage": 2014
+    },
+    {
+      "accounting": {
+        "available": 308,
+        "provider_no_content": 138
+      },
+      "adopted_annual_evidence_sha256": "a89cb660e215b17dc1576d6179ce93b4457a151df86209744f2e824d6e57091d",
+      "classification": "missing_acquisition",
+      "omission_receipts": 69,
+      "provider_evidence_matches_adopted": true,
+      "snapshot_sha256": "4a0f0b9e0fd3b39fd377b3cb0cc3a719e33d91f8b9cf5562b0bb7c47297a1b7d",
+      "vintage": 2015
+    },
+    {
+      "accounting": {
+        "available": 308,
+        "provider_no_content": 138
+      },
+      "adopted_annual_evidence_sha256": "f57735d9daa60fd74d89af321de5b23800c4ea9f4d8113438766bb99a64ab51a",
+      "classification": "missing_acquisition",
+      "omission_receipts": 69,
+      "provider_evidence_matches_adopted": true,
+      "snapshot_sha256": "f9d926c93c2dcc186fbf4b2a13c7b8e71c342e055fc40dc2881e471d36369fe1",
+      "vintage": 2016
+    },
+    {
+      "accounting": {
+        "available": 308,
+        "provider_no_content": 138
+      },
+      "adopted_annual_evidence_sha256": "0f3e5445b10add0df3b837ba40fc132872c669558d63b6a66f709636abd8a488",
+      "classification": "missing_acquisition",
+      "omission_receipts": 69,
+      "provider_evidence_matches_adopted": true,
+      "snapshot_sha256": "d3612d6da43821f72dffc101f6db108f7bd1431a5d68952535e429c8aa29a0ad",
+      "vintage": 2017
+    }
+  ],
+  "inventory_main_commit": "e94ccf7ddd444453a63c5aa6da576a22a0aa02b5",
+  "local_runtime_matches_bound": false,
+  "plan_id": "acs_historical_execution_plan_v1__4a27745b32f45035cbff5e0278b66f64359dd67afeb95dfa76b89d3573f59dbc",
+  "plan_sha256": "94ee58e03873cf0ecc2183333b25657648596efac2d0572edef72b2f5244015d",
+  "plan_size_bytes": 876713,
+  "repository_identity": {
+    "baseline": "282ba2d4dcb0fa18d1e945fc5f3cb16957d9da32",
+    "code_sha256": "a17c199f37f8df8646d270c16b47225652a3e58fbbcf49d1cf10f4b21948ffaa",
+    "config_hashes": {
+      "config/acs_historical_governance.json": "absent",
+      "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+      "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+      "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+      "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+    },
+    "repository": "chineduezebuiroh/realestate-intel",
+    "serialization_runtime": {
+      "implementations": {
+        "numpy": {
+          "installed_record_sha256": "4a5e092d61d21bd265ba11b0f34ce00cb095afdd8c086e5041d2324f0e6b847f",
+          "version": "2.4.6"
+        },
+        "pandas": {
+          "installed_record_sha256": "ed35d04876ae7be36207fb4f609ee658b5527ba0f08a84d64e4e30c87efff0eb",
+          "version": "2.2.2"
+        },
+        "pyarrow": {
+          "installed_record_sha256": "5ca5422cd99616ddf3d1986b35b64fc23b632a8eeebceaa2ad04638fcdf3c969",
+          "version": "26.0.0"
+        }
+      },
+      "python_executable_sha256": "d601e62487858384d3000725c3b2e16e86ff11a6ad0b0810b76281e45426ea62",
+      "python_version": "3.11.17 (main, Oct  1 2026, 14:32:31) [GCC 13.3.0]"
+    }
+  },
+  "requested_members": 223,
+  "run_id": 39026170162,
+  "runtime_matches_previous_hosted_recovery_plan": true,
+  "runtime_note": "Local runtime is not substituted. Hosted authorization and execution must independently match all immutable runtime fingerprints.",
+  "schema_version": "acs_execution_plan_adoption_review_v1",
+  "scoped_catalog_parents": 0
+}
