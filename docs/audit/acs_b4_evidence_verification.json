@@ -1,0 +1,98 @@
+{
+  "aggregate_evidence_sha256": "800e704d8d402e4071d51d7464900c44c8bf142abc938de9c5d78f5f887d5df7",
+  "approval_status": "REVIEW_CANDIDATE_ONLY",
+  "archive_sha256": "065ad944953904e37c946c2fab421d898bd1c58186a09ce72b2f0e0d68552f87",
+  "artifact_id": 12133407540,
+  "batch_id": "acs_provider_capture_batch_v1__19ecddfe93f49b57a25142553ec07e8f6a79e6d251fc669c0cc00880b0efa953",
+  "capture_commit": "31a3c5210f25d94e9d526d7a01fd5216d4c9d68f",
+  "capture_validated": true,
+  "captured_vintages": [
+    2013,
+    2014,
+    2015,
+    2016,
+    2017
+  ],
+  "config_hashes": {
+    "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+    "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+    "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+    "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+  },
+  "entries": [
+    {
+      "accounting": {
+        "available": 446
+      },
+      "capture_id": "acs_provider_capture_v1__14e5d2525c192d4e9fd3db8ad5f2ad2418a21086a6ef68eb2df75d7855fa5b5e",
+      "evidence_sha256": "07a1b7d332bba60fdd3afad8a35ff1cd3006269ab3d5c681acba8f26c77133a8",
+      "omission_receipt_ids": [],
+      "response_manifest_sha256": "ef4666866823ef912f3476648603d9a165223da0aef476a3709e986ce5c425a6",
+      "responses_verified": 225,
+      "snapshot_sha256": "cbe2effc78b3f9157482516437873b514f7ffc2d16b96f5ba417d8820ea251f4",
+      "vintage": 2013
+    },
+    {
+      "accounting": {
+        "available": 446
+      },
+      "capture_id": "acs_provider_capture_v1__e87f287668766ac7342c42366403f2aac01d7d40bcdcb962395a27a598730b40",
+      "evidence_sha256": "ee1d8c51205406029d5341bd2a72dd69e67695285fa02b95ceb63fc57770efc4",
+      "omission_receipt_ids": [],
+      "response_manifest_sha256": "3d6028facc84f9362998910eb02f42fe50bd3f0971da2bf50318e1fc7ea51265",
+      "responses_verified": 225,
+      "snapshot_sha256": "adb53b320f3208db7d99ee4c886f220ee74e0c86acd3d1947e6719b91d32d443",
+      "vintage": 2014
+    },
+    {
+      "accounting": {
+        "available": 446
+      },
+      "capture_id": "acs_provider_capture_v1__9bb90d285bbf02d321b7fa40a9fc75630731417bb45062ab3cd0d073a93aa5ef",
+      "evidence_sha256": "e017ae6ac946506eeec13f99aa168b344271f0fee07535bd26bb5f65023b268a",
+      "omission_receipt_ids": [],
+      "response_manifest_sha256": "bbff0efeaa8efd58197635c03b7cec5a3ca5d2df9c3e91ff558ab9a11135a3df",
+      "responses_verified": 225,
+      "snapshot_sha256": "710d70f6aa20fc87c25971c81b8d11bb12fc4ef93b41886fb32f977c3d192f99",
+      "vintage": 2015
+    },
+    {
+      "accounting": {
+        "available": 446
+      },
+      "capture_id": "acs_provider_capture_v1__f2e37bc0861b2715a533953eaeac0bcb2fe8f7d8e463680e646e1edb8645be3a",
+      "evidence_sha256": "6ede81f082c8899c5283a6b2b6f4500a453146fdd3fd33e9471489ef71dc19b3",
+      "omission_receipt_ids": [],
+      "response_manifest_sha256": "75ea4e3351c31aeeb4c13735f3673194937fe45e6b70f11e122e1a1e89aa7fa4",
+      "responses_verified": 225,
+      "snapshot_sha256": "34b86cd600cca01199b795f818327ee2a624614f6c43523e3cd4fb218b603c2e",
+      "vintage": 2016
+    },
+    {
+      "accounting": {
+        "available": 446
+      },
+      "capture_id": "acs_provider_capture_v1__126b42571c7cfedef3282e97b06c0211966846fd476dc5fd3b38c9ac0ed688b3",
+      "evidence_sha256": "2b39ad949f5fe40a017bfaca30e40a718187467b15c1589849b4cb735b081ef7",
+      "omission_receipt_ids": [],
+      "response_manifest_sha256": "31eaa063f35615a75e474fbd4db874f78fbaaf9237d6de68d7b3c57626fb6f6b",
+      "responses_verified": 225,
+      "snapshot_sha256": "dd922221511286981a996187684ae3bb035f088087d93397787dc30dc1e13dcf",
+      "vintage": 2017
+    }
+  ],
+  "failed_captures_not_adopted": [],
+  "repository": "chineduezebuiroh/realestate-intel",
+  "responses_verified": 1125,
+  "run_id": 39118371228,
+  "schema_version": "acs_provider_batch_review_v1",
+  "source_id": "census_acs5",
+  "validated": true,
+  "vintages": [
+    2013,
+    2014,
+    2015,
+    2016,
+    2017
+  ]
+}
