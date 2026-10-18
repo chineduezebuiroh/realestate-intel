@@ -1,0 +1,596 @@
+{
+  "accepted_pointers": {
+    "canonical_market": "market__2026-08__r2__7793c3e80612bf80",
+    "serving_market": "serving__market__2026-08__r2__7793c3e80612bf80__58610cddf4015d11",
+    "source": {
+      "acs": "src__acs__2024-12__r1__366cf814efe424ef",
+      "bea_gdp_ann": "src__bea_gdp_ann__2024-12__r1__1c51a5b7a95bdc27",
+      "bea_gdp_qtr": "src__bea_gdp_qtr__2026-03__r1__9290d93e61b8e5dd",
+      "bps": "src__bps__2026-08__r1__a25be34c54e12251",
+      "census_nrc": "src__census_nrc__2026-08__r2__569f6385f5eb6d72",
+      "ces": "src__ces__2026-08__r1__c39c12b32234bd93",
+      "fred_macro": "src__fred_macro__2026-09__r1__29a8ac35a657cfce",
+      "fred_unemp": "src__fred_unemp__2026-08__r1__6b2d90c4558e5523",
+      "laus": "src__laus__2026-07__r1__a1b60a2a16d2b99f",
+      "redfin": "src__redfin__2026-08__r1__f2ca39c3c36a9c2b"
+    },
+    "source_set": "source_set__2026-08__v2__b429053765fb9fed"
+  },
+  "accepted_pointers_unchanged": true,
+  "acquisition_authorized": false,
+  "all_bound_runtime_fingerprints_match": true,
+  "approval_status": "REVIEW_CANDIDATE_ONLY",
+  "bound_runtime_matches_previous_hosted_plan": true,
+  "code_configuration_identity_unchanged": true,
+  "local_runtime_matches_bound": false,
+  "main_commit": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+  "plans": [
+    {
+      "accounting": {
+        "available": 2230
+      },
+      "archive_crc_and_member_integrity_verified": true,
+      "archive_sha256": "eec541314a067a6461a929b45d1f88aa1e6b5729208ea3feeca971d28feeee51",
+      "archive_size_bytes": 65596,
+      "artifact_id": 12136585621,
+      "artifact_name": "acs-backfill-preflight",
+      "authority": {
+        "branch": "main",
+        "commit": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+        "repository": "chineduezebuiroh/realestate-intel"
+      },
+      "batch": "B4",
+      "batch_size": 5,
+      "byte_identical_adoption": true,
+      "code_commit": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+      "configured_exclusions": 10,
+      "current_inventory_verified_missing": true,
+      "destination": "config/acs_backfill_reviews/plan-acs5-b4-2013-2014-2015-2016-2017.json",
+      "entries": [
+        {
+          "accounting": {
+            "available": 446
+          },
+          "annual_evidence_sha256": "07a1b7d332bba60fdd3afad8a35ff1cd3006269ab3d5c681acba8f26c77133a8",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 0,
+          "snapshot_sha256": "cbe2effc78b3f9157482516437873b514f7ffc2d16b96f5ba417d8820ea251f4",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2013
+        },
+        {
+          "accounting": {
+            "available": 446
+          },
+          "annual_evidence_sha256": "ee1d8c51205406029d5341bd2a72dd69e67695285fa02b95ceb63fc57770efc4",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 0,
+          "snapshot_sha256": "adb53b320f3208db7d99ee4c886f220ee74e0c86acd3d1947e6719b91d32d443",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2014
+        },
+        {
+          "accounting": {
+            "available": 446
+          },
+          "annual_evidence_sha256": "e017ae6ac946506eeec13f99aa168b344271f0fee07535bd26bb5f65023b268a",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 0,
+          "snapshot_sha256": "710d70f6aa20fc87c25971c81b8d11bb12fc4ef93b41886fb32f977c3d192f99",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2015
+        },
+        {
+          "accounting": {
+            "available": 446
+          },
+          "annual_evidence_sha256": "6ede81f082c8899c5283a6b2b6f4500a453146fdd3fd33e9471489ef71dc19b3",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 0,
+          "snapshot_sha256": "34b86cd600cca01199b795f818327ee2a624614f6c43523e3cd4fb218b603c2e",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2016
+        },
+        {
+          "accounting": {
+            "available": 446
+          },
+          "annual_evidence_sha256": "2b39ad949f5fe40a017bfaca30e40a718187467b15c1589849b4cb735b081ef7",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 0,
+          "snapshot_sha256": "dd922221511286981a996187684ae3bb035f088087d93397787dc30dc1e13dcf",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2017
+        }
+      ],
+      "evidence_file": "config/acs_backfill_reviews/provider-acs5-2013-2014-2015-2016-2017.json",
+      "evidence_file_sha256": "800e704d8d402e4071d51d7464900c44c8bf142abc938de9c5d78f5f887d5df7",
+      "hosted_run": {
+        "conclusion": "success",
+        "head_branch": "main",
+        "head_sha": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+        "path": ".github/workflows/acs-historical-backfill.yml",
+        "run": 39126284037,
+        "status": "completed"
+      },
+      "plan_id": "acs_historical_execution_plan_v1__76efc520b09873f0d76bb4f69f779c87a68da64f4939f7b3aba4b980308926e4",
+      "plan_sha256": "25c3c4b5dc4b99b19a80b184b052591df87e5e9ebbd4eef59cdbe4ea2ac4e03f",
+      "plan_size_bytes": 677839,
+      "repository_identity": {
+        "baseline": "282ba2d4dcb0fa18d1e945fc5f3cb16957d9da32",
+        "code_sha256": "bdba8743ee94ca703ebdd5f9e6b9f17b3816b4f3a4836a4db2527f38356a288b",
+        "config_hashes": {
+          "config/acs_historical_governance.json": "absent",
+          "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+          "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+          "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+          "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+        },
+        "repository": "chineduezebuiroh/realestate-intel",
+        "serialization_runtime": {
+          "implementations": {
+            "numpy": {
+              "installed_record_sha256": "4a5e092d61d21bd265ba11b0f34ce00cb095afdd8c086e5041d2324f0e6b847f",
+              "version": "2.4.6"
+            },
+            "pandas": {
+              "installed_record_sha256": "ed35d04876ae7be36207fb4f609ee658b5527ba0f08a84d64e4e30c87efff0eb",
+              "version": "2.2.2"
+            },
+            "pyarrow": {
+              "installed_record_sha256": "5ca5422cd99616ddf3d1986b35b64fc23b632a8eeebceaa2ad04638fcdf3c969",
+              "version": "26.0.0"
+            }
+          },
+          "python_executable_sha256": "d601e62487858384d3000725c3b2e16e86ff11a6ad0b0810b76281e45426ea62",
+          "python_version": "3.11.17 (main, Oct  1 2026, 14:32:31) [GCC 13.3.0]"
+        }
+      },
+      "requested_members": 223,
+      "run_id": 39126284037,
+      "source_id": "census_acs5",
+      "vintages": [
+        2013,
+        2014,
+        2015,
+        2016,
+        2017
+      ]
+    },
+    {
+      "accounting": {
+        "available": 1512,
+        "provider_no_content": 718
+      },
+      "archive_crc_and_member_integrity_verified": true,
+      "archive_sha256": "2a5e4df1a80869d815f9e838893f8f2553f0dd61001fcf6a01df37913464d3fe",
+      "archive_size_bytes": 84769,
+      "artifact_id": 12135869708,
+      "artifact_name": "acs-backfill-preflight",
+      "authority": {
+        "branch": "main",
+        "commit": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+        "repository": "chineduezebuiroh/realestate-intel"
+      },
+      "batch": "B5",
+      "batch_size": 5,
+      "byte_identical_adoption": true,
+      "code_commit": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+      "configured_exclusions": 10,
+      "current_inventory_verified_missing": true,
+      "destination": "config/acs_backfill_reviews/plan-acs1-b5-2008-2009-2010-2011-2012.json",
+      "entries": [
+        {
+          "accounting": {
+            "available": 300,
+            "provider_no_content": 146
+          },
+          "annual_evidence_sha256": "5029fdd3dd45c3abd87cae20e465acf63c606447515c92b0d7d7ef2d91cb88cc",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 73,
+          "snapshot_sha256": "487064e0e7499134527c384a500af1f2b84173b9c3d341c01e1d5b8f321e730f",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2008
+        },
+        {
+          "accounting": {
+            "available": 300,
+            "provider_no_content": 146
+          },
+          "annual_evidence_sha256": "f7170359e1caf595f04423d19248e2e4ad0c4baa974837639e792ae5d2136608",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 73,
+          "snapshot_sha256": "f0305304320ad25c213d62a06b8c4417c5500b3637220c7c93dfbcbc741f5769",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2009
+        },
+        {
+          "accounting": {
+            "available": 304,
+            "provider_no_content": 142
+          },
+          "annual_evidence_sha256": "57b6d9b43c0de816e525080b14c927e027b5d53396a2df0f701eea2ac919604e",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 71,
+          "snapshot_sha256": "1fb3855f51e36aa4d69fe62190158b0a8ea8fa9883184a03ed43976131540ba5",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2010
+        },
+        {
+          "accounting": {
+            "available": 304,
+            "provider_no_content": 142
+          },
+          "annual_evidence_sha256": "78d40c1e8b74b82e41e7ea9203b4f57f0432544a9e6e95c72929ee0e3ee3ddcb",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 71,
+          "snapshot_sha256": "411e33f10315e82c774b7520f0d0c77aeca4dd1eab974ec1cf0af06410f1cb6e",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2011
+        },
+        {
+          "accounting": {
+            "available": 304,
+            "provider_no_content": 142
+          },
+          "annual_evidence_sha256": "2bace6e00858590c5b4120299b951f41579b0d1f938ec0647e9bb555444f5c08",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 71,
+          "snapshot_sha256": "e29b41c74017cc3186830672a854ac60365559a111fd80761489f1cf6e0ad0da",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2012
+        }
+      ],
+      "evidence_file": "config/acs_backfill_reviews/provider-acs1-2008-2009-2010-2011-2012.json",
+      "evidence_file_sha256": "a31a33408e84ab0a03df8d3ae07333fe09960ac572ab93b0ac4bf0b5e62cf5b0",
+      "hosted_run": {
+        "conclusion": "success",
+        "head_branch": "main",
+        "head_sha": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+        "path": ".github/workflows/acs-historical-backfill.yml",
+        "run": 39126533579,
+        "status": "completed"
+      },
+      "plan_id": "acs_historical_execution_plan_v1__08aea10545f809a91650d2ca89ca0ec33bcb2227b0a79faf04b395b25df35190",
+      "plan_sha256": "905b4bd02915003120954568af949582ed9375823cdcd61803b713e187d8a353",
+      "plan_size_bytes": 885170,
+      "repository_identity": {
+        "baseline": "282ba2d4dcb0fa18d1e945fc5f3cb16957d9da32",
+        "code_sha256": "bdba8743ee94ca703ebdd5f9e6b9f17b3816b4f3a4836a4db2527f38356a288b",
+        "config_hashes": {
+          "config/acs_historical_governance.json": "absent",
+          "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+          "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+          "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+          "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+        },
+        "repository": "chineduezebuiroh/realestate-intel",
+        "serialization_runtime": {
+          "implementations": {
+            "numpy": {
+              "installed_record_sha256": "4a5e092d61d21bd265ba11b0f34ce00cb095afdd8c086e5041d2324f0e6b847f",
+              "version": "2.4.6"
+            },
+            "pandas": {
+              "installed_record_sha256": "ed35d04876ae7be36207fb4f609ee658b5527ba0f08a84d64e4e30c87efff0eb",
+              "version": "2.2.2"
+            },
+            "pyarrow": {
+              "installed_record_sha256": "5ca5422cd99616ddf3d1986b35b64fc23b632a8eeebceaa2ad04638fcdf3c969",
+              "version": "26.0.0"
+            }
+          },
+          "python_executable_sha256": "d601e62487858384d3000725c3b2e16e86ff11a6ad0b0810b76281e45426ea62",
+          "python_version": "3.11.17 (main, Oct  1 2026, 14:32:31) [GCC 13.3.0]"
+        }
+      },
+      "requested_members": 223,
+      "run_id": 39126533579,
+      "source_id": "census_acs1",
+      "vintages": [
+        2008,
+        2009,
+        2010,
+        2011,
+        2012
+      ]
+    },
+    {
+      "accounting": {
+        "available": 1752,
+        "provider_no_content": 32
+      },
+      "archive_crc_and_member_integrity_verified": true,
+      "archive_sha256": "7c2756b287cd28235d7aea66063cca18d8d683b3fb43f3e7e3d52b6cfc2a1fb9",
+      "archive_size_bytes": 54804,
+      "artifact_id": 12136556362,
+      "artifact_name": "acs-backfill-preflight",
+      "authority": {
+        "branch": "main",
+        "commit": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+        "repository": "chineduezebuiroh/realestate-intel"
+      },
+      "batch": "B6",
+      "batch_size": 4,
+      "byte_identical_adoption": true,
+      "code_commit": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+      "configured_exclusions": 10,
+      "current_inventory_verified_missing": true,
+      "destination": "config/acs_backfill_reviews/plan-acs5-b6-2009-2010-2011-2012.json",
+      "entries": [
+        {
+          "accounting": {
+            "available": 438,
+            "provider_no_content": 8
+          },
+          "annual_evidence_sha256": "f9b0cf7cd6100023e691eeb20db5b6a42a696e389274fd8908f5916448ebaf8a",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 4,
+          "snapshot_sha256": "2878615d597bb79aa1cb1e8202b4ec38106950dd585bd30d86474ca7914df685",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2009
+        },
+        {
+          "accounting": {
+            "available": 438,
+            "provider_no_content": 8
+          },
+          "annual_evidence_sha256": "7331822b2a2375996c1bd2f4117339ff27261aeb06feb5786e8e339f9f2b713d",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 4,
+          "snapshot_sha256": "e9794c7e808fa555788899c26010b42b49d3022355a3b8498f10a42c429938de",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2010
+        },
+        {
+          "accounting": {
+            "available": 438,
+            "provider_no_content": 8
+          },
+          "annual_evidence_sha256": "1c1bc498424bf63ba685fa155805c9412ecf38086bcdff36ab9763fb3807d124",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 4,
+          "snapshot_sha256": "dda3f1125a1851bceaa0ad0e35a0c2f09c68fa04fe982e32d37df5d738098ce5",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2011
+        },
+        {
+          "accounting": {
+            "available": 438,
+            "provider_no_content": 8
+          },
+          "annual_evidence_sha256": "caab809f7c2660f0e2a4ce17de91985507495a70eac57a195c971a24308d98aa",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 4,
+          "snapshot_sha256": "b291ded4a5c740e0c7bafabe3ca4ab6853411183cd0258753a1fe3dbc304f630",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2012
+        }
+      ],
+      "evidence_file": "config/acs_backfill_reviews/provider-acs5-2009-2010-2011-2012.json",
+      "evidence_file_sha256": "164b26c1b9a4be8565324a4aa2a1618e8f89d0951893f6d66002199fa284fc0f",
+      "hosted_run": {
+        "conclusion": "success",
+        "head_branch": "main",
+        "head_sha": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+        "path": ".github/workflows/acs-historical-backfill.yml",
+        "run": 39126647582,
+        "status": "completed"
+      },
+      "plan_id": "acs_historical_execution_plan_v1__da4aff269f0525e48f28de5a44f32fdff9e26689e664181ae30182e26f8ce129",
+      "plan_sha256": "366c892f83b6c9e3bff45a4fca958dcacc33aeb586d9fbf99648526cb52fe0e7",
+      "plan_size_bytes": 556025,
+      "repository_identity": {
+        "baseline": "282ba2d4dcb0fa18d1e945fc5f3cb16957d9da32",
+        "code_sha256": "bdba8743ee94ca703ebdd5f9e6b9f17b3816b4f3a4836a4db2527f38356a288b",
+        "config_hashes": {
+          "config/acs_historical_governance.json": "absent",
+          "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+          "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+          "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+          "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+        },
+        "repository": "chineduezebuiroh/realestate-intel",
+        "serialization_runtime": {
+          "implementations": {
+            "numpy": {
+              "installed_record_sha256": "4a5e092d61d21bd265ba11b0f34ce00cb095afdd8c086e5041d2324f0e6b847f",
+              "version": "2.4.6"
+            },
+            "pandas": {
+              "installed_record_sha256": "ed35d04876ae7be36207fb4f609ee658b5527ba0f08a84d64e4e30c87efff0eb",
+              "version": "2.2.2"
+            },
+            "pyarrow": {
+              "installed_record_sha256": "5ca5422cd99616ddf3d1986b35b64fc23b632a8eeebceaa2ad04638fcdf3c969",
+              "version": "26.0.0"
+            }
+          },
+          "python_executable_sha256": "d601e62487858384d3000725c3b2e16e86ff11a6ad0b0810b76281e45426ea62",
+          "python_version": "3.11.17 (main, Oct  1 2026, 14:32:31) [GCC 13.3.0]"
+        }
+      },
+      "requested_members": 223,
+      "run_id": 39126647582,
+      "source_id": "census_acs5",
+      "vintages": [
+        2009,
+        2010,
+        2011,
+        2012
+      ]
+    },
+    {
+      "accounting": {
+        "available": 896,
+        "provider_no_content": 442
+      },
+      "archive_crc_and_member_integrity_verified": true,
+      "archive_sha256": "f3b00a53fcfb4e0da618a83d1282763b121f6c7d21a9be8931eaeb6f62980b02",
+      "archive_size_bytes": 52222,
+      "artifact_id": 12136242783,
+      "artifact_name": "acs-backfill-preflight",
+      "authority": {
+        "branch": "main",
+        "commit": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+        "repository": "chineduezebuiroh/realestate-intel"
+      },
+      "batch": "B7",
+      "batch_size": 3,
+      "byte_identical_adoption": true,
+      "code_commit": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+      "configured_exclusions": 10,
+      "current_inventory_verified_missing": true,
+      "destination": "config/acs_backfill_reviews/plan-acs1-b7-2005-2006-2007.json",
+      "entries": [
+        {
+          "accounting": {
+            "available": 296,
+            "provider_no_content": 150
+          },
+          "annual_evidence_sha256": "046fa1accc2d4e00e7f55637ad545c914834ed13fd5503047c56d4af4522e699",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 75,
+          "snapshot_sha256": "b4154ffc8444cbe9863bd8eaf124d8a1353b24dba78cafbde410cc2fcb932950",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2005
+        },
+        {
+          "accounting": {
+            "available": 300,
+            "provider_no_content": 146
+          },
+          "annual_evidence_sha256": "83eee4ed9ccc4be0838d9634a243d7c5c162f1d0984fe566089c3df0fdfe127b",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 73,
+          "snapshot_sha256": "a7b18c939fe502d73f14f7aa724fd8b0ecc38c9d3016fef9bd5715684a3d7e8f",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2006
+        },
+        {
+          "accounting": {
+            "available": 300,
+            "provider_no_content": 146
+          },
+          "annual_evidence_sha256": "c59f3fde9920af461b11ddb0e9eab89b2e49338a40d830c4b46dad4551306d0e",
+          "approved_gap": null,
+          "catalog_parents": 0,
+          "classification": "missing_acquisition",
+          "evidence_matches_adopted": true,
+          "omission_receipts": 73,
+          "snapshot_sha256": "b96ef88d93e1213f3632c7252c5f416d0c03264276df2935dba9a2720e6c6f41",
+          "unresolved_verification_requirements": 0,
+          "vintage": 2007
+        }
+      ],
+      "evidence_file": "config/acs_backfill_reviews/provider-acs1-2005-2006-2007.json",
+      "evidence_file_sha256": "e552c14d1032fa756682b4c6b17bdb6247769634bee168671de2b0a1262b7ca0",
+      "hosted_run": {
+        "conclusion": "success",
+        "head_branch": "main",
+        "head_sha": "8b59276965ff06c9853b2307a915b6ea746f1ed2",
+        "path": ".github/workflows/acs-historical-backfill.yml",
+        "run": 39127085656,
+        "status": "completed"
+      },
+      "plan_id": "acs_historical_execution_plan_v1__6b4e66c224bda7ebff2ba45972fc408c96c16f2e78206dbe2af0ab47f0603280",
+      "plan_sha256": "238f753cbf6858038d0322ea0fac11111ab45311ac0cfda088fc0875d3af7e29",
+      "plan_size_bytes": 542238,
+      "repository_identity": {
+        "baseline": "282ba2d4dcb0fa18d1e945fc5f3cb16957d9da32",
+        "code_sha256": "bdba8743ee94ca703ebdd5f9e6b9f17b3816b4f3a4836a4db2527f38356a288b",
+        "config_hashes": {
+          "config/acs_historical_governance.json": "absent",
+          "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+          "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+          "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+          "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+        },
+        "repository": "chineduezebuiroh/realestate-intel",
+        "serialization_runtime": {
+          "implementations": {
+            "numpy": {
+              "installed_record_sha256": "4a5e092d61d21bd265ba11b0f34ce00cb095afdd8c086e5041d2324f0e6b847f",
+              "version": "2.4.6"
+            },
+            "pandas": {
+              "installed_record_sha256": "ed35d04876ae7be36207fb4f609ee658b5527ba0f08a84d64e4e30c87efff0eb",
+              "version": "2.2.2"
+            },
+            "pyarrow": {
+              "installed_record_sha256": "5ca5422cd99616ddf3d1986b35b64fc23b632a8eeebceaa2ad04638fcdf3c969",
+              "version": "26.0.0"
+            }
+          },
+          "python_executable_sha256": "d601e62487858384d3000725c3b2e16e86ff11a6ad0b0810b76281e45426ea62",
+          "python_version": "3.11.17 (main, Oct  1 2026, 14:32:31) [GCC 13.3.0]"
+        }
+      },
+      "requested_members": 223,
+      "run_id": 39127085656,
+      "source_id": "census_acs1",
+      "vintages": [
+        2005,
+        2006,
+        2007
+      ]
+    }
+  ],
+  "runtime_note": "Local runtime is not substituted; future hosted authorization/execution must independently match all immutable runtime fingerprints.",
+  "schema_version": "acs_coordinated_plan_adoption_review_v1",
+  "tests": {
+    "diff_check_passed": true,
+    "exact_changed_file_count": 6,
+    "full_repository_passed": 624,
+    "full_repository_warnings": 138,
+    "targeted_passed": 365
+  }
+}
