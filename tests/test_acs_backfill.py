@@ -1300,3 +1300,61 @@ def test_historical_existing_timer_is_never_replaced(tmp_path, monkeypatch):
     with pytest.raises(HistoricalAcquisitionFailure) as caught:
         historical_acquire(tmp_path, monkeypatch, session)
     assert caught.value.diagnostic['category'] == 'deadline_unavailable' and not session.calls
+
+
+HISTORICAL_METADATA = json.loads(Path(
+    'tests/fixtures/census_acs_historical/acs1_2008_2012_metadata.json').read_text())
+
+
+@pytest.mark.parametrize('year', range(2008, 2013))
+def test_captured_acs1_metadata_2008_2012_preserved_and_roundtrips(year):
+    from sources.census_acs.historical import validate_metadata
+    metadata = copy.deepcopy(HISTORICAL_METADATA['years'][str(year)]['metadata'])
+    original = copy.deepcopy(metadata)
+    selected = validate_metadata(metadata, source_id='census_acs1', vintage=year)
+    assert selected == metadata['variables'] and metadata == original
+    assert all(('concept' in item) == (year not in {2010, 2011}) for item in selected.values())
+
+    class CapturedMetadataTransport(Transport):
+        def get(self, url, **kwargs):
+            if url.endswith('variables.json'): return Response(metadata)
+            return super().get(url, **kwargs)
+    result = preflight(source_id='census_acs1', vintage=year,
+        transport=CapturedMetadataTransport(year=year), plan=GEOGRAPHY, excluded=[])
+    assert result['variables'] == selected
+    validate_evidence(result, source_id='census_acs1', vintage=year, plan=GEOGRAPHY, excluded=[])
+    assert result['variables'] == original['variables']
+    wrong_dataset = copy.deepcopy(result)
+    wrong_dataset['dataset']['c_vintage'] = year + 1
+    with pytest.raises(VerificationRequired):
+        validate_evidence(wrong_dataset, source_id='census_acs1', vintage=year, plan=GEOGRAPHY, excluded=[])
+
+
+@pytest.mark.parametrize('year', [2010, 2011])
+@pytest.mark.parametrize('mutation', ['missing_variable', 'wrong_key', 'missing_group', 'wrong_group',
+    'wrong_type', 'missing_label', 'blank_label', 'null_concept', 'blank_concept', 'invalid_item'])
+def test_legacy_missing_concept_does_not_admit_malformed_metadata(year, mutation):
+    from sources.census_acs.historical import validate_metadata
+    metadata = copy.deepcopy(HISTORICAL_METADATA['years'][str(year)]['metadata'])
+    items = metadata['variables']; item = items['B01003_001E']
+    if mutation == 'missing_variable': del items['B01003_001E']
+    elif mutation == 'wrong_key': items['B01003_999E'] = items.pop('B01003_001E')
+    elif mutation == 'missing_group': del item['group']
+    elif mutation == 'wrong_group': item['group'] = 'B19013'
+    elif mutation == 'wrong_type': item['predicateType'] = 'string'
+    elif mutation == 'missing_label': del item['label']
+    elif mutation == 'blank_label': item['label'] = ' '
+    elif mutation == 'null_concept': item['concept'] = None
+    elif mutation == 'blank_concept': item['concept'] = ' '
+    elif mutation == 'invalid_item': items['B01003_001E'] = None
+    with pytest.raises(VerificationRequired):
+        validate_metadata(metadata, source_id='census_acs1', vintage=year)
+
+
+@pytest.mark.parametrize('source,year', [('census_acs1', 2008), ('census_acs1', 2009),
+    ('census_acs1', 2012), ('census_acs5', 2010), ('census_acs5', 2011)])
+def test_missing_concept_compatibility_is_exact_product_and_year(source, year):
+    from sources.census_acs.historical import validate_metadata
+    metadata = HISTORICAL_METADATA['years']['2010']['metadata']
+    with pytest.raises(VerificationRequired):
+        validate_metadata(metadata, source_id=source, vintage=year)

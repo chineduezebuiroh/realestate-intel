@@ -343,3 +343,70 @@ executable and installed library RECORD/file hashes; later drift must fail close
 
 These are future operational boundaries. This implementation performs no
 preflight dispatch, plan generation, authorization, acquisition or production write.
+
+### ACS1 2010–2011 metadata compatibility and B5 recapture
+
+Original B5 run `39119739109`, artifact `12132894861`, ZIP SHA-256
+`0a6f2e5424e72866b2341e051caa361fbd26833f32d8392de52b523b35f486c4`,
+contains HTTP 200 valid JSON metadata for both failed years. The configured
+`B01003_001E` and `B19013_001E` objects omit `concept`; validation previously
+failed first at B01003. B25077 is not a configured recovery metric.
+The exact selected objects and original response receipts for 2008–2012 are
+preserved as an offline test fixture, not as adopted provider evidence.
+
+Only ordinary `census_acs1` 2010 and 2011 may omit `concept`, and only when the
+configured variable key, numeric predicate type, nonempty label and exact Census
+group are present. An explicitly null/empty concept remains invalid. Other
+products/years still require concept. Metadata is returned unchanged; no concept
+is inferred or synthesized. Exact dataset/year binding, geography, values,
+omission receipts, snapshot equality and authorization checks are unchanged.
+
+After external review and merge of this compatibility change, capture only the
+two failed years (do not dispatch before merge):
+
+```sh
+gh workflow run acs-provider-evidence.yml \
+  --repo chineduezebuiroh/realestate-intel --ref main \
+  -f source_id=census_acs1 -f vintages=2010,2011 -f batch_size=2
+```
+
+Preserve the original failed batch and its false validation status. Verify it
+with the existing offline batch verifier, original source/run/artifact/commit/
+ZIP hash, all five years, and `--failed-vintages 2010,2011`; adopt only original
+2008, 2009 and 2012 candidates. The incomplete original 2010/2011 captures contain
+no geography observations and cannot be repaired or promoted into evidence.
+Verify the new two-year ZIP independently with its own exact capture commit,
+run/artifact IDs and hashes. Accept each year only after all 225 responses,
+223 members, ten exclusions and all 446 metric classifications validate.
+Transport failures, missing headers and unsupported geography errors are not
+provider-no-content receipts or automatically approved gaps.
+
+The existing `combine_reviewed_evidence` interface accepts independently verified
+same-product/year-keyed evidence from different runs and capture commits when
+governed configuration matches. Combine the three old successes with the two new
+successes, rejecting overlap and incomplete coverage. Keep each annual file
+unchanged and retain each original run, artifact, archive hash, capture commit,
+capture ID, manifest hash and snapshot hash in the combined provenance record.
+The combined review map is newly serialized and must not be described as an
+original single-run aggregate or relabeled with one common capture commit.
+
+B4's original successful archive remains independently reviewable; B4–B7 may
+still share one coordinated evidence-only adoption PR after independent archive
+verification. This compatibility PR does not adopt evidence. Existing B4/B5
+successful evidence bytes and hashes are unchanged. No provider recapture is
+required for those successful years merely because code changed.
+
+Changing `sources/census_acs/historical.py` changes the bound production code
+fingerprint. Subsequent acquisition plans must be generated after merge using
+this reviewed implementation and separately adopted and authorized. An old
+plan/authorization cannot authorize the new code; do not edit an existing plan
+or evidence to manufacture compatibility. Later B4–B7 plans, authorizations and
+physical executions remain independently governed.
+
+Compatibility validation: 365 relevant offline regression tests passed. Both
+original archives were verified before and after the change using the existing
+batch verifier. B4's five successful candidates and B5's three successful
+candidates, aggregate files and original verification provenance remained
+byte-for-byte/semantically unchanged; the two failed B5 years remained excluded.
+All five original full variables responses passed the revised metadata validator
+without modifying provider objects. No workflow was dispatched by this change.

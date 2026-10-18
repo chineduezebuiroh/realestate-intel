@@ -100,13 +100,22 @@ def exact_dataset(source_id: str, vintage: int, discovery: Mapping[str, Any]) ->
     return dict(dataset)
 
 
-def validate_metadata(metadata: Mapping[str, Any]) -> dict:
+def validate_metadata(metadata: Mapping[str, Any], *, source_id: str, vintage: int) -> dict:
+    # Captured ordinary ACS1 2010/2011 metadata omits concept. Preserve that
+    # absence; the exact dataset/year and variable key remain independently bound.
     selected = {}
     for variable in VARIABLES:
         item = metadata.get("variables", {}).get(variable, {})
+        if not isinstance(item, Mapping):
+            raise VerificationRequired(f"historical variable metadata unavailable: {variable}")
+        group = variable.split("_", 1)[0]
+        omitted_legacy_concept = (source_id == "census_acs1" and vintage in {2010, 2011}
+                                  and "concept" not in item and item.get("group") == group)
         if (item.get("predicateType") not in {"int", "float"}
-                or not isinstance(item.get("label"), str) or not item["label"]
-                or not isinstance(item.get("concept"), str) or not item["concept"]):
+                or not isinstance(item.get("label"), str) or not item["label"].strip()
+                or ("group" in item and item["group"] != group)
+                or (not omitted_legacy_concept and
+                    (not isinstance(item.get("concept"), str) or not item["concept"].strip()))):
             raise VerificationRequired(f"historical variable metadata unavailable: {variable}")
         selected[variable] = dict(item)
     return selected
@@ -253,7 +262,7 @@ def preflight(*, source_id: str, vintage: int, transport: Any,
             raise VerificationRequired("official historical provider evidence inaccessible or invalid") from None
     dataset = exact_dataset(source_id, vintage, read(f"{API}.json")[0])
     endpoint = f"{API}/{vintage}/{PRODUCTS[source_id]}"
-    metadata = validate_metadata(read(endpoint + "/variables.json")[0])
+    metadata = validate_metadata(read(endpoint + "/variables.json")[0], source_id=source_id, vintage=vintage)
     members = []
     for item in plan:
         payload, status = read(endpoint, request_params(item), allow_no_content=True)
@@ -275,7 +284,7 @@ def validate_evidence(evidence: dict, *, source_id: str, vintage: int,
             or evidence.get("source_id") != source_id or evidence.get("vintage") != vintage):
         raise ValueError("historical preflight evidence identity mismatch")
     exact_dataset(source_id, vintage, {"dataset": [evidence["dataset"]]})
-    validate_metadata({"variables": evidence["variables"]})
+    validate_metadata({"variables": evidence["variables"]}, source_id=source_id, vintage=vintage)
     checked = validate_snapshot(source_id=source_id, vintage=vintage, snapshot=evidence["snapshot"],
         plan=plan, excluded=excluded, omissions=evidence.get("omission_evidence", []))
     if any(evidence.get(k) != v for k, v in checked.items()):
