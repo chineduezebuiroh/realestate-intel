@@ -1,0 +1,108 @@
+{
+  "aggregate_evidence_sha256": "164b26c1b9a4be8565324a4aa2a1618e8f89d0951893f6d66002199fa284fc0f",
+  "approval_status": "REVIEW_CANDIDATE_ONLY",
+  "archive_sha256": "e5a0169f5a50bfc7d534a7ba0f14ce7c06f83abb16795930624f6a657ba15094",
+  "artifact_id": 12135336250,
+  "batch_id": "acs_provider_capture_batch_v1__543fb73972e9b339cad587267d089be29b0022ae64b712f98b18a78b0d8f5849",
+  "capture_commit": "4887a91d6a82428d14862089098286db5b70df52",
+  "capture_validated": true,
+  "captured_vintages": [
+    2009,
+    2010,
+    2011,
+    2012
+  ],
+  "config_hashes": {
+    "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+    "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+    "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+    "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+  },
+  "entries": [
+    {
+      "accounting": {
+        "available": 438,
+        "provider_no_content": 8
+      },
+      "capture_id": "acs_provider_capture_v1__3d5171cd2344371280649224feb334b324b0d581dbc73cd0fa6b5c2766c2035c",
+      "evidence_sha256": "f9b0cf7cd6100023e691eeb20db5b6a42a696e389274fd8908f5916448ebaf8a",
+      "omission_receipt_ids": [
+        "acs_historical_omission_evidence_v1__4ebc4313ba5cdce7d6b9c9466413aeb3d3e1c2f35cc04ccc96e6876a84bebfc3",
+        "acs_historical_omission_evidence_v1__7265ff80ab04d724b4e4425e48f8140e7a00d70cb8f267eba025f6966fc57073",
+        "acs_historical_omission_evidence_v1__b9cf0cfd7b608f9304e37f1348dd9e4927f57dc7b8a63aeca5fea6e1716377d3",
+        "acs_historical_omission_evidence_v1__e73d400aee7a1c1f9837992b9d19dc09bb727a585ae1759f0597c823600bf04f"
+      ],
+      "response_manifest_sha256": "5d179063b3f8df4a5f151b6c12ee3c8c8ba487b90cd151ec99456ad448b5d685",
+      "responses_verified": 225,
+      "snapshot_sha256": "2878615d597bb79aa1cb1e8202b4ec38106950dd585bd30d86474ca7914df685",
+      "vintage": 2009
+    },
+    {
+      "accounting": {
+        "available": 438,
+        "provider_no_content": 8
+      },
+      "capture_id": "acs_provider_capture_v1__daffa923379e03fcf0cac5b0f5ebd27f9e716e69c91f6d98cda2bde83a454b8b",
+      "evidence_sha256": "7331822b2a2375996c1bd2f4117339ff27261aeb06feb5786e8e339f9f2b713d",
+      "omission_receipt_ids": [
+        "acs_historical_omission_evidence_v1__402a7a27f2d02ac97b8cd70a7629fdbe6cbf1f0100565cfa685a435ca5015750",
+        "acs_historical_omission_evidence_v1__7150701f1d41b5863f10ff06e4f50ccfd64d7d75a61d84b0f3d606014e5d55dc",
+        "acs_historical_omission_evidence_v1__8cec14f08e3e59a828ee8679c743dbbd2e26f65142c1c85bdcc836d225f011d0",
+        "acs_historical_omission_evidence_v1__e769176c9eb66b3469c1a983642f83b0e7af44aa833e0b92b1bd81dbcdb707e3"
+      ],
+      "response_manifest_sha256": "01797f3f9dd8764d80024328a38ef8c221d5c757ad0a06017ba7526759921a2a",
+      "responses_verified": 225,
+      "snapshot_sha256": "e9794c7e808fa555788899c26010b42b49d3022355a3b8498f10a42c429938de",
+      "vintage": 2010
+    },
+    {
+      "accounting": {
+        "available": 438,
+        "provider_no_content": 8
+      },
+      "capture_id": "acs_provider_capture_v1__e76ec9e5382e43bdf205d9e18c03d6d65292d42d8e4c6b504512abe3f43a360a",
+      "evidence_sha256": "1c1bc498424bf63ba685fa155805c9412ecf38086bcdff36ab9763fb3807d124",
+      "omission_receipt_ids": [
+        "acs_historical_omission_evidence_v1__443ee14485290ae2036916ad3fb8800692758343142f4c45b8643fe216676cf3",
+        "acs_historical_omission_evidence_v1__997f649b166a7a16c149070a9440c8361079c4b4368f9d1dc1dc4be41566392b",
+        "acs_historical_omission_evidence_v1__9e4c75d8da032ddb77b582ddfd41ee6273370e6c0935ac9980dd6632a9aed488",
+        "acs_historical_omission_evidence_v1__ad03ccbe6cb471dd4f4f00306d26a7d461f52b82eb4908f40241612f7e35b00f"
+      ],
+      "response_manifest_sha256": "f05e83a52994d107018b6f1576e4ec2c3c14e52839492ce15b4d6d68dcde84ce",
+      "responses_verified": 225,
+      "snapshot_sha256": "dda3f1125a1851bceaa0ad0e35a0c2f09c68fa04fe982e32d37df5d738098ce5",
+      "vintage": 2011
+    },
+    {
+      "accounting": {
+        "available": 438,
+        "provider_no_content": 8
+      },
+      "capture_id": "acs_provider_capture_v1__3e0acbac0d226b05d141d7ac88047f898075bb88139d632640e3ddf20c4f7dfa",
+      "evidence_sha256": "caab809f7c2660f0e2a4ce17de91985507495a70eac57a195c971a24308d98aa",
+      "omission_receipt_ids": [
+        "acs_historical_omission_evidence_v1__10812521dcae773654d027cf54e26d0480deb0f84622e979e41510ef7e4b5b57",
+        "acs_historical_omission_evidence_v1__5567d748461e2146fde693cbde0641a215e830229d436db66ebb235a6d2f8d39",
+        "acs_historical_omission_evidence_v1__c03d07667a5ecb3bde0cba9c3d2d68ece7f33b83e89fe97384dad1e0d629b770",
+        "acs_historical_omission_evidence_v1__e2d2094c889b16159b8eca2d1af6c32301a2bf93e39ca03deff443958c519cda"
+      ],
+      "response_manifest_sha256": "e53b0ba7d03c66ff310220ce5c9bc2ed2cea71ff357a3aa221b985f1e825c9f1",
+      "responses_verified": 225,
+      "snapshot_sha256": "b291ded4a5c740e0c7bafabe3ca4ab6853411183cd0258753a1fe3dbc304f630",
+      "vintage": 2012
+    }
+  ],
+  "failed_captures_not_adopted": [],
+  "repository": "chineduezebuiroh/realestate-intel",
+  "responses_verified": 900,
+  "run_id": 39123671869,
+  "schema_version": "acs_provider_batch_review_v1",
+  "source_id": "census_acs5",
+  "validated": true,
+  "vintages": [
+    2009,
+    2010,
+    2011,
+    2012
+  ]
+}
