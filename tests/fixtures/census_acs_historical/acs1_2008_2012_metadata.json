@@ -1,0 +1,162 @@
+{
+  "provenance": {
+    "run_id": 39119739109,
+    "artifact_id": 12132894861,
+    "archive_sha256": "0a6f2e5424e72866b2341e051caa361fbd26833f32d8392de52b523b35f486c4",
+    "capture_commit": "31a3c5210f25d94e9d526d7a01fd5216d4c9d68f",
+    "note": "Exact selected metadata objects extracted from original response bodies; complete raw-body hashes bind the original ZIP. Not provider evidence or acquisition input."
+  },
+  "years": {
+    "2008": {
+      "response_receipt": {
+        "body_path": "responses/001.body",
+        "body_sha256": "1b3eec4716b77ed9aee098a45862701f74ccae6084259aad2d6f7dd0fd9dec7c",
+        "body_size_bytes": 11028071,
+        "decoded_response_sha256": "019292646ee6ab2b9812e49e63752394a04f80dbb3d7965c48de32df5dc33c96",
+        "http_status": 200,
+        "request_url": "https://api.census.gov/data/2008/acs/acs1/variables.json"
+      },
+      "metadata": {
+        "variables": {
+          "B01003_001E": {
+            "label": "Estimate!!Total",
+            "concept": "TOTAL POPULATION",
+            "predicateType": "int",
+            "group": "B01003",
+            "limit": 0,
+            "attributes": "B01003_001EA,B01003_001M,B01003_001MA"
+          },
+          "B19013_001E": {
+            "label": "Estimate!!Median household income in the past 12 months (in 2008 inflation-adjusted dollars)",
+            "concept": "MEDIAN HOUSEHOLD INCOME IN THE PAST 12 MONTHS (IN 2008 INFLATION-ADJUSTED DOLLARS)",
+            "predicateType": "int",
+            "group": "B19013",
+            "limit": 0,
+            "attributes": "B19013_001EA,B19013_001M,B19013_001MA"
+          }
+        }
+      },
+      "original_validated": true
+    },
+    "2009": {
+      "response_receipt": {
+        "body_path": "responses/001.body",
+        "body_sha256": "a9c6bf981688180a16041bd62b7b1284ded58afb31390f23e6d695d201bec54f",
+        "body_size_bytes": 12413282,
+        "decoded_response_sha256": "5598e0331a69cf7d3a95e2bff504435b7312b1df83a4ee8bcbdf094caf73b30d",
+        "http_status": 200,
+        "request_url": "https://api.census.gov/data/2009/acs/acs1/variables.json"
+      },
+      "metadata": {
+        "variables": {
+          "B01003_001E": {
+            "label": "Estimate!!Total",
+            "concept": "TOTAL POPULATION",
+            "predicateType": "int",
+            "group": "B01003",
+            "limit": 0,
+            "attributes": "B01003_001EA,B01003_001M,B01003_001MA"
+          },
+          "B19013_001E": {
+            "label": "Estimate!!Median household income in the past 12 months (in 2009 inflation-adjusted dollars)",
+            "concept": "MEDIAN HOUSEHOLD INCOME IN THE PAST 12 MONTHS (IN 2009 INFLATION-ADJUSTED DOLLARS)",
+            "predicateType": "int",
+            "group": "B19013",
+            "limit": 0,
+            "attributes": "B19013_001EA,B19013_001M,B19013_001MA"
+          }
+        }
+      },
+      "original_validated": true
+    },
+    "2010": {
+      "response_receipt": {
+        "body_path": "responses/001.body",
+        "body_sha256": "7da2836523b9f8ec9ed933bf66d93afcf4d7fd46f282b8437ca5c83b106f874d",
+        "body_size_bytes": 8670198,
+        "decoded_response_sha256": "5053109cb9e52bcd59be6ac2c0c1ba2410e495a5d3fc796a524bdfa43895d555",
+        "http_status": 200,
+        "request_url": "https://api.census.gov/data/2010/acs/acs1/variables.json"
+      },
+      "metadata": {
+        "variables": {
+          "B01003_001E": {
+            "label": "Estimate!!Total",
+            "predicateType": "int",
+            "group": "B01003",
+            "limit": 0,
+            "attributes": "B01003_001EA,B01003_001M,B01003_001MA"
+          },
+          "B19013_001E": {
+            "label": "Estimate!!Median household income in the past 12 months (in 2010 inflation-adjusted dollars)",
+            "predicateType": "int",
+            "group": "B19013",
+            "limit": 0,
+            "attributes": "B19013_001EA,B19013_001M,B19013_001MA"
+          }
+        }
+      },
+      "original_validated": false
+    },
+    "2011": {
+      "response_receipt": {
+        "body_path": "responses/001.body",
+        "body_sha256": "860ed2472dd54744c6794f01cd39a217cfa3be37e5ddc9097cb7a690c1054933",
+        "body_size_bytes": 8716651,
+        "decoded_response_sha256": "b7a07ae7d0c2e94a7a26b69c95377b06161afd178b96348e05dfc01663d1a19e",
+        "http_status": 200,
+        "request_url": "https://api.census.gov/data/2011/acs/acs1/variables.json"
+      },
+      "metadata": {
+        "variables": {
+          "B01003_001E": {
+            "label": "Estimate!!Total",
+            "predicateType": "int",
+            "group": "B01003",
+            "limit": 0,
+            "attributes": "B01003_001EA,B01003_001M,B01003_001MA"
+          },
+          "B19013_001E": {
+            "label": "Estimate!!Median household income in the past 12 months (in 2011 inflation-adjusted dollars)",
+            "predicateType": "int",
+            "group": "B19013",
+            "limit": 0,
+            "attributes": "B19013_001EA,B19013_001M,B19013_001MA"
+          }
+        }
+      },
+      "original_validated": false
+    },
+    "2012": {
+      "response_receipt": {
+        "body_path": "responses/001.body",
+        "body_sha256": "6cb37feb82c2eb91b46819f262eca4af7344b2c6facf6774fdba419c71be3e2b",
+        "body_size_bytes": 12704329,
+        "decoded_response_sha256": "6eb3138146e98ab977d04747e4406f62fae4fcc5b9872ae97e5cbcfdd9f89e16",
+        "http_status": 200,
+        "request_url": "https://api.census.gov/data/2012/acs/acs1/variables.json"
+      },
+      "metadata": {
+        "variables": {
+          "B01003_001E": {
+            "label": "Estimate!!Total",
+            "concept": "TOTAL POPULATION",
+            "predicateType": "int",
+            "group": "B01003",
+            "limit": 0,
+            "attributes": "B01003_001EA,B01003_001M,B01003_001MA"
+          },
+          "B19013_001E": {
+            "label": "Estimate!!Median household income in the past 12 months (in 2012 inflation-adjusted dollars)",
+            "concept": "MEDIAN HOUSEHOLD INCOME IN THE PAST 12 MONTHS (IN 2012 INFLATION-ADJUSTED DOLLARS)",
+            "predicateType": "int",
+            "group": "B19013",
+            "limit": 0,
+            "attributes": "B19013_001EA,B19013_001M,B19013_001MA"
+          }
+        }
+      },
+      "original_validated": true
+    }
+  }
+}
