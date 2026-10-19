@@ -221,6 +221,8 @@ def persist_prepared(store: GitHubJSONCAS, proposed: dict[str, Any], *, acs_proo
                 governance=governance)
     durable, _ = store.read()
     if durable != value: raise PublicationError("prepared promotion record durable reread contradiction")
+    if governance is not None:
+        governance.current_commit(store.api.repository)
     return value, changed
 
 

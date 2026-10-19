@@ -78,6 +78,7 @@ def write_current(*, api, branch, path, value, expected_sha, message, governance
     event = {"path": path, "commit_sha": written, "state": "ref_update_uncertain"}
     if hasattr(governance, "write_events"):
         governance.write_events.append(event)
+    reconciled = False
     try:
         response, _ = api.request("PATCH", "/git/refs/heads/main", payload={"sha": written, "force": False})
     except TransientPublicationError:
@@ -93,11 +94,17 @@ def write_current(*, api, branch, path, value, expected_sha, message, governance
                 time.sleep(0.1 * 2 ** attempt)
         if (response or {}).get("object", {}).get("sha") != written:
             raise PublicationError("ACS ref update outcome uncertain; reconcile before retry") from None
-        verify_at_commit(api, path, written, value)
+        event["state"] = "ref_update_confirmed"
+        blob = verify_at_commit(api, path, written, value)
+        event.update(state="verified_durable", blob_sha=blob)
+        reconciled = True
     else:
         if (response or {}).get("object", {}).get("sha") != written:
             raise PublicationError("ACS ref-update identity mismatch")
-    event["state"] = "ref_update_confirmed"
+        event["state"] = "ref_update_confirmed"
+    current = governance.current_commit(api.repository)
+    if reconciled and current != written:
+        raise PublicationError("ACS reconciled head advanced; reconcile before retry")
     return written
 
 

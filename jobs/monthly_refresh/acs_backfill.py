@@ -658,7 +658,10 @@ class HistoricalReadback:
     def _current_read(self, path):
         from jobs.monthly_refresh.acs_authoritative_write import read_at_commit
         tip = self.authority.current_commit(self.api.repository)
-        return read_at_commit(self.api, path, tip, allow_missing=True)
+        value = read_at_commit(self.api, path, tip, allow_missing=True)
+        if self.authority.current_commit(self.api.repository) != tip:
+            raise ValueError("historical authority snapshot changed during read")
+        return value
 
     def _verify_write(self, path, value, commit):
         from jobs.monthly_refresh.acs_authoritative_write import verify_at_commit

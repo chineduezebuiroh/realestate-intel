@@ -315,3 +315,84 @@ def test_cli_emits_sanitized_artifact_when_batch_fails(acquired, tmp_path, monke
     assert diagnostic['boundary'] == 'result_write' and diagnostic['completed_vintages'] == [2009]
     assert diagnostic['writes'][0]['state'] == 'verified_durable'
     assert 'secret' not in output.read_text() and 'unsafe_extra' not in output.read_text()
+
+
+@pytest.mark.parametrize('kind', ['pin', 'result'])
+@pytest.mark.parametrize('race', ['governance', 'advance'])
+def test_postverification_current_read_is_fenced_on_both_sides(acquired, kind, race):
+    api, fence, store, value = setup_store(acquired, kind)
+    original = api.request; reads = 0
+    def request(method, url, **kwargs):
+        nonlocal reads
+        response = original(method, url, **kwargs)
+        if method == 'GET' and url.startswith('/contents/') and api.tip != 'a' * 40:
+            reads += 1
+            if reads == 2:
+                if race == 'governance': api.governance_changed = True
+                else:
+                    api.tip = 'd' * 40
+                    api.snapshots[api.tip] = copy.deepcopy(api.objects)
+        return response
+    api.request = request
+    with pytest.raises(ValueError, match='governance drift|snapshot changed'): store.put(value)
+    assert fence.write_events[-1]['state'] == 'verified_durable'
+    assert len([w for w in api.writes if w[0] == 'PATCH']) == 1
+
+
+@pytest.mark.parametrize('race', ['governance', 'replacement'])
+def test_final_lifecycle_get_cannot_start_provider_retrieval(acquired, tmp_path, race):
+    from jobs.monthly_refresh.acs_hosted import execute_product
+    from jobs.monthly_refresh.source_inputs import pin_path
+    api, fence, store, value = setup_store(acquired, 'pin'); store.put(value)
+    original = api.request; reads = 0; calls = []
+    def request(method, url, **kwargs):
+        nonlocal reads
+        response = original(method, url, **kwargs)
+        if method == 'GET' and url.startswith('/contents/'):
+            reads += 1
+            if reads == 2:
+                if race == 'governance': api.governance_changed = True
+                else:
+                    api.tip = 'd' * 40; api.snapshots[api.tip] = copy.deepcopy(api.objects)
+                    api.snapshots[api.tip][pin_path(value['cycle_id'], value['source_id'])] = {'replacement': True}
+        return response
+    api.request = request
+    def forbidden(*args, **kwargs): calls.append('continued'); pytest.fail('superseded lifecycle continued')
+    with pytest.raises(ValueError, match='governance drift|snapshot changed'):
+        execute_product(source_id=value['source_id'], cycle_id=value['cycle_id'], mode='resume',
+            workspace=tmp_path, pin_store=store, discover=forbidden, retrieve=forbidden,
+            build=forbidden, publish=forbidden, record=forbidden)
+    assert calls == []
+
+
+@pytest.mark.parametrize('kind', ['pin', 'result'])
+@pytest.mark.parametrize('failure', ['before_content', 'duplicate_content'])
+def test_reconciled_diagnostics_preserve_strongest_proven_boundary(acquired, kind, failure):
+    api, fence, store, value = setup_store(acquired, kind); api.ref_outcome = 'lost_after'
+    if failure == 'before_content': api.missing_reads = 4
+    else:
+        original = api.request; reads = 0
+        def request(method, url, **kwargs):
+            nonlocal reads
+            if method == 'GET' and url.startswith('/contents/') and api.tip != 'a' * 40:
+                reads += 1
+                if reads == 2: api.missing_reads = 4
+            return original(method, url, **kwargs)
+        api.request = request
+    with pytest.raises(PublicationError): store.put(value)
+    assert fence.write_events[-1]['state'] == ('ref_update_confirmed' if failure == 'before_content' else 'verified_durable')
+    assert len([w for w in api.writes if w[0] == 'PATCH']) == 1
+
+
+def test_reconciliation_rejects_head_advance_during_content_verification(acquired):
+    api, fence, store, value = setup_store(acquired, 'pin'); api.ref_outcome = 'lost_after'
+    original = api.request
+    def request(method, url, **kwargs):
+        response = original(method, url, **kwargs)
+        if method == 'GET' and url.startswith('/contents/') and api.tip != 'a' * 40:
+            api.tip = 'd' * 40; api.snapshots[api.tip] = copy.deepcopy(api.objects)
+        return response
+    api.request = request
+    with pytest.raises(PublicationError, match='head advanced'): store.put(value)
+    assert fence.write_events[-1]['state'] == 'verified_durable'
+    assert len([w for w in api.writes if w[0] == 'PATCH']) == 1

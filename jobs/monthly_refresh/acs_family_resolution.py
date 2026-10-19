@@ -7,10 +7,8 @@ data and never mutates accepted, Source Set, or database state.
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
-import urllib.parse
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -191,17 +189,19 @@ class GitHubFamilyResolutionStore:
         governance.require_destination(self.api.repository)
         governance.current_commit(self.api.repository)
         path = f"config/acs_family_resolutions/{record['resolution_id']}.json"
-        encoded = urllib.parse.quote(path, safe="/")
         for attempt in range(self.attempts):
-            item, _ = self.api.request("GET", f"/contents/{encoded}?ref={urllib.parse.quote(self.branch)}", expected=(200, 404))
-            existing = json.loads(base64.b64decode(item["content"])) if item else None
+            from jobs.monthly_refresh.acs_authoritative_write import read_at_commit
+            tip = governance.current_commit(self.api.repository)
+            existing, oid = read_at_commit(self.api, path, tip, allow_missing=True)
             value, changed = add_record(existing, record)
+            if governance.current_commit(self.api.repository) != tip:
+                raise PublicationError("ACS family authority snapshot changed during read")
             if not changed:
                 return value, False
             try:
                 from jobs.monthly_refresh.acs_authoritative_write import write_current
                 write_current(api=self.api, branch=self.branch, path=path, value=value,
-                    expected_sha=item["sha"] if item else None,
+                    expected_sha=oid,
                     message=f"Record {record['resolution_id']}", governance=governance)
                 return value, True
             except TransientPublicationError:

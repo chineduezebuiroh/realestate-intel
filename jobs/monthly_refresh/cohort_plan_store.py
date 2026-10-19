@@ -104,6 +104,7 @@ class GitHubCohortPlanStore:
                 message=f"Record {value['plan_id']}", governance=governance)
         durable=self.get(plan["cycle_id"])
         if durable != value: raise PublicationError("durable logical cohort plan reread contradiction")
+        governance.current_commit(self.api.repository)
         return durable, changed
 
 

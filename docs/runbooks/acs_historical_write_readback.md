@@ -78,7 +78,8 @@ content verification. The shared helper verifies content when reconciling an
 ambiguous ref update, including for other ACS callers. Those callers may now fail
 closed on uncertainty instead of propagating an undifferentiated transient error.
 Generic GitHub CAS, monthly provider stores, provider acquisition, serving
-promotion logic, and publication lifecycle are unchanged.
+promotion mutations, and publication lifecycle are unchanged. ACS prepared-record
+persistence adds only the final governance check described below.
 
 The implementation changes the governed code identity. Previously adopted plans
 and authorizations continue to reject code/configuration/runtime drift. There is
@@ -135,3 +136,77 @@ Validation recorded during implementation:
 * Final readback suite, including two subsequently added CLI failure-artifact
   cases: `75 passed` (1.09 seconds).
 * `git diff --check` and protected-path diff checks passed.
+
+## Corrections following adversarial review of b76d7837
+
+The review reproduced three defects despite the initial passing suite. The final
+behavior is:
+
+* Historical `_current_read()` checks current governance and resolves a commit,
+  reads at that immutable commit, then checks current governance and the commit
+  again. Any head change during the read fails closed, including an unrelated
+  advance; governance drift also raises. This brackets post-write current-object
+  verification and every lifecycle `get()`. A pin replacement during the final
+  GET cannot start retrieval, build, execution or publication.
+* `write_current()` revalidates current governance before returning success on
+  both ordinary and reconciled writes. Reconciliation additionally requires that
+  the freshly checked head still equals the proposed commit. It does not accept
+  a later descendant, repeat PATCH, or treat a receipt as current permission.
+* Family-resolution persistence resolves a checked immutable snapshot on every
+  attempt, validates the Git blob, and rechecks governance and snapshot identity
+  before any no-op return. Transient reconciliation failure therefore cannot
+  bypass superseded governance through an existing-object retry. Recovery under
+  unchanged governance can recognize the exact durable object without a second
+  PATCH.
+* Cohort-plan and ACS prepared-record persistence recheck governance after their
+  final durable rereads, covering existing-record/no-op paths as well as writes.
+* Diagnostic state changes occur immediately upon confirming the exact ref and
+  upon verifying exact content plus the canonical blob. A later governance check
+  or duplicate read failure cannot downgrade previously established evidence.
+  `verified_durable` means historical durability at the named commit, never
+  authorization to proceed under current governance.
+
+All shared callers were inspected:
+
+| Caller | Final authority check |
+| --- | --- |
+| Historical pin/result | Shared write check, exact commit verification, bracketed current read, bracketed lifecycle GET |
+| Historical physical catalog | Shared write check and existing post-verification authority check |
+| `CurrentCatalog` | Existing check after initial read/no-op; shared check after a write |
+| Family resolution | Checked immutable read on each attempt/no-op and shared check after a write |
+| Cohort plan | Shared write check and final governance check after durable reread |
+| ACS prepared promotion record | Shared write check and final governance check after durable reread |
+
+The helper's SHA return contract, object equality rules, destination blob CAS,
+single-parent commits and non-force ref updates are unchanged. No non-ACS
+persistence path gains a governance requirement. Previously adopted plans and
+authorizations still reject code/configuration/runtime drift without exceptions.
+
+New regression cases replay all three adversarial reproductions, including real
+reconstructed shared ACS capabilities. They test changes during the second/current
+read, governance drift and replacement during the final lifecycle GET with
+retrieval/build/publication callbacks forbidden, shared cohort/family ambiguous
+PATCH reconciliation, family transient/no-op recovery, cohort/prepared existing
+record rereads, head advancement during reconciliation verification, and both
+diagnostic under-reporting sequences. Existing B3/B5-shaped, publication recovery,
+and multi-vintage idempotency cases remain required.
+
+Concurrency limits remain: checks describe authority at their completion; no
+sequence of remote reads can prevent a change immediately after the last check.
+Subsequent authoritative mutations still rely on a freshly validated parent and
+non-force ref fencing. Changed snapshots fail closed rather than silently
+rebasing or broadening authorization. A durable object can remain after execution
+fails; reconcile it before recovery. Process termination can still prevent a
+failure artifact from being written. No live acquisition is needed to validate
+these corrections.
+
+Final correction validation: the full repository suite passed **730 tests** with
+138 existing pandas deprecation warnings (85.42 seconds). The final focused
+readback/shared-reconciliation suite passed **106 tests** (16.10 seconds). The
+original three adversarial probes are retained as passing regression cases;
+superseded snapshots cannot start provider retrieval, shared stale-governance
+successes now raise, and both diagnostic boundaries retain the correct evidence.
+Original B3/B5-shaped readback, partial publication, and idempotent recovery tests
+also pass. Assertions enforce one PATCH per ambiguous write and unchanged
+release/publication counts during recovery. Protected `config`, `artifacts`,
+`data`, and `docs/audit` trees remain identical to the base table above.
