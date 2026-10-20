@@ -5,18 +5,62 @@ objects may be orphaned on conflict; no authoritative ref is advanced on conflic
 Generic GitHub CAS and non-ACS publication behavior remain unchanged.
 """
 import base64
+import hashlib
+import json
+import re
+import time
 import urllib.parse
 from copy import deepcopy
 
 from core.source_artifacts.hashing import canonical_json_bytes
-from core.source_artifacts.publication import PublicationError
+from core.source_artifacts.publication import PublicationError, TransientPublicationError
+
+
+def commit_identity(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}", value):
+        raise PublicationError("ACS commit identity unavailable")
+    return value
+
+
+def read_at_commit(api, path, commit, *, allow_missing=False):
+    """Bounded read retries only; a contradictory response is never retried."""
+    commit_identity(commit)
+    encoded = urllib.parse.quote(path, safe="/")
+    for attempt in range(4):
+        try:
+            item, _ = api.request("GET", f"/contents/{encoded}?ref={commit}", expected=(200, 404))
+        except TransientPublicationError:
+            if attempt == 3:
+                raise
+        else:
+            if item is not None:
+                raw = base64.b64decode(item["content"], validate=False)
+                blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+                if item.get("sha") != blob:
+                    raise PublicationError("ACS commit-bound blob identity mismatch")
+                return json.loads(raw), blob
+            if attempt == 3:
+                if allow_missing:
+                    return None, None
+                raise PublicationError("ACS commit-bound content unavailable")
+        time.sleep(0.1 * 2 ** attempt)
+    raise AssertionError("unreachable")
+
+
+def verify_at_commit(api, path, commit, value):
+    persisted, blob = read_at_commit(api, path, commit)
+    raw = canonical_json_bytes(value)
+    expected_blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+    if persisted != value or blob != expected_blob:
+        raise PublicationError("ACS commit-bound content mismatch")
+    return blob
 
 
 def write_current(*, api, branch, path, value, expected_sha, message, governance):
     governance.require_destination(api.repository)
     if branch != "main":
         raise ValueError("authoritative ACS writes require governed main")
-    tip = governance.current_commit(api.repository)
+    tip = commit_identity(governance.current_commit(api.repository))
     encoded = urllib.parse.quote(path, safe="/")
     item, _ = api.request("GET", f"/contents/{encoded}?ref={tip}", expected=(200, 404))
     if (item["sha"] if item else None) != expected_sha:
@@ -30,7 +74,38 @@ def write_current(*, api, branch, path, value, expected_sha, message, governance
         "tree": tree["sha"], "parents": [tip]}, expected=(201,))
     # A concurrent governance OR unrelated main advance makes this sibling
     # commit non-fast-forward. Never rebase/retry without checking governance.
-    api.request("PATCH", "/git/refs/heads/main", payload={"sha": proposed["sha"], "force": False})
+    written = commit_identity(proposed.get("sha"))
+    event = {"path": path, "commit_sha": written, "state": "ref_update_uncertain"}
+    if hasattr(governance, "write_events"):
+        governance.write_events.append(event)
+    reconciled = False
+    try:
+        response, _ = api.request("PATCH", "/git/refs/heads/main", payload={"sha": written, "force": False})
+    except TransientPublicationError:
+        # Never repeat a possibly successful mutation. Only an exact durable
+        # head establishes this outcome; a further advance requires review.
+        for attempt in range(4):
+            try:
+                response, _ = api.request("GET", "/git/ref/heads/main")
+                break
+            except TransientPublicationError:
+                if attempt == 3:
+                    raise
+                time.sleep(0.1 * 2 ** attempt)
+        if (response or {}).get("object", {}).get("sha") != written:
+            raise PublicationError("ACS ref update outcome uncertain; reconcile before retry") from None
+        event["state"] = "ref_update_confirmed"
+        blob = verify_at_commit(api, path, written, value)
+        event.update(state="verified_durable", blob_sha=blob)
+        reconciled = True
+    else:
+        if (response or {}).get("object", {}).get("sha") != written:
+            raise PublicationError("ACS ref-update identity mismatch")
+        event["state"] = "ref_update_confirmed"
+    current = governance.current_commit(api.repository)
+    if reconciled and current != written:
+        raise PublicationError("ACS reconciled head advanced; reconcile before retry")
+    return written
 
 
 class CurrentCatalog:

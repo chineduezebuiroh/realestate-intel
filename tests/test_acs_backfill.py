@@ -784,7 +784,7 @@ class FencedContentsAPI:
             path = unquote(url[len('/contents/'):].split('?')[0])
             if path not in self.objects: return None, {}
             raw = json.dumps(self.objects[path], sort_keys=True, separators=(',', ':')).encode() + b'\n'
-            return {'sha': hashlib.sha1(raw).hexdigest(), 'content': base64.b64encode(raw).decode()}, {}
+            return {'sha': hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest(), 'content': base64.b64encode(raw).decode()}, {}
         if method == 'GET' and url.startswith('/git/commits/'):
             return {'sha': url.rsplit('/', 1)[1], 'tree': {'sha': '1' * 40}}, {}
         self.writes.append((method, url, copy.deepcopy(payload)))

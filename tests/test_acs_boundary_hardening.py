@@ -49,7 +49,7 @@ class AuthorityAPI:
             if self.tip != self.parent: raise PublicationError("non-fast-forward main")
             self.value = deepcopy(self.pending); self.oid = "3" * 40; self.tip = payload["sha"]
             if self.on_write: self.on_write(self.value, self.oid)
-            return {}, {}
+            return {"object": {"sha": self.tip}}, {}
         raise AssertionError((method, url))
 
 

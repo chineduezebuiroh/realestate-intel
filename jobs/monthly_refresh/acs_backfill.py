@@ -327,12 +327,15 @@ def execute_batch(*, plan: dict, authorization: dict, reviewed_plan_id: str, ide
                   acquire: Callable[..., dict], retrieve: Callable[[Mapping, Path], Any],
                   publish: Callable[[Path, str], Mapping], record: Callable[[Mapping, Mapping], Any],
                   repository_root: Path = Path("."),
-                  existing_publication: Callable[[str], tuple[Path, Mapping]] | None = None) -> list[dict]:
+                  existing_publication: Callable[[str], tuple[Path, Mapping]] | None = None,
+                  progress: dict | None = None) -> list[dict]:
     """Sequential, stop on first failure; retries retain the same cycle and pin.
 
     Authorization is separate from the plan and binds the exact reviewed identity.
     Hosted caller rechecks main code/config authority before every mutation path.
     """
+    progress = progress if progress is not None else {}
+    progress.update(boundary="authorization", completed_vintages=[])
     verify_plan(plan, identity)
     verify_identity(authorization, AUTH_VERSION, "authorization_id")
     if (authorization.get("schema_version") != AUTH_VERSION or authorization.get("action") != "acquire_physical_only"
@@ -345,6 +348,7 @@ def execute_batch(*, plan: dict, authorization: dict, reviewed_plan_id: str, ide
     source = plan["source_id"]
     outputs = []
     for entry in plan["entries"]:
+        progress.update(vintage=entry["vintage"], boundary="inventory")
         observed = current_inventory()
         check_reconciliation(plan, observed)
         now = next(i for i in observed if i["vintage"] == entry["vintage"])
@@ -360,6 +364,7 @@ def execute_batch(*, plan: dict, authorization: dict, reviewed_plan_id: str, ide
                 raise ValueError("acquisition inventory changed or became unverified; review required")
         year = entry["vintage"]
         stage = workspace / cycle
+        progress["boundary"] = "pin_read"
         existing = pin_store.get(cycle, source)
         if existing is not None:
             validate_pin(existing, cycle_id=cycle, source_id=source, required_members={"snapshot"})
@@ -388,7 +393,9 @@ def execute_batch(*, plan: dict, authorization: dict, reviewed_plan_id: str, ide
                         or manifest.get("artifact_created_at") != existing["members"]["snapshot"]["retrieved_at"]):
                     raise ValueError("published historical recovery package contradicts durable plan/pin identity")
                 result = publication_result(item=matches[0], source_id=source, cycle_id=cycle)
+                progress["boundary"] = "result_write"
                 record(result, catalog)
+                progress["completed_vintages"].append(year)
                 outputs.append({"result": result, "pin": existing, "reused_verified_package": True})
                 continue
         def scope_check():
@@ -406,16 +413,19 @@ def execute_batch(*, plan: dict, authorization: dict, reviewed_plan_id: str, ide
                     and item["parents"][0]["cycle_id"] == cycle):
                 raise ValueError("acquisition inventory drift before publication; review required")
         def discover():
+            progress["boundary"] = "provider_discovery"
             scope_check()
             return exact_pin(cycle_id=cycle, source_id=source, vintage=year, workspace=stage / "discovery",
                 evidence=entry["provider_evidence"], geography=plan["geography"], excluded=plan["excluded"], acquire=acquire)
         def checked_retrieve(pin, path):
+            progress["boundary"] = "pinned_retrieval"
             try:
                 retrieve(pin, path)
             except Exception:
                 raise ValueError("pinned historical retrieval inaccessible; restore exact original bytes") from None
             verify_member_bytes(pin, {"snapshot": path})
         def build(**kwargs):
+            progress["boundary"] = "candidate_build"
             scope_check()
             pin = kwargs["pin"]
             verify_historical_pin(pin, evidence=entry["provider_evidence"], source_id=source,
@@ -430,11 +440,17 @@ def execute_batch(*, plan: dict, authorization: dict, reviewed_plan_id: str, ide
             return candidate(**kwargs, repository_root=repository_root, git_sha=plan["code_commit"],
                              artifact_created_at=pin["members"]["snapshot"]["retrieved_at"])
         def checked_publish(path, source_id):
+            progress["boundary"] = "publication"
             scope_check()
             return publish(path, source_id)
+        def checked_record(result, catalog):
+            progress["boundary"] = "result_write"
+            return record(result, catalog)
         outputs.append(execute_product(source_id=source, mode="resume" if existing else "normal",
             cycle_id=cycle, workspace=stage, pin_store=pin_store, discover=discover,
-            retrieve=checked_retrieve, build=build, publish=checked_publish, record=record))
+            retrieve=checked_retrieve, build=build, publish=checked_publish, record=checked_record))
+        progress["completed_vintages"].append(year)
+    progress["boundary"] = "complete"
     return outputs
 
 
@@ -566,6 +582,7 @@ class PlanAuthority:
     """
     def __init__(self, *, api, plan, root, inventory_check=None):
         self.api, self.plan, self.root, self.inventory_check = api, plan, root, inventory_check
+        self.write_events = []
 
     def require_destination(self, repository):
         if repository != REPOSITORY or self.api.repository != REPOSITORY:
@@ -594,6 +611,8 @@ class FencedPhysicalCatalog:
         return self.store.read()
 
     def add(self, record, receipt):
+        if hasattr(self.authority, "execution_progress"):
+            self.authority.execution_progress["boundary"] = "catalog_write"
         from core.source_artifacts.catalog import add_record, validate_catalog_namespace
         from jobs.monthly_refresh.acs_authoritative_write import write_current
         from copy import deepcopy
@@ -615,9 +634,14 @@ class FencedPhysicalCatalog:
             return catalog, False
         updated = deepcopy(updated); updated["compare_and_swap"]["expected_git_blob_sha"] = oid
         validate_catalog_namespace(updated, fixture=self.store.fixture)
-        write_current(api=self.store.api, branch="main", path=self.store.path, value=updated,
+        commit = write_current(api=self.store.api, branch="main", path=self.store.path, value=updated,
             expected_sha=oid, message=f"Catalog historical physical artifact {record['object_id']}",
             governance=self.authority)
+        from jobs.monthly_refresh.acs_authoritative_write import verify_at_commit
+        blob = verify_at_commit(self.store.api, self.store.path, commit, updated)
+        if hasattr(self.authority, "write_events"):
+            self.authority.write_events[-1].update(state="verified_durable", blob_sha=blob)
+        self.authority.current_commit(self.store.api.repository)
         return updated, True
 
 
@@ -629,11 +653,39 @@ def check_physical_key(authority, source, cycle, release):
         raise ValueError("physical acquisition write outside authorized product/vintage/cycle scope")
 
 
-class FencedPinStore(GitHubPinStore):
+class HistoricalReadback:
+    """Read current authority by immutable snapshot, including lifecycle get()."""
+    def _current_read(self, path):
+        from jobs.monthly_refresh.acs_authoritative_write import read_at_commit
+        tip = self.authority.current_commit(self.api.repository)
+        value = read_at_commit(self.api, path, tip, allow_missing=True)
+        if self.authority.current_commit(self.api.repository) != tip:
+            raise ValueError("historical authority snapshot changed during read")
+        return value
+
+    def _verify_write(self, path, value, commit):
+        from jobs.monthly_refresh.acs_authoritative_write import verify_at_commit
+        blob = verify_at_commit(self.api, path, commit, value)
+        self.last_commit_sha = commit
+        if hasattr(self.authority, "write_events"):
+            self.authority.write_events[-1].update(state="verified_durable", blob_sha=blob)
+        # Historical correctness never substitutes for current permission or
+        # current content. This also rejects deletion/replacement after writing.
+        if self._current_read(path)[0] != value:
+            raise ValueError("historical current state contradicts verified write")
+
+
+class FencedPinStore(HistoricalReadback, GitHubPinStore):
     def __init__(self, api, authority):
         super().__init__(api, "main"); self.authority = authority
 
+    def _read(self, cycle_id, source_id):
+        from jobs.monthly_refresh.source_inputs import pin_path
+        return self._current_read(pin_path(cycle_id, source_id))
+
     def put(self, pin):
+        if hasattr(self.authority, "execution_progress"):
+            self.authority.execution_progress["boundary"] = "pin_write"
         from jobs.monthly_refresh.acs_authoritative_write import write_current
         from jobs.monthly_refresh.source_inputs import add_pin, pin_path
         check_physical_key(self.authority, pin["source_id"], pin["cycle_id"], pin["provider_release_id"])
@@ -642,17 +694,19 @@ class FencedPinStore(GitHubPinStore):
         value, changed = add_pin(existing, pin)
         self.authority.current_commit(self.api.repository)
         if changed:
-            write_current(api=self.api, branch="main", path=pin_path(pin["cycle_id"], pin["source_id"]),
+            commit = write_current(api=self.api, branch="main", path=pin_path(pin["cycle_id"], pin["source_id"]),
                 value=value, expected_sha=oid, message=f"Pin historical {pin['source_id']} for {pin['cycle_id']}",
                 governance=self.authority)
-            if self.get(pin["cycle_id"], pin["source_id"]) != value:
-                raise ValueError("historical pin read-after-write mismatch")
+            self._verify_write(pin_path(pin["cycle_id"], pin["source_id"]), value, commit)
         return value, changed
 
 
-class FencedResultStore(GitHubCycleResultStore):
+class FencedResultStore(HistoricalReadback, GitHubCycleResultStore):
     def __init__(self, api, authority):
         super().__init__(api, "main"); self.authority = authority
+
+    def _read(self, path):
+        return self._current_read(path)
 
     def put(self, proposed):
         from jobs.monthly_refresh.acs_authoritative_write import write_current
@@ -664,11 +718,20 @@ class FencedResultStore(GitHubCycleResultStore):
         value, changed = add_record(existing, proposed)
         self.authority.current_commit(self.api.repository)
         if changed:
-            write_current(api=self.api, branch="main", path=path, value=value, expected_sha=oid,
+            commit = write_current(api=self.api, branch="main", path=path, value=value, expected_sha=oid,
                 message=f"Record historical {proposed['source_id']} for {proposed['cycle_id']}", governance=self.authority)
-            if self.get(proposed["cycle_id"], proposed["source_id"]) != value:
-                raise ValueError("historical result read-after-write mismatch")
+            self._verify_write(path, value, commit)
         return value, changed
+
+
+def failure_diagnostic(progress, writes):
+    return {"schema_version": "acs_historical_execution_failure_v1", "status": "failed",
+            "boundary": progress.get("boundary", "authorization"),
+            "vintage": progress.get("vintage"),
+            "completed_vintages": list(progress.get("completed_vintages", [])),
+            "writes": [{key: event[key] for key in ("path", "commit_sha", "state", "blob_sha")
+                        if key in event} for event in writes],
+            "publication_outcome": "reconcile_inventory_and_exact_release_before_retry"}
 
 
 def main() -> int:
@@ -780,11 +843,19 @@ def main() -> int:
             def retrieve_pinned_snapshot(pin, output):
                 year = int(pin["provider_release_id"].rsplit(":", 1)[1])
                 return acquire_historical_snapshot(source_id=pin["source_id"], vintage=year, output=output)
-            value = {"plan_id": plan["plan_id"], "executions": execute_batch(plan=plan,
-                authorization=authorization, reviewed_plan_id=args.reviewed_plan_id,
-                identity=identity, workspace=args.workspace, pin_store=pins, current_inventory=current,
-                acquire=acquire_with_diagnostics, retrieve=retrieve_pinned_snapshot, publish=publish,
-                record=record, existing_publication=existing_publication)}
+            progress = {}
+            authority.execution_progress = progress
+            try:
+                value = {"plan_id": plan["plan_id"], "executions": execute_batch(plan=plan,
+                    authorization=authorization, reviewed_plan_id=args.reviewed_plan_id,
+                    identity=identity, workspace=args.workspace, pin_store=pins, current_inventory=current,
+                    acquire=acquire_with_diagnostics, retrieve=retrieve_pinned_snapshot, publish=publish,
+                    record=record, existing_publication=existing_publication, progress=progress)}
+            except Exception:
+                # Fixed labels/identities only: never serialize exception text,
+                # pins, provider responses, credentials or signed asset URLs.
+                write_canonical_json(args.output, failure_diagnostic(progress, authority.write_events))
+                raise
     write_canonical_json(args.output, value)
     print(json.dumps({"action": args.action, "output": str(args.output), "plan_id": value.get("plan_id")}, sort_keys=True))
     return 0
