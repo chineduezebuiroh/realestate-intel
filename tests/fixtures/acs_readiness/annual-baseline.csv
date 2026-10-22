@@ -1,0 +1,11 @@
+geo_id,series,date,value
+district_of_columbia__state,income,2022-12-31,101722
+district_of_columbia__state,income,2023-12-31,108210
+district_of_columbia__state,population,2022-12-31,671803
+district_of_columbia__state,population,2023-12-31,678972
+district_of_columbia__state,price_to_income,2022-12-31,6.1
+district_of_columbia__state,payment_burden,2022-12-31,0.32
+district_of_columbia__state,permit_intensity,2022-12-31,4.8
+district_of_columbia__state,normalized_score,2022-12-31,0.5
+district_of_columbia__state,affordability,2022-12-31,46
+district_of_columbia__state,supply,2022-12-31,52
