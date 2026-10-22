@@ -147,3 +147,142 @@ at `40b950b4edda9dff30a93754735654aab0da28e1`. Shell fetch was unavailable becau
 the environment proxy was unreachable. The stale local `origin/main` reference
 was updated to that verified existing commit before creating the feature branch.
 No PR #299 branch or changes were used.
+
+## Bounded operator-input discovery (Mac)
+
+Use `jobs.monthly_refresh.acs_readiness_discover` to populate package mappings
+without entering artifact IDs manually. It reuses `repository_inputs()`, catalog
+record validation, publication-package extraction and `_parent()` verification.
+There is no existing offline workflow that retains and maps original TAR bytes:
+`GitHubReleaseArtifactResolver` downloads exact catalog assets but discards the TAR
+and caches extracted files under `<workspace>/<package_sha256>`. Discovery reports
+those caches as **not original packages**, and never rebuilds a TAR from them.
+Historical acquisition workspaces retain `snapshot.json`; hosted provider captures
+use `provider-evidence.json`; governed pins are under
+`config/monthly_source_input_pins/<cycle>/<source>.json`. These existing formats
+are read directly. Provider ZIP archives and per-request `.body` files require
+the existing evidence verification workflow before discovery; they are not decoded
+or promoted implicitly.
+
+Run from the PR checkout with the project's Python environment active. The
+following directory names are examples; point `ACS_LOCAL_INPUTS` at your existing
+retained acquisition workspace or package directory outside the checkout. Add
+`--local-root` for each additional evidence directory. Do not scan your entire
+home directory.
+
+```sh
+ACS_LOCAL_INPUTS="$HOME/acs-historical-inputs"
+ACS_REVIEW_ROOT="$HOME/acs-readiness-review"
+mkdir -p "$ACS_REVIEW_ROOT"
+
+python -m jobs.monthly_refresh.acs_readiness_discover \
+  --repository-root "$PWD" \
+  --local-root "$ACS_LOCAL_INPUTS" \
+  --output "$ACS_REVIEW_ROOT/discovery-1"
+```
+
+Exit 2 means discovery completed with unresolved inputs; inspect
+`discovery-1/discovery.json`. It does not mean acquisition should start. Exit 0
+means the discovery requirements were satisfied, not that historical readiness
+or acceptance passed. Scan errors fail without producing a partial input set.
+Use a new output directory for every discovery/validator invocation.
+
+Discovery emits:
+
+* `inputs.json`: ready-to-use validator input, with absolute paths, exact selected
+  artifact IDs and only hash/package-verified TAR mappings.
+* `discovery.json`: exact catalog snapshot SHA-256, selected release/asset IDs,
+  package verification, duplicate vintage identities, evidence provenance paths,
+  extracted-cache observations, and all unresolved inputs.
+* `evidence/*.json` and `pins/*.json`: advisory copies/envelopes of existing
+  validated evidence and pin objects, never new omission receipts or approvals.
+* `retrieve-missing.sh`: **instructions only** for exact existing catalog asset
+  downloads with authenticated `gh api` and Mac `shasum -a 256 -c -` checks.
+
+The current catalog contains 36 physical ACS acquisition records. Exact August
+selection yields 34 parents; two alternative 2024 parents are reported rather
+than substituted. Missing catalog parents (including ACS5 2023) have no retrieval
+command. Missing local TARs have commands only when the catalog provides exact
+remote repository and numeric asset identities. Retrieval uses those asset IDs,
+not `latest`, wildcard filenames, provider endpoints, or new acquisitions.
+Renamed local `.tar` packages are matched by SHA-256, not trusted by filename.
+Duplicate byte-identical copies select the lexically first absolute path; distinct
+same-vintage identities remain unresolved except the authoritative August choice.
+
+If all inputs are local, proceed directly to the validator below. If original
+packages are missing, **separately opt in** to retrieval after inspecting the
+script. Use your existing GitHub CLI authentication; this helper never reads or
+prints a token and never runs the script:
+
+```sh
+gh auth status
+cat "$ACS_REVIEW_ROOT/discovery-1/retrieve-missing.sh"
+sh "$ACS_REVIEW_ROOT/discovery-1/retrieve-missing.sh"
+```
+
+If authentication is not configured, configure `gh` separately. The script uses
+only GET asset downloads, verifies catalog hashes and refuses to overwrite any
+existing target. A failed download may leave a partial target: inspect it and
+move it aside before explicitly retrying. It never deletes or overwrites an
+original package, edits a catalog, publishes, or changes a pointer. A successful
+download is not yet full package verification; rediscovery performs that check:
+
+```sh
+python -m jobs.monthly_refresh.acs_readiness_discover \
+  --repository-root "$PWD" \
+  --local-root "$ACS_LOCAL_INPUTS" \
+  --local-root "$ACS_REVIEW_ROOT/discovery-1/retrieved-packages" \
+  --output "$ACS_REVIEW_ROOT/discovery-2"
+
+python -m jobs.monthly_refresh.acs_readiness \
+  --repository-root "$PWD" \
+  --inputs "$ACS_REVIEW_ROOT/discovery-2/inputs.json" \
+  --output "$ACS_REVIEW_ROOT/validation-2"
+```
+
+For a fully local first pass, use `discovery-1/inputs.json` and a new
+`validation-1` directory instead. This is the exact read-only validation command;
+no per-package mapping edits are required.
+
+Optional discovery flags:
+
+* `--catalog /absolute/path/artifact_catalog.json` selects an exact retained
+  catalog snapshot instead of the checkout's catalog. The accepted August
+  identities still come from the checkout's accepted family and cycle records.
+* `--baseline /absolute/path/prior-macro-export.csv` and
+  `--comparison /absolute/path/existing-comparison-export.csv` select existing
+  long CSV exports with the validator schema above. Without these flags, only
+  uniquely named `macro-baseline.csv` and `macro-comparison.csv` in the explicit
+  local roots are selected. No production baseline export convention currently
+  supplies these files automatically. Multiple candidates, missing files, or
+  invalid headers stay unresolved. Export provenance and row validation remain
+  required; filename/schema discovery confers no production authority.
+
+Provider evidence is matched by product/vintage and validated against the full
+configured geography/variable universe. Conflicting observed snapshots or
+receipts are unresolved. Standalone snapshots are paired only with **existing**
+matching receipt lists (standalone lists or receipts in provider evidence). A
+snapshot with omissions and no exact receipt set stays unresolved; a snapshot
+with no omissions needs no invented receipts. Pins are included only when bound
+to a verified selected package and their exact snapshot bytes are found locally.
+A preflight's decoded snapshot is not a substitute for pinned original bytes.
+In particular, obtaining the 2024 TARs does not by itself resolve missing retained
+2024 snapshots/omission evidence or establish historical acceptance.
+
+Search is bounded to explicit external roots: at most 10,000 files, eight directory
+levels, 32 MiB per JSON, 512 MiB per TAR and 2 GiB of JSON/TAR bytes. Symlinks,
+`.git`, `.venv`, `node_modules`, the repository (including test fixtures), and the
+current output directory are not traversed. Unknown JSON formats and unrelated
+CSV names are not substituted for evidence. Bounds fail explicitly: narrow your
+roots and rerun. Discovery performs no network work, provider calls, package
+normalization, governance changes, publication, production execution or activation.
+
+Discovery amendment validation: 15 discovery tests and 136 combined ACS regression
+tests passed. The final full repository suite passed **764 tests** with 138
+existing pandas warnings. Generated retrieval script shell syntax, staged diff
+integrity, and protected-path checks passed. The available external artifact
+roots in this workspace contained no files: discovery verified zero real TARs,
+identified 34 selected parents and 33 provider-evidence sets, and generated 34
+exact-asset retrieval instructions. Its generated inputs ran through the validator
+with a blocked disposition and no contradictory-evidence failures. No retrieval
+script was executed; real package-byte verification remains a Mac-local step.
