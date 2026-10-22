@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 import csv
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ from core.source_artifacts.hashing import sha256_file, sha256_json
 from core.source_artifacts.catalog import validate_record
 from core.source_artifacts.package import extract_publication_package
 from jobs.monthly_refresh.acs_family_resolution import _parent
+from jobs.monthly_refresh.acs_backfill import verify_historical_pin
 from jobs.monthly_refresh.acs_readiness import read_json, repository_inputs
 from jobs.monthly_refresh.source_inputs import validate_pin
 from sources.census_acs.artifact import PRODUCTS, geography_plan
@@ -72,7 +74,7 @@ def discover(root: Path, roots: list[Path], output: Path, *, catalog: Path | Non
     digests, json_files = defaultdict(list), []
     total = 0
     for path in files:
-        if path.suffix not in {'.tar', '.json'}:
+        if path.suffix not in {'.tar', '.json'} and path.name != 'snapshot':
             continue
         size = path.stat().st_size
         limit = MAX_PACKAGE if path.suffix == '.tar' else MAX_JSON
@@ -80,7 +82,7 @@ def discover(root: Path, roots: list[Path], output: Path, *, catalog: Path | Non
         if size > limit or total > MAX_TOTAL:
             raise ValueError('local discovery byte limit; select narrower roots')
         digests[sha256_file(path)].append(path)
-        if path.suffix == '.json':
+        if path.suffix == '.json' or path.name == 'snapshot':
             json_files.append(path)
     groups, ids = defaultdict(list), defaultdict(list)
     for rec in records:
@@ -200,27 +202,58 @@ def discover(root: Path, roots: list[Path], output: Path, *, catalog: Path | Non
         else:
             emit('retained_snapshot_missing_exact_omission_receipts', key=key, path=str(path))
     spec['evidence'] = {}
+    retained = {}
     for key, items in sorted(evidence_candidates.items()):
         identities = {sha256_json({'snapshot': v['snapshot'], 'omission_evidence': v['omission_evidence']}) for _, v in items}
         if len(identities) != 1:
             emit('conflicting_provider_evidence', key=key, paths=sorted({p for p, _ in items}))
             continue
         value = sorted(items, key=lambda item: item[0])[0][1]
+        retained[key] = [v for _, v in items
+                         if v.get('schema_version') == 'acs_historical_provider_preflight_v1']
         relative = f'evidence/{key.replace(":", "-")}.json'
         generated[relative] = value
         spec['evidence'][key] = str(output / relative)
         evidence_rows.append({'key': key, 'status': 'accounting_verified', 'source_paths': sorted({p for p, _ in items})})
-    pins = {}
+    pins, snapshot_paths, snapshot_bytes, missing = {}, {}, {}, {}
     for origin, pin in sorted(pin_candidates, key=lambda item: item[0]):
         try:
             validate_pin(pin, cycle_id=pin['cycle_id'], source_id=pin['source_id'], required_members={'snapshot'})
             if sha256_json(pin) not in verified_pins:
                 emit('pin_not_bound_to_verified_selected_package', pin_id=pin['pin_id'], origin=origin)
                 continue
-            matches = digests.get(pin['members']['snapshot']['sha256'], [])
-            if not matches:
-                emit('pin_snapshot_bytes_missing', pin_id=pin['pin_id'], origin=origin)
+            member = pin['members']['snapshot']
+            matches = [p for p in digests.get(member['sha256'], [])
+                       if p.stat().st_size == member['size_bytes']]
+            snapshot_path = str(matches[0]) if matches else snapshot_paths.get(pin['pin_id'])
+            if snapshot_path is None:
+                year = int(pin['provider_release_id'].rsplit(':', 1)[1])
+                for evidence in retained.get(f"{pin['source_id']}:{year}", []):
+                    try:
+                        # This existing primitive binds the entire cycle-specific
+                        # pin, including evidence identity, snapshot hash and size.
+                        verify_historical_pin(pin, evidence=evidence, source_id=pin['source_id'],
+                                              vintage=year, cycle_id=pin['cycle_id'])
+                        raw = (json.dumps(evidence['snapshot'], sort_keys=True,
+                                          separators=(',', ':')) + '\n').encode('utf-8')
+                        if (hashlib.sha256(raw).hexdigest() != member['sha256']
+                                or len(raw) != member['size_bytes']):
+                            continue
+                        relative = f"snapshots/{member['sha256']}.json"
+                        snapshot_bytes[relative] = raw
+                        snapshot_path = str(output / relative)
+                        break
+                    except (ValueError, KeyError, TypeError):
+                        continue
+            if snapshot_path is None:
+                key = (pin['pin_id'], member['sha256'])
+                if key not in missing:
+                    missing[key] = {'code': 'pin_snapshot_bytes_missing', 'pin_id': pin['pin_id'],
+                                    'snapshot_sha256': member['sha256'], 'origin': origin, 'origins': []}
+                    notes.append(missing[key])
+                missing[key]['origins'].append(origin)
                 continue
+            snapshot_paths[pin['pin_id']] = snapshot_path
             if pin['pin_id'] in pins and pins[pin['pin_id']] != pin:
                 raise ValueError('conflicting pin identity')
             pins[pin['pin_id']] = pin
@@ -229,7 +262,7 @@ def discover(root: Path, roots: list[Path], output: Path, *, catalog: Path | Non
         except (ValueError, KeyError, TypeError):
             emit('invalid_pin', origin=origin)
     spec['pins'] = [{'pin': str(output / f'pins/{sha256_json(pin)}.json'),
-        'members': {'snapshot': str(digests[pin['members']['snapshot']['sha256']][0])}} for _, pin in sorted(pins.items())]
+        'members': {'snapshot': snapshot_paths[pin['pin_id']]}} for _, pin in sorted(pins.items())]
     for field, explicit, filename in [('baseline', baseline, 'macro-baseline.csv'), ('comparison', comparison, 'macro-comparison.csv')]:
         matches = [explicit.expanduser().resolve()] if explicit else [p for p in files if p.name == filename]
         if len(matches) == 1 and matches[0].is_file():
@@ -270,6 +303,10 @@ def discover(root: Path, roots: list[Path], output: Path, *, catalog: Path | Non
         'exports': {k: {'path': spec[k], 'status': 'validator_and_provenance_review_required'}
                     for k in ('baseline', 'comparison')}}
     output.mkdir(parents=True)
+    for relative, raw in sorted(snapshot_bytes.items()):
+        path = output / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
     for relative, value in sorted({**generated, 'inputs.json': spec, 'discovery.json': report}.items()):
         path = output / relative
         path.parent.mkdir(parents=True, exist_ok=True)

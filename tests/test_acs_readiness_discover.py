@@ -226,3 +226,106 @@ def test_repository_discovery_never_retrieves(tmp_path, monkeypatch):
     assert inputs['selected_parents']['census_acs1:2024'] == inputs['accepted_august']['census_acs1']['artifact_id']
     assert inputs['selected_parents']['census_acs5:2024'] == inputs['accepted_august']['census_acs5']['artifact_id']
     assert not (tmp_path/'repository/retrieved-packages').exists()
+
+
+@pytest.fixture
+def historical_pin(local, tmp_path):
+    """A retained preflight and its exact package-bound historical pin."""
+    from jobs.monthly_refresh.acs_monthly import snapshot_to_pin
+    from sources.census_acs.historical import validate_snapshot
+    from core.source_artifacts.package import build_publication_package
+    spec, records, _, prepare = local
+    source, year = 'census_acs1', 2023
+    envelope = acs_readiness.read_json(spec['evidence'][f'{source}:{year}'])
+    evidence = acs_readiness.read_json('config/acs_backfill_reviews/provider-acs1-2023.json')['2023']
+    evidence.update(envelope)
+    plan, excluded = discovery.geography_plan(Path('.'))
+    evidence.update(validate_snapshot(source_id=source, vintage=year, snapshot=evidence['snapshot'],
+        omissions=evidence['omission_evidence'], plan=plan, excluded=excluded))
+    dump(Path(spec['evidence'][f'{source}:{year}']), evidence)
+    raw = (json.dumps(evidence['snapshot'],sort_keys=True,separators=(',',':'))+'\n').encode()
+    snapshot_path = tmp_path/'original-snapshot.json'
+    snapshot_path.write_bytes(raw)
+    pin, _ = snapshot_to_pin(cycle_id='August', source_id=source, vintage=year,
+        snapshot=evidence['snapshot'], path=snapshot_path,
+        retrieved_at='2026-10-22T00:00:00Z', historical_evidence=evidence)
+    snapshot_path.unlink()
+    rec = records[1]
+    def bind(value):
+        dump(tmp_path/'tracked-pin.json',value)
+        artifact=tmp_path/'artifact-census_acs1-2023'
+        manifest=acs_readiness.read_json(artifact/'manifest.json')
+        manifest['raw_source_lineage']={'provider_pin':value}
+        dump(artifact/'manifest.json',manifest)
+        package=build_publication_package(artifact,Path(spec['packages'][rec['object_id']]))
+        rec['package_sha256']=package['package_sha256']
+        prepare()
+    bind(pin)
+    return spec, evidence, pin, raw, bind
+
+
+def test_retained_evidence_recovers_exact_bytes_without_mutating_inputs(local, historical_pin, tmp_path):
+    spec, evidence, pin, raw, _ = historical_pin
+    originals={p:Path(p).read_bytes() for p in [*spec['packages'].values(),*spec['evidence'].values()]}
+    report, inputs=run(local,tmp_path)
+    assert len(inputs['pins'])==1
+    member=Path(inputs['pins'][0]['members']['snapshot'])
+    assert member.read_bytes()==raw
+    assert member.stat().st_size==pin['members']['snapshot']['size_bytes']
+    assert not [n for n in report['unresolved'] if n['code']=='pin_snapshot_bytes_missing']
+    assert not [b for b in acs_readiness.evaluate(inputs,Path('.'))['blockers'] if b['code']=='invalid_source_pin_evidence']
+    assert originals=={p:Path(p).read_bytes() for p in originals}
+
+
+@pytest.mark.parametrize('defect',['incomplete','invalid','hash','size'])
+def test_retained_evidence_fails_closed_and_deduplicates_missing(local,historical_pin,tmp_path,defect):
+    from jobs.monthly_refresh.source_inputs import provider_pin
+    spec,evidence,pin,raw,bind=historical_pin
+    if defect=='incomplete':
+        del evidence['omission_evidence']
+    elif defect=='invalid':
+        evidence['accounting']=[]
+    else:
+        pin=deepcopy(pin)
+        if defect=='hash':
+            pin['members']['snapshot']['sha256']='0'*64
+        else:
+            pin['members']['snapshot']['size_bytes']+=1
+        pin=provider_pin(cycle_id=pin['cycle_id'],source_id=pin['source_id'],
+            provider_release_id=pin['provider_release_id'],members=pin['members'])
+        bind(pin)
+    dump(Path(spec['evidence']['census_acs1:2023']),evidence)
+    report,inputs=run(local,tmp_path)
+    missing=[n for n in report['unresolved'] if n['code']=='pin_snapshot_bytes_missing']
+    assert len(missing)==1
+    assert len(missing[0]['origins'])==2
+    assert missing[0]['snapshot_sha256']==pin['members']['snapshot']['sha256']
+    assert not inputs['pins']
+    assert not (tmp_path/'discovery/snapshots').exists()
+
+
+def test_extensionless_snapshot_is_hashed_and_parsed(local,historical_pin,tmp_path):
+    spec,evidence,pin,raw,_=historical_pin
+    path=tmp_path/'snapshot'
+    path.write_bytes(raw)
+    report,inputs=run(local,tmp_path)
+    assert inputs['pins'][0]['members']['snapshot']==str(path)
+    assert not [n for n in report['unresolved'] if n['code']=='pin_snapshot_bytes_missing']
+
+
+def test_cycle_specific_pin_identities_are_not_rebound(local,historical_pin,tmp_path):
+    from jobs.monthly_refresh.source_inputs import provider_pin
+    _,_,august,raw,_=historical_pin
+    (tmp_path/'snapshot').write_bytes(raw)
+    other=[]
+    for cycle in ['July','September']:
+        pin=provider_pin(cycle_id=cycle,source_id=august['source_id'],
+            provider_release_id=august['provider_release_id'],members=deepcopy(august['members']))
+        dump(tmp_path/f'{cycle}-pin.json',pin)
+        other.append(pin['pin_id'])
+    assert len(set([august['pin_id'],*other]))==3
+    report,inputs=run(local,tmp_path)
+    assert [acs_readiness.read_json(p['pin'])['pin_id'] for p in inputs['pins']]==[august['pin_id']]
+    unbound=[n['pin_id'] for n in report['unresolved'] if n['code']=='pin_not_bound_to_verified_selected_package']
+    assert set(other) <= set(unbound)
+    assert august['pin_id'] not in unbound
