@@ -1,0 +1,111 @@
+{
+  "baseline_relationship": {
+    "baseline": "40b950b4edda9dff30a93754735654aab0da28e1",
+    "merge_base_commit": "42baead0f29f844132979017998e71d89a16dddf",
+    "status": "diverged"
+  },
+  "evidence_class": "observed_original_github_actions_metadata_and_logs",
+  "execution_commit": "9131dc8ad2626f393e7975411693908d43445173",
+  "files": {
+    "config/geo_manifest.generated.csv": {
+      "git_blob_sha": "ed2a7e347e2695d1d308e5d04c4b192c7a703b65",
+      "url": "https://github.com/chineduezebuiroh/realestate-intel/blob/9131dc8ad2626f393e7975411693908d43445173/config/geo_manifest.generated.csv"
+    },
+    "config/monthly_refresh_policy.json": {
+      "git_blob_sha": "17a682cc0ee4889d812a0757706893a11038823a",
+      "url": "https://github.com/chineduezebuiroh/realestate-intel/blob/9131dc8ad2626f393e7975411693908d43445173/config/monthly_refresh_policy.json"
+    },
+    "config/source_metric_registry.csv": {
+      "git_blob_sha": "4199e40e4407eec35e9ba74927aa37fbfc8e00cd",
+      "url": "https://github.com/chineduezebuiroh/realestate-intel/blob/9131dc8ad2626f393e7975411693908d43445173/config/source_metric_registry.csv"
+    },
+    "config/source_refresh_revision_policy_v0_2.json": {
+      "git_blob_sha": "38b4555ed93937d3aaa8349578239041e2466fe5",
+      "url": "https://github.com/chineduezebuiroh/realestate-intel/blob/9131dc8ad2626f393e7975411693908d43445173/config/source_refresh_revision_policy_v0_2.json"
+    },
+    "jobs/monthly_refresh/acs_hosted.py": {
+      "git_blob_sha": "66ebc1b4537d554e411c29650809746a04ea9f31",
+      "url": "https://github.com/chineduezebuiroh/realestate-intel/blob/9131dc8ad2626f393e7975411693908d43445173/jobs/monthly_refresh/acs_hosted.py"
+    },
+    "jobs/monthly_refresh/acs_monthly.py": {
+      "git_blob_sha": "749ac96df20e5b955d6c581da91c7813c0f145c3",
+      "url": "https://github.com/chineduezebuiroh/realestate-intel/blob/9131dc8ad2626f393e7975411693908d43445173/jobs/monthly_refresh/acs_monthly.py"
+    },
+    "sources/census_acs/artifact.py": {
+      "git_blob_sha": "3ce592db259b1b74f3964856dbdad12335ab79c7",
+      "url": "https://github.com/chineduezebuiroh/realestate-intel/blob/9131dc8ad2626f393e7975411693908d43445173/sources/census_acs/artifact.py"
+    }
+  },
+  "governance_approval": "not_approved",
+  "jobs": {
+    "census_acs1": {
+      "checkout_log_line": "2026-09-21T06:10:36.6362280Z 9131dc8ad2626f393e7975411693908d43445173",
+      "conclusion": "success",
+      "job_id": 106231601318,
+      "log_content_sha256": "0062c7561fe15fd1b68e3cb73e5ea3c9ceec58e981ccd3dc062265bbfd36d0f2",
+      "name": "census-acs1 / execute",
+      "result": {
+        "accepted_pointer_changed": false,
+        "artifact_content_hash": "a1f5cd392af90fcb7055efb84cceb8bdd691fcae561417a73c2974a471d68b5b",
+        "candidate_artifact_id": "src__census_acs1__2024-12__r1__a1f5cd392af90fcb",
+        "cycle_id": "monthly_cycle__2026-07__7cab1c5df177a1e4",
+        "evidence_uri": "artifact://source/census_acs1/src__census_acs1__2024-12__r1__a1f5cd392af90fcb",
+        "observation_max": "2024-12-31",
+        "package_sha256": "7ea888ffb034decf6b9d118c029399922dccf1de2c74a0ca3d39d6720f76d600",
+        "prior_artifact_id": null,
+        "provider_release_id": "acs/acs1:2024",
+        "publication_state": "published_verified",
+        "retryability": "not_applicable",
+        "schema_version": "monthly_source_execution_result_v1",
+        "source_change_detected": true,
+        "source_id": "census_acs1",
+        "status": "succeeded",
+        "validation_status": "passed"
+      },
+      "result_log_line": "2026-09-21T06:12:53.0420926Z {\"accepted_pointer_changed\": false, \"artifact_content_hash\": \"a1f5cd392af90fcb7055efb84cceb8bdd691fcae561417a73c2974a471d68b5b\", \"candidate_artifact_id\": \"src__census_acs1__2024-12__r1__a1f5cd392af90fcb\", \"cycle_id\": \"monthly_cycle__2026-07__7cab1c5df177a1e4\", \"evidence_uri\": \"artifact://source/census_acs1/src__census_acs1__2024-12__r1__a1f5cd392af90fcb\", \"observation_max\": \"2024-12-31\", \"package_sha256\": \"7ea888ffb034decf6b9d118c029399922dccf1de2c74a0ca3d39d6720f76d600\", \"prior_artifact_id\": null, \"provider_release_id\": \"acs/acs1:2024\", \"publication_state\": \"published_verified\", \"retryability\": \"not_applicable\", \"schema_version\": \"monthly_source_execution_result_v1\", \"source_change_detected\": true, \"source_id\": \"census_acs1\", \"status\": \"succeeded\", \"validation_status\": \"passed\"}",
+      "run_id": 35567244220,
+      "url": "https://github.com/chineduezebuiroh/realestate-intel/actions/runs/35567244220/job/106231601318"
+    },
+    "census_acs5": {
+      "checkout_log_line": "2026-09-21T06:10:34.1657120Z 9131dc8ad2626f393e7975411693908d43445173",
+      "conclusion": "success",
+      "job_id": 106231601412,
+      "log_content_sha256": "4c122fec0ea03275607740dd0d2480ac9ee8c7953e1b9e2a6ee17a82cd3f63e9",
+      "name": "census-acs5 / execute",
+      "result": {
+        "accepted_pointer_changed": false,
+        "artifact_content_hash": "2bebdc938d8c2fb65c5af5bd44f86936bbcf55141004a2b132c163e8c3732e69",
+        "candidate_artifact_id": "src__census_acs5__2024-12__r1__2bebdc938d8c2fb6",
+        "cycle_id": "monthly_cycle__2026-07__7cab1c5df177a1e4",
+        "evidence_uri": "artifact://source/census_acs5/src__census_acs5__2024-12__r1__2bebdc938d8c2fb6",
+        "observation_max": "2024-12-31",
+        "package_sha256": "225bbe8ffd3a08b6ae049600f0e5fa05aa9132b83301fab54dbbcd591a3922fb",
+        "prior_artifact_id": null,
+        "provider_release_id": "acs/acs5:2024",
+        "publication_state": "published_verified",
+        "retryability": "not_applicable",
+        "schema_version": "monthly_source_execution_result_v1",
+        "source_change_detected": true,
+        "source_id": "census_acs5",
+        "status": "succeeded",
+        "validation_status": "passed"
+      },
+      "result_log_line": "2026-09-21T06:12:26.8950175Z {\"accepted_pointer_changed\": false, \"artifact_content_hash\": \"2bebdc938d8c2fb65c5af5bd44f86936bbcf55141004a2b132c163e8c3732e69\", \"candidate_artifact_id\": \"src__census_acs5__2024-12__r1__2bebdc938d8c2fb6\", \"cycle_id\": \"monthly_cycle__2026-07__7cab1c5df177a1e4\", \"evidence_uri\": \"artifact://source/census_acs5/src__census_acs5__2024-12__r1__2bebdc938d8c2fb6\", \"observation_max\": \"2024-12-31\", \"package_sha256\": \"225bbe8ffd3a08b6ae049600f0e5fa05aa9132b83301fab54dbbcd591a3922fb\", \"prior_artifact_id\": null, \"provider_release_id\": \"acs/acs5:2024\", \"publication_state\": \"published_verified\", \"retryability\": \"not_applicable\", \"schema_version\": \"monthly_source_execution_result_v1\", \"source_change_detected\": true, \"source_id\": \"census_acs5\", \"status\": \"succeeded\", \"validation_status\": \"passed\"}",
+      "run_id": 35567244220,
+      "url": "https://github.com/chineduezebuiroh/realestate-intel/actions/runs/35567244220/job/106231601412"
+    }
+  },
+  "manifest_git_sha_recorded": "unknown",
+  "repository": "chineduezebuiroh/realestate-intel",
+  "run": {
+    "attempt": 1,
+    "conclusion": "success",
+    "event": "push",
+    "head_branch": "monthly-refresh-orchestration",
+    "head_sha": "9131dc8ad2626f393e7975411693908d43445173",
+    "id": 35567244220,
+    "path": ".github/workflows/monthly-refresh-production.yml",
+    "url": "https://github.com/chineduezebuiroh/realestate-intel/actions/runs/35567244220"
+  },
+  "schema_version": "acs_2024_original_workflow_code_evidence_v1"
+}

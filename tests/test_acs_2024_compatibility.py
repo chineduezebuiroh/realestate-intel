@@ -415,3 +415,137 @@ def test_rebinding_original_manifest_to_august_is_rejected(retained, source):
     report = run()
     assert report['technical_reconciliation'] == 'failed'
     assert report['failure']['predicate'] == 'exact_original_pin_binding'
+
+
+def original_production_code_inputs(source):
+    result = compat.read_json(ROOT / f'config/monthly_source_cycle_results/{compat.PUBLICATION_CYCLE}/{source}.json')['result']
+    manifest = {'git_sha': 'unknown', 'source_id': source, 'artifact_id': result['candidate_artifact_id'],
+                'artifact_content_hash': result['artifact_content_hash']}
+    return manifest, result
+
+
+@pytest.fixture
+def original_code_objects(monkeypatch):
+    # Exact original Git blob captured from the execution commit. This policy
+    # differs from later main history, so offline tests must not require an
+    # operator's extra Git fetch. Production still requires local Git objects.
+    original = compat.subprocess.check_output
+    def output(args, **kwargs):
+        if args[-3:] == ['cat-file', 'blob', '17a682cc0ee4889d812a0757706893a11038823a']:
+            return (ROOT / 'tests/fixtures/acs_2024_original_code/monthly_refresh_policy.json').read_bytes()
+        return original(args, **kwargs)
+    monkeypatch.setattr(compat.subprocess, 'check_output', output)
+
+
+def test_independent_original_workflow_records_exact_execution_commit(source, original_code_objects):
+    manifest, result = original_production_code_inputs(source)
+    commit, basis, files = compat.original_code_provenance(ROOT, manifest, result)
+    assert commit == '9131dc8ad2626f393e7975411693908d43445173'
+    assert manifest['git_sha'] == 'unknown'
+    assert basis['manifest_code_commit_recorded'] is False
+    assert basis['basis'] == 'independent_original_workflow_checkout_and_publication'
+    assert basis['execution_commit_relationship_to_baseline']['status'] == 'diverged'
+    assert set(files) == {*CONFIG_PATHS, *compat.CODE, 'jobs/monthly_refresh/acs_hosted.py'}
+    assert 'git_sha: str = "unknown"' in files['jobs/monthly_refresh/acs_monthly.py'].decode()
+
+
+@pytest.mark.parametrize('field', ['candidate_artifact_id', 'artifact_content_hash', 'package_sha256', 'cycle_id', 'source_id'])
+def test_workflow_code_cannot_authorize_another_publication(source, field):
+    manifest, result = original_production_code_inputs(source)
+    result[field] = 'changed'
+    with pytest.raises(ValueError, match='checkout/publication binding'):
+        compat.original_code_provenance(ROOT, manifest, result)
+
+
+@pytest.mark.parametrize('recorded', [None, '', 'missing', 'UNKNOWN'])
+def test_no_general_missing_code_fallback(source, recorded):
+    manifest, result = original_production_code_inputs(source)
+    manifest['git_sha'] = recorded
+    with pytest.raises(ValueError, match='known monthly omission'):
+        compat.original_code_provenance(ROOT, manifest, result)
+
+
+def test_modified_or_missing_workflow_evidence_fails_closed(source, tmp_path):
+    manifest, result = original_production_code_inputs(source)
+    with pytest.raises(FileNotFoundError):
+        compat.original_code_provenance(tmp_path, manifest, result)
+    path = tmp_path / compat.CODE_EVIDENCE_PATH
+    path.parent.mkdir(parents=True)
+    path.write_bytes((ROOT / compat.CODE_EVIDENCE_PATH).read_bytes() + b'\n')
+    with pytest.raises(ValueError, match='evidence identity mismatch'):
+        compat.original_code_provenance(tmp_path, manifest, result)
+
+
+@pytest.fixture
+def independently_recorded_code(retained, source, monkeypatch, original_code_objects):
+    """Test-local workflow result binding for canonical-row fixture TARs only.
+
+    Production captures are unchanged; no provider snapshots/receipts or approval
+    records are created. The test explicitly replaces the evidence-file digest.
+    """
+    root, artifact, package, repack, run = retained
+    _, basis, files = compat.original_code_provenance(ROOT, *original_production_code_inputs(source))
+    path = artifact / 'manifest.json'
+    manifest = compat.read_json(path)
+    manifest['git_sha'] = 'unknown'
+    manifest['config_hashes'] = {p: compat.digest(files[p]) for p in CONFIG_PATHS}
+    dump(path, manifest)
+    repack()
+    evidence = compat.read_json(ROOT / compat.CODE_EVIDENCE_PATH)
+    result = compat.read_json(root / f'config/monthly_source_cycle_results/{compat.PUBLICATION_CYCLE}/{source}.json')['result']
+    evidence['jobs'][source]['result'] = result
+    line = evidence['jobs'][source]['result_log_line']
+    evidence['jobs'][source]['result_log_line'] = line.split(' ', 1)[0] + ' ' + json.dumps(result)
+    evidence_path = root / compat.CODE_EVIDENCE_PATH
+    dump(evidence_path, evidence)
+    monkeypatch.setattr(compat, 'CODE_EVIDENCE_SHA256', sha256_file(evidence_path))
+    return retained
+
+
+def test_workflow_code_evidence_preserves_all_downstream_qualification(independently_recorded_code):
+    root, artifact, _, _, run = independently_recorded_code
+    before = (artifact / 'manifest.json').read_bytes()
+    report = run()
+    assert report['technical_reconciliation'] == 'passed', report
+    assert report['code_provenance']['manifest_git_sha'] == 'unknown'
+    assert report['code_provenance']['manifest_code_commit_recorded'] is False
+    assert report['code_provenance']['original_commit'] == '9131dc8ad2626f393e7975411693908d43445173'
+    assert report['compatibility_governance'] == 'not_approved'
+    assert report['original_provider_response_independently_verified'] == 'not_established'
+    assert (artifact / 'manifest.json').read_bytes() == before
+    assert report['reconciliation']['accounted_cells'] == 446
+
+
+def test_workflow_code_evidence_does_not_bypass_manifest_configuration(independently_recorded_code):
+    _, artifact, _, repack, run = independently_recorded_code
+    path = artifact / 'manifest.json'
+    manifest = compat.read_json(path)
+    manifest['config_hashes'][CONFIG_PATHS[0]] = '0'*64
+    dump(path, manifest)
+    repack()
+    # Keep fixture workflow/package result binding current, so the exact config
+    # predicate is exercised rather than an earlier package binding failure.
+    root = independently_recorded_code[0]
+    evidence_path = root / compat.CODE_EVIDENCE_PATH
+    evidence = compat.read_json(evidence_path)
+    source = manifest['source_id']
+    result = compat.read_json(root / f'config/monthly_source_cycle_results/{compat.PUBLICATION_CYCLE}/{source}.json')['result']
+    evidence['jobs'][source]['result'] = result
+    evidence['jobs'][source]['result_log_line'] = evidence['jobs'][source]['result_log_line'].split(' ', 1)[0] + ' ' + json.dumps(result)
+    dump(evidence_path, evidence)
+    from unittest.mock import patch
+    with patch.object(compat, 'CODE_EVIDENCE_SHA256', sha256_file(evidence_path)):
+        report = run()
+    assert report['technical_reconciliation'] == 'failed'
+    assert report['failure']['predicate'] == 'original_configuration_provenance'
+
+
+def test_original_workflow_requires_exact_git_blob_bytes(source, monkeypatch):
+    original = compat.subprocess.check_output
+    def output(args, **kwargs):
+        if args[-3:] == ['cat-file', 'blob', '17a682cc0ee4889d812a0757706893a11038823a']:
+            return b'changed original configuration'
+        return original(args, **kwargs)
+    monkeypatch.setattr(compat.subprocess, 'check_output', output)
+    with pytest.raises(ValueError, match='Git blob bytes differ'):
+        compat.original_code_provenance(ROOT, *original_production_code_inputs(source))

@@ -31,6 +31,8 @@ AUTHORITY_REFERENCE = '4beea6b8b860cc1f825bd0f6b33728acbc90c9dc'
 ORIGINAL_CODE = '47ff8c6bc2ff5a73ca36a6d0e40951faaa59ffa4'
 PUBLICATION_CYCLE = 'monthly_cycle__2026-07__7cab1c5df177a1e4'
 CYCLE = 'monthly_cycle__2026-08__a9e022a980d29cd7'
+CODE_EVIDENCE_PATH = 'docs/audit/acs_2024_original_workflow_code_evidence.json'
+CODE_EVIDENCE_SHA256 = '3ee74b5c187af0c2e5839adba8dc8c5a501e3d41d93d1441e2aab76611a5b0d7'
 FAMILY = 'config/acs_family_resolutions/acs_family_resolution__534c942ae503c8a3eb556304.json'
 ELIGIBLE = {
     'census_acs1': ('src__census_acs1__2024-12__r1__a1f5cd392af90fcb', 152, 71, 304),
@@ -138,6 +140,57 @@ def reconcile(frame, pin, coverage, plan, excluded, source):
             'recorded_no_content_geographies': n_absent, 'retained_rows': n_rows,
             'accounted_cells': len(cells), 'cells': cells, 'excluded_geographies': excluded,
             'canonical_rows_sha256': frame_identity(frame), 'exact_keys': True}
+
+
+def original_code_provenance(root, manifest, publication_result):
+    """Resolve recorded code without changing a missing manifest commit identity.
+
+    The only alternate evidence is the fixed original workflow capture, bound to
+    the exact publication result. Its execution branch is not claimed as main
+    ancestry. Configuration and code bytes remain exact Git content identities.
+    """
+    recorded = manifest.get('git_sha')
+    if isinstance(recorded, str) and re.fullmatch('[0-9a-f]{40}', recorded):
+        subprocess.run(['git', '-C', str(root), 'merge-base', '--is-ancestor', recorded, BASE],
+                       check=True, capture_output=True)
+        return recorded, {'basis': 'manifest', 'manifest_git_sha': recorded,
+                          'manifest_code_commit_recorded': True}, {
+            path: git_bytes(root, recorded, path) for path in [*CONFIG_PATHS, *CODE]}
+    if recorded != 'unknown':
+        raise ValueError('original code identity is neither recorded nor the known monthly omission')
+    path = root / CODE_EVIDENCE_PATH
+    if sha256_file(path) != CODE_EVIDENCE_SHA256:
+        raise ValueError('original workflow evidence identity mismatch')
+    evidence = read_json(path)
+    source = manifest['source_id']
+    job, run = evidence['jobs'][source], evidence['run']
+    commit = evidence['execution_commit']
+    if (evidence['schema_version'] != 'acs_2024_original_workflow_code_evidence_v1'
+            or evidence['repository'] != 'chineduezebuiroh/realestate-intel'
+            or evidence['manifest_git_sha_recorded'] != recorded
+            or job['result'] != publication_result
+            or job['result']['candidate_artifact_id'] != manifest['artifact_id']
+            or job['result']['artifact_content_hash'] != manifest['artifact_content_hash']
+            or job['run_id'] != run['id'] or job['conclusion'] != 'success'
+            or run['conclusion'] != 'success' or run['head_sha'] != commit
+            or not re.fullmatch('[0-9a-f]{40}', commit)
+            or job['checkout_log_line'].split(' ', 1)[1] != commit
+            or json.loads(job['result_log_line'].split(' ', 1)[1]) != publication_result):
+        raise ValueError('original workflow checkout/publication binding mismatch')
+    files = {}
+    for path in [*CONFIG_PATHS, *CODE, 'jobs/monthly_refresh/acs_hosted.py']:
+        blob = evidence['files'][path]['git_blob_sha']
+        if not re.fullmatch('[0-9a-f]{40}', blob):
+            raise ValueError('invalid original source Git blob identity')
+        raw = subprocess.check_output(['git', '-C', str(root), 'cat-file', 'blob', blob], stderr=subprocess.PIPE)
+        if hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() != blob:
+            raise ValueError('original source Git blob bytes differ')
+        files[path] = raw
+    return commit, {'basis': 'independent_original_workflow_checkout_and_publication',
+        'manifest_git_sha': recorded, 'manifest_code_commit_recorded': False,
+        'evidence_sha256': CODE_EVIDENCE_SHA256, 'workflow_run': run, 'workflow_job_id': job['job_id'],
+        'execution_commit_relationship_to_baseline': evidence['baseline_relationship'],
+        'original_git_blob_identities': {p: evidence['files'][p]['git_blob_sha'] for p in files}}, files
 
 
 def qualify(*, root: Path, source_id: str, package: Path, catalog: Path | None = None,
@@ -250,13 +303,14 @@ def qualify(*, root: Path, source_id: str, package: Path, catalog: Path | None =
             report['stage'] = 'exact_retained_cell_accounting'
             report['reconciliation'] = reconcile(frame, pin, manifest['raw_source_lineage']['coverage'], plan, excluded, source_id)
             require(True, 'exact_retained_cell_accounting')
-            original_commit = manifest['git_sha']
-            require(bool(re.fullmatch('[0-9a-f]{40}', original_commit)), 'original_code_commit_recorded')
-            subprocess.run(['git', '-C', str(root), 'merge-base', '--is-ancestor', original_commit, BASE],
-                           check=True, capture_output=True)
+            report['stage'] = 'original_code_commit_recorded'
+            original_commit, code_basis, original_files = original_code_provenance(root, manifest, publication_result)
+            require(True, 'original_code_commit_recorded')
+            if code_basis['basis'] != 'manifest':
+                report['evidence_inventory']['original_workflow_code'] = {'sha256': CODE_EVIDENCE_SHA256}
             report['stage'] = 'configuration_and_code_provenance'
             current_configs = governed_config_hashes(root)
-            original_configs = {p: digest(git_bytes(root, original_commit, p)) for p in CONFIG_PATHS}
+            original_configs = {p: digest(original_files[p]) for p in CONFIG_PATHS}
             authority_configs = {p: digest(git_bytes(root, AUTHORITY_REFERENCE, p)) for p in CONFIG_PATHS}
             require(manifest['config_hashes'] == original_configs, 'original_configuration_provenance')
             require(current_configs == authority_configs, 'historical_configuration_reference')
@@ -269,7 +323,7 @@ def qualify(*, root: Path, source_id: str, package: Path, catalog: Path | None =
             code = {}
             for path, names in CODE.items():
                 report['stage'] = 'code_semantics:' + path
-                original = git_bytes(root, original_commit, path)
+                original = original_files[path]
                 reference = git_bytes(root, ORIGINAL_CODE, path)
                 authority = git_bytes(root, AUTHORITY_REFERENCE, path)
                 require(semantics(original, names) == semantics(reference, names)
@@ -279,7 +333,7 @@ def qualify(*, root: Path, source_id: str, package: Path, catalog: Path | None =
                             'original_candidate_processing_semantics')
                 code[path] = {'original_sha256': digest(original), 'historical_reference_sha256': digest(authority),
                               'semantic_sha256': sha256_json(semantics(original, names))}
-            report['code_provenance'] = {'original_commit': original_commit, 'repository_anchor': BASE,
+            report['code_provenance'] = {**code_basis, 'original_commit': original_commit, 'repository_anchor': BASE,
                                        'historical_reference_commit': AUTHORITY_REFERENCE, 'files': code}
             report['parent'] = {**identity, 'data_sha256': manifest['data_sha256'], 'vintage': 2024}
         report['historical_scope'] = {'status': 'missing_authority'}

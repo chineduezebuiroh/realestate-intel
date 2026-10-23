@@ -55,9 +55,13 @@ must be numeric, finite and outside the three physical sentinel values. Manifest
 coverage diagnostics must agree with this partition. The request-plan identity
 is recomputed from configured geography codes, safe URLs and recorded statuses.
 
-The manifest's full original code commit must be available locally and an
-ancestor of the repository evidence anchor. Original config hashes must match
-that commit's files. The historical configuration reference is merged main commit
+When the manifest records a full original code commit, that commit must be
+available locally and an ancestor of the repository evidence anchor. For only the
+two named original packages, the known manifest value `git_sha="unknown"` may
+instead be resolved through the fixed original workflow evidence described below.
+Missing fields, other placeholders, unmatched packages or altered evidence still
+fail. Original config hashes must match the independently identified original
+source files in either path. The historical configuration reference is merged main commit
 `4beea6b8b860cc1f825bd0f6b33728acbc90c9dc`; all four current governed config
 files must match it. Original geography and metric configuration must match that
 reference exactly. Policy-file hash differences are enumerated for explicit human
@@ -176,3 +180,62 @@ all August source-input commitments. Both result bindings remain exact. The orig
 TARs, pins, catalog records and retained-row/configuration/governance checks are
 unchanged. Rerun both qualifications into fresh directories: validator and report
 identities change, and earlier reports are not silently upgraded.
+
+## Original acquisition code recording omission
+
+`original_code_commit_recorded` originally required `manifest.git_sha` to be a
+40-character commit SHA. The original hosted runner called the candidate builder
+without its `git_sha` argument, leaving the builder's literal `"unknown"` default.
+The publisher received `GITHUB_SHA` separately; it did not rewrite the acquisition
+manifest. The manifest therefore genuinely omitted an acquisition commit. It must
+not be relabeled as having recorded one.
+
+Independent original execution evidence is retained in
+[acs_2024_original_workflow_code_evidence.json](../audit/acs_2024_original_workflow_code_evidence.json).
+This is captured GitHub execution metadata and log excerpts, not a synthetic
+provider snapshot, omission receipt or approval. Its exact SHA-256 is pinned in
+the validator. It identifies successful original run `35567244220`, attempt 1,
+ACS1 job `106231601318` and ACS5 job `106231601412`. Each job log records checkout
+`9131dc8ad2626f393e7975411693908d43445173` and the complete publication result,
+including the exact original artifact/content/package hashes and July cycle.
+The result must equal the independently anchored July result in full. Full
+retrieved log-content SHA-256 values and exact checkout/result excerpts are
+retained for review; complete runner logs are not copied into the repository.
+The evidence is based on GitHub's observed run/log service, not a signed execution
+attestation. Hashes bind the retained capture; they do not confer approval.
+
+That checkout was on `monthly-refresh-orchestration`, not main. GitHub's comparison
+with the immutable repository baseline reports divergent histories, with merge base
+`42baead0f29f844132979017998e71d89a16dddf`. The original workflow deliberately
+allowed the checked-out ref to supply execution code while durable writes targeted
+main. The validator does not claim this execution commit is a main ancestor or
+replace it with the later main commit. Instead, this fixed, package-specific
+workflow evidence binds its exact Git blob identities for both acquisition files,
+the physical source implementation and all four governed configuration files.
+Those original bytes are read from the local Git object database and their Git
+blob identities are recomputed. Missing objects fail closed. No network fallback
+is used during qualification.
+
+The manifest configuration hashes must still equal the original file SHA-256
+values. Current configuration-reference checks, geography/metric equality,
+policy-difference review and original-versus-historical code semantics checks are
+unchanged. No code compatibility is inferred just from a successful workflow.
+The manifest-recorded commit path retains its existing main-ancestry requirement;
+this alternative cannot authorize any other missing-code acquisition.
+
+The qualification report retains `manifest_git_sha="unknown"`,
+`manifest_code_commit_recorded=false`, the independently recorded original commit,
+the workflow evidence identity and the divergent baseline relationship. This is
+external recovery of code provenance, not a backfill into the package. Separate
+human compatibility governance may review the manifest omission as a documented
+limitation; governance and original provider-response verification statuses remain
+unchanged. Retrieve the original repository commit into the local Git cache before
+rerunning if needed:
+
+```sh
+git fetch origin 9131dc8ad2626f393e7975411693908d43445173
+```
+
+This fetch reads repository code/history only. It does not acquire Census data or
+change the selected parent, original package, pins, catalog or production state.
+Use new qualification output directories because report identities change.
