@@ -1,0 +1,189 @@
+{
+  "acs5_only_geographies": [
+    "amelia_county_va__county",
+    "amherst_county_va__county",
+    "appomattox_county_va__county",
+    "botetourt_county_va__county",
+    "cambridge_md_metro_area__cbsa_metro",
+    "campbell_county_va__county",
+    "charles_city_county_va__county",
+    "charlottesville_va__county",
+    "clarke_county_va__county",
+    "colonial_heights_va__county",
+    "craig_county_va__county",
+    "crescent_city_ca_metro_area__cbsa_metro",
+    "culpeper_county_va__county",
+    "danville_va__county",
+    "del_norte_county_ca__county",
+    "dinwiddie_county_va__county",
+    "dorchester_county_md__county",
+    "easton_md_metro_area__cbsa_metro",
+    "fairfax_city_county_va__county",
+    "falls_church_va__county",
+    "fluvanna_county_va__county",
+    "franklin_city_county_va__county",
+    "franklin_county_va__county",
+    "fredericksburg_va__county",
+    "giles_county_va__county",
+    "gloucester_county_va__county",
+    "goochland_county_va__county",
+    "greene_county_va__county",
+    "harrisonburg_va__county",
+    "henry_county_va__county",
+    "hopewell_va__county",
+    "isle_of_wight_county_va__county",
+    "king_and_queen_county_va__county",
+    "king_william_county_va__county",
+    "lassen_county_ca__county",
+    "madison_county_va__county",
+    "manassas_park_va__county",
+    "manassas_va__county",
+    "martinsville_va__county",
+    "martinsville_va_metro_area__cbsa_metro",
+    "mathews_county_va__county",
+    "nelson_county_va__county",
+    "new_kent_county_va__county",
+    "norton_va__county",
+    "petersburg_va__county",
+    "pittsylvania_county_va__county",
+    "poquoson_va__county",
+    "powhatan_county_va__county",
+    "prince_george_county_va__county",
+    "pulaski_county_va__county",
+    "queen_anne_s_county_md__county",
+    "radford_va__county",
+    "rappahannock_county_va__county",
+    "red_bluff_ca_metro_area__cbsa_metro",
+    "salem_va__county",
+    "sonora_ca_metro_area__cbsa_metro",
+    "southampton_county_va__county",
+    "staunton_va__county",
+    "susanville_ca_metro_area__cbsa_metro",
+    "sussex_county_va__county",
+    "talbot_county_md__county",
+    "tuolumne_county_ca__county",
+    "warren_county_va__county",
+    "waynesboro_va__county",
+    "williamsburg_va__county",
+    "winchester_va__county",
+    "wise_county_va__county"
+  ],
+  "active": false,
+  "approval_provenance": null,
+  "blocking_inputs": [
+    "Complete original successful qualification JSON reports and original evidence required; qualification identifiers cannot reconstruct their contents.",
+    "Reviewed governing scope authority identities required for both products."
+  ],
+  "cycle_id": "monthly_cycle__2026-08__a9e022a980d29cd7",
+  "eligible_parents": {
+    "census_acs1": {
+      "artifact_id": "src__census_acs1__2024-12__r1__a1f5cd392af90fcb",
+      "governing_scope_authority_id": null,
+      "lineage": {
+        "august_acceptance": {
+          "cycle_id": "monthly_cycle__2026-08__a9e022a980d29cd7",
+          "files": {
+            "config/monthly_source_cycle_results/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs1.json": "b24a8eb1ea1b893231ef361d7928763c6864fe2224275cffc7ad2d52e625610a",
+            "config/monthly_source_input_pins/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs1.json": "f0fee2dc1899c389b70ac5e190d13f93b99c9bec0720e9d9b9d09048db3da9d2"
+          },
+          "repository_anchor": "40b950b4edda9dff30a93754735654aab0da28e1"
+        },
+        "original_publication": {
+          "cycle_id": "monthly_cycle__2026-07__7cab1c5df177a1e4",
+          "files": {
+            "config/monthly_source_cycle_results/monthly_cycle__2026-07__7cab1c5df177a1e4/census_acs1.json": "0bddefb52c35536b7eda9a49ccd33bcd049f45a96f9b4637af33ad6f5f0efdd5",
+            "config/monthly_source_input_pins/monthly_cycle__2026-07__7cab1c5df177a1e4/census_acs1.json": "22dcebb577720a3b055a91def8c3129675627700dfbc0f1b5483bc4fc6b956c5"
+          },
+          "repository_anchor": "40b950b4edda9dff30a93754735654aab0da28e1"
+        }
+      },
+      "original_catalog_identity": {
+        "artifact_content_hash": "a1f5cd392af90fcb7055efb84cceb8bdd691fcae561417a73c2974a471d68b5b",
+        "metadata": {
+          "data_sha256": "d62a548785b79959bba83134f0d90e6eab2ac31cc7779d10596e8d5443c5de91",
+          "logical_source_id": "census_acs1",
+          "observation_max": "2024-12-31",
+          "provider_release_id": "acs/acs1:2024",
+          "source_id": "census_acs1"
+        },
+        "object_id": "src__census_acs1__2024-12__r1__a1f5cd392af90fcb",
+        "package_sha256": "7ea888ffb034decf6b9d118c029399922dccf1de2c74a0ca3d39d6720f76d600"
+      },
+      "qualification_id": "acs_2024_monthly_compatibility_v1__e5d99b1fc7e006fb3462659d4ef10bd5e8c99d14f1d26288ca2252fe6ea23603",
+      "reported_retention_path": "$HOME/acs-readiness-review/compatibility-301-code/acs1/acs_2024_monthly_compatibility_v1__e5d99b1fc7e006fb3462659d4ef10bd5e8c99d14f1d26288ca2252fe6ea23603.json",
+      "retained_report": null
+    },
+    "census_acs5": {
+      "artifact_id": "src__census_acs5__2024-12__r1__2bebdc938d8c2fb6",
+      "governing_scope_authority_id": null,
+      "lineage": {
+        "august_acceptance": {
+          "cycle_id": "monthly_cycle__2026-08__a9e022a980d29cd7",
+          "files": {
+            "config/monthly_source_cycle_results/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs5.json": "0b436367918f1263279d847a4684a6b7629844c2f624bc2cad2bc3793ce62b34",
+            "config/monthly_source_input_pins/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs5.json": "997aca80ef250a670c1f4497ee9812aa3a346ce410edd102ef7b8034e4f03e00"
+          },
+          "repository_anchor": "40b950b4edda9dff30a93754735654aab0da28e1"
+        },
+        "original_publication": {
+          "cycle_id": "monthly_cycle__2026-07__7cab1c5df177a1e4",
+          "files": {
+            "config/monthly_source_cycle_results/monthly_cycle__2026-07__7cab1c5df177a1e4/census_acs5.json": "75e90e1fb6bfcee4c10b75e2d9e821ab7b7b4e203d5c55cf6c659db4a4351bd9",
+            "config/monthly_source_input_pins/monthly_cycle__2026-07__7cab1c5df177a1e4/census_acs5.json": "6bbc667c4006a5e3f61733a6555b07c0ac97912e806e1239fd4671d1bee30910"
+          },
+          "repository_anchor": "40b950b4edda9dff30a93754735654aab0da28e1"
+        }
+      },
+      "original_catalog_identity": {
+        "artifact_content_hash": "2bebdc938d8c2fb65c5af5bd44f86936bbcf55141004a2b132c163e8c3732e69",
+        "metadata": {
+          "data_sha256": "aa8f2b32ee0cfa2f6c764a866f300f3753c7f249376d8974cee4a1e91daa31a3",
+          "logical_source_id": "census_acs5",
+          "observation_max": "2024-12-31",
+          "provider_release_id": "acs/acs5:2024",
+          "source_id": "census_acs5"
+        },
+        "object_id": "src__census_acs5__2024-12__r1__2bebdc938d8c2fb6",
+        "package_sha256": "225bbe8ffd3a08b6ae049600f0e5fa05aa9132b83301fab54dbbcd591a3922fb"
+      },
+      "qualification_id": "acs_2024_monthly_compatibility_v1__421911b7acd6443df19cc2887577d85f356ea412a7f034e88fd11c2cf8b34b43",
+      "reported_retention_path": "$HOME/acs-readiness-review/compatibility-301-code/acs5/acs_2024_monthly_compatibility_v1__421911b7acd6443df19cc2887577d85f356ea412a7f034e88fd11c2cf8b34b43.json",
+      "retained_report": null
+    }
+  },
+  "jointly_unobserved_geographies": [
+    "big_stone_gap_va_metro_area__cbsa_metro",
+    "california_md_metro_area__cbsa_metro",
+    "madera_ca_metro_area__cbsa_metro",
+    "ocean_city_nj_metro_area__cbsa_metro"
+  ],
+  "limitations": {
+    "absence_classification": "monthly_no_content_attested",
+    "acs5_only_geographies": 67,
+    "acs5_substitution": "only_for_recorded_acs1_monthly_no_content",
+    "historical_acceptance": false,
+    "jointly_unobserved_geographies": 4,
+    "jointly_unobserved_treatment": "missing",
+    "macro_execution": false,
+    "manifest_git_sha": "unknown",
+    "provider_response_verification": "not_established",
+    "serving_promotion": false,
+    "source_set_publication": false,
+    "vintage": 2024
+  },
+  "original_execution_code_evidence": {
+    "manifest_code_commit_recorded": false,
+    "manifest_git_sha": "unknown",
+    "path": "docs/audit/acs_2024_original_workflow_code_evidence.json",
+    "sha256": "3ee74b5c187af0c2e5839adba8dc8c5a501e3d41d93d1441e2aab76611a5b0d7"
+  },
+  "production_report_retention": {
+    "location": "user local Mac; not present in implementation workspace",
+    "original_tar_directory": "$HOME/acs-readiness-review/discovery-1/retrieved-packages/",
+    "qualification_code_commit": "3d5b94dc6f51c4f3ec4b0a95bcea50bd3b8be086",
+    "reported_results_are_not_independently_validated_here": true
+  },
+  "repository": "chineduezebuiroh/realestate-intel",
+  "schema_version": "acs_2024_compatibility_authorization_proposal_inputs_v1",
+  "status": "proposed_incomplete"
+}

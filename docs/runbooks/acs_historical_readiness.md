@@ -297,3 +297,15 @@ reports technical accounting separately from unapproved compatibility governance
 and unestablished original-response verification. Compatibility cells remain
 outside independently verified inventories and cannot pass historical acceptance,
 fallback readiness or activation. The default independent-evidence path is unchanged.
+
+### Bounded 2024 compatibility authority (inactive)
+
+See [the authorization contract](../contracts/acs_2024_compatibility_authorization_v1.md)
+for the remote-main trust path, exact-record generator and evidence requirements.
+The checked-in proposal inputs are explicitly incomplete: neither full successful
+qualification report nor reviewed governing scope identities were available in
+this implementation workspace. Do not substitute qualification IDs for report
+contents, fabricate their evidence inventories, or install this scaffold in the
+production registry. Both original TARs and unchanged reports must pass fresh
+qualification before even bounded advisory readiness can use an approved record.
+All acceptance, publication, serving and Macro gates remain separate and closed.
