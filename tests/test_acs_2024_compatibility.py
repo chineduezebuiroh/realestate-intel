@@ -55,12 +55,15 @@ def retained(tmp_path, monkeypatch, source):
     (root / '.git').write_text('gitdir: ' + str(ROOT / '.git') + '\n')
     copied = [*CONFIG_PATHS, 'config/artifact_catalog.json', compat.FAMILY,
               *compat.CODE, f'config/monthly_source_input_pins/{compat.CYCLE}/{source}.json',
-              f'config/monthly_source_cycle_results/{compat.CYCLE}/{source}.json']
+              f'config/monthly_source_cycle_results/{compat.CYCLE}/{source}.json',
+              f'config/monthly_source_input_pins/{compat.PUBLICATION_CYCLE}/{source}.json',
+              f'config/monthly_source_cycle_results/{compat.PUBLICATION_CYCLE}/{source}.json']
     for path in copied:
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / path, target)
-    frame, pin, coverage = rows(source)
+    frame, _, coverage = rows(source)
+    pin = compat.read_json(root / f'config/monthly_source_input_pins/{compat.PUBLICATION_CYCLE}/{source}.json')
     artifact = tmp_path / 'fixture-artifact'
     original_configs = {p: compat.digest(compat.git_bytes(ROOT, compat.ORIGINAL_CODE, p)) for p in CONFIG_PATHS}
     m = create_artifact(artifact, frame, source_id=source, source_family=source, source_type='government_survey',
@@ -70,7 +73,7 @@ def retained(tmp_path, monkeypatch, source):
                         source_request_identity=pin['members']['snapshot']['evidence']['request_identity'],
                         source_urls_or_endpoint_identity=[pin['members']['snapshot']['url']],
                         raw_source_lineage={'schema_version': 'census_acs_candidate_evidence_v1',
-                            'cycle_id': compat.CYCLE, 'physical_source_id': source, 'provider_pin': pin, 'coverage': coverage},
+                            'cycle_id': compat.PUBLICATION_CYCLE, 'physical_source_id': source, 'provider_pin': pin, 'coverage': coverage},
                         config_hashes=original_configs, git_sha=compat.ORIGINAL_CODE)
     cat = compat.read_json(root / 'config/artifact_catalog.json')
     rec = next(r for r in cat['immutable_records'] if r['object_id'] == compat.ELIGIBLE[source][0])
@@ -99,11 +102,15 @@ def retained(tmp_path, monkeypatch, source):
         result = compat.read_json(root / result_path)
         result['result']['package_sha256'] = rec['package_sha256']
         dump(root / result_path, result)
+        publication_result_path = f'config/monthly_source_cycle_results/{compat.PUBLICATION_CYCLE}/{source}.json'
+        publication_result = compat.read_json(root / publication_result_path)
+        publication_result['result']['package_sha256'] = rec['package_sha256']
+        dump(root / publication_result_path, publication_result)
         family = compat.read_json(root / compat.FAMILY)
         parent = next(p for p in family['parents'] if p['source_id'] == source)
         parent.update(data_sha256=manifest['data_sha256'], package_sha256=rec['package_sha256'])
         dump(root / compat.FAMILY, family)
-        for path in ['config/artifact_catalog.json', result_path, compat.FAMILY]:
+        for path in ['config/artifact_catalog.json', result_path, publication_result_path, compat.FAMILY]:
             anchored[path] = (root / path).read_bytes()
     repack()
 
@@ -124,6 +131,15 @@ def test_exact_august_identity_technical_success_without_approval(retained, sour
     report = run()
     assert report['technical_reconciliation'] == 'passed', report
     assert report['artifact_id'] == compat.ELIGIBLE[source][0]
+    provenance = report['provenance']
+    assert provenance['original_publication']['cycle_id'] == compat.PUBLICATION_CYCLE
+    assert provenance['august_acceptance']['cycle_id'] == compat.CYCLE
+    july = provenance['original_publication']['pin']
+    august = provenance['august_acceptance']['pin']
+    assert july != august and july['pin_id'] != august['pin_id']
+    assert july['members']['snapshot']['retrieved_at'] != august['members']['snapshot']['retrieved_at']
+    assert report['original_pin'] == july
+    assert provenance['august_acceptance']['same_snapshot_commitments_and_evidence']
     assert report['reconciliation']['accounted_cells'] == 446
     assert report['reconciliation']['retained_rows'] == compat.ELIGIBLE[source][3]
     assert report['compatibility_governance'] == 'not_approved'
@@ -340,3 +356,62 @@ def test_cli_writes_content_addressed_report_and_refuses_overwrite(retained, sou
     assert files[0].name == report['qualification_id'] + '.json'
     with pytest.raises(SystemExit):
         compat.main()
+
+
+@pytest.mark.parametrize('cycle', [compat.PUBLICATION_CYCLE, compat.CYCLE])
+@pytest.mark.parametrize('field', ['candidate_artifact_id', 'artifact_content_hash', 'package_sha256',
+                                   'source_id', 'cycle_id', 'provider_release_id'])
+def test_both_cycle_result_bindings_are_exact(retained, source, monkeypatch, cycle, field):
+    root, _, _, _, run = retained
+    path = f'config/monthly_source_cycle_results/{cycle}/{source}.json'
+    value = compat.read_json(root / path)
+    value['result'][field] = 'changed'
+    dump(root / path, value)
+    # Isolate result-binding checks behind a test-local matching repository anchor.
+    previous = compat.git_bytes
+    monkeypatch.setattr(compat, 'git_bytes', lambda r, rev, p:
+        (root / path).read_bytes() if rev == compat.BASE and p == path else previous(r, rev, p))
+    report = run()
+    assert report['technical_reconciliation'] == 'failed'
+    assert report['failure']['predicate'] == ('august_result_binding' if cycle == compat.CYCLE else 'july_publication_result_binding')
+
+
+@pytest.mark.parametrize('field', ['sha256', 'size_bytes', 'url', 'request_identity',
+                                   'available_membership', 'provider_ineligible', 'excluded_geographies'])
+def test_august_must_retain_all_original_snapshot_and_geographic_evidence(retained, source, monkeypatch, field):
+    from jobs.monthly_refresh.source_inputs import provider_pin
+    root, _, _, _, run = retained
+    path = f'config/monthly_source_input_pins/{compat.CYCLE}/{source}.json'
+    value = compat.read_json(root / path)
+    snapshot = value['members']['snapshot']
+    if field in {'sha256', 'url'}:
+        snapshot[field] = '0'*64 if field == 'sha256' else 'https://example.invalid/changed'
+    elif field == 'size_bytes':
+        snapshot[field] += 1
+    elif field == 'request_identity':
+        snapshot['evidence'][field] = '0'*64
+    else:
+        snapshot['evidence'][field] = snapshot['evidence'][field][1:]
+    value = provider_pin(cycle_id=compat.CYCLE, source_id=source,
+                         provider_release_id=value['provider_release_id'], members=value['members'])
+    dump(root / path, value)
+    previous = compat.git_bytes
+    monkeypatch.setattr(compat, 'git_bytes', lambda r, rev, p:
+        (root / path).read_bytes() if rev == compat.BASE and p == path else previous(r, rev, p))
+    report = run()
+    assert report['technical_reconciliation'] == 'failed'
+    assert report['failure']['predicate'] == 'exact_august_snapshot_and_geographic_evidence_binding'
+
+
+def test_rebinding_original_manifest_to_august_is_rejected(retained, source):
+    root, artifact, _, repack, run = retained
+    pin = compat.read_json(root / f'config/monthly_source_input_pins/{compat.CYCLE}/{source}.json')
+    path = artifact / 'manifest.json'
+    manifest = compat.read_json(path)
+    manifest['raw_source_lineage'].update(provider_pin=pin, cycle_id=compat.CYCLE)
+    manifest['retrieved_at'] = pin['members']['snapshot']['retrieved_at']
+    dump(path, manifest)
+    repack()
+    report = run()
+    assert report['technical_reconciliation'] == 'failed'
+    assert report['failure']['predicate'] == 'exact_original_pin_binding'

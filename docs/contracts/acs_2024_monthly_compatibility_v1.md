@@ -22,14 +22,25 @@ The TAR bound is 512 MiB; JSON inputs are bounded at 32 MiB. Original inputs are
 never modified or repackaged. No network or credentials are used.
 
 Immutable repository anchor `40b950b4edda9dff30a93754735654aab0da28e1`
-binds the original catalog records, complete pin objects, cycle results and family
-record. Both the checkout and any explicitly supplied catalog must preserve those
-facts. Caller-editable catalog hashes cannot authorize different bytes. The TAR
+binds the original catalog records, complete July publication and August acceptance
+pin objects, both cycle results and the family record. Both the checkout and any
+explicitly supplied catalog must preserve those facts. Caller-editable catalog hashes cannot authorize different bytes. The TAR
 SHA-256 must match the original record; manifest/content/data/validation hashes,
 physical product and accepted family parent identities must agree. Original
 snapshot digest, size, timestamp, endpoint, request identity, membership and
-cycle-specific pin identity must be identical to the anchored pin and the
-package's embedded pin. There is no September-parent substitution or pin rebinding.
+cycle-specific pin identity in the manifest must exactly match the anchored July
+publication pin. The manifest cycle and retrieval timestamp remain July provenance.
+There is no September-parent substitution or pin rebinding.
+
+The confirmed monthly reuse contract preserves the original package: July and
+August cycle results name the same artifact/content/package identities. August
+acceptance is checked separately against its exact anchored result and pin. Both
+pins must have identical product/release identity and complete snapshot member
+objects except for `retrieved_at`: snapshot SHA-256, size, endpoint and the entire
+request/geographic evidence object must match exactly. Both full cycle-specific
+pins remain independently anchored and validated; neither is rewritten. This is
+restricted to the confirmed July-to-August reuse of the two named parents, not a
+general rule allowing arbitrary prior-cycle provenance.
 
 Actual TAR rows are inspected independently. The 223 requested geographies must
 partition uniquely and without overlap into the recorded available and no-content
@@ -89,8 +100,11 @@ The report schema is `acs_2024_monthly_compatibility_v1`; its `qualification_id`
 is the schema plus the full SHA-256 of canonical report JSON excluding that ID.
 The sole output filename is `<qualification_id>.json`. Identical evidence produces
 identical output without clocks, absolute input paths or temporary-path errors.
-The inventory hashes the catalog, original TAR, package members, August pin/result
-and family record. The original pin commitments, exact 446-cell reconciliation,
+The inventory hashes the catalog, original TAR, package members, July publication
+pin/result, August acceptance pin/result and family record. `provenance.original_publication`
+and `provenance.august_acceptance` expose both layers separately. `original_pin`
+contains the July publication pin; the August pin is preserved under acceptance.
+The original pin commitments, exact 446-cell reconciliation,
 excluded members, canonical row hash, predicates, original/reference configuration
 and code identities, limitations and approval requirements are included. Invalid
 inputs produce deterministic failure reports. Exit 1 means technical failure;
@@ -149,3 +163,16 @@ Absent explicit opt-in, the existing missing-provider-evidence behavior is retai
 All independent provider validation and historical gates for other vintages remain
 unchanged. No production configuration, artifacts, acquisition, Source Set,
 serving, Macro or HTML behavior is changed.
+
+## Confirmed publication-reuse regression
+
+Mac-local inspection of both production TARs confirmed the original catalog/TAR/
+manifest/data identities, exact July embedded pin/cycle/retrieval metadata, and
+August acceptance of the same package and snapshot evidence. The initial validator
+incorrectly required the original manifest to contain August publication metadata.
+`exact_original_pin_binding` now requires exact July publication provenance; the
+separate `exact_august_snapshot_and_geographic_evidence_binding` predicate preserves
+all August source-input commitments. Both result bindings remain exact. The original
+TARs, pins, catalog records and retained-row/configuration/governance checks are
+unchanged. Rerun both qualifications into fresh directories: validator and report
+identities change, and earlier reports are not silently upgraded.

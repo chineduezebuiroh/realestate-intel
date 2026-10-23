@@ -29,6 +29,7 @@ VERSION = 'acs_2024_monthly_compatibility_v1'
 BASE = '40b950b4edda9dff30a93754735654aab0da28e1'
 AUTHORITY_REFERENCE = '4beea6b8b860cc1f825bd0f6b33728acbc90c9dc'
 ORIGINAL_CODE = '47ff8c6bc2ff5a73ca36a6d0e40951faaa59ffa4'
+PUBLICATION_CYCLE = 'monthly_cycle__2026-07__7cab1c5df177a1e4'
 CYCLE = 'monthly_cycle__2026-08__a9e022a980d29cd7'
 FAMILY = 'config/acs_family_resolutions/acs_family_resolution__534c942ae503c8a3eb556304.json'
 ELIGIBLE = {
@@ -180,10 +181,21 @@ def qualify(*, root: Path, source_id: str, package: Path, catalog: Path | None =
         require(len(matches) == len(originals) == 1 and matches == originals, 'exact_original_catalog_record')
         record = matches[0]
         result = anchored(f'config/monthly_source_cycle_results/{CYCLE}/{source_id}.json', 'august_result')['result']
-        require(result['candidate_artifact_id'] == artifact_id
+        require(result['source_id'] == source_id and result['cycle_id'] == CYCLE
+                and result['provider_release_id'] == f'{PRODUCTS[source_id]}:2024'
+                and result['candidate_artifact_id'] == artifact_id
                 and result['artifact_content_hash'] == record['artifact_content_hash']
                 and result['package_sha256'] == record['package_sha256']
                 and result['status'] == 'succeeded' and result['validation_status'] == 'passed', 'august_result_binding')
+        publication_result = anchored(
+            f'config/monthly_source_cycle_results/{PUBLICATION_CYCLE}/{source_id}.json', 'july_publication_result')['result']
+        require(publication_result['source_id'] == source_id and publication_result['cycle_id'] == PUBLICATION_CYCLE
+                and publication_result['provider_release_id'] == f'{PRODUCTS[source_id]}:2024'
+                and publication_result['candidate_artifact_id'] == artifact_id
+                and publication_result['artifact_content_hash'] == record['artifact_content_hash']
+                and publication_result['package_sha256'] == record['package_sha256']
+                and publication_result['status'] == 'succeeded'
+                and publication_result['validation_status'] == 'passed', 'july_publication_result_binding')
         family = anchored(FAMILY, 'accepted_family')
         parents = [p for p in family['parents'] if p['source_id'] == source_id]
         require(cat['accepted']['source']['acs'] == family['output_artifact_id'] and len(parents) == 1
@@ -192,11 +204,22 @@ def qualify(*, root: Path, source_id: str, package: Path, catalog: Path | None =
                 and parents[0]['data_sha256'] == record['metadata']['data_sha256'], 'accepted_family_parent_binding')
         report['stage'] = 'original_pin'
         pin = anchored(f'config/monthly_source_input_pins/{CYCLE}/{source_id}.json', 'august_pin')
-        report['original_pin'] = pin
         validate_pin(pin, cycle_id=CYCLE, source_id=source_id, required_members={'snapshot'})
         require(pin['provider_release_id'] == f'{PRODUCTS[source_id]}:2024'
                 and pin['members']['snapshot']['evidence']['product'] == PRODUCTS[source_id]
                 and pin['members']['snapshot']['evidence']['vintage'] == 2024, 'original_pin_product_vintage')
+        publication_pin = anchored(
+            f'config/monthly_source_input_pins/{PUBLICATION_CYCLE}/{source_id}.json', 'july_publication_pin')
+        validate_pin(publication_pin, cycle_id=PUBLICATION_CYCLE, source_id=source_id, required_members={'snapshot'})
+        report['original_pin'] = publication_pin
+        # Only cycle/pin identity and retrieval metadata differ. Every snapshot
+        # commitment and every geographic/request fact must remain exactly equal.
+        publication_snapshot = publication_pin['members']['snapshot']
+        acceptance_snapshot = pin['members']['snapshot']
+        require(publication_pin['provider_release_id'] == pin['provider_release_id']
+                and {k: v for k, v in publication_snapshot.items() if k != 'retrieved_at'}
+                == {k: v for k, v in acceptance_snapshot.items() if k != 'retrieved_at'},
+                'exact_august_snapshot_and_geographic_evidence_binding')
         require(package.stat().st_size <= 512 * 1024 * 1024, 'bounded_original_tar')
         actual_hash = sha256_file(package)
         report['evidence_inventory']['original_tar'] = {'sha256': actual_hash, 'size_bytes': package.stat().st_size}
@@ -211,13 +234,18 @@ def qualify(*, root: Path, source_id: str, package: Path, catalog: Path | None =
                     and read_json(directory / 'validation.json')['status'] == 'passed'
                     and manifest['provider_release_id'] == f'{PRODUCTS[source_id]}:2024'
                     and manifest['target_month'] == '2024-12', 'manifest_validation_and_vintage')
-            require(manifest['raw_source_lineage']['provider_pin'] == pin
-                    and manifest['raw_source_lineage']['cycle_id'] == CYCLE
+            require(manifest['raw_source_lineage']['provider_pin'] == publication_pin
+                    and manifest['raw_source_lineage']['cycle_id'] == PUBLICATION_CYCLE
                     and manifest['raw_source_lineage']['physical_source_id'] == source_id
-                    and manifest['source_request_identity'] == pin['members']['snapshot']['evidence']['request_identity']
-                    and manifest['retrieved_at'] == pin['members']['snapshot']['retrieved_at']
+                    and manifest['source_request_identity'] == publication_snapshot['evidence']['request_identity']
+                    and manifest['retrieved_at'] == publication_snapshot['retrieved_at']
                     and manifest['acquisition_time_status'] == 'retrieved_at_recorded'
-                    and manifest['source_urls_or_endpoint_identity'] == [pin['members']['snapshot']['url']], 'exact_original_pin_binding')
+                    and manifest['source_urls_or_endpoint_identity'] == [publication_snapshot['url']], 'exact_original_pin_binding')
+            report['provenance'] = {
+                'original_publication': {'cycle_id': PUBLICATION_CYCLE, 'pin': publication_pin,
+                                         'cycle_result': publication_result, 'manifest_binding': 'exact'},
+                'august_acceptance': {'cycle_id': CYCLE, 'pin': pin, 'cycle_result': result,
+                                      'same_immutable_package': True, 'same_snapshot_commitments_and_evidence': True}}
             plan, excluded = geography_plan(root / CONFIG_PATHS[0])
             report['stage'] = 'exact_retained_cell_accounting'
             report['reconciliation'] = reconcile(frame, pin, manifest['raw_source_lineage']['coverage'], plan, excluded, source_id)
