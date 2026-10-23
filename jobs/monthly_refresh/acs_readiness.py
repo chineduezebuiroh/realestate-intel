@@ -14,6 +14,7 @@ from core.source_artifacts.hashing import sha256_file, sha256_json
 from core.source_artifacts.package import extract_publication_package
 from core.source_artifacts.validation import ArtifactValidationError
 from jobs.monthly_refresh.source_inputs import validate_pin, verify_member_bytes
+from jobs.monthly_refresh.acs_2024_compatibility import qualify, ELIGIBLE
 from jobs.monthly_refresh.acs_scope import check_identity
 from jobs.monthly_refresh.acs_family_resolution import _parent
 from jobs.monthly_refresh.acs_history import frame_identity
@@ -71,6 +72,7 @@ def repository_inputs(root: Path) -> dict:
                 evidence[f'{source}:{year}'] = str(path.resolve())
     return {'schema_version': VERSION, 'ranges': ranges, 'catalog': str((root / 'config/artifact_catalog.json').resolve()),
         'packages': {}, 'evidence': evidence, 'selected_parents': {}, 'accepted_august': accepted,
+        'monthly_compatibility': [],
         'governance': str((root / 'config/acs_historical_governance.json').resolve())
             if (root / 'config/acs_historical_governance.json').is_file() else None, 'pins': [], 'baseline': None, 'comparison': None}
 
@@ -127,6 +129,12 @@ def evaluate(spec: dict, root: Path) -> dict:
     blockers, matrix, proposed = [], [], {}
     def issue(code, kind, disposition='blocked', **context):
         blockers.append({'code': code, 'kind': kind, 'disposition': disposition, **context})
+    compatibility_keys = spec.get('monthly_compatibility', [])
+    eligible_keys = {source + ':2024' for source in ELIGIBLE}
+    if (not isinstance(compatibility_keys, list) or any(not isinstance(k, str) for k in compatibility_keys)
+            or len(set(compatibility_keys)) != len(compatibility_keys) or not set(compatibility_keys) <= eligible_keys):
+        raise ValueError('compatibility lane accepts only unique exact eligible product/year keys, never reports or statuses')
+    qualifications = {}
     configured = repository_inputs(root)
     if spec.get('accepted_august') != configured['accepted_august']:
         issue('accepted_august_identity_differs_from_repository', 'engineering', 'fail')
@@ -208,7 +216,8 @@ def evaluate(spec: dict, root: Path) -> dict:
                     except (ValueError, KeyError, TypeError, OSError, ArtifactValidationError, tarfile.TarError, EOFError) as exc:
                         issue('invalid_provider_accounting_or_omissions', 'engineering', 'fail', source_id=source, vintage=year,
                               detail=str(exc))
-                verified, package_verified = False, False
+                verified, package_verified, compatibility_passed = False, False, False
+                compatibility_absent = set()
                 package = spec.get('packages', {}).get(record['object_id']) if record else None
                 if record and package:
                     try:
@@ -225,11 +234,24 @@ def evaluate(spec: dict, root: Path) -> dict:
                                 or manifest.get('artifact_status') != 'complete' or manifest.get('validation_status') != 'passed'):
                             raise ValueError('acquisition row/product/vintage identity mismatch')
                         package_verified = True
-                        if expected is None:
+                        if key in compatibility_keys:
+                            qualification = qualify(root=root, source_id=source, package=Path(package),
+                                                    catalog=Path(spec['catalog']),
+                                                    governance=Path(spec['governance']) if spec.get('governance') else None)
+                            qualifications[key] = qualification
+                            compatibility_passed = qualification['technical_reconciliation'] == 'passed'
+                            if compatibility_passed:
+                                compatibility_absent = {c['geo_id'] for c in qualification['reconciliation']['cells']
+                                                        if c['classification'] == 'monthly_no_content_attested'}
+                            issue('monthly_compatibility_requires_separate_governance' if compatibility_passed else
+                                  'invalid_monthly_compatibility', 'governance' if compatibility_passed else 'engineering',
+                                  'blocked' if compatibility_passed else 'fail', source_id=source, vintage=year,
+                                  qualification_id=qualification['qualification_id'])
+                        if expected is None and not compatibility_passed:
                             issue('missing_independent_provider_evidence', 'engineering', source_id=source, vintage=year)
-                        elif frame_identity(frame) != frame_identity(expected):
+                        elif expected is not None and frame_identity(frame) != frame_identity(expected):
                             raise ValueError('provider accounting differs from acquisition rows')
-                        else:
+                        elif expected is not None and key not in compatibility_keys:
                             verified = True
                             parent = {**identity, 'vintage': year, 'data_sha256': manifest['data_sha256']}
                             parents.append(parent)
@@ -249,6 +271,8 @@ def evaluate(spec: dict, root: Path) -> dict:
                         observed = accounting.get((geo['geo_id'], variable))
                         status = ('explicitly_excluded' if geo in excluded else
                             'ambiguous_or_conflicting_identity' if ambiguous else
+                            'monthly_no_content_attested' if compatibility_passed and geo['geo_id'] in compatibility_absent else
+                            'available_compatibility_reconciled' if compatibility_passed else
                             'evidenced_unavailable' if observed and observed != 'available' else
                             'available_and_verified' if verified else
                             'missing_acquisition' if record is None else 'unresolved_evidence')
@@ -260,6 +284,9 @@ def evaluate(spec: dict, root: Path) -> dict:
                             'acquisition_status': 'cataloged_immutable' if record else 'not_established',
                             'acquisition_verified': package_verified,
                             'independent_provider_verification': 'passed' if verified else 'not_established',
+                            'monthly_compatibility_technical_reconciliation': qualifications[key]['technical_reconciliation'] if key in qualifications else 'not_established',
+                            'compatibility_governance': 'not_approved',
+                            'original_provider_response_independently_verified': 'not_established',
                             'historical_acceptance': 'not_established',
                             'downstream_activation': 'not_established'})
             proposed[source] = {'advisory_only': True, 'governance_authority': False, 'source_id': source,
@@ -302,7 +329,7 @@ def evaluate(spec: dict, root: Path) -> dict:
     if not comparison:
         issue('previous_macro_baseline_not_supplied', 'engineering')
     counts = dict(sorted(Counter(r['availability'] for r in matrix).items()))
-    if any(r['availability'] in {'missing_acquisition', 'unresolved_evidence'} for r in matrix):
+    if any(r['availability'] in {'missing_acquisition', 'unresolved_evidence', 'available_compatibility_reconciled', 'monthly_no_content_attested'} for r in matrix):
         issue('incomplete_historical_logical_inputs', 'engineering')
     if any(not r['acs1_evidence_resolved'] for r in logical):
         issue('acs5_fallback_preference_evidence_unresolved', 'engineering')
@@ -317,6 +344,7 @@ def evaluate(spec: dict, root: Path) -> dict:
         'input_file_sha256': fingerprints, 'config_hashes': governed_config_hashes(root),
         'scope': {'requested': len(plan), 'by_level': dict(sorted(Counter(g['level'] for g in plan).items())),
                   'excluded': excluded}, 'coverage': matrix, 'availability_counts': counts,
+        'monthly_compatibility_qualifications': qualifications,
         'proposed_inventories': proposed, 'logical_potential': logical, 'blockers': blockers,
         'continuity': comparison, 'validation': {'disposition': 'fail' if any(b['disposition'] == 'fail' for b in blockers) else 'blocked' if blockers else 'pass',
             'source_availability': 'pass' if all(r['availability'] in {'available_and_verified', 'evidenced_unavailable', 'explicitly_excluded'} for r in matrix) else 'blocked',
