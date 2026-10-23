@@ -286,3 +286,14 @@ identified 34 selected parents and 33 provider-evidence sets, and generated 34
 exact-asset retrieval instructions. Its generated inputs ran through the validator
 with a blocked disposition and no contradictory-evidence failures. No retrieval
 script was executed; real package-byte verification remains a Mac-local step.
+
+## Original August 2024 compatibility qualification
+
+A separate, explicit read-only lane is documented in
+[ACS 2024 monthly compatibility v1](../contracts/acs_2024_monthly_compatibility_v1.md).
+Set `monthly_compatibility` to the list of exact product/year keys described there
+and retain the original TAR mappings. The validator recomputes qualification and
+reports technical accounting separately from unapproved compatibility governance
+and unestablished original-response verification. Compatibility cells remain
+outside independently verified inventories and cannot pass historical acceptance,
+fallback readiness or activation. The default independent-evidence path is unchanged.
