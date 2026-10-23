@@ -1,0 +1,183 @@
+{
+  "acquisition_coverage": {
+    "basis": "catalog presence only; not package verification or acceptance",
+    "cataloged_vintages": [
+      2005,
+      2006,
+      2007,
+      2008,
+      2009,
+      2010,
+      2011,
+      2012,
+      2013,
+      2014,
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "missing_acquisition_is_governed_gap": false,
+    "missing_acquisition_vintages": []
+  },
+  "active": false,
+  "approval_blockers": [
+    "explicit_human_approval_and_reviewed_main_installation_required",
+    "incomplete_vintage_partition_2020"
+  ],
+  "authority_identity_semantics": "proposal content identity only; not established authority",
+  "compatibility_exception": "separate_review_required",
+  "partition": {
+    "complete": false,
+    "decisions": [
+      {
+        "required": "independent provider evidence and human-reviewed whole-vintage gap decision",
+        "status": "unresolved",
+        "vintage": 2020
+      }
+    ],
+    "unresolved_vintages": [
+      2020
+    ]
+  },
+  "physical_state": "not_accepted",
+  "request_scope": {
+    "by_level": {
+      "cbsa_metro": 54,
+      "county": 163,
+      "nation": 1,
+      "state": 5
+    },
+    "excluded_geographies": [
+      {
+        "census_code": "11244",
+        "classification": "CANONICAL_CONCEPT_MISMATCH",
+        "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT",
+        "geo_id": "anaheim_ca_metro_area__cbsa_metro",
+        "level": "cbsa_metro"
+      },
+      {
+        "census_code": "15804",
+        "classification": "CANONICAL_CONCEPT_MISMATCH",
+        "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT",
+        "geo_id": "camden_nj_metro_area__cbsa_metro",
+        "level": "cbsa_metro"
+      },
+      {
+        "census_code": "23224",
+        "classification": "CANONICAL_CONCEPT_MISMATCH",
+        "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT",
+        "geo_id": "frederick_md_metro_area__cbsa_metro",
+        "level": "cbsa_metro"
+      },
+      {
+        "census_code": "31084",
+        "classification": "CANONICAL_CONCEPT_MISMATCH",
+        "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT",
+        "geo_id": "los_angeles_ca_metro_area__cbsa_metro",
+        "level": "cbsa_metro"
+      },
+      {
+        "census_code": "35154",
+        "classification": "CANONICAL_CONCEPT_MISMATCH",
+        "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT",
+        "geo_id": "new_brunswick_nj_metro_area__cbsa_metro",
+        "level": "cbsa_metro"
+      },
+      {
+        "census_code": "35084",
+        "classification": "CANONICAL_CONCEPT_MISMATCH",
+        "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT",
+        "geo_id": "newark_nj_metro_area__cbsa_metro",
+        "level": "cbsa_metro"
+      },
+      {
+        "census_code": "36084",
+        "classification": "CANONICAL_CONCEPT_MISMATCH",
+        "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT",
+        "geo_id": "oakland_ca_metro_area__cbsa_metro",
+        "level": "cbsa_metro"
+      },
+      {
+        "census_code": "41884",
+        "classification": "CANONICAL_CONCEPT_MISMATCH",
+        "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT",
+        "geo_id": "san_francisco_ca_metro_area__cbsa_metro",
+        "level": "cbsa_metro"
+      },
+      {
+        "census_code": "42034",
+        "classification": "CANONICAL_CONCEPT_MISMATCH",
+        "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT",
+        "geo_id": "san_rafael_ca_metro_area__cbsa_metro",
+        "level": "cbsa_metro"
+      },
+      {
+        "census_code": "47894",
+        "classification": "CANONICAL_CONCEPT_MISMATCH",
+        "disposition": "EXCLUDED_FROM_INITIAL_ACS_GOVERNED_CONTRACT",
+        "geo_id": "washington_dc_metro_area__cbsa_metro",
+        "level": "cbsa_metro"
+      }
+    ],
+    "membership_sha256": "b1ac4848e409b0625c8c5de4b326f0c783ce12a59544d8849827f42218043a03",
+    "metrics": [
+      {
+        "metric_id": "census_acs1_pop_total",
+        "variable": "B01003_001E"
+      },
+      {
+        "metric_id": "census_acs1_median_household_income",
+        "variable": "B19013_001E"
+      }
+    ],
+    "requested_geographies": 223
+  },
+  "schema_version": "acs_historical_scope_bootstrap_proposal_v1",
+  "scope_record": {
+    "approval_provenance": null,
+    "authority_id": "acs_historical_scope_authority_v1__b6b86e1c6b3b47f2b4a3650d04a1226c65c316f4e493da39614f7c7d20b97956",
+    "config_hashes": {
+      "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+      "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+      "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+      "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+    },
+    "expected_available_vintages": [
+      2005,
+      2006,
+      2007,
+      2008,
+      2009,
+      2010,
+      2011,
+      2012,
+      2013,
+      2014,
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "governed_gaps": [],
+    "historical_range": [
+      2005,
+      2024
+    ],
+    "namespace": "production",
+    "product": "acs/acs1",
+    "schema_version": "acs_historical_scope_authority_v1",
+    "source_id": "census_acs1"
+  },
+  "status": "proposed"
+}

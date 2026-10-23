@@ -1,0 +1,47 @@
+{
+  "active": false,
+  "approval_provenance": null,
+  "config_hashes": {
+    "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+    "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+    "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+    "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+  },
+  "generator_sha256": "ea77648b43e8ff9b41efb930e3eac8164beb4d1aaebf1f18af8c97d32257f561",
+  "input_file_sha256": {
+    "config/acs_backfill_reviews/plan-acs1-b1-2018-2019-2021-2022-2023.json": "cb281aa6f848f56ed02dacc755cbe2670222ec7ddf7fa17eb58c4aca76050157",
+    "config/acs_backfill_reviews/plan-acs1-b3-2013-2014-2015-2016-2017.json": "94ee58e03873cf0ecc2183333b25657648596efac2d0572edef72b2f5244015d",
+    "config/acs_backfill_reviews/plan-acs1-b5-2008-2009-2010-2011-2012.json": "905b4bd02915003120954568af949582ed9375823cdcd61803b713e187d8a353",
+    "config/acs_backfill_reviews/plan-acs1-b7-2005-2006-2007.json": "238f753cbf6858038d0322ea0fac11111ab45311ac0cfda088fc0875d3af7e29",
+    "config/acs_backfill_reviews/plan-acs5-b2-2018-2019-2020-2021-2022.json": "09ed5e185317386ae3c0bfe53116a6f9300c9323fde20e42d38707a09ceb46e1",
+    "config/acs_backfill_reviews/plan-acs5-b2-transport-recovery.json": "8754236d9c9d97c19234afc62a7d18d19bf28bab11dccd74879a811daa8017e7",
+    "config/acs_backfill_reviews/plan-acs5-b4-2013-2014-2015-2016-2017.json": "25c3c4b5dc4b99b19a80b184b052591df87e5e9ebbd4eef59cdbe4ea2ac4e03f",
+    "config/acs_backfill_reviews/plan-acs5-b6-2009-2010-2011-2012.json": "366c892f83b6c9e3bff45a4fca958dcacc33aeb586d9fbf99648526cb52fe0e7",
+    "config/artifact_catalog.json": "2b49256a75802f8290094c5841e6015ced4fc09cfc6dd7680b4def267978bfa9",
+    "config/monthly_source_cycle_results/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs1.json": "b24a8eb1ea1b893231ef361d7928763c6864fe2224275cffc7ad2d52e625610a",
+    "config/monthly_source_cycle_results/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs5.json": "0b436367918f1263279d847a4684a6b7629844c2f624bc2cad2bc3793ce62b34",
+    "sources/census_acs/artifact.py": "1b7e352ef9b5e9ab83b77698c576245a24f8fc52f811975e8d6669109e9e9c10"
+  },
+  "installation": "forbidden: review-only template, not a production registry",
+  "registry_template": {
+    "current_scope": {},
+    "current_state": {},
+    "gap_evidence": {},
+    "namespace": "production",
+    "schema_version": "acs_historical_governance_registry_v1",
+    "scopes": {},
+    "states": {}
+  },
+  "schema_version": "acs_historical_scope_bootstrap_proposal_v1",
+  "scope_proposals": {
+    "census_acs1": {
+      "path": "census_acs1.scope.proposal.json",
+      "sha256": "9d50cbf2a478f694322e8f4255300e6d7a373bed5237e3defb33f6987aabfc26"
+    },
+    "census_acs5": {
+      "path": "census_acs5.scope.proposal.json",
+      "sha256": "c30a4e321e6d15b0aca4869ce01268e27617ffc9bf831f562b488e0385660e54"
+    }
+  },
+  "status": "proposed"
+}
