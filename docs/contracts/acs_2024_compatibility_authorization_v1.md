@@ -1,9 +1,10 @@
 # Bounded ACS 2024 compatibility authorization
 
 This implementation is inactive. The proposal inputs under `docs/proposals/`
-are incomplete and deliberately cannot pass the consumer. They are not an
-approval record. Complete reports and reviewed scope identities must be supplied
-before a full record can be generated for human review. No production registry,
+remain incomplete because authoritative historical scope identities are absent.
+They deliberately cannot pass the consumer and are not an approval record. The
+two uploaded production reports are retained unchanged and their evidence
+bindings are complete; no scope identity is invented. No production registry,
 original package, manifest, pin, catalog, August identity or PR #299 is changed.
 
 ## Authority trust path
@@ -39,9 +40,10 @@ match the current geography, metric and policy configuration digests.
 It accepts only the two exact successful qualification identities recorded in
 the proposal inputs. It never publishes, approves or advances a registry.
 
-The generated record binds both complete semantic report digests and copies
-qualification IDs, parent identities and data hashes, complete evidence
-inventories, July publication and August acceptance lineage, original and
+The generated record binds both complete semantic report digests, exact original
+file-byte SHA-256 hashes and sizes, qualification IDs, parent identities and data
+hashes, complete evidence inventories, compact SHA-256 references to the full
+July publication and August acceptance lineage in the retained reports, original and
 reference configuration hashes, reviewed policy differences, code provenance,
 qualification validator digest and historical-scope context. It also binds the
 consumer file digest, current governed configuration hashes, governing scope
@@ -59,7 +61,9 @@ in `monthly_compatibility`. The CLI requires explicit
 main. Missing credentials or authority fail closed. Offline mode remains advisory.
 The consumer re-runs PR #301's independent qualifier against each original TAR,
 anchored catalog, pins, cycle results, workflow evidence, Git objects, code and
-configuration. The entire fresh report must equal the unchanged retained report.
+configuration. The original file bytes must match the approved byte hash and size, even when
+a reformatted file has the same semantic identity. The entire fresh report must
+equal the unchanged retained report.
 Missing, altered or stale reports/evidence/configuration/validator bytes fail.
 The approved binding must equal the retained binding in every field.
 
@@ -86,22 +90,65 @@ a future approved record passes this bounded readiness consumer. Physical-state
 acceptance, Source Set publication, serving promotion and Macro execution each
 remain separate human-governed operational gates, outside this implementation.
 
-## Supplying the retained production reports
+## Production evidence retention and observed blockers
 
-The human reports that the originals remain on their Mac under
-`$HOME/acs-readiness-review/compatibility-301-code/acs1/` and the sibling `acs5/`
-directory, named by the two exact qualification IDs in the proposal inputs.
-Their reported qualification code commit is
-`3d5b94dc6f51c4f3ec4b0a95bcea50bd3b8be086`. These locations and reported outcomes
-do not substitute for inspecting the report bytes.
+The two user-uploaded reports were independently checked against their exact
+qualification identities, 24 successful predicates each, current qualifier
+bytes, original catalog identities, and anchored July/August pins and cycle
+results. Their bytes were copied without regeneration or reserialization into
+`docs/audit/acs_2024_qualification_reports/<file-sha256>.json`. The proposal
+contains exact relative paths, byte hashes and sizes; it binds the complete
+semantic report plus compact lineage section digests. Neither user-reported
+success nor an embedded status is treated as governance approval.
 
-Attach those two unchanged JSON files to the review chat, or place copies in the
-implementation workspace and supply their paths. No production TAR is needed
-merely to construct the proposed record from retained reports. Once the report
-bytes and governing scope IDs are available, generate and review the full
-inactive record; do not change the status to approved during this task. Approval
-and registry installation remain separate reviewed-main human actions. To test
-the real-data consumer later, supply both original TARs from
-`$HOME/acs-readiness-review/discovery-1/retrieved-packages/` and the required Git
-objects/evidence to a suitable local workspace. Fixture suite success is not
-production requalification or authorization.
+The existing source artifact contract permits small specifications/manifests in
+Git and prohibits material Parquet/raw data/DuckDB. These two reports total
+173,869 bytes and contain qualification metadata, hashes, request/absence
+classifications and lineage, not material source observations or raw HTTP
+responses. Retaining one unchanged copy of each as audit metadata follows the
+existing `docs/audit` evidence pattern. Numeric geography classifications are
+not substituted for missing observations. No TAR, Parquet, provider snapshot,
+large log payload or duplicate full lineage is added. An opaque upload pointer
+or a bare digest without reachable bytes would be insufficient durable retention.
+
+To access exact bytes, check out the immutable PR/reviewed commit containing the
+reports, resolve the proposal's `retained_report.path` under that checkout, and
+supply those paths in readiness's `compatibility_authorization.reports` map.
+The consumer checks the byte hash/size and exact qualification identity before
+independent requalification. A later reviewed-main authorization must bind these
+same byte commitments; being present in Git alone does not approve the reports.
+
+At inspected remote main `34ed70b2125b45c449086bccc4179b7ac4c32960`,
+`config/acs_historical_governance.json` is absent in the Git tree and its GitHub
+Contents lookup returns 404. Both unchanged reports explicitly record
+`historical_scope.status="missing_authority"`. The original August pins, cycle
+results and accepted family resolution provide acquisition/acceptance lineage,
+not historical scope authority IDs. Exact governing scope IDs for both products
+are therefore **unavailable**, not inferred from backfill plans, monthly policy,
+family identity or policy endorsement. The proposal retains null scope IDs and
+no authorization ID. Separate human-reviewed governance must establish the
+registry and actual scope IDs before a complete inactive authorization can be
+constructed. This task does not create or approve scopes.
+
+No original production TAR exists in this workspace. Read-only retrieval of the
+cataloged numeric Release assets was attempted and returned `Forbidden` for both:
+
+| Source | Release ID | Asset ID | Required package SHA-256 |
+| --- | --- | --- | --- |
+| ACS1 | 392729325 | 578392031 | `7ea888ffb034decf6b9d118c029399922dccf1de2c74a0ca3d39d6720f76d600` |
+| ACS5 | 392729171 | 578391228 | `225bbe8ffd3a08b6ae049600f0e5fa05aa9132b83301fab54dbbcd591a3922fb` |
+
+Each original TAR is 40,960 bytes according to its retained qualification.
+The proposal includes the exact cataloged filenames, tags and source identities.
+Provide unchanged files from the Mac's
+`$HOME/acs-readiness-review/discovery-1/retrieved-packages/` or authorized access
+to these existing assets for real-data requalification. Do not reacquire source
+data or reconstruct packages/reports. The original execution Git objects,
+workflow evidence and original code/configuration bytes remain required by the
+qualifier; they must be available for that later run as well.
+
+Report-integrity and repository-lineage verification passed. TAR-member
+reverification, live authority validation and real-evidence readiness did not run
+to completion because the original packages and historical scope authority are
+unavailable. No production report was regenerated, no proposed record was
+approved, and no historical acceptance or activation occurred.

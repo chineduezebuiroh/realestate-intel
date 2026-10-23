@@ -302,10 +302,12 @@ fallback readiness or activation. The default independent-evidence path is uncha
 
 See [the authorization contract](../contracts/acs_2024_compatibility_authorization_v1.md)
 for the remote-main trust path, exact-record generator and evidence requirements.
-The checked-in proposal inputs are explicitly incomplete: neither full successful
-qualification report nor reviewed governing scope identities were available in
-this implementation workspace. Do not substitute qualification IDs for report
-contents, fabricate their evidence inventories, or install this scaffold in the
+The checked-in proposal now binds both unchanged uploaded production reports,
+retained once under SHA-256 filenames in `docs/audit/acs_2024_qualification_reports/`.
+It remains explicitly incomplete because the authoritative historical governance
+registry and governing scope identities are absent on inspected remote main.
+Do not infer historical scope approval from original monthly acquisition records,
+fabricate authority IDs, or install this scaffold in the
 production registry. Both original TARs and unchanged reports must pass fresh
 qualification before even bounded advisory readiness can use an approved record.
 All acceptance, publication, serving and Macro gates remain separate and closed.

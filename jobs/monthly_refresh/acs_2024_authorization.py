@@ -50,22 +50,36 @@ def report_binding(report: dict, source: str) -> dict:
     if (provenance['original_publication']['cycle_id'] != qualification.PUBLICATION_CYCLE
             or provenance['august_acceptance']['cycle_id'] != qualification.CYCLE):
         raise ValueError('original publication/acceptance lineage mismatch')
+    lineage = {'sha256': sha256_json(provenance), **{name: {
+        'cycle_id': value['cycle_id'], 'sha256': sha256_json(value)}
+        for name, value in provenance.items()}}
     return {'qualification_id': report['qualification_id'], 'report_sha256': sha256_json(report),
-            **{key: deepcopy(report[key]) for key in ('parent', 'evidence_inventory', 'provenance',
+            'provenance': lineage,
+            **{key: deepcopy(report[key]) for key in ('parent', 'evidence_inventory',
                  'code_provenance', 'configuration', 'validator_sha256', 'historical_scope')}}
 
 
-def proposal(reports: dict, scopes: dict, root: Path) -> dict:
+def report_file_binding(path: Path, source: str) -> dict:
+    """Bind unchanged file bytes separately from canonical JSON semantic identity."""
+    path = Path(path)
+    return {**report_binding(qualification.read_json(path), source),
+            'report_file_sha256': sha256_file(path), 'report_size_bytes': path.stat().st_size}
+
+
+def proposal(reports: dict, scopes: dict, root: Path, *, report_files: dict) -> dict:
     """Construct an inactive proposal. A semantic hash never confers approval."""
-    if set(reports) != set(QUALIFICATIONS) or set(scopes) != set(QUALIFICATIONS):
+    if (set(reports) != set(QUALIFICATIONS) or set(scopes) != set(QUALIFICATIONS)
+            or set(report_files) != set(QUALIFICATIONS)):
         raise ValueError('both exact reports and governing scopes required')
-    bindings = {s: report_binding(reports[s], s) for s in QUALIFICATIONS}
+    bindings = {s: report_file_binding(report_files[s], s) for s in QUALIFICATIONS}
+    if any(qualification.read_json(report_files[s]) != reports[s] for s in QUALIFICATIONS):
+        raise ValueError('report files differ from supplied report objects')
     return identify(VERSION, {'schema_version': VERSION, 'namespace': 'production',
         'status': 'proposed', 'approval_provenance': None, 'repository': REPOSITORY,
         'scope_authorities': deepcopy(scopes), 'qualifications': bindings,
         'consumer_sha256': sha256_file(Path(__file__)),
         'config_hashes': qualification.governed_config_hashes(root),
-        'authorized_classifications': CLASSIFICATIONS, 'limitations': LIMITATIONS}, 'authorization_id')
+        'authorized_classifications': deepcopy(CLASSIFICATIONS), 'limitations': deepcopy(LIMITATIONS)}, 'authorization_id')
 
 
 def verify(*, governance: ACSGovernance, authorization_id: str, reports: dict,
@@ -95,7 +109,7 @@ def verify(*, governance: ACSGovernance, authorization_id: str, reports: dict,
         if 2024 not in scope['expected_available_vintages']:
             raise ValueError('2024 outside approved historical scope')
         retained = qualification.read_json(reports[source])
-        binding = report_binding(retained, source)
+        binding = report_file_binding(reports[source], source)
         if binding != record['qualifications'][source]:
             raise ValueError('retained qualification or complete evidence binding mismatch')
         # A retained status/hash cannot replace validating the original evidence.
@@ -128,7 +142,8 @@ def main():
     args = parser.parse_args()
     reports = {s: qualification.read_json(getattr(args, s[7:] + '_report')) for s in QUALIFICATIONS}
     scopes = {s: getattr(args, s[7:] + '_scope') for s in QUALIFICATIONS}
-    record = proposal(reports, scopes, args.repository_root)
+    report_files = {s: getattr(args, s[7:] + '_report') for s in QUALIFICATIONS}
+    record = proposal(reports, scopes, args.repository_root, report_files=report_files)
     import json
     with args.output.open('x') as stream:
         stream.write(json.dumps(record, sort_keys=True, indent=2) + '\n')

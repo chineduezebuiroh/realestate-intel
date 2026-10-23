@@ -41,7 +41,7 @@ def authorized(tmp_path, monkeypatch):
         paths[source] = tmp_path / (source + '.json')
         paths[source].write_text(json.dumps(reports[source]))
     monkeypatch.setattr(auth, 'QUALIFICATIONS', {s: r['qualification_id'] for s, r in reports.items()})
-    proposed = auth.proposal(reports, scopes, ROOT)
+    proposed = auth.proposal(reports, scopes, ROOT, report_files=paths)
     record = identify(auth.VERSION, {**proposed, 'status': 'approved', 'approval_provenance': {'review': 'offline test only'}}, 'authorization_id')
     reg['compatibility_authorizations'] = {record['authorization_id']: record}
     reg['current_compatibility_authorization'] = record['authorization_id']
@@ -136,7 +136,7 @@ def test_geography_partition_cannot_be_widened(authorized, monkeypatch):
     reports[source] = identify(auth.qualification.VERSION, reports[source], 'qualification_id')
     monkeypatch.setitem(auth.QUALIFICATIONS, source, reports[source]['qualification_id'])
     paths[source].write_text(json.dumps(reports[source]))
-    record['qualifications'][source] = auth.report_binding(reports[source], source)
+    record['qualifications'][source] = auth.report_file_binding(paths[source], source)
     record.update(identify(auth.VERSION, record, 'authorization_id'))
     reg['compatibility_authorizations'] = {record['authorization_id']: record}
     reg['current_compatibility_authorization'] = record['authorization_id']
@@ -156,6 +156,47 @@ def test_proposed_inputs_are_deliberately_not_authority():
     record = auth.qualification.read_json(ROOT / 'docs/proposals/acs_2024_compatibility_authorization.json')
     assert record['status'] == 'proposed_incomplete' and record['active'] is False
     assert record['approval_provenance'] is None
-    assert all(r['retained_report'] is None for r in record['eligible_parents'].values())
+    assert all(r['governing_scope_authority_id'] is None for r in record['eligible_parents'].values())
+    assert record['scope_authority_resolution']['status'] == 'missing_authority'
     with pytest.raises(ValueError):
-        auth.proposal(record['eligible_parents'], {}, ROOT)
+        auth.proposal(record['eligible_parents'], {}, ROOT, report_files={})
+
+
+def test_unchanged_semantics_do_not_replace_exact_report_bytes(authorized):
+    reg, record, proposed, reports, paths, invoke = authorized
+    source = 'census_acs1'
+    before = auth.qualification.read_json(paths[source])
+    paths[source].write_text(json.dumps(before, indent=2) + '\n')
+    assert auth.qualification.read_json(paths[source]) == before
+    with pytest.raises(ValueError, match='complete evidence binding mismatch'): invoke()
+
+
+@pytest.mark.parametrize('source', sorted(auth.QUALIFICATIONS))
+def test_retained_production_report_and_original_lineage(source):
+    record = auth.qualification.read_json(ROOT / 'docs/proposals/acs_2024_compatibility_authorization.json')
+    ref = record['eligible_parents'][source]['retained_report']
+    path = ROOT / ref['path']
+    assert path.name == ref['sha256'] + '.json'
+    binding = auth.report_file_binding(path, source)
+    assert binding == record['qualifications'][source]
+    assert binding['report_file_sha256'] == ref['sha256']
+    assert binding['report_size_bytes'] == ref['size_bytes']
+    report = auth.qualification.read_json(path)
+    assert report['historical_scope'] == {'status': 'missing_authority'}
+    assert len(report['predicates']) == 24
+    for label, cycle in [('original_publication', auth.qualification.PUBLICATION_CYCLE),
+                         ('august_acceptance', auth.qualification.CYCLE)]:
+        assert report['provenance'][label]['pin'] == auth.qualification.read_json(
+            ROOT / f'config/monthly_source_input_pins/{cycle}/{source}.json')
+        assert report['provenance'][label]['cycle_result'] == auth.qualification.read_json(
+            ROOT / f'config/monthly_source_cycle_results/{cycle}/{source}.json')['result']
+    assert report['validator_sha256'] == auth.sha256_file(Path(auth.qualification.__file__))
+    assert all(c['classification'] in auth.CLASSIFICATIONS for c in report['reconciliation']['cells'])
+
+
+def test_production_bindings_do_not_authorize_without_registry():
+    record = auth.qualification.read_json(ROOT / 'docs/proposals/acs_2024_compatibility_authorization.json')
+    with pytest.raises(ValueError, match='capability'):
+        auth.verify(governance=None, authorization_id='not-issued',
+            reports={s: ROOT / p['retained_report']['path'] for s,p in record['eligible_parents'].items()},
+            packages={}, catalog=ROOT / 'config/artifact_catalog.json', root=ROOT)
