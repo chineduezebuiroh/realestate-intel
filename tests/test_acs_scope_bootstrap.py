@@ -133,3 +133,85 @@ def test_cli_rejects_activation(monkeypatch, tmp_path, mode):
     with pytest.raises(SystemExit) as exc: bootstrap.main()
     assert exc.value.code == 2
     assert not (ROOT / 'config/acs_historical_governance.json').exists()
+
+
+def conditional_fixture(documents, *, gap_approved):
+    """Offline structural exercise only; never a production governance record."""
+    from jobs.monthly_refresh.acs_2020_gap import GAP_FILE
+    from jobs.monthly_refresh.acs_scope import GAP_VERSION
+    registry = deepcopy(documents[bootstrap.REGISTRY_FILE]['registry_template'])
+    registry['namespace'] = 'test_only'
+    gap = deepcopy(documents[GAP_FILE])
+    gap['namespace'] = 'test_only'
+    if gap_approved:
+        gap['status'] = 'approved_offline_fixture'
+        gap['approval_provenance'] = {'review': 'offline test fixture only'}
+    gap = identify(GAP_VERSION, gap, 'evidence_id')
+    scope = deepcopy(documents[bootstrap.CANDIDATE_FILE])
+    scope['namespace'] = 'test_only'
+    scope['approval_provenance'] = {'review': 'offline test fixture only'}
+    scope['governed_gaps'] = [{'vintage': 2020, 'evidence_id': gap['evidence_id']}]
+    scope = identify(SCOPE_VERSION, scope, 'authority_id')
+    registry['scopes'] = {scope['authority_id']: scope}
+    registry['current_scope'] = {'census_acs1': scope['authority_id']}
+    registry['gap_evidence'] = {gap['evidence_id']: gap}
+    return registry, scope, gap
+
+
+def test_conditional_2020_partition_satisfies_existing_contract_only_in_fixture(documents):
+    from jobs.monthly_refresh.acs_2020_gap import GAP_FILE
+    one = documents[bootstrap.FILENAMES['census_acs1']]
+    gap = documents[GAP_FILE]
+    assert one['scope_record']['governed_gaps'] == []
+    candidate = documents[bootstrap.CANDIDATE_FILE]
+    assert candidate['governed_gaps'] == [{'vintage': 2020, 'evidence_id': gap['evidence_id']}]
+    assert set(candidate['expected_available_vintages']) | {2020} == set(range(2005, 2025))
+    assert 2020 not in one['acquisition_coverage']['missing_acquisition_vintages']
+    assert one['proposed_partition']['missing_acquisition'] is False
+    assert one['proposed_partition']['complete'] is True
+    assert gap['status'] == 'proposed' and gap['approval_provenance'] is None
+    registry, scope, _ = conditional_fixture(documents, gap_approved=True)
+    governance = ACSGovernance.from_fixture(registry)
+    assert governance.scope('census_acs1', scope['authority_id'], ROOT) == scope
+    with pytest.raises(ValueError, match='test_only'): governance.require_production()
+
+
+def test_proposed_gap_cannot_satisfy_approved_evidence_membership(documents):
+    registry, scope, _ = conditional_fixture(documents, gap_approved=False)
+    with pytest.raises(ValueError, match='unapproved governed gap'):
+        ACSGovernance.from_fixture(registry).scope('census_acs1', scope['authority_id'], ROOT)
+
+
+@pytest.mark.parametrize('attack', ['missing_acquisition', 'experimental', 'acs5', 'inference', 'references', 'approval', 'activation', 'scope', 'vintage'])
+def test_unsupported_or_unauthorized_gap_rejected(documents, attack):
+    from jobs.monthly_refresh.acs_2020_gap import GAP_FILE, validate_gap
+    from jobs.monthly_refresh.acs_scope import GAP_VERSION
+    gap = documents[GAP_FILE]
+    evidence = gap['provider_evidence']
+    if attack == 'missing_acquisition': evidence['classification'] = 'missing_acquisition'
+    elif attack == 'experimental': evidence['requested_provider_release_id'] = 'acs/acs1-experimental:2020'
+    elif attack == 'acs5': gap['source_id'] = 'census_acs5'; gap['product'] = 'acs/acs5'
+    elif attack == 'inference': evidence['basis'] = 'http_404'; evidence['references'] = []
+    elif attack == 'references': evidence['references'][0]['url'] = 'https://www.census.gov/unsupported.html'
+    elif attack == 'approval': gap['status'] = 'approved'; gap['approval_provenance'] = {'review': 'forged'}
+    elif attack == 'activation': gap['activation'] = True
+    elif attack == 'scope': evidence['request_scope']['requested_geographies'] = 1
+    elif attack == 'vintage': gap['vintage'] = 2021
+    gap = identify(GAP_VERSION, gap, 'evidence_id')
+    with pytest.raises(ValueError): validate_gap(gap, ROOT)
+
+
+def test_capture_absence_or_tampering_fails_closed(tmp_path):
+    from jobs.monthly_refresh.acs_2020_gap import generate_gap, SOURCE_PATH
+    with pytest.raises(OSError): generate_gap(tmp_path)
+    path = tmp_path / SOURCE_PATH
+    path.parent.mkdir(parents=True)
+    path.write_text('{"sources": []}')
+    with pytest.raises(ValueError, match='documentation capture'): generate_gap(tmp_path)
+
+
+def test_acs5_proposal_remains_identical_to_original_303(documents):
+    import subprocess
+    path = 'docs/proposals/acs_historical_scope_bootstrap/' + bootstrap.FILENAMES['census_acs5']
+    original = json.loads(subprocess.check_output(['git', 'show', 'cc9ddcbf8fffb6d4b45716813e63185652cdfd5c:' + path]))
+    assert documents[bootstrap.FILENAMES['census_acs5']] == original

@@ -1,0 +1,43 @@
+{
+  "capture_basis": "Independently retrieved official public Census web-page text; short excerpts normalized by collapsing whitespace. Not raw HTTP response bytes, signed attestation, or governance approval.",
+  "finding": "The standard 2020 ACS 1-year product was not published. Experimental 2020 ACS 1-year estimates are a distinct product; the 2016–2020 ACS 5-year product was separately released.",
+  "limitations": [
+    "No API endpoint response or dataset discovery result is asserted.",
+    "Documentation supports standard-product nonpublication, not provider-ineligibility of individual geographies.",
+    "Human evidence review and separate scope approval remain required."
+  ],
+  "observed_date": "2026-10-23",
+  "publisher": "U.S. Census Bureau",
+  "schema_version": "acs_2020_provider_documentation_capture_v1",
+  "sources": [
+    {
+      "excerpt": "The U.S. Census Bureau did not release its standard 1-year estimates from the 2020 American Community Survey (ACS)",
+      "excerpt_utf8_sha256": "08b739427789079a3d8456f29a5486b6b72a1fcaaae79f0176481d6cfb60d267",
+      "locator": "Opening paragraph",
+      "publication_date": "2021-07",
+      "role": "standard_nonpublication",
+      "title": "Changes for 2020 ACS 1-Year Estimates",
+      "url": "https://www.census.gov/programs-surveys/acs/technical-documentation/user-notes/2021-02.html"
+    },
+    {
+      "excerpt": "today released experimental 1-year estimates from the American Community Survey (ACS)",
+      "excerpt_utf8_sha256": "6a0a5896f366cb87c0c930948c425912bb6f028c61359e0bbc5bc7caa9c558a5",
+      "locator": "Opening paragraph",
+      "press_release_number": "CB21-TPS.139",
+      "publication_date": "2021-11-30",
+      "role": "experimental_distinction",
+      "title": "Census Bureau Releases Experimental 2020 American Community Survey 1-Year Data",
+      "url": "https://www.census.gov/newsroom/press-releases/2021/experimental-2020-acs-1-year-data.html"
+    },
+    {
+      "excerpt": "Today the U.S. Census Bureau released new statistics from the 2016–2020 American Community Survey (ACS) 5-year estimates.",
+      "excerpt_utf8_sha256": "4375482cd66bb801e5352601ab30e13442c98e87ebaee361b3000308fff16352",
+      "locator": "Opening paragraph",
+      "press_release_number": "CB22-48",
+      "publication_date": "2022-03-17",
+      "role": "acs5_distinction",
+      "title": "New Statistics Available From the 2016–2020 American Community Survey 5-Year Estimates",
+      "url": "https://www.census.gov/newsroom/press-releases/2022/acs-5-year-estimates.html"
+    }
+  ]
+}

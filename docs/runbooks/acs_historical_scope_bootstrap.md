@@ -22,10 +22,15 @@ means exact, deterministic review inputs; its output explicitly reports no
 production authority, physical-state acceptance or activation. It does not mean
 the proposed scopes pass the approved-scope contract.
 
-Three review artifacts are generated:
+Five review artifacts are generated:
 
 - `census_acs1.scope.proposal.json`: wrapper plus existing-contract scope record,
   range 2005–2024, null approval provenance and explicit unresolved 2020 decision.
+- `census_acs1.2020.gap.proposal.json`: existing-contract gap evidence with explicit
+  proposed status, null approval, official Census citations and exact request scope.
+- `census_acs1.scope.if-gap-approved.json`: separate conditional scope candidate
+  whose 19 available vintages plus proposed 2020 gap structurally partition
+  2005–2024. It remains unapproved; references must be recomputed after approval.
 - `census_acs5.scope.proposal.json`: wrapper plus existing-contract scope record,
   range 2009–2024, complete proposed partition and null approval provenance.
 - `initial-registry.proposal.json`: wrapper containing an empty registry template,
@@ -79,16 +84,22 @@ The existing scope contract requires expected available vintages and approved
 evidence-backed whole-vintage gaps to partition the inclusive range exactly.
 It has no approved unresolved-year category.
 
-ACS1's proposed available list contains the intended years except 2020. Its
-`governed_gaps` is empty; 2020 is recorded only in the wrapper's unresolved
-partition and decision list. This record is deliberately incomplete and cannot
-become valid approved scope by filling in reviewer provenance. Independent
-provider evidence and a separate human-reviewed decision must establish a valid
-`acs_governed_gap_evidence_v1` record for the unavailable vintage, or independently
-justify a different available-vintage decision. No such evidence/decision is
-manufactured here. If an unresolved year is to be allowed in approved scope,
-that would require a separate explicit contract change; this PR does not do it.
-Do not narrow to 2024 or call 2020 acquired to bypass this blocker.
+ACS1's base proposed available list contains the intended years except 2020.
+Its base `governed_gaps` remains empty: production semantics require approved
+rather than merely proposed evidence. The wrapper now references a separately
+proposed provider-documentation gap and a separate conditional scope candidate.
+That candidate's 19 available vintages plus the proposed 2020 unavailable vintage
+form a complete partition under the existing schema. Test-only structural checks
+through the unchanged `ACSGovernance.scope()` confirm this; they do not approve
+production records. The base record remains blocked pending human decisions.
+
+The authoritative documentation establishes standard-product nonpublication,
+not an acquisition failure. See [2020 gap review](acs1_2020_whole_vintage_gap.md)
+for citations, exact fields, capture limitations and review requirements. No
+unresolved-year contract change is now needed for the conditional partition.
+Independent human approval of the gap and scope is still required. Do not treat
+the experimental ACS1 release, ACS5, a missing TAR, HTTP error or geography-specific
+omission as equivalent evidence or substitute observations.
 
 ACS5's proposed available list includes 2023. Missing catalog acquisition is not
 provider unavailability and is not a governed gap. The scope can be represented
@@ -96,7 +107,8 @@ under the existing contract without that acquisition being complete, but remains
 unapproved. Package acquisition/verification, scope approval and physical-state
 acceptance are distinct gates. Catalog presence in a proposal is informational,
 not a claim of verified bytes, complete coverage, accepted inventory or state.
-No ACS1 2020 or ACS5 2023 implementation is included.
+No ACS1 2020 acquisition, experimental substitution or ACS5 2023 acquisition
+implementation is included.
 
 ## Human review and remote-main installation
 

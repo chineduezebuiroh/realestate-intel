@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 from collections import Counter
 import json
 from pathlib import Path
 
 from core.source_artifacts.hashing import sha256_file, sha256_json
+from jobs.monthly_refresh.acs_2020_gap import generate_gap, validate_gap, GAP_FILE, CANDIDATE_FILE, SOURCE_PATH
 from jobs.monthly_refresh.acs_scope import SCOPE_VERSION, check_identity, identify
 from jobs.monthly_refresh.acs_2024_compatibility import read_json
 from sources.census_acs.artifact import PRODUCTS, VARIABLES, geography_plan, governed_config_hashes
@@ -44,7 +46,10 @@ def generate(root: Path) -> dict[str, dict]:
         if not plans[source] or [min(plans[source]), max(plans[source])] != RANGES[source]:
             raise ValueError('intended historical range differs from adopted plans')
         inputs[path.relative_to(root).as_posix()] = sha256_file(path)
-    output = {}
+    gap = generate_gap(root)
+    inputs[SOURCE_PATH] = sha256_file(root / SOURCE_PATH)
+    inputs['jobs/monthly_refresh/acs_2020_gap.py'] = sha256_file(root / 'jobs/monthly_refresh/acs_2020_gap.py')
+    output = {GAP_FILE: gap}
     for source, (start, end) in RANGES.items():
         unresolved = [2020] if source == 'census_acs1' else []
         available = [year for year in range(start, end + 1) if year not in unresolved]
@@ -73,11 +78,29 @@ def generate(root: Path) -> dict[str, dict]:
             'physical_state': 'not_accepted', 'compatibility_exception': 'separate_review_required',
             'approval_blockers': ['explicit_human_approval_and_reviewed_main_installation_required'] +
                 (['incomplete_vintage_partition_2020'] if unresolved else [])}
+    # governed_gaps denotes approved evidence in the existing production contract.
+    # Keep the conditional complete candidate separate from the still unapproved scope.
+    one = output[FILENAMES['census_acs1']]
+    candidate = deepcopy(one['scope_record'])
+    candidate['governed_gaps'] = [{'vintage': 2020, 'evidence_id': gap['evidence_id']}]
+    output[CANDIDATE_FILE] = identify(SCOPE_VERSION, candidate, 'authority_id')
+    one['scope_record_if_gap_approved'] = {'path': CANDIDATE_FILE,
+        'authority_id': output[CANDIDATE_FILE]['authority_id'], 'sha256': sha256_json(output[CANDIDATE_FILE]),
+        'condition': 'independent human gap approval and separate historical scope approval required'}
+    one['proposed_gap'] = {'path': GAP_FILE, 'evidence_id': gap['evidence_id'], 'sha256': sha256_json(gap)}
+    one['proposed_partition'] = {'complete': True, 'available_vintages': candidate['expected_available_vintages'],
+        'unavailable_vintages': [2020], 'classification': 'standard_whole_vintage_not_published',
+        'approval': 'pending', 'missing_acquisition': False}
+    one['partition']['decisions'][0] = {'vintage': 2020, 'status': 'provider_documentation_obtained_approval_pending',
+        'required': 'independent human approval of proposed gap evidence and historical scope'}
+    one['approval_blockers'] = ['explicit_human_approval_and_reviewed_main_installation_required',
+        'proposed_gap_evidence_and_scope_approval_required']
     output[REGISTRY_FILE] = {'schema_version': VERSION, 'status': 'proposed', 'active': False,
         'approval_provenance': None,
         'registry_template': {'schema_version': 'acs_historical_governance_registry_v1',
             'namespace': 'production', 'scopes': {}, 'current_scope': {}, 'gap_evidence': {},
             'states': {}, 'current_state': {}},
+        'gap_proposals': {'census_acs1:2020': {'path': GAP_FILE, 'evidence_id': gap['evidence_id'], 'sha256': sha256_json(gap)}},
         'scope_proposals': {s: {'path': FILENAMES[s], 'sha256': sha256_json(output[FILENAMES[s]])} for s in RANGES},
         'input_file_sha256': dict(sorted(inputs.items())), 'config_hashes': hashes,
         'generator_sha256': sha256_file(Path(__file__)),
@@ -87,6 +110,8 @@ def generate(root: Path) -> dict[str, dict]:
 
 def validate(documents: dict[str, dict], root: Path) -> dict:
     """Validate exact review inputs. Success never confers approval/readiness."""
+    validate_gap(documents[GAP_FILE], root)
+    check_identity(SCOPE_VERSION, documents[CANDIDATE_FILE], 'authority_id')
     for source in RANGES:
         record = documents[FILENAMES[source]]['scope_record']
         check_identity(SCOPE_VERSION, record, 'authority_id')
@@ -95,7 +120,7 @@ def validate(documents: dict[str, dict], root: Path) -> dict:
     if documents != generate(root):
         raise ValueError('proposal drift, forged scope, incomplete evidence or attempted activation')
     return {'proposal_validation': 'passed', 'production_authority': False,
-            'scope_partition': {'census_acs1': 'incomplete_2020_decision', 'census_acs5': 'complete_unapproved'},
+            'scope_partition': {'census_acs1': 'conditional_partition_complete_gap_and_scope_unapproved', 'census_acs5': 'complete_unapproved'},
             'physical_state_acceptance': False, 'activation': False}
 
 
@@ -108,9 +133,9 @@ def main():
     args = parser.parse_args()
     root = args.repository_root.resolve()
     if args.check:
-        if {p.name for p in args.check.iterdir()} != {*FILENAMES.values(), REGISTRY_FILE}:
+        if {p.name for p in args.check.iterdir()} != {*FILENAMES.values(), GAP_FILE, CANDIDATE_FILE, REGISTRY_FILE}:
             parser.error('exact proposal file set required')
-        result = validate({name: read_json(args.check / name) for name in [*FILENAMES.values(), REGISTRY_FILE]}, root)
+        result = validate({name: read_json(args.check / name) for name in [*FILENAMES.values(), GAP_FILE, CANDIDATE_FILE, REGISTRY_FILE]}, root)
     else:
         destination = args.output.resolve()
         if destination.is_relative_to(root / 'config') or destination == root or destination.exists():

@@ -7,7 +7,14 @@
     "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
     "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
   },
-  "generator_sha256": "ea77648b43e8ff9b41efb930e3eac8164beb4d1aaebf1f18af8c97d32257f561",
+  "gap_proposals": {
+    "census_acs1:2020": {
+      "evidence_id": "acs_governed_gap_evidence_v1__29ce8edab380e39f094ecd344165ead307e1756e66fc2e6f2f1e832ad72fe676",
+      "path": "census_acs1.2020.gap.proposal.json",
+      "sha256": "06a70f16e383b261cac7fce76eebd32722c910b1271f79f89b78f430e21392fa"
+    }
+  },
+  "generator_sha256": "d90c6f2891c3ecb6150eae7ee9c19f1dbaf90ba6d8f5cd6d29940b3331f7eea3",
   "input_file_sha256": {
     "config/acs_backfill_reviews/plan-acs1-b1-2018-2019-2021-2022-2023.json": "cb281aa6f848f56ed02dacc755cbe2670222ec7ddf7fa17eb58c4aca76050157",
     "config/acs_backfill_reviews/plan-acs1-b3-2013-2014-2015-2016-2017.json": "94ee58e03873cf0ecc2183333b25657648596efac2d0572edef72b2f5244015d",
@@ -20,6 +27,8 @@
     "config/artifact_catalog.json": "2b49256a75802f8290094c5841e6015ced4fc09cfc6dd7680b4def267978bfa9",
     "config/monthly_source_cycle_results/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs1.json": "b24a8eb1ea1b893231ef361d7928763c6864fe2224275cffc7ad2d52e625610a",
     "config/monthly_source_cycle_results/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs5.json": "0b436367918f1263279d847a4684a6b7629844c2f624bc2cad2bc3793ce62b34",
+    "docs/audit/acs1_2020_nonpublication_sources.json": "4ad2769dc2da426cd47db8dafe7bb77b95d72dc574c4d3caa72be8596aad8b8b",
+    "jobs/monthly_refresh/acs_2020_gap.py": "53a3b57d96dcbbc504df4541ed864f1bc69be8c8d836d10a8918a8f6726afd60",
     "sources/census_acs/artifact.py": "1b7e352ef9b5e9ab83b77698c576245a24f8fc52f811975e8d6669109e9e9c10"
   },
   "installation": "forbidden: review-only template, not a production registry",
@@ -36,7 +45,7 @@
   "scope_proposals": {
     "census_acs1": {
       "path": "census_acs1.scope.proposal.json",
-      "sha256": "9d50cbf2a478f694322e8f4255300e6d7a373bed5237e3defb33f6987aabfc26"
+      "sha256": "5ab30d6fbc72a26e9208ffd5f63b0f5d8dbbc6b74a242ecdb0fe8c95ffcbb7b3"
     },
     "census_acs5": {
       "path": "census_acs5.scope.proposal.json",
