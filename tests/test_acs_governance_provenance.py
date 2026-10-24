@@ -55,7 +55,7 @@ class Fixture:
                      'head': {'sha': SHA, 'repo': {'full_name': install.REPOSITORY}}}
         self.repo = {'id': 1085190171, 'full_name': install.REPOSITORY, 'owner': deepcopy(OWNER)}
         self.calls = []; self.headers = {}; self.page_size = 100; self.omit = False
-        self.deleted = False; self.drift = False; self.scans = 0; self.numeric_links = False
+        self.deleted = False; self.drift = False; self.scans = 0; self.numeric_links = False; self.content_encoding = "compact"
         self.reviewed_proposal = proposal
         self.registry = None
         fixture = self
@@ -84,7 +84,10 @@ class Fixture:
                     value = {'permission': 'write'}
                 elif path == f'/contents/{install.PROPOSAL_PATH}':
                     assert query == {'ref': [SHA]}
-                    value = {'content': base64.b64encode(json.dumps(fixture.reviewed_proposal).encode()).decode()}
+                    encoded = base64.b64encode(json.dumps(fixture.reviewed_proposal).encode()).decode()
+                    if fixture.content_encoding == 'wrapped': encoded = '\n'.join(encoded[i:i+60] for i in range(0, len(encoded), 60)) + '\n'
+                    elif fixture.content_encoding == 'invalid': encoded += '!'
+                    value = {'content': encoded}
                 elif path in [f'/issues/{PR}/comments', f'/pulls/{PR}/reviews', f'/pulls/{PR}/comments']:
                     stream = fixture.comments if '/issues/' in path else (fixture.inline if path.endswith('/comments') else fixture.reviews)
                     page = int(query['page'][0]); assert query['per_page'] == ['100']
@@ -254,3 +257,12 @@ def test_canonical_numeric_pagination_and_query_order(monkeypatch):
                          'created_at': '2026-10-23T00:00:00Z', 'updated_at': '2026-10-23T00:00:00Z'})
     f.pull['comments'] = 2
     assert f.verify()['checks']['pagination_exhausted']
+
+
+@pytest.mark.parametrize('encoding', ['wrapped', 'invalid'])
+def test_actual_github_contents_base64_serialization(monkeypatch, encoding):
+    fixture = Fixture(monkeypatch); fixture.content_encoding = encoding
+    if encoding == 'wrapped':
+        assert fixture.verify()['checks']['exact_reviewed_proposal']
+    else:
+        with pytest.raises(ValueError): fixture.verify()

@@ -204,7 +204,7 @@ def verify_authorizations(provenances, token, root, *, prior_snapshot=None):
             if first['pull'].get('head', {}).get('sha') != sha:
                 raise ValueError('stale reviewed SHA; fresh authorization required')
             content = _get(api, f'/contents/{PROPOSAL_PATH}?ref={sha}')
-            reviewed = json.loads(base64.b64decode(content['content'], validate=True), object_pairs_hook=_unique)
+            reviewed = json.loads(base64.b64decode(''.join(content['content'].split()), validate=True), object_pairs_hook=_unique)
             validate_proposal(reviewed, root)
             kind = provenance['provenance_kind']
             is_comment = kind == 'github_owner_decision_comment'
