@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -241,7 +242,15 @@ def _interpretation(current: dict, drivers: dict[str, pd.DataFrame], path: pd.Da
             "materiality_note": "Contributions are reported with magnitude; 'largest' is relative and is not a production materiality classification."}
 
 
-def resolve_snapshot(run_dir: Path, geo_id: str, axis_registry_path: Path, metric_registry_path: Path, source_registry_path: Path | None = None) -> Snapshot:
+def resolve_snapshot(run_dir: Path, geo_id: str, axis_registry_path: Path, metric_registry_path: Path, source_registry_path: Path | None = None, *, reporting_month: str | None = None) -> Snapshot:
+    requested_date = None
+    if reporting_month is not None:
+        if not re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", reporting_month):
+            raise ValueError("Reporting month must use YYYY-MM with a valid month")
+        try:
+            requested_date = pd.Timestamp(reporting_month + "-01") + pd.offsets.MonthEnd(0)
+        except ValueError as exc:
+            raise ValueError(f"Invalid reporting month: {reporting_month}") from exc
     tables = _read_artifacts(run_dir)
     memberships = load_axis_memberships(axis_registry_path)
     metric_memberships = load_metric_memberships(metric_registry_path, set(memberships.dimension))
@@ -253,7 +262,10 @@ def resolve_snapshot(run_dir: Path, geo_id: str, axis_registry_path: Path, metri
         common_dates &= set(filtered[name].date)
     if not common_dates:
         raise ValueError("No common production regime, coordinate, and axis-score date")
-    latest = max(common_dates)
+    if requested_date is not None and requested_date not in common_dates:
+        raise ValueError(f"Reporting month {reporting_month} is unavailable for {geo_id}: "
+                         "requires persisted month-end regime, coordinates, and axis scores")
+    latest = requested_date if requested_date is not None else max(common_dates)
     regime_rows = filtered["regime_assignments"].query("date == @latest")
     coordinate_rows = filtered["coordinates"].query("date == @latest")
     latest_axes = filtered["axis_scores"].query("date == @latest").copy()
@@ -265,7 +277,7 @@ def resolve_snapshot(run_dir: Path, geo_id: str, axis_registry_path: Path, metri
     dims["dimension"] = dims.dimension.astype(str).str.strip().str.lower()
     active = dims[dims.dimension.isin(set(memberships.dimension))]
     if active.duplicated("dimension").any() or set(active.dimension) != set(memberships.dimension) or active.dimension_score.isna().any():
-        raise ValueError("Weighted active-axis dimensions are missing at the latest date")
+        raise ValueError("Weighted active-axis dimensions are missing at the selected reporting date")
     drivers = {}
     for axis in sorted(REQUIRED_AXES):
         rows = memberships[memberships.axis.eq(axis)].merge(active[["dimension", "dimension_score"]], on="dimension", validate="one_to_one")
@@ -473,10 +485,12 @@ def _sha256(path: Path) -> str:
 
 def render_snapshot(run_dir: Path, geo_id: str, market_name: str, output_dir: Path,
                     axis_registry_path: Path, metric_registry_path: Path,
-                    source_registry_path: Path | None = None, *, county_href: str | None = None) -> tuple[Path, Path, Snapshot]:
+                    source_registry_path: Path | None = None, *, county_href: str | None = None,
+                    reporting_month: str | None = None) -> tuple[Path, Path, Snapshot]:
     if output_dir.resolve() == run_dir.resolve() or run_dir.resolve() in output_dir.resolve().parents:
         raise ValueError("Visualization outputs must not be written into an immutable production run")
-    snapshot = resolve_snapshot(run_dir, geo_id, axis_registry_path, metric_registry_path, source_registry_path)
+    snapshot = resolve_snapshot(run_dir, geo_id, axis_registry_path, metric_registry_path, source_registry_path,
+                                reporting_month=reporting_month)
     output_dir.mkdir(parents=True, exist_ok=True)
     config = {"displayModeBar": False, "responsive": True}
     plane = pio.to_html(_plane(snapshot), full_html=False, include_plotlyjs="inline", config=config, div_id=f"{geo_id}-regime-plane-chart")
@@ -558,14 +572,16 @@ def load_county_manifest(path: Path) -> list[dict[str, str]]:
 
 def render_county_site(run_dir: Path, counties: list[dict[str, str]], output_dir: Path,
                        axis_registry_path: Path, metric_registry_path: Path,
-                       source_registry_path: Path | None = None) -> tuple[Path, Path]:
+                       source_registry_path: Path | None = None, *,
+                       reporting_month: str | None = None) -> tuple[Path, Path]:
     if not counties:
         raise ValueError("County publication requires at least one governed county")
     output_dir.mkdir(parents=True, exist_ok=True); county_dir = output_dir / "counties"; county_dir.mkdir(exist_ok=True)
     summaries, files = [], []
     for county in sorted(counties, key=lambda row: (row["market_name"], row["geo_id"])):
         html_path, json_path, snapshot = render_snapshot(run_dir, county["geo_id"], county["market_name"], county_dir,
-            axis_registry_path, metric_registry_path, source_registry_path, county_href="../index.html")
+            axis_registry_path, metric_registry_path, source_registry_path, county_href="../index.html",
+            reporting_month=reporting_month)
         monthly_text, annual_text = _freshness_text(snapshot.freshness)
         summaries.append({"geo_id": county["geo_id"], "market_name": county["market_name"], **snapshot.current,
                           "freshness": f"{monthly_text}; {annual_text}", "href": f"counties/{county['geo_id']}.html"})

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DC_GEO_ID = "district_of_columbia_dc__county"
 
 
-def build(run_dir: Path, output_dir: Path) -> tuple[Path, Path]:
+def build(run_dir: Path, output_dir: Path, *, reporting_month: str | None = None) -> tuple[Path, Path]:
     run_dir = run_dir.resolve()
     output_dir = output_dir.resolve()
     if not run_dir.is_dir():
@@ -31,6 +31,7 @@ def build(run_dir: Path, output_dir: Path) -> tuple[Path, Path]:
         ROOT / "config/axis_registry.csv",
         ROOT / "config/metric_dimension_registry.csv",
         ROOT / "config/source_metric_registry.csv",
+        reporting_month=reporting_month,
     )
 
 
@@ -40,8 +41,9 @@ def main() -> int:
     )
     parser.add_argument("--run", type=Path, required=True, help="Explicit immutable production-run directory.")
     parser.add_argument("--output", type=Path, required=True, help="Clean deployable site destination.")
+    parser.add_argument("--reporting-month", help="Exact reporting month (YYYY-MM); unavailable or incomplete evidence fails.")
     args = parser.parse_args()
-    index, manifest = build(args.run, args.output)
+    index, manifest = build(args.run, args.output, reporting_month=args.reporting_month)
     print(index)
     print(manifest)
     return 0
