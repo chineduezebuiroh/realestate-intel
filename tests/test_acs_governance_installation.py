@@ -19,7 +19,7 @@ def fixture_registry():
     records = deepcopy(proposal['records'])
     for name, value in records.items():
         approval = deepcopy(proposal['approval_templates'][name])
-        approval.update(decision='approved', reviewer_login='synthetic-test-reviewer',
+        approval.update(provenance_kind='github_approved_review', decision='approved', reviewer_login='synthetic-test-reviewer',
                         reviewed_at='2026-10-23T00:00:00Z', reviewed_pr=999999,
                         reviewed_commit='f' * 40,
                         review_url=f'https://github.com/{install.REPOSITORY}/pull/999999#pullrequestreview-999999',
@@ -149,6 +149,10 @@ def test_proposal_cannot_authorize_itself(attack):
 
 @pytest.mark.parametrize('mode', ['valid', 'absent', 'proposed', 'drift', 'duplicate', 'wrong_namespace'])
 def test_remote_main_boundary(monkeypatch, mode):
+    # The dedicated provenance suite exercises actual authorization GETs; this
+    # test isolates unchanged remote-main registry/capability behavior.
+    monkeypatch.setattr('jobs.monthly_refresh.acs_governance_provenance.verify_authorizations',
+                        lambda values, token, root: {'test_only': True})
     registry = fixture_registry()
     if mode == 'proposed':
         registry['gap_evidence'] = {install.generate(ROOT)['records']['acs1_2020_gap']['evidence_id']: install.generate(ROOT)['records']['acs1_2020_gap']}

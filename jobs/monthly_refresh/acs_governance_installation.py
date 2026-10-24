@@ -18,7 +18,7 @@ from jobs.monthly_refresh.acs_2020_gap import GAP_FILE, CANDIDATE_FILE, SOURCE_P
 from jobs.monthly_refresh.acs_scope import ACSGovernance, GAP_VERSION, SCOPE_VERSION, check_identity
 
 VERSION = 'acs_historical_governance_installation_proposal_v1'
-PROVENANCE_VERSION = 'acs_historical_governance_approval_provenance_v1'
+PROVENANCE_VERSION = 'acs_historical_governance_approval_provenance_v2'
 REPOSITORY = 'chineduezebuiroh/realestate-intel'
 PROPOSAL_PATH = 'docs/proposals/acs_historical_governance_installation.json'
 LIMITATIONS = [
@@ -44,7 +44,7 @@ def generate(root: Path) -> dict:
         'initial_registry': inputs[bootstrap.REGISTRY_FILE]['registry_template'],
         'approval_templates': {name: {
             'schema_version': PROVENANCE_VERSION, 'repository': REPOSITORY,
-            'subject': commitments[name],
+            'subject': commitments[name], 'provenance_kind': None, 'owner_comment': None,
             'decision': None, 'reviewer_login': None, 'reviewed_at': None,
             'reviewed_pr': None, 'reviewed_commit': None, 'review_url': None,
             'decision_rationale': None,
@@ -63,7 +63,7 @@ def validate_proposal(value: dict, root: Path) -> dict:
     for name, record in value['records'].items():
         gap = name.endswith('_gap')
         check_identity(GAP_VERSION if gap else SCOPE_VERSION, record, 'evidence_id' if gap else 'authority_id')
-    if value != generate(root):
+    if sha256_json(value) != sha256_json(generate(root)):
         raise ValueError('installation proposal drift or attempted approval/activation')
     return {'proposal_validation': 'passed', 'production_authority': False, 'activation': False}
 
@@ -71,10 +71,10 @@ def validate_proposal(value: dict, root: Path) -> dict:
 def _provenance(value: dict, template: dict) -> None:
     """Require precise review commitments; GitHub/human authenticity is external."""
     genuine = {'decision', 'reviewer_login', 'reviewed_at', 'reviewed_pr',
-               'reviewed_commit', 'review_url', 'decision_rationale'}
+               'reviewed_commit', 'review_url', 'decision_rationale', 'provenance_kind', 'owner_comment'}
     if not isinstance(value, dict) or set(value) != set(template):
         raise ValueError('approval provenance fields required')
-    if any(value[k] != template[k] for k in set(template) - genuine):
+    if any(sha256_json(value[k]) != sha256_json(template[k]) for k in set(template) - genuine):
         raise ValueError('approval subject, evidence, scope or limitations mismatch')
     if value['decision'] != 'approved':
         raise ValueError('explicit human approval required')
@@ -84,9 +84,20 @@ def _provenance(value: dict, template: dict) -> None:
         raise ValueError('exact reviewed PR required')
     if not isinstance(value['reviewed_commit'], str) or not re.fullmatch(r'[0-9a-f]{40}', value['reviewed_commit']):
         raise ValueError('exact reviewed commit required')
+    kind = value['provenance_kind']
+    if kind == 'github_approved_review':
+        if value['owner_comment'] is not None:
+            raise ValueError('approved review cannot carry owner-comment metadata')
+        anchor = 'pullrequestreview'
+    elif kind == 'github_owner_decision_comment':
+        from jobs.monthly_refresh.acs_governance_provenance import validate_comment_metadata
+        validate_comment_metadata(value)
+        anchor = 'issuecomment'
+    else:
+        raise ValueError('explicit supported provenance kind required')
     if not isinstance(value['review_url'], str) or not re.fullmatch(
-            rf'https://github.com/{REPOSITORY}/pull/{value["reviewed_pr"]}#pullrequestreview-[1-9][0-9]*', value['review_url']):
-        raise ValueError('exact GitHub review reference required')
+            rf'https://github.com/{REPOSITORY}/pull/{value["reviewed_pr"]}#{anchor}-[1-9][0-9]*', value['review_url']):
+        raise ValueError('exact GitHub decision reference required')
     try:
         stamp = datetime.fromisoformat(value['reviewed_at'].replace('Z', '+00:00'))
         if stamp.utcoffset() is None:
@@ -119,7 +130,7 @@ def validate_initial_registry(registry: dict, root: Path) -> dict:
     _provenance(gap.get('approval_provenance'), proposal['approval_templates']['acs1_2020_gap'])
     expected = deepcopy(proposal['records']['acs1_2020_gap'])
     expected.update(status='approved', approval_provenance=gap['approval_provenance'], evidence_id=gap_id)
-    if gap != expected:
+    if sha256_json(gap) != sha256_json(expected):
         raise ValueError('gap documentary/request scope mismatch')
     ids = {}
     for source in bootstrap.RANGES:
@@ -132,7 +143,7 @@ def validate_initial_registry(registry: dict, root: Path) -> dict:
         expected.update(approval_provenance=scope['approval_provenance'], authority_id=key)
         if source == 'census_acs1':
             expected['governed_gaps'] = [{'vintage': 2020, 'evidence_id': gap_id}]
-        if scope != expected:
+        if sha256_json(scope) != sha256_json(expected):
             raise ValueError('approved scope partition/configuration/reference mismatch')
         ids[source] = key
     if set(ids.values()) != set(registry['scopes']):
@@ -154,6 +165,11 @@ def verify_remote(repository: str, token: str, root: Path) -> dict:
         governance.scope(source, key, root)
         if governance.current_state(source) is not None:
             raise ValueError('initial physical state must be absent')
+    from jobs.monthly_refresh.acs_governance_provenance import verify_authorizations
+    provenances = {'acs1_2020_gap': next(iter(governance._registry['gap_evidence'].values()))['approval_provenance']}
+    for source, key in result['scope_ids'].items():
+        provenances['acs1_scope' if source == 'census_acs1' else 'acs5_scope'] = governance._registry['scopes'][key]['approval_provenance']
+    result['authorization_audit'] = verify_authorizations(provenances, token, root)
     result['validated_main_commit'] = governance.current_commit(repository)
     result['production_authority'] = True
     return result

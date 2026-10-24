@@ -113,13 +113,15 @@
         "no_physical_state_acceptance_materialization_publication_serving_or_macro_authorization",
         "documentary_capture_is_reference_metadata_and_excerpts_not_full_html_or_endpoint_response"
       ],
+      "owner_comment": null,
+      "provenance_kind": null,
       "repository": "chineduezebuiroh/realestate-intel",
       "review_url": null,
       "reviewed_at": null,
       "reviewed_commit": null,
       "reviewed_pr": null,
       "reviewer_login": null,
-      "schema_version": "acs_historical_governance_approval_provenance_v1",
+      "schema_version": "acs_historical_governance_approval_provenance_v2",
       "subject": {
         "proposal_identity": "acs_governed_gap_evidence_v1__29ce8edab380e39f094ecd344165ead307e1756e66fc2e6f2f1e832ad72fe676",
         "record_sha256": "06a70f16e383b261cac7fce76eebd32722c910b1271f79f89b78f430e21392fa"
@@ -237,13 +239,15 @@
         "no_physical_state_acceptance_materialization_publication_serving_or_macro_authorization",
         "documentary_capture_is_reference_metadata_and_excerpts_not_full_html_or_endpoint_response"
       ],
+      "owner_comment": null,
+      "provenance_kind": null,
       "repository": "chineduezebuiroh/realestate-intel",
       "review_url": null,
       "reviewed_at": null,
       "reviewed_commit": null,
       "reviewed_pr": null,
       "reviewer_login": null,
-      "schema_version": "acs_historical_governance_approval_provenance_v1",
+      "schema_version": "acs_historical_governance_approval_provenance_v2",
       "subject": {
         "proposal_identity": "acs_historical_scope_authority_v1__58ba7be33c560fbf3eda7b89b15029474c7063b57f9a60846c23223fa84023b8",
         "record_sha256": "76317fdcdbb1f385d6f7d5a46a155779a3939872865e031f2a83b820b35f993a"
@@ -361,13 +365,15 @@
         "no_physical_state_acceptance_materialization_publication_serving_or_macro_authorization",
         "documentary_capture_is_reference_metadata_and_excerpts_not_full_html_or_endpoint_response"
       ],
+      "owner_comment": null,
+      "provenance_kind": null,
       "repository": "chineduezebuiroh/realestate-intel",
       "review_url": null,
       "reviewed_at": null,
       "reviewed_commit": null,
       "reviewed_pr": null,
       "reviewer_login": null,
-      "schema_version": "acs_historical_governance_approval_provenance_v1",
+      "schema_version": "acs_historical_governance_approval_provenance_v2",
       "subject": {
         "proposal_identity": "acs_historical_scope_authority_v1__0bcd7e9639b2c0630fb914a1e85868bca6b632b6fdbb7df43074248ae1e91658",
         "record_sha256": "c67f3ad3b8573df8aaf4fe279da9c29f0069427faa6c9e82a04f942338ffa0b8"
