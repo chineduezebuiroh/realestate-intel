@@ -1,0 +1,529 @@
+{
+  "acs5_only_geographies": [
+    "amelia_county_va__county",
+    "amherst_county_va__county",
+    "appomattox_county_va__county",
+    "botetourt_county_va__county",
+    "cambridge_md_metro_area__cbsa_metro",
+    "campbell_county_va__county",
+    "charles_city_county_va__county",
+    "charlottesville_va__county",
+    "clarke_county_va__county",
+    "colonial_heights_va__county",
+    "craig_county_va__county",
+    "crescent_city_ca_metro_area__cbsa_metro",
+    "culpeper_county_va__county",
+    "danville_va__county",
+    "del_norte_county_ca__county",
+    "dinwiddie_county_va__county",
+    "dorchester_county_md__county",
+    "easton_md_metro_area__cbsa_metro",
+    "fairfax_city_county_va__county",
+    "falls_church_va__county",
+    "fluvanna_county_va__county",
+    "franklin_city_county_va__county",
+    "franklin_county_va__county",
+    "fredericksburg_va__county",
+    "giles_county_va__county",
+    "gloucester_county_va__county",
+    "goochland_county_va__county",
+    "greene_county_va__county",
+    "harrisonburg_va__county",
+    "henry_county_va__county",
+    "hopewell_va__county",
+    "isle_of_wight_county_va__county",
+    "king_and_queen_county_va__county",
+    "king_william_county_va__county",
+    "lassen_county_ca__county",
+    "madison_county_va__county",
+    "manassas_park_va__county",
+    "manassas_va__county",
+    "martinsville_va__county",
+    "martinsville_va_metro_area__cbsa_metro",
+    "mathews_county_va__county",
+    "nelson_county_va__county",
+    "new_kent_county_va__county",
+    "norton_va__county",
+    "petersburg_va__county",
+    "pittsylvania_county_va__county",
+    "poquoson_va__county",
+    "powhatan_county_va__county",
+    "prince_george_county_va__county",
+    "pulaski_county_va__county",
+    "queen_anne_s_county_md__county",
+    "radford_va__county",
+    "rappahannock_county_va__county",
+    "red_bluff_ca_metro_area__cbsa_metro",
+    "salem_va__county",
+    "sonora_ca_metro_area__cbsa_metro",
+    "southampton_county_va__county",
+    "staunton_va__county",
+    "susanville_ca_metro_area__cbsa_metro",
+    "sussex_county_va__county",
+    "talbot_county_md__county",
+    "tuolumne_county_ca__county",
+    "warren_county_va__county",
+    "waynesboro_va__county",
+    "williamsburg_va__county",
+    "winchester_va__county",
+    "wise_county_va__county"
+  ],
+  "active": false,
+  "approval_provenance": null,
+  "authorized_classifications": [
+    "retained_value",
+    "monthly_no_content_attested"
+  ],
+  "blocking_inputs": [
+    "Authoritative historical governance registry and exact approved current scope identities for both products are absent; do not infer them from monthly acquisition or family acceptance.",
+    "Original production TARs are unavailable locally and exact cataloged Release asset reads returned Forbidden; independent real-evidence requalification and authorization/readiness remain blocked."
+  ],
+  "config_hashes": {
+    "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+    "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+    "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+    "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+  },
+  "consumer_sha256": "946704c6b15770da9ef7780297fb83f05f0e0cef1f858d0d648839c5751497e9",
+  "cycle_id": "monthly_cycle__2026-08__a9e022a980d29cd7",
+  "eligible_parents": {
+    "census_acs1": {
+      "artifact_id": "src__census_acs1__2024-12__r1__a1f5cd392af90fcb",
+      "governing_scope_authority_id": null,
+      "lineage": {
+        "august_acceptance": {
+          "cycle_id": "monthly_cycle__2026-08__a9e022a980d29cd7",
+          "files": {
+            "config/monthly_source_cycle_results/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs1.json": "b24a8eb1ea1b893231ef361d7928763c6864fe2224275cffc7ad2d52e625610a",
+            "config/monthly_source_input_pins/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs1.json": "f0fee2dc1899c389b70ac5e190d13f93b99c9bec0720e9d9b9d09048db3da9d2"
+          },
+          "repository_anchor": "40b950b4edda9dff30a93754735654aab0da28e1"
+        },
+        "original_publication": {
+          "cycle_id": "monthly_cycle__2026-07__7cab1c5df177a1e4",
+          "files": {
+            "config/monthly_source_cycle_results/monthly_cycle__2026-07__7cab1c5df177a1e4/census_acs1.json": "0bddefb52c35536b7eda9a49ccd33bcd049f45a96f9b4637af33ad6f5f0efdd5",
+            "config/monthly_source_input_pins/monthly_cycle__2026-07__7cab1c5df177a1e4/census_acs1.json": "22dcebb577720a3b055a91def8c3129675627700dfbc0f1b5483bc4fc6b956c5"
+          },
+          "repository_anchor": "40b950b4edda9dff30a93754735654aab0da28e1"
+        }
+      },
+      "original_catalog_identity": {
+        "artifact_content_hash": "a1f5cd392af90fcb7055efb84cceb8bdd691fcae561417a73c2974a471d68b5b",
+        "metadata": {
+          "data_sha256": "d62a548785b79959bba83134f0d90e6eab2ac31cc7779d10596e8d5443c5de91",
+          "logical_source_id": "census_acs1",
+          "observation_max": "2024-12-31",
+          "provider_release_id": "acs/acs1:2024",
+          "source_id": "census_acs1"
+        },
+        "object_id": "src__census_acs1__2024-12__r1__a1f5cd392af90fcb",
+        "package_sha256": "7ea888ffb034decf6b9d118c029399922dccf1de2c74a0ca3d39d6720f76d600"
+      },
+      "qualification_id": "acs_2024_monthly_compatibility_v1__e5d99b1fc7e006fb3462659d4ef10bd5e8c99d14f1d26288ca2252fe6ea23603",
+      "reported_retention_path": "$HOME/acs-readiness-review/compatibility-301-code/acs1/acs_2024_monthly_compatibility_v1__e5d99b1fc7e006fb3462659d4ef10bd5e8c99d14f1d26288ca2252fe6ea23603.json",
+      "retained_report": {
+        "path": "docs/audit/acs_2024_qualification_reports/c11e8cc403683582270be830092408220a21299f9e15dbb0d178016dccdaf8e1.json",
+        "sha256": "c11e8cc403683582270be830092408220a21299f9e15dbb0d178016dccdaf8e1",
+        "size_bytes": 87806
+      }
+    },
+    "census_acs5": {
+      "artifact_id": "src__census_acs5__2024-12__r1__2bebdc938d8c2fb6",
+      "governing_scope_authority_id": null,
+      "lineage": {
+        "august_acceptance": {
+          "cycle_id": "monthly_cycle__2026-08__a9e022a980d29cd7",
+          "files": {
+            "config/monthly_source_cycle_results/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs5.json": "0b436367918f1263279d847a4684a6b7629844c2f624bc2cad2bc3793ce62b34",
+            "config/monthly_source_input_pins/monthly_cycle__2026-08__a9e022a980d29cd7/census_acs5.json": "997aca80ef250a670c1f4497ee9812aa3a346ce410edd102ef7b8034e4f03e00"
+          },
+          "repository_anchor": "40b950b4edda9dff30a93754735654aab0da28e1"
+        },
+        "original_publication": {
+          "cycle_id": "monthly_cycle__2026-07__7cab1c5df177a1e4",
+          "files": {
+            "config/monthly_source_cycle_results/monthly_cycle__2026-07__7cab1c5df177a1e4/census_acs5.json": "75e90e1fb6bfcee4c10b75e2d9e821ab7b7b4e203d5c55cf6c659db4a4351bd9",
+            "config/monthly_source_input_pins/monthly_cycle__2026-07__7cab1c5df177a1e4/census_acs5.json": "6bbc667c4006a5e3f61733a6555b07c0ac97912e806e1239fd4671d1bee30910"
+          },
+          "repository_anchor": "40b950b4edda9dff30a93754735654aab0da28e1"
+        }
+      },
+      "original_catalog_identity": {
+        "artifact_content_hash": "2bebdc938d8c2fb65c5af5bd44f86936bbcf55141004a2b132c163e8c3732e69",
+        "metadata": {
+          "data_sha256": "aa8f2b32ee0cfa2f6c764a866f300f3753c7f249376d8974cee4a1e91daa31a3",
+          "logical_source_id": "census_acs5",
+          "observation_max": "2024-12-31",
+          "provider_release_id": "acs/acs5:2024",
+          "source_id": "census_acs5"
+        },
+        "object_id": "src__census_acs5__2024-12__r1__2bebdc938d8c2fb6",
+        "package_sha256": "225bbe8ffd3a08b6ae049600f0e5fa05aa9132b83301fab54dbbcd591a3922fb"
+      },
+      "qualification_id": "acs_2024_monthly_compatibility_v1__421911b7acd6443df19cc2887577d85f356ea412a7f034e88fd11c2cf8b34b43",
+      "reported_retention_path": "$HOME/acs-readiness-review/compatibility-301-code/acs5/acs_2024_monthly_compatibility_v1__421911b7acd6443df19cc2887577d85f356ea412a7f034e88fd11c2cf8b34b43.json",
+      "retained_report": {
+        "path": "docs/audit/acs_2024_qualification_reports/23f02c9cf19cf93ea7b1fa277865076b9ce97170e55c7c9945c7dab7b9a571de.json",
+        "sha256": "23f02c9cf19cf93ea7b1fa277865076b9ce97170e55c7c9945c7dab7b9a571de",
+        "size_bytes": 86063
+      }
+    }
+  },
+  "jointly_unobserved_geographies": [
+    "big_stone_gap_va_metro_area__cbsa_metro",
+    "california_md_metro_area__cbsa_metro",
+    "madera_ca_metro_area__cbsa_metro",
+    "ocean_city_nj_metro_area__cbsa_metro"
+  ],
+  "limitations": {
+    "absence_classification": "monthly_no_content_attested",
+    "acs5_only_geographies": 67,
+    "acs5_substitution": "only_for_recorded_acs1_monthly_no_content",
+    "historical_acceptance": false,
+    "jointly_unobserved_geographies": 4,
+    "jointly_unobserved_treatment": "missing",
+    "macro_execution": false,
+    "manifest_git_sha": "unknown",
+    "provider_response_verification": "not_established",
+    "serving_promotion": false,
+    "source_set_publication": false,
+    "vintage": 2024
+  },
+  "original_execution_code_evidence": {
+    "manifest_code_commit_recorded": false,
+    "manifest_git_sha": "unknown",
+    "path": "docs/audit/acs_2024_original_workflow_code_evidence.json",
+    "sha256": "3ee74b5c187af0c2e5839adba8dc8c5a501e3d41d93d1441e2aab76611a5b0d7"
+  },
+  "production_report_retention": {
+    "location": "Unchanged uploaded report bytes retained once under docs/audit/acs_2024_qualification_reports/<file-sha256>.json",
+    "original_tar_directory": "$HOME/acs-readiness-review/discovery-1/retrieved-packages/",
+    "qualification_code_commit": "3d5b94dc6f51c4f3ec4b0a95bcea50bd3b8be086",
+    "report_integrity_and_repository_lineage_verified": true,
+    "underlying_tar_requalification_verified": false,
+    "validation_boundary": "Report bytes, semantic IDs, predicates and retained repository lineage checked; TAR members and real-evidence readiness not revalidated."
+  },
+  "qualifications": {
+    "census_acs1": {
+      "code_provenance": {
+        "basis": "independent_original_workflow_checkout_and_publication",
+        "evidence_sha256": "3ee74b5c187af0c2e5839adba8dc8c5a501e3d41d93d1441e2aab76611a5b0d7",
+        "execution_commit_relationship_to_baseline": {
+          "baseline": "40b950b4edda9dff30a93754735654aab0da28e1",
+          "merge_base_commit": "42baead0f29f844132979017998e71d89a16dddf",
+          "status": "diverged"
+        },
+        "files": {
+          "jobs/monthly_refresh/acs_monthly.py": {
+            "historical_reference_sha256": "ba27e9141ff103d345f4d0b97df2cbc7eee16243ff48afcef0fe9ef589127009",
+            "original_sha256": "f189a2bc14b55b840e975a86952d666902f192b21d83dd180de9e7dd146a15cc",
+            "semantic_sha256": "b1853fadb0b7e878411ee55b046d40b0134c653f0e6491dd202e9265766c1a8b"
+          },
+          "sources/census_acs/artifact.py": {
+            "historical_reference_sha256": "1b7e352ef9b5e9ab83b77698c576245a24f8fc52f811975e8d6669109e9e9c10",
+            "original_sha256": "1b7e352ef9b5e9ab83b77698c576245a24f8fc52f811975e8d6669109e9e9c10",
+            "semantic_sha256": "24a6ebff061a33c1994bb2c67114c5786efddae7cabc4978e877df2ef193e33a"
+          }
+        },
+        "historical_reference_commit": "4beea6b8b860cc1f825bd0f6b33728acbc90c9dc",
+        "manifest_code_commit_recorded": false,
+        "manifest_git_sha": "unknown",
+        "original_commit": "9131dc8ad2626f393e7975411693908d43445173",
+        "original_git_blob_identities": {
+          "config/geo_manifest.generated.csv": "ed2a7e347e2695d1d308e5d04c4b192c7a703b65",
+          "config/monthly_refresh_policy.json": "17a682cc0ee4889d812a0757706893a11038823a",
+          "config/source_metric_registry.csv": "4199e40e4407eec35e9ba74927aa37fbfc8e00cd",
+          "config/source_refresh_revision_policy_v0_2.json": "38b4555ed93937d3aaa8349578239041e2466fe5",
+          "jobs/monthly_refresh/acs_hosted.py": "66ebc1b4537d554e411c29650809746a04ea9f31",
+          "jobs/monthly_refresh/acs_monthly.py": "749ac96df20e5b955d6c581da91c7813c0f145c3",
+          "sources/census_acs/artifact.py": "3ce592db259b1b74f3964856dbdad12335ab79c7"
+        },
+        "repository_anchor": "40b950b4edda9dff30a93754735654aab0da28e1",
+        "workflow_job_id": 106231601318,
+        "workflow_run": {
+          "attempt": 1,
+          "conclusion": "success",
+          "event": "push",
+          "head_branch": "monthly-refresh-orchestration",
+          "head_sha": "9131dc8ad2626f393e7975411693908d43445173",
+          "id": 35567244220,
+          "path": ".github/workflows/monthly-refresh-production.yml",
+          "url": "https://github.com/chineduezebuiroh/realestate-intel/actions/runs/35567244220"
+        }
+      },
+      "configuration": {
+        "historical_reference": {
+          "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+          "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+          "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+          "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+        },
+        "original": {
+          "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+          "config/monthly_refresh_policy.json": "d118561d16133c29d59a63c4c5361c2cd4a3390f276c67654cb582109412b578",
+          "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+          "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+        },
+        "policy_differences_requiring_human_review": {
+          "config/monthly_refresh_policy.json": {
+            "historical_reference": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+            "original": "d118561d16133c29d59a63c4c5361c2cd4a3390f276c67654cb582109412b578"
+          }
+        },
+        "policy_review_status": "not_approved"
+      },
+      "evidence_inventory": {
+        "accepted_family": {
+          "anchor_sha256": "bd7d9eab960bf305d320db282ef1b3b39bcdef09a5f0130d8e1ab967e6f86b47",
+          "sha256": "bd7d9eab960bf305d320db282ef1b3b39bcdef09a5f0130d8e1ab967e6f86b47"
+        },
+        "august_pin": {
+          "anchor_sha256": "f0fee2dc1899c389b70ac5e190d13f93b99c9bec0720e9d9b9d09048db3da9d2",
+          "sha256": "f0fee2dc1899c389b70ac5e190d13f93b99c9bec0720e9d9b9d09048db3da9d2"
+        },
+        "august_result": {
+          "anchor_sha256": "b24a8eb1ea1b893231ef361d7928763c6864fe2224275cffc7ad2d52e625610a",
+          "sha256": "b24a8eb1ea1b893231ef361d7928763c6864fe2224275cffc7ad2d52e625610a"
+        },
+        "catalog": {
+          "sha256": "2b49256a75802f8290094c5841e6015ced4fc09cfc6dd7680b4def267978bfa9"
+        },
+        "july_publication_pin": {
+          "anchor_sha256": "22dcebb577720a3b055a91def8c3129675627700dfbc0f1b5483bc4fc6b956c5",
+          "sha256": "22dcebb577720a3b055a91def8c3129675627700dfbc0f1b5483bc4fc6b956c5"
+        },
+        "july_publication_result": {
+          "anchor_sha256": "0bddefb52c35536b7eda9a49ccd33bcd049f45a96f9b4637af33ad6f5f0efdd5",
+          "sha256": "0bddefb52c35536b7eda9a49ccd33bcd049f45a96f9b4637af33ad6f5f0efdd5"
+        },
+        "original_tar": {
+          "sha256": "7ea888ffb034decf6b9d118c029399922dccf1de2c74a0ca3d39d6720f76d600",
+          "size_bytes": 40960
+        },
+        "original_workflow_code": {
+          "sha256": "3ee74b5c187af0c2e5839adba8dc8c5a501e3d41d93d1441e2aab76611a5b0d7"
+        },
+        "package/data.parquet": {
+          "sha256": "d62a548785b79959bba83134f0d90e6eab2ac31cc7779d10596e8d5443c5de91"
+        },
+        "package/manifest.json": {
+          "sha256": "0e8961a14ea16f6e751ffb2974499622074332482cc347bb23dddbf252cceabd"
+        },
+        "package/validation.json": {
+          "sha256": "a807a2f582c3afe66490ecd56bfe8538120392682ae26941f1605a646ec793ec"
+        }
+      },
+      "historical_scope": {
+        "status": "missing_authority"
+      },
+      "parent": {
+        "artifact_content_hash": "a1f5cd392af90fcb7055efb84cceb8bdd691fcae561417a73c2974a471d68b5b",
+        "artifact_id": "src__census_acs1__2024-12__r1__a1f5cd392af90fcb",
+        "data_sha256": "d62a548785b79959bba83134f0d90e6eab2ac31cc7779d10596e8d5443c5de91",
+        "package_sha256": "7ea888ffb034decf6b9d118c029399922dccf1de2c74a0ca3d39d6720f76d600",
+        "source_id": "census_acs1",
+        "vintage": 2024
+      },
+      "provenance": {
+        "august_acceptance": {
+          "cycle_id": "monthly_cycle__2026-08__a9e022a980d29cd7",
+          "sha256": "9c783798276e4dd14345e78c3b635d7f8ea1eb141fad89e9c5eabc242fc2e73e"
+        },
+        "original_publication": {
+          "cycle_id": "monthly_cycle__2026-07__7cab1c5df177a1e4",
+          "sha256": "dfaeed48e70a0571fe30ceaf8a40a9c1c7813e673b1a7d782eb6c6e58714d058"
+        },
+        "sha256": "0bd83c8c79f3788fa95680d1e50c7064b1031507784e19a0f04322a44d9eee7f"
+      },
+      "qualification_id": "acs_2024_monthly_compatibility_v1__e5d99b1fc7e006fb3462659d4ef10bd5e8c99d14f1d26288ca2252fe6ea23603",
+      "report_file_sha256": "c11e8cc403683582270be830092408220a21299f9e15dbb0d178016dccdaf8e1",
+      "report_sha256": "c11e8cc403683582270be830092408220a21299f9e15dbb0d178016dccdaf8e1",
+      "report_size_bytes": 87806,
+      "validator_sha256": "74210c9e7be1c39bdc5333a8cfb6826d4616e572f97a75f3d0a83ecb5d185bb5"
+    },
+    "census_acs5": {
+      "code_provenance": {
+        "basis": "independent_original_workflow_checkout_and_publication",
+        "evidence_sha256": "3ee74b5c187af0c2e5839adba8dc8c5a501e3d41d93d1441e2aab76611a5b0d7",
+        "execution_commit_relationship_to_baseline": {
+          "baseline": "40b950b4edda9dff30a93754735654aab0da28e1",
+          "merge_base_commit": "42baead0f29f844132979017998e71d89a16dddf",
+          "status": "diverged"
+        },
+        "files": {
+          "jobs/monthly_refresh/acs_monthly.py": {
+            "historical_reference_sha256": "ba27e9141ff103d345f4d0b97df2cbc7eee16243ff48afcef0fe9ef589127009",
+            "original_sha256": "f189a2bc14b55b840e975a86952d666902f192b21d83dd180de9e7dd146a15cc",
+            "semantic_sha256": "b1853fadb0b7e878411ee55b046d40b0134c653f0e6491dd202e9265766c1a8b"
+          },
+          "sources/census_acs/artifact.py": {
+            "historical_reference_sha256": "1b7e352ef9b5e9ab83b77698c576245a24f8fc52f811975e8d6669109e9e9c10",
+            "original_sha256": "1b7e352ef9b5e9ab83b77698c576245a24f8fc52f811975e8d6669109e9e9c10",
+            "semantic_sha256": "24a6ebff061a33c1994bb2c67114c5786efddae7cabc4978e877df2ef193e33a"
+          }
+        },
+        "historical_reference_commit": "4beea6b8b860cc1f825bd0f6b33728acbc90c9dc",
+        "manifest_code_commit_recorded": false,
+        "manifest_git_sha": "unknown",
+        "original_commit": "9131dc8ad2626f393e7975411693908d43445173",
+        "original_git_blob_identities": {
+          "config/geo_manifest.generated.csv": "ed2a7e347e2695d1d308e5d04c4b192c7a703b65",
+          "config/monthly_refresh_policy.json": "17a682cc0ee4889d812a0757706893a11038823a",
+          "config/source_metric_registry.csv": "4199e40e4407eec35e9ba74927aa37fbfc8e00cd",
+          "config/source_refresh_revision_policy_v0_2.json": "38b4555ed93937d3aaa8349578239041e2466fe5",
+          "jobs/monthly_refresh/acs_hosted.py": "66ebc1b4537d554e411c29650809746a04ea9f31",
+          "jobs/monthly_refresh/acs_monthly.py": "749ac96df20e5b955d6c581da91c7813c0f145c3",
+          "sources/census_acs/artifact.py": "3ce592db259b1b74f3964856dbdad12335ab79c7"
+        },
+        "repository_anchor": "40b950b4edda9dff30a93754735654aab0da28e1",
+        "workflow_job_id": 106231601412,
+        "workflow_run": {
+          "attempt": 1,
+          "conclusion": "success",
+          "event": "push",
+          "head_branch": "monthly-refresh-orchestration",
+          "head_sha": "9131dc8ad2626f393e7975411693908d43445173",
+          "id": 35567244220,
+          "path": ".github/workflows/monthly-refresh-production.yml",
+          "url": "https://github.com/chineduezebuiroh/realestate-intel/actions/runs/35567244220"
+        }
+      },
+      "configuration": {
+        "historical_reference": {
+          "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+          "config/monthly_refresh_policy.json": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+          "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+          "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+        },
+        "original": {
+          "config/geo_manifest.generated.csv": "99d1bf72bcf4c2108824ff57751252047ee33dc211abc68c8669eeb07c8e9615",
+          "config/monthly_refresh_policy.json": "d118561d16133c29d59a63c4c5361c2cd4a3390f276c67654cb582109412b578",
+          "config/source_metric_registry.csv": "14acfa965907b8884dbb6225e9f97b4143e6b248cefe53e13c3b3307cf435e4f",
+          "config/source_refresh_revision_policy_v0_2.json": "8ae73b4f0bcdd80b3f03f20fb6b1db4ca1ae214af6b40ac3f97ad92872449e8a"
+        },
+        "policy_differences_requiring_human_review": {
+          "config/monthly_refresh_policy.json": {
+            "historical_reference": "8075b7419ebb815b2632a720476b1e717212db6eacbcff40edcce76d6c6afd16",
+            "original": "d118561d16133c29d59a63c4c5361c2cd4a3390f276c67654cb582109412b578"
+          }
+        },
+        "policy_review_status": "not_approved"
+      },
+      "evidence_inventory": {
+        "accepted_family": {
+          "anchor_sha256": "bd7d9eab960bf305d320db282ef1b3b39bcdef09a5f0130d8e1ab967e6f86b47",
+          "sha256": "bd7d9eab960bf305d320db282ef1b3b39bcdef09a5f0130d8e1ab967e6f86b47"
+        },
+        "august_pin": {
+          "anchor_sha256": "997aca80ef250a670c1f4497ee9812aa3a346ce410edd102ef7b8034e4f03e00",
+          "sha256": "997aca80ef250a670c1f4497ee9812aa3a346ce410edd102ef7b8034e4f03e00"
+        },
+        "august_result": {
+          "anchor_sha256": "0b436367918f1263279d847a4684a6b7629844c2f624bc2cad2bc3793ce62b34",
+          "sha256": "0b436367918f1263279d847a4684a6b7629844c2f624bc2cad2bc3793ce62b34"
+        },
+        "catalog": {
+          "sha256": "2b49256a75802f8290094c5841e6015ced4fc09cfc6dd7680b4def267978bfa9"
+        },
+        "july_publication_pin": {
+          "anchor_sha256": "6bbc667c4006a5e3f61733a6555b07c0ac97912e806e1239fd4671d1bee30910",
+          "sha256": "6bbc667c4006a5e3f61733a6555b07c0ac97912e806e1239fd4671d1bee30910"
+        },
+        "july_publication_result": {
+          "anchor_sha256": "75e90e1fb6bfcee4c10b75e2d9e821ab7b7b4e203d5c55cf6c659db4a4351bd9",
+          "sha256": "75e90e1fb6bfcee4c10b75e2d9e821ab7b7b4e203d5c55cf6c659db4a4351bd9"
+        },
+        "original_tar": {
+          "sha256": "225bbe8ffd3a08b6ae049600f0e5fa05aa9132b83301fab54dbbcd591a3922fb",
+          "size_bytes": 40960
+        },
+        "original_workflow_code": {
+          "sha256": "3ee74b5c187af0c2e5839adba8dc8c5a501e3d41d93d1441e2aab76611a5b0d7"
+        },
+        "package/data.parquet": {
+          "sha256": "aa8f2b32ee0cfa2f6c764a866f300f3753c7f249376d8974cee4a1e91daa31a3"
+        },
+        "package/manifest.json": {
+          "sha256": "6db6601c75dbfbb11215a5d6aa86dfa96a486e8da580943d5b6d85c6c1ae28c7"
+        },
+        "package/validation.json": {
+          "sha256": "a807a2f582c3afe66490ecd56bfe8538120392682ae26941f1605a646ec793ec"
+        }
+      },
+      "historical_scope": {
+        "status": "missing_authority"
+      },
+      "parent": {
+        "artifact_content_hash": "2bebdc938d8c2fb65c5af5bd44f86936bbcf55141004a2b132c163e8c3732e69",
+        "artifact_id": "src__census_acs5__2024-12__r1__2bebdc938d8c2fb6",
+        "data_sha256": "aa8f2b32ee0cfa2f6c764a866f300f3753c7f249376d8974cee4a1e91daa31a3",
+        "package_sha256": "225bbe8ffd3a08b6ae049600f0e5fa05aa9132b83301fab54dbbcd591a3922fb",
+        "source_id": "census_acs5",
+        "vintage": 2024
+      },
+      "provenance": {
+        "august_acceptance": {
+          "cycle_id": "monthly_cycle__2026-08__a9e022a980d29cd7",
+          "sha256": "93d036d4c015dcc5473429c5a298f2ccb1797facbb0163cffcafa6608d1be659"
+        },
+        "original_publication": {
+          "cycle_id": "monthly_cycle__2026-07__7cab1c5df177a1e4",
+          "sha256": "b90dbaff4088ab69d5821820e013ed5042892b302280d2580683c1157e5a7bd9"
+        },
+        "sha256": "c41a1d8eaa1db6deb9f9edce36b844ae4558c6fef4c755e27a4f7c7833fbdd80"
+      },
+      "qualification_id": "acs_2024_monthly_compatibility_v1__421911b7acd6443df19cc2887577d85f356ea412a7f034e88fd11c2cf8b34b43",
+      "report_file_sha256": "23f02c9cf19cf93ea7b1fa277865076b9ce97170e55c7c9945c7dab7b9a571de",
+      "report_sha256": "23f02c9cf19cf93ea7b1fa277865076b9ce97170e55c7c9945c7dab7b9a571de",
+      "report_size_bytes": 86063,
+      "validator_sha256": "74210c9e7be1c39bdc5333a8cfb6826d4616e572f97a75f3d0a83ecb5d185bb5"
+    }
+  },
+  "real_evidence_validation": {
+    "authorization_and_readiness": "blocked",
+    "original_packages": {
+      "census_acs1": {
+        "asset_filename": "src__census_acs1__2024-12__r1__a1f5cd392af90fcb.tar",
+        "asset_id": 578392031,
+        "object_id": "src__census_acs1__2024-12__r1__a1f5cd392af90fcb",
+        "package_sha256": "7ea888ffb034decf6b9d118c029399922dccf1de2c74a0ca3d39d6720f76d600",
+        "release_id": 392729325,
+        "release_tag": "source-artifact/census_acs1/src__census_acs1__2024-12__r1__a1f5cd392af90fcb",
+        "remote_repository": "chineduezebuiroh/realestate-intel"
+      },
+      "census_acs5": {
+        "asset_filename": "src__census_acs5__2024-12__r1__2bebdc938d8c2fb6.tar",
+        "asset_id": 578391228,
+        "object_id": "src__census_acs5__2024-12__r1__2bebdc938d8c2fb6",
+        "package_sha256": "225bbe8ffd3a08b6ae049600f0e5fa05aa9132b83301fab54dbbcd591a3922fb",
+        "release_id": 392729171,
+        "release_tag": "source-artifact/census_acs5/src__census_acs5__2024-12__r1__2bebdc938d8c2fb6",
+        "remote_repository": "chineduezebuiroh/realestate-intel"
+      }
+    },
+    "original_tar_requalification": "blocked",
+    "reason": "Missing governing scope authority and inaccessible original TARs; no approval or substitute evidence supplied.",
+    "repository_lineage_and_evidence_digests": "passed",
+    "retained_report_bytes_and_identities": "passed",
+    "retrieval_result": "gh api GET exact numeric release asset IDs: Forbidden for both; local workspace contains no original production TARs."
+  },
+  "repository": "chineduezebuiroh/realestate-intel",
+  "schema_version": "acs_2024_compatibility_authorization_proposal_inputs_v1",
+  "scope_authority_resolution": {
+    "original_august_acquisitions_contain_scope_ids": false,
+    "registry_path": "config/acs_historical_governance.json",
+    "registry_status": "absent_git_tree_and_github_contents_404",
+    "remote_main_commit": "34ed70b2125b45c449086bccc4179b7ac4c32960",
+    "report_historical_scope": {
+      "status": "missing_authority"
+    },
+    "repository": "chineduezebuiroh/realestate-intel",
+    "scope_authority_ids": {
+      "census_acs1": null,
+      "census_acs5": null
+    },
+    "status": "missing_authority"
+  },
+  "status": "proposed_incomplete"
+}
