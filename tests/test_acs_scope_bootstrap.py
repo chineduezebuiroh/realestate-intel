@@ -127,12 +127,14 @@ def test_raw_proposals_cannot_become_production_governance(documents):
 
 @pytest.mark.parametrize('mode', ['production_path', 'activate'])
 def test_cli_rejects_activation(monkeypatch, tmp_path, mode):
+    registry_path = ROOT / 'config/acs_historical_governance.json'
+    original_registry = registry_path.read_bytes() if registry_path.exists() else None
     args = ['bootstrap', '--repository-root', str(ROOT)]
     args += ['--output', str(ROOT / 'config/acs_historical_governance.json')] if mode == 'production_path' else ['--activate']
     monkeypatch.setattr(sys, 'argv', args)
     with pytest.raises(SystemExit) as exc: bootstrap.main()
     assert exc.value.code == 2
-    assert not (ROOT / 'config/acs_historical_governance.json').exists()
+    assert (registry_path.read_bytes() if registry_path.exists() else None) == original_registry
 
 
 def conditional_fixture(documents, *, gap_approved):
