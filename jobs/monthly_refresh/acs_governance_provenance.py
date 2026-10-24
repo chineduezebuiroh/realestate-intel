@@ -55,6 +55,29 @@ def comment_snapshot(comment):
     return result
 
 
+def _evidence_consistency(value):
+    """Compare authorization bindings, not endpoint-specific presentation fields.
+
+    Keep missing fields distinct from explicit null. Selected evidence still
+    undergoes all existing required-field, provenance and snapshot validation.
+    Raw records remain in the audit; this projection is only for consistency.
+    """
+    fields = (*COMMENT_FIELDS, 'state', 'commit_id', 'submitted_at',
+              'pull_request_url', 'pull_request_review_id', 'original_commit_id')
+    result = {key: deepcopy(value[key]) for key in fields if key in value}
+    if isinstance(result.get('user'), dict):
+        result['user'] = {key: result['user'][key] for key in ('id', 'login', 'type')
+                          if key in result['user']}
+    return result
+
+
+def _scan_consistency(scan):
+    # Preserve PR/pagination checks and complete stream order/membership. Ignore
+    # only incidental response fields within comment/review records.
+    return {**scan, **{key: [_evidence_consistency(item) for item in scan[key]]
+                      for key in ('comments', 'reviews', 'inline')}}
+
+
 def validate_comment_metadata(provenance):
     value = provenance.get('owner_comment')
     keys = {'comment_id', 'comment_url', 'author_login', 'author_user_id', 'created_at', 'updated_at', 'body_sha256', 'snapshot_sha256'}
@@ -213,8 +236,11 @@ def verify_authorizations(provenances, token, root, *, prior_snapshot=None):
             path = f'/issues/comments/{object_id}' if is_comment else f'/pulls/{pr}/reviews/{object_id}'
             obj = _get(api, path)
             stream = first['comments'] if is_comment else first['reviews']
-            if obj.get('id') != object_id or obj not in stream:
+            matches = [item for item in stream if item.get('id') == object_id]
+            if type(obj.get('id')) is not int or obj['id'] != object_id or len(matches) != 1:
                 raise ValueError('direct evidence missing from complete paginated stream')
+            if sha256_json(_evidence_consistency(obj)) != sha256_json(_evidence_consistency(matches[0])):
+                raise ValueError('direct/list authorization security fields mismatch')
             user = obj.get('user', {})
             if user.get('login') != provenance['reviewer_login'] or not authorized(user):
                 raise ValueError('unauthorized or fixture/bot author')
@@ -263,7 +289,7 @@ def verify_authorizations(provenances, token, root, *, prior_snapshot=None):
                 if _time(stamp) >= earliest and authorized(item.get('user', {})):
                     raise ValueError('subsequent authorized discussion/review: withdrawal, supersession or contradiction unresolved')
         second = scan()
-        if second != first:
+        if sha256_json(_scan_consistency(second)) != sha256_json(_scan_consistency(first)):
             raise ValueError('mutable authorization evidence changed during verification')
         for name, value in selected.items():
             kind = value['provenance_kind']
@@ -271,7 +297,7 @@ def verify_authorizations(provenances, token, root, *, prior_snapshot=None):
             path = f'/issues/comments/{object_id}' if kind == 'github_owner_decision_comment' else f'/pulls/{pr}/reviews/{object_id}'
             current = _get(api, path)
             capture = comment_snapshot(current) if kind == 'github_owner_decision_comment' else current
-            if capture != evidence[name]['github_record']:
+            if sha256_json(_evidence_consistency(capture)) != sha256_json(_evidence_consistency(evidence[name]['github_record'])):
                 raise ValueError('authorization evidence edited/deleted at completion')
         scans[str(pr)] = first
     result = {'schema_version': AUDIT_VERSION, 'namespace': 'audit_only', 'repository': REPOSITORY,
