@@ -297,3 +297,22 @@ reports technical accounting separately from unapproved compatibility governance
 and unestablished original-response verification. Compatibility cells remain
 outside independently verified inventories and cannot pass historical acceptance,
 fallback readiness or activation. The default independent-evidence path is unchanged.
+
+### Bounded 2024 compatibility authority (inactive)
+
+See [the authorization contract](../contracts/acs_2024_compatibility_authorization_v1.md)
+for the remote-main trust path, exact-record generator and evidence requirements.
+The complete checked-in proposal binds both unchanged uploaded production reports
+and the exact historical scope IDs installed by PR #305. It remains proposed with
+null compatibility approval provenance; scope approval is not compatibility
+approval. Original report bytes, original `missing_authority` report context,
+manifest `git_sha="unknown"` and assurance limitations are preserved.
+
+Use the contract's read-only `--check-current-proposal` command to verify current
+scopes through the existing production loader. This cloud attempt failed at the
+api.github.com proxy (CONNECT 403); local structural checks and connector data do
+not replace live verification. Both available original TARs technically requalify
+and reproduce their exact retained reports. No compatibility/acceptance pass is
+claimed. The exact remaining human decision and separate reviewed-main registry
+installation are described in the contract and the inactive review request.
+All physical-state acceptance, publication, serving and Macro gates remain closed.

@@ -1,0 +1,57 @@
+{
+  "approval_provenance": null,
+  "decision": null,
+  "decision_rationale": null,
+  "installation_or_activation_authorized": false,
+  "limitations": {
+    "acs5_substitution": "only_for_recorded_acs1_monthly_no_content",
+    "cycle_id": "monthly_cycle__2026-08__a9e022a980d29cd7",
+    "historical_acceptance": false,
+    "imputation": false,
+    "jointly_unobserved": "missing",
+    "macro_execution": false,
+    "preserve_physical_source_identity": true,
+    "provider_ineligibility_inference": false,
+    "provider_response_verification": "not_established",
+    "serving_promotion": false,
+    "source_set_publication": false,
+    "vintage": 2024
+  },
+  "proposal": {
+    "authorization_id": "acs_2024_compatibility_authorization_v1__1edf025a6b1daa7b005527e3f1645df81746af142697ca7b15da9a672b02f66c",
+    "path": "docs/proposals/acs_2024_compatibility_authorization.json",
+    "sha256": "f6bc4888322a82743ddd8afaeaa03f07e7c9aea2ae560d0adc414221ebe313fb"
+  },
+  "report_commitments": {
+    "census_acs1": {
+      "qualification_id": "acs_2024_monthly_compatibility_v1__e5d99b1fc7e006fb3462659d4ef10bd5e8c99d14f1d26288ca2252fe6ea23603",
+      "report_file_sha256": "c11e8cc403683582270be830092408220a21299f9e15dbb0d178016dccdaf8e1",
+      "report_size_bytes": 87806
+    },
+    "census_acs5": {
+      "qualification_id": "acs_2024_monthly_compatibility_v1__421911b7acd6443df19cc2887577d85f356ea412a7f034e88fd11c2cf8b34b43",
+      "report_file_sha256": "23f02c9cf19cf93ea7b1fa277865076b9ce97170e55c7c9945c7dab7b9a571de",
+      "report_size_bytes": 86063
+    }
+  },
+  "repository": "chineduezebuiroh/realestate-intel",
+  "required_action": "Human explicitly approves this exact subject at the reviewed PR head; a separately authorized reviewed-main change records genuine decision provenance, sets approved status, recomputes the final authorization_id and installs that record plus the current_compatibility_authorization pointer. No scope/state changes.",
+  "required_human_acknowledgements": [
+    "Exact two original parents and qualification/report-byte commitments only; 2024 scope only.",
+    "Original manifest git_sha remains unknown; independently recovered execution-code evidence is separate.",
+    "Review original/reference policy differences and accept the original assurance limitations explicitly.",
+    "Monthly no-content is process-attested, not independently verified provider omission or ineligibility.",
+    "Only the 67 recorded ACS5-only geographies may use ACS5 fallback; four jointly unobserved remain missing.",
+    "No physical-state acceptance, publication, serving, Macro or broader-vintage authorization."
+  ],
+  "review_url": null,
+  "reviewed_commit": null,
+  "reviewed_pr": 302,
+  "reviewer": null,
+  "schema_version": "acs_2024_compatibility_review_request_v1",
+  "scope_authorities": {
+    "census_acs1": "acs_historical_scope_authority_v1__48b6da5ee873a6e6be1855478b840ac64521acfa0bfde75de9abcc7511f7795e",
+    "census_acs5": "acs_historical_scope_authority_v1__1d0cfe3c900e0cb1da7ea0b8ab5ae44ed73737b836c04e4649345d511ed092ee"
+  },
+  "status": "awaiting_explicit_human_decision"
+}
