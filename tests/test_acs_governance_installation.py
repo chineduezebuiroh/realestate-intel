@@ -52,6 +52,8 @@ def rehash(registry):
 
 
 def test_exact_proposal_and_existing_identities():
+    registry_path = ROOT / 'config/acs_historical_governance.json'
+    original_registry = registry_path.read_bytes() if registry_path.exists() else None
     proposal = install.generate(ROOT)
     assert json.loads((ROOT / install.PROPOSAL_PATH).read_bytes()) == proposal
     assert install.validate_proposal(proposal, ROOT)['production_authority'] is False
@@ -64,7 +66,7 @@ def test_exact_proposal_and_existing_identities():
         assert template['approved_request_scope']['requested_geographies'] == 223
         assert len(template['approved_request_scope']['excluded_geographies']) == 10
     assert all(proposal['initial_registry'][key] == {} for key in ['gap_evidence', 'scopes', 'current_scope', 'states', 'current_state'])
-    assert not (ROOT / 'config/acs_historical_governance.json').exists()
+    assert (registry_path.read_bytes() if registry_path.exists() else None) == original_registry
 
 
 def test_fixture_structural_contract_and_identity_cascade():

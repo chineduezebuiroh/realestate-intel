@@ -55,7 +55,9 @@ class Fixture:
                      'head': {'sha': SHA, 'repo': {'full_name': install.REPOSITORY}}}
         self.repo = {'id': 1085190171, 'full_name': install.REPOSITORY, 'owner': deepcopy(OWNER)}
         self.calls = []; self.headers = {}; self.page_size = 100; self.omit = False
-        self.deleted = False; self.drift = False; self.scans = 0; self.numeric_links = False
+        self.deleted = False; self.drift = False; self.scans = 0; self.numeric_links = False; self.content_encoding = "compact"
+        self.response_variant = None
+        self.direct_reads = 0
         self.reviewed_proposal = proposal
         self.registry = None
         fixture = self
@@ -84,7 +86,10 @@ class Fixture:
                     value = {'permission': 'write'}
                 elif path == f'/contents/{install.PROPOSAL_PATH}':
                     assert query == {'ref': [SHA]}
-                    value = {'content': base64.b64encode(json.dumps(fixture.reviewed_proposal).encode()).decode()}
+                    encoded = base64.b64encode(json.dumps(fixture.reviewed_proposal).encode()).decode()
+                    if fixture.content_encoding == 'wrapped': encoded = '\n'.join(encoded[i:i+60] for i in range(0, len(encoded), 60)) + '\n'
+                    elif fixture.content_encoding == 'invalid': encoded += '!'
+                    value = {'content': encoded}
                 elif path in [f'/issues/{PR}/comments', f'/pulls/{PR}/reviews', f'/pulls/{PR}/comments']:
                     stream = fixture.comments if '/issues/' in path else (fixture.inline if path.endswith('/comments') else fixture.reviews)
                     page = int(query['page'][0]); assert query['per_page'] == ['100']
@@ -97,7 +102,12 @@ class Fixture:
                 headers = fixture.headers
                 if fixture.numeric_links and path in [f'/issues/{PR}/comments', f'/pulls/{PR}/reviews', f'/pulls/{PR}/comments'] and value and lo+fixture.page_size < len(stream):
                     headers = {'Link': f'<https://api.github.com/repositories/1085190171{path}?page={page+1}&per_page=100>; rel="next"'}
-                return Response(deepcopy(value), headers)
+                value = deepcopy(value)
+                if path in ['/issues/comments/100', f'/pulls/{PR}/reviews/100']:
+                    fixture.direct_reads += 1
+                if fixture.response_variant is not None:
+                    value = fixture.response_variant(path, value, fixture)
+                return Response(value, headers)
         monkeypatch.setattr('urllib.request.build_opener', lambda *a, **k: Opener())
 
     def verify(self, **kwargs):
@@ -254,3 +264,96 @@ def test_canonical_numeric_pagination_and_query_order(monkeypatch):
                          'created_at': '2026-10-23T00:00:00Z', 'updated_at': '2026-10-23T00:00:00Z'})
     f.pull['comments'] = 2
     assert f.verify()['checks']['pagination_exhausted']
+
+
+@pytest.mark.parametrize('encoding', ['wrapped', 'invalid'])
+def test_actual_github_contents_base64_serialization(monkeypatch, encoding):
+    fixture = Fixture(monkeypatch); fixture.content_encoding = encoding
+    if encoding == 'wrapped':
+        assert fixture.verify()['checks']['exact_reviewed_proposal']
+    else:
+        with pytest.raises(ValueError): fixture.verify()
+
+
+@pytest.mark.parametrize('review', [False, True])
+def test_incidental_direct_list_and_fresh_read_response_differences(monkeypatch, review):
+    fixture = Fixture(monkeypatch, review=review)
+    def variant(path, value, state):
+        if path in ['/issues/comments/100', f'/pulls/{PR}/reviews/100']:
+            value['pin'] = None  # Actual direct endpoint field absent from list.
+            value['user']['avatar_url'] = f'https://example.invalid/avatar/{state.direct_reads}'
+            value['reactions'] = {'total_count': state.direct_reads}
+        elif path in [f'/issues/{PR}/comments', f'/pulls/{PR}/reviews']:
+            for item in value:
+                item['user']['avatar_url'] = f'https://example.invalid/list/{state.scans}'
+                item['minimized'] = None
+                item['reactions'] = {'total_count': state.scans}
+        return value
+    fixture.response_variant = variant
+    result = fixture.verify()
+    assert result['checks']['stable_double_scan']
+    assert result['production_authority'] is result['activation'] is False
+    assert 'pin' not in result['complete_scans'][str(PR)]['comments' if not review else 'reviews'][0]
+    # Comment snapshot commitments/provenance must remain byte-semantically intact.
+    if not review:
+        assert result['evidence']['acs1_scope']['github_record'] == auth.comment_snapshot(fixture.obj)
+
+
+def _mutate_security_field(item, field):
+    if field.startswith('user.'):
+        key = field.split('.')[1]
+        item['user'][key] = {'id': 999, 'login': 'wrong-human', 'type': 'Bot'}[key]
+    elif field == 'id': item[field] = 999
+    elif field == 'performed_via_github_app': item[field] = {'id': 999}
+    elif field == 'body': item[field] += '\n'
+    else: item[field] = 'changed-security-binding'
+
+
+@pytest.mark.parametrize('review,field', [
+    (False, field) for field in ('id', 'html_url', 'issue_url', 'user.id', 'user.login', 'user.type',
+                                'created_at', 'updated_at', 'body', 'performed_via_github_app')
+] + [
+    (True, field) for field in ('id', 'html_url', 'pull_request_url', 'user.id', 'user.login', 'user.type',
+                               'submitted_at', 'commit_id', 'state', 'body', 'performed_via_github_app')
+])
+def test_direct_list_security_field_mismatch_fails_closed(monkeypatch, review, field):
+    fixture = Fixture(monkeypatch, review=review)
+    endpoint = f'/pulls/{PR}/reviews' if review else f'/issues/{PR}/comments'
+    def variant(path, value, state):
+        if path == endpoint and value:
+            _mutate_security_field(value[0], field)
+        return value
+    fixture.response_variant = variant
+    with pytest.raises(ValueError, match='direct evidence|security fields'):
+        fixture.verify()
+
+
+@pytest.mark.parametrize('phase', ['second_scan', 'final_direct'])
+@pytest.mark.parametrize('field', ['body', 'updated_at', 'user.id', 'performed_via_github_app'])
+def test_security_mutation_during_fresh_reads_still_blocks(monkeypatch, phase, field):
+    fixture = Fixture(monkeypatch)
+    def variant(path, value, state):
+        if phase == 'second_scan' and state.scans > 1 and path == f'/issues/{PR}/comments' and value:
+            _mutate_security_field(value[0], field)
+        elif phase == 'final_direct' and state.scans > 1 and path == '/issues/comments/100':
+            _mutate_security_field(value, field)
+        return value
+    fixture.response_variant = variant
+    with pytest.raises(ValueError, match='changed during verification|edited/deleted at completion'):
+        fixture.verify()
+
+
+def test_missing_security_field_is_not_equivalent_to_null(monkeypatch):
+    fixture = Fixture(monkeypatch)
+    def variant(path, value, state):
+        if path == f'/issues/{PR}/comments' and value:
+            del value[0]['performed_via_github_app']
+        return value
+    fixture.response_variant = variant
+    with pytest.raises(ValueError, match='security fields'): fixture.verify()
+
+
+def test_duplicate_selected_comment_is_not_accepted_by_id(monkeypatch):
+    fixture = Fixture(monkeypatch)
+    fixture.comments.append(deepcopy(fixture.obj)); fixture.pull['comments'] = 2
+    with pytest.raises(ValueError, match='duplicate'): fixture.verify()
