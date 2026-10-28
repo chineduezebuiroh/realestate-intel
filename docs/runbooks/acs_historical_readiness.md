@@ -302,12 +302,17 @@ fallback readiness or activation. The default independent-evidence path is uncha
 
 See [the authorization contract](../contracts/acs_2024_compatibility_authorization_v1.md)
 for the remote-main trust path, exact-record generator and evidence requirements.
-The checked-in proposal now binds both unchanged uploaded production reports,
-retained once under SHA-256 filenames in `docs/audit/acs_2024_qualification_reports/`.
-It remains explicitly incomplete because the authoritative historical governance
-registry and governing scope identities are absent on inspected remote main.
-Do not infer historical scope approval from original monthly acquisition records,
-fabricate authority IDs, or install this scaffold in the
-production registry. Both original TARs and unchanged reports must pass fresh
-qualification before even bounded advisory readiness can use an approved record.
-All acceptance, publication, serving and Macro gates remain separate and closed.
+The complete checked-in proposal binds both unchanged uploaded production reports
+and the exact historical scope IDs installed by PR #305. It remains proposed with
+null compatibility approval provenance; scope approval is not compatibility
+approval. Original report bytes, original `missing_authority` report context,
+manifest `git_sha="unknown"` and assurance limitations are preserved.
+
+Use the contract's read-only `--check-current-proposal` command to verify current
+scopes through the existing production loader. This cloud attempt failed at the
+api.github.com proxy (CONNECT 403); local structural checks and connector data do
+not replace live verification. Both available original TARs technically requalify
+and reproduce their exact retained reports. No compatibility/acceptance pass is
+claimed. The exact remaining human decision and separate reviewed-main registry
+installation are described in the contract and the inactive review request.
+All physical-state acceptance, publication, serving and Macro gates remain closed.

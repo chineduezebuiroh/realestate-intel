@@ -1,0 +1,54 @@
+{
+  "activation": false,
+  "compatibility_authorized": false,
+  "historical_acceptance": false,
+  "installed_merge_commit": "97ef9baafe23fff06288e9e8fef455a42a1d25ae",
+  "local_structural_validation": {
+    "activation": false,
+    "human_review_authenticity": "requires independent verification",
+    "production_authority": false,
+    "scope_ids": {
+      "census_acs1": "acs_historical_scope_authority_v1__48b6da5ee873a6e6be1855478b840ac64521acfa0bfde75de9abcc7511f7795e",
+      "census_acs5": "acs_historical_scope_authority_v1__1d0cfe3c900e0cb1da7ea0b8ab5ae44ed73737b836c04e4649345d511ed092ee"
+    },
+    "structural_validation": "passed"
+  },
+  "not_a_production_capability_or_successful_live_audit": true,
+  "observed_date": "2026-10-28",
+  "production_loader_result": {
+    "reason": "Proxy CONNECT 403 Forbidden for api.github.com; direct ACSGovernance.load_production failed before scope reads.",
+    "status": "blocked"
+  },
+  "registry_file_sha256": "3f72a4fe4d595c7692261aa0b05e746a5824cc2faed71a313552e2214f58148f",
+  "registry_path": "config/acs_historical_governance.json",
+  "registry_semantic_sha256": "201875379f4eabc2af6cecd5343140a1bed019421c3fd2af71ad85aa0eb81392",
+  "schema_version": "acs_2024_scope_binding_observation_v1",
+  "scope_authorities": {
+    "census_acs1": "acs_historical_scope_authority_v1__48b6da5ee873a6e6be1855478b840ac64521acfa0bfde75de9abcc7511f7795e",
+    "census_acs5": "acs_historical_scope_authority_v1__1d0cfe3c900e0cb1da7ea0b8ab5ae44ed73737b836c04e4649345d511ed092ee"
+  },
+  "technical_requalification": {
+    "census_acs1": {
+      "complete_semantic_match_to_original_report": true,
+      "original_report_bytes_unchanged": true,
+      "original_report_scope_context": {
+        "status": "missing_authority"
+      },
+      "package_sha256": "7ea888ffb034decf6b9d118c029399922dccf1de2c74a0ca3d39d6720f76d600",
+      "qualification_id": "acs_2024_monthly_compatibility_v1__e5d99b1fc7e006fb3462659d4ef10bd5e8c99d14f1d26288ca2252fe6ea23603",
+      "report_file_sha256": "c11e8cc403683582270be830092408220a21299f9e15dbb0d178016dccdaf8e1",
+      "technical_reconciliation": "passed"
+    },
+    "census_acs5": {
+      "complete_semantic_match_to_original_report": true,
+      "original_report_bytes_unchanged": true,
+      "original_report_scope_context": {
+        "status": "missing_authority"
+      },
+      "package_sha256": "225bbe8ffd3a08b6ae049600f0e5fa05aa9132b83301fab54dbbcd591a3922fb",
+      "qualification_id": "acs_2024_monthly_compatibility_v1__421911b7acd6443df19cc2887577d85f356ea412a7f034e88fd11c2cf8b34b43",
+      "report_file_sha256": "23f02c9cf19cf93ea7b1fa277865076b9ce97170e55c7c9945c7dab7b9a571de",
+      "technical_reconciliation": "passed"
+    }
+  }
+}

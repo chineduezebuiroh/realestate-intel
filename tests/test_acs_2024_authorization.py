@@ -154,12 +154,14 @@ def test_recovery_snapshot_cannot_authorize(authorized, monkeypatch):
 
 def test_proposed_inputs_are_deliberately_not_authority():
     record = auth.qualification.read_json(ROOT / 'docs/proposals/acs_2024_compatibility_authorization.json')
-    assert record['status'] == 'proposed_incomplete' and record['active'] is False
-    assert record['approval_provenance'] is None
-    assert all(r['governing_scope_authority_id'] is None for r in record['eligible_parents'].values())
-    assert record['scope_authority_resolution']['status'] == 'missing_authority'
+    assert record['status'] == 'proposed' and record['approval_provenance'] is None
+    assert auth.validate_proposal(record, ROOT)['compatibility_authorized'] is False
+    installed = auth.qualification.read_json(ROOT / 'config/acs_historical_governance.json')
+    assert record['scope_authorities'] == installed['current_scope']
+    assert not installed.get('compatibility_authorizations')
+    assert not installed.get('current_compatibility_authorization')
     with pytest.raises(ValueError):
-        auth.proposal(record['eligible_parents'], {}, ROOT, report_files={})
+        auth.proposal({}, {}, ROOT, report_files={})
 
 
 def test_unchanged_semantics_do_not_replace_exact_report_bytes(authorized):
@@ -174,13 +176,12 @@ def test_unchanged_semantics_do_not_replace_exact_report_bytes(authorized):
 @pytest.mark.parametrize('source', sorted(auth.QUALIFICATIONS))
 def test_retained_production_report_and_original_lineage(source):
     record = auth.qualification.read_json(ROOT / 'docs/proposals/acs_2024_compatibility_authorization.json')
-    ref = record['eligible_parents'][source]['retained_report']
-    path = ROOT / ref['path']
-    assert path.name == ref['sha256'] + '.json'
+    ref = record['qualifications'][source]
+    path = ROOT / 'docs/audit/acs_2024_qualification_reports' / (ref['report_file_sha256'] + '.json')
     binding = auth.report_file_binding(path, source)
     assert binding == record['qualifications'][source]
-    assert binding['report_file_sha256'] == ref['sha256']
-    assert binding['report_size_bytes'] == ref['size_bytes']
+    assert binding['report_file_sha256'] == ref['report_file_sha256']
+    assert binding['report_size_bytes'] == ref['report_size_bytes']
     report = auth.qualification.read_json(path)
     assert report['historical_scope'] == {'status': 'missing_authority'}
     assert len(report['predicates']) == 24
@@ -194,9 +195,64 @@ def test_retained_production_report_and_original_lineage(source):
     assert all(c['classification'] in auth.CLASSIFICATIONS for c in report['reconciliation']['cells'])
 
 
-def test_production_bindings_do_not_authorize_without_registry():
+def test_production_bindings_do_not_authorize_without_capability():
     record = auth.qualification.read_json(ROOT / 'docs/proposals/acs_2024_compatibility_authorization.json')
     with pytest.raises(ValueError, match='capability'):
         auth.verify(governance=None, authorization_id='not-issued',
-            reports={s: ROOT / p['retained_report']['path'] for s,p in record['eligible_parents'].items()},
+            reports={s: ROOT / 'docs/audit/acs_2024_qualification_reports' / (b['report_file_sha256'] + '.json')
+                     for s,b in record['qualifications'].items()},
             packages={}, catalog=ROOT / 'config/artifact_catalog.json', root=ROOT)
+
+
+@pytest.mark.parametrize('attack', ['approval', 'scope', 'assurance', 'report'])
+def test_complete_proposal_rejects_drift_and_approval(attack):
+    record = auth.qualification.read_json(ROOT / auth.PROPOSAL_PATH)
+    if attack == 'approval':
+        record['status'] = 'approved'; record['approval_provenance'] = {'review': 'forged'}
+    elif attack == 'scope': record['scope_authorities']['census_acs1'] = None
+    elif attack == 'assurance': record['limitations']['provider_response_verification'] = 'passed'
+    else: record['qualifications']['census_acs1']['report_size_bytes'] += 1
+    record = identify(auth.VERSION, record, 'authorization_id')
+    with pytest.raises(ValueError): auth.validate_proposal(record, ROOT)
+
+
+def test_review_request_is_empty_human_decision_and_exact_subject():
+    record = auth.qualification.read_json(ROOT / auth.PROPOSAL_PATH)
+    request = auth.qualification.read_json(ROOT / auth.REVIEW_PATH)
+    assert request == auth.review_request(record, ROOT)
+    assert request['proposal']['authorization_id'] == record['authorization_id']
+    assert request['proposal']['sha256'] == sha256_json(record)
+    assert all(request[k] is None for k in ['decision', 'reviewer', 'reviewed_commit', 'review_url',
+                                           'decision_rationale', 'approval_provenance'])
+    assert request['installation_or_activation_authorized'] is False
+
+
+@pytest.mark.parametrize('attack', ['valid', 'superseded', 'configuration', 'unavailable', 'drift'])
+def test_live_scope_check_uses_existing_production_loader(monkeypatch, attack):
+    record = auth.qualification.read_json(ROOT / auth.PROPOSAL_PATH)
+    reg = auth.qualification.read_json(ROOT / 'config/acs_historical_governance.json')
+    class API:
+        def __init__(self, repository, token, read_only):
+            assert read_only and repository == auth.REPOSITORY
+            self.reads = 0
+        def request(self, method, path, **kw):
+            assert method == 'GET'
+            if attack == 'unavailable': raise OSError('offline fixture transport failure')
+            if path == '/commits/main': return {'sha': 'a' * 40}, {}
+            assert path.endswith('?ref=' + 'a' * 40)
+            self.reads += 1
+            value = deepcopy(reg)
+            if attack == 'superseded': value['current_scope']['census_acs1'] = 'absent'
+            if attack == 'configuration':
+                key = value['current_scope']['census_acs1']
+                value['scopes'][key]['config_hashes'] = {}
+            if attack == 'drift' and self.reads > 1: value['changed_during_read'] = True
+            return {'content': base64.b64encode(json.dumps(value).encode()).decode()}, {}
+    monkeypatch.setattr('jobs.monthly_refresh.acs_scope._ProductionAPI', API)
+    if attack == 'valid':
+        result = auth.check_current_proposal(record, ROOT, 'fixture')
+        assert result['production_scopes_verified'] is True
+        assert result['compatibility_authorized'] is False and result['activation'] is False
+        assert result['governance_snapshot']['repository'] == auth.REPOSITORY
+    else:
+        with pytest.raises((ValueError, OSError)): auth.check_current_proposal(record, ROOT, 'fixture')

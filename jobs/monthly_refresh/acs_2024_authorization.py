@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+import re
 
 from core.source_artifacts.hashing import sha256_file, sha256_json
 from jobs.monthly_refresh import acs_2024_compatibility as qualification
@@ -71,6 +72,8 @@ def proposal(reports: dict, scopes: dict, root: Path, *, report_files: dict) -> 
     if (set(reports) != set(QUALIFICATIONS) or set(scopes) != set(QUALIFICATIONS)
             or set(report_files) != set(QUALIFICATIONS)):
         raise ValueError('both exact reports and governing scopes required')
+    if any(not isinstance(v, str) or not re.fullmatch(r'acs_historical_scope_authority_v1__[0-9a-f]{64}', v) for v in scopes.values()):
+        raise ValueError('exact scope content identities required; no missing-authority placeholders')
     bindings = {s: report_file_binding(report_files[s], s) for s in QUALIFICATIONS}
     if any(qualification.read_json(report_files[s]) != reports[s] for s in QUALIFICATIONS):
         raise ValueError('report files differ from supplied report objects')
@@ -80,6 +83,66 @@ def proposal(reports: dict, scopes: dict, root: Path, *, report_files: dict) -> 
         'consumer_sha256': sha256_file(Path(__file__)),
         'config_hashes': qualification.governed_config_hashes(root),
         'authorized_classifications': deepcopy(CLASSIFICATIONS), 'limitations': deepcopy(LIMITATIONS)}, 'authorization_id')
+
+
+PROPOSAL_PATH = 'docs/proposals/acs_2024_compatibility_authorization.json'
+REVIEW_PATH = 'docs/proposals/acs_2024_compatibility_review_request.json'
+
+
+def validate_proposal(record: dict, root: Path) -> dict:
+    """Check complete inactive proposal against retained bytes, never approve it."""
+    check_identity(VERSION, record, 'authorization_id')
+    reports = {s: Path(root) / 'docs/audit/acs_2024_qualification_reports' /
+               (record['qualifications'][s]['report_file_sha256'] + '.json') for s in QUALIFICATIONS}
+    expected = proposal({s: qualification.read_json(p) for s, p in reports.items()},
+                        record['scope_authorities'], root, report_files=reports)
+    if record != expected:
+        raise ValueError('proposal changed, assurance drift or attempted approval')
+    return {'proposal_validation': 'passed', 'compatibility_authorized': False,
+            'historical_acceptance': False, 'activation': False}
+
+
+def review_request(record: dict, root: Path) -> dict:
+    """Exact review subject and empty human fields, not a captured decision."""
+    validate_proposal(record, root)
+    return {'schema_version': 'acs_2024_compatibility_review_request_v1',
+        'status': 'awaiting_explicit_human_decision', 'repository': REPOSITORY,
+        'proposal': {'path': PROPOSAL_PATH, 'authorization_id': record['authorization_id'],
+                     'sha256': sha256_json(record)},
+        'scope_authorities': deepcopy(record['scope_authorities']),
+        'report_commitments': {s: {k: b[k] for k in ('qualification_id', 'report_file_sha256', 'report_size_bytes')}
+                               for s, b in record['qualifications'].items()},
+        'limitations': deepcopy(LIMITATIONS), 'decision': None, 'reviewer': None,
+        'reviewed_pr': 302, 'reviewed_commit': None, 'review_url': None, 'decision_rationale': None,
+        'approval_provenance': None,
+        'required_human_acknowledgements': [
+            'Exact two original parents and qualification/report-byte commitments only; 2024 scope only.',
+            'Original manifest git_sha remains unknown; independently recovered execution-code evidence is separate.',
+            'Review original/reference policy differences and accept the original assurance limitations explicitly.',
+            'Monthly no-content is process-attested, not independently verified provider omission or ineligibility.',
+            'Only the 67 recorded ACS5-only geographies may use ACS5 fallback; four jointly unobserved remain missing.',
+            'No physical-state acceptance, publication, serving, Macro or broader-vintage authorization.'],
+        'required_action': 'Human explicitly approves this exact subject at the reviewed PR head; '
+            'a separately authorized reviewed-main change records genuine decision provenance, '
+            'sets approved status, recomputes the final authorization_id and installs that record '
+            'plus the current_compatibility_authorization pointer. No scope/state changes.',
+        'installation_or_activation_authorized': False}
+
+
+def check_current_proposal(record: dict, root: Path, token: str) -> dict:
+    """Read current production scopes through the existing constrained loader only."""
+    result = validate_proposal(record, root)
+    governance = ACSGovernance.load_production(REPOSITORY, token)
+    governance.require_destination(REPOSITORY)
+    governance.current_commit(REPOSITORY)
+    for source, identity in record['scope_authorities'].items():
+        scope = governance.scope(source, identity, root)
+        if 2024 not in scope['expected_available_vintages']:
+            raise ValueError('2024 outside current approved scope')
+    result['validated_main_commit'] = governance.current_commit(REPOSITORY)
+    result['governance_snapshot'] = governance.production_snapshot()
+    result['production_scopes_verified'] = True
+    return result
 
 
 def verify(*, governance: ACSGovernance, authorization_id: str, reports: dict,
@@ -136,10 +199,20 @@ def main():
     parser = argparse.ArgumentParser(description='Build an inactive exact-report compatibility proposal; never approves or uploads.')
     parser.add_argument('--repository-root', type=Path, default=Path('.'))
     for product in ('acs1', 'acs5'):
-        parser.add_argument('--' + product + '-report', type=Path, required=True)
-        parser.add_argument('--' + product + '-scope', required=True)
-    parser.add_argument('--output', type=Path, required=True)
+        parser.add_argument('--' + product + '-report', type=Path)
+        parser.add_argument('--' + product + '-scope')
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--output', type=Path)
+    mode.add_argument('--check-current-proposal', type=Path)
     args = parser.parse_args()
+    if args.check_current_proposal:
+        import os, json
+        result = check_current_proposal(qualification.read_json(args.check_current_proposal),
+                                        args.repository_root.resolve(), os.environ.get('GITHUB_TOKEN', ''))
+        print(json.dumps(result, sort_keys=True))
+        return
+    if any(getattr(args, s[7:] + suffix) is None for s in QUALIFICATIONS for suffix in ('_report', '_scope')):
+        parser.error('both exact reports and scopes required for proposal generation')
     reports = {s: qualification.read_json(getattr(args, s[7:] + '_report')) for s in QUALIFICATIONS}
     scopes = {s: getattr(args, s[7:] + '_scope') for s in QUALIFICATIONS}
     report_files = {s: getattr(args, s[7:] + '_report') for s in QUALIFICATIONS}
