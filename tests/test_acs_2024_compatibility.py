@@ -549,3 +549,37 @@ def test_original_workflow_requires_exact_git_blob_bytes(source, monkeypatch):
     monkeypatch.setattr(compat.subprocess, 'check_output', output)
     with pytest.raises(ValueError, match='Git blob bytes differ'):
         compat.original_code_provenance(ROOT, *original_production_code_inputs(source))
+
+
+def test_authorized_readiness_preserves_evidence_classification(retained, source, monkeypatch):
+    """Consumer integration only; authority verification is tested independently."""
+    root, _, package, _, run = retained
+    qualification = run()
+    assert qualification['technical_reconciliation'] == 'passed'
+    spec = {'schema_version': readiness.VERSION, 'ranges': {s: [2024, 2024] for s in PRODUCTS},
+        'packages': {compat.ELIGIBLE[s][0]: str(package) for s in PRODUCTS}, 'evidence': {},
+        'selected_parents': {}, 'accepted_august': {}, 'monthly_compatibility': [s + ':2024' for s in PRODUCTS],
+        'catalog': str(root / 'config/artifact_catalog.json'),
+        'compatibility_authorization': {'authorization_id': 'offline-consumer-integration', 'reports': {}}}
+    cat = compat.read_json(root / 'config/artifact_catalog.json')
+    for s in PRODUCTS:
+        rec = next(r for r in cat['immutable_records'] if r['object_id'] == compat.ELIGIBLE[s][0])
+        spec['accepted_august'][s] = {'artifact_id': rec['object_id'], 'artifact_content_hash': rec['artifact_content_hash'],
+                                     'package_sha256': rec['package_sha256']}
+    monkeypatch.setattr(readiness, 'repository_inputs', lambda _: spec)
+    monkeypatch.setattr(readiness, 'verify_compatibility', lambda **kw: {'qualifications': {source: qualification}})
+    class EndFence:
+        def current_commit(self, repository): pass
+    report = readiness.evaluate(spec, root, production_governance=EndFence())
+    cells = [r for r in report['coverage'] if r['source_id'] == source and r['availability'] != 'explicitly_excluded']
+    assert Counter(r['availability'] for r in cells) == {
+        'available_compatibility_authorized': compat.ELIGIBLE[source][3],
+        'monthly_no_content_authorized': compat.ELIGIBLE[source][2] * 2}
+    assert all(r['independent_provider_verification'] == 'not_established' and
+               r['original_provider_response_independently_verified'] == 'not_established' for r in cells)
+    assert all(r['compatibility_governance'] == 'approved_bounded_readiness' for r in cells)
+    assert report['validation']['historical_acceptance'] == 'blocked'
+    assert report['validation']['downstream_activation'] == 'blocked'
+    assert len(report['proposed_inventories'][source]['parents']) == 1
+    assert all(r['proposed_source'] == source for r in report['logical_potential'])
+    assert any(b['code'] == 'incomplete_historical_logical_inputs' for b in report['blockers'])

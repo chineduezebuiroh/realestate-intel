@@ -183,6 +183,17 @@ class ACSGovernance:
             raise ValueError("scope does not exactly partition approved historical range")
         return authority
 
+    def compatibility_authorization(self, authorization_id: str) -> dict:
+        """Only current reviewed-main membership can confer compatibility authority."""
+        self.require_production()
+        if self._registry.get("current_compatibility_authorization") != authorization_id:
+            raise ValueError("compatibility authorization absent or superseded")
+        record = deepcopy(self._registry.get("compatibility_authorizations", {}).get(authorization_id, {}))
+        check_identity("acs_2024_compatibility_authorization_v1", record, "authorization_id")
+        if record.get("authorization_id") != authorization_id:
+            raise ValueError("compatibility authorization registry key mismatch")
+        return record
+
     def current_state(self, source: str) -> dict | None:
         self._validate_states()
         state_id = self._registry.get("current_state", {}).get(source)

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import json
+import os
 from pathlib import Path
 import tempfile
 import tarfile
@@ -15,7 +16,8 @@ from core.source_artifacts.package import extract_publication_package
 from core.source_artifacts.validation import ArtifactValidationError
 from jobs.monthly_refresh.source_inputs import validate_pin, verify_member_bytes
 from jobs.monthly_refresh.acs_2024_compatibility import qualify, ELIGIBLE
-from jobs.monthly_refresh.acs_scope import check_identity
+from jobs.monthly_refresh.acs_scope import check_identity, ACSGovernance
+from jobs.monthly_refresh.acs_2024_authorization import verify as verify_compatibility, REPOSITORY
 from jobs.monthly_refresh.acs_family_resolution import _parent
 from jobs.monthly_refresh.acs_history import frame_identity
 from sources.census_acs.artifact import (PRODUCTS, VARIABLES, canonicalize, geography_plan,
@@ -120,7 +122,7 @@ def continuity(baseline: Path, comparison: Path | None, available: set[tuple]) -
     return rows
 
 
-def evaluate(spec: dict, root: Path) -> dict:
+def evaluate(spec: dict, root: Path, *, production_governance: ACSGovernance | None = None) -> dict:
     if spec.get('schema_version') != VERSION or set(spec['ranges']) != set(PRODUCTS):
         raise ValueError('readiness schema/products mismatch')
     plan, excluded = geography_plan(root / 'config/geo_manifest.generated.csv')
@@ -135,6 +137,18 @@ def evaluate(spec: dict, root: Path) -> dict:
             or len(set(compatibility_keys)) != len(compatibility_keys) or not set(compatibility_keys) <= eligible_keys):
         raise ValueError('compatibility lane accepts only unique exact eligible product/year keys, never reports or statuses')
     qualifications = {}
+    compatibility_authority = None
+    if spec.get('compatibility_authorization'):
+        try:
+            if set(compatibility_keys) != eligible_keys:
+                raise ValueError('authorization requires both exact product/year keys')
+            request = spec['compatibility_authorization']
+            compatibility_authority = verify_compatibility(
+                governance=production_governance, authorization_id=request['authorization_id'],
+                reports=request['reports'], packages={source: spec['packages'][ELIGIBLE[source][0]] for source in ELIGIBLE},
+                catalog=Path(spec['catalog']), root=root)
+        except (ValueError, KeyError, TypeError, OSError, AttributeError) as exc:
+            issue('invalid_compatibility_authority_or_evidence', 'governance', 'fail', detail=str(exc))
     configured = repository_inputs(root)
     if spec.get('accepted_august') != configured['accepted_august']:
         issue('accepted_august_identity_differs_from_repository', 'engineering', 'fail')
@@ -218,6 +232,7 @@ def evaluate(spec: dict, root: Path) -> dict:
                               detail=str(exc))
                 verified, package_verified, compatibility_passed = False, False, False
                 compatibility_absent = set()
+                compatibility_authorized = False
                 package = spec.get('packages', {}).get(record['object_id']) if record else None
                 if record and package:
                     try:
@@ -235,7 +250,7 @@ def evaluate(spec: dict, root: Path) -> dict:
                             raise ValueError('acquisition row/product/vintage identity mismatch')
                         package_verified = True
                         if key in compatibility_keys:
-                            qualification = qualify(root=root, source_id=source, package=Path(package),
+                            qualification = compatibility_authority['qualifications'][source] if compatibility_authority else qualify(root=root, source_id=source, package=Path(package),
                                                     catalog=Path(spec['catalog']),
                                                     governance=Path(spec['governance']) if spec.get('governance') else None)
                             qualifications[key] = qualification
@@ -243,7 +258,10 @@ def evaluate(spec: dict, root: Path) -> dict:
                             if compatibility_passed:
                                 compatibility_absent = {c['geo_id'] for c in qualification['reconciliation']['cells']
                                                         if c['classification'] == 'monthly_no_content_attested'}
-                            issue('monthly_compatibility_requires_separate_governance' if compatibility_passed else
+                            compatibility_authorized = bool(compatibility_authority and compatibility_passed and
+                                qualification == compatibility_authority['qualifications'][source])
+                            if not compatibility_authorized:
+                                issue('monthly_compatibility_requires_separate_governance' if compatibility_passed else
                                   'invalid_monthly_compatibility', 'governance' if compatibility_passed else 'engineering',
                                   'blocked' if compatibility_passed else 'fail', source_id=source, vintage=year,
                                   qualification_id=qualification['qualification_id'])
@@ -251,12 +269,16 @@ def evaluate(spec: dict, root: Path) -> dict:
                             issue('missing_independent_provider_evidence', 'engineering', source_id=source, vintage=year)
                         elif expected is not None and frame_identity(frame) != frame_identity(expected):
                             raise ValueError('provider accounting differs from acquisition rows')
+                        if compatibility_authorized:
+                            parents.append({**identity, 'vintage': year, 'data_sha256': manifest['data_sha256']})
                         elif expected is not None and key not in compatibility_keys:
                             verified = True
                             parent = {**identity, 'vintage': year, 'data_sha256': manifest['data_sha256']}
                             parents.append(parent)
                             manifests[(source, year)] = manifest
                     except (ValueError, KeyError, TypeError, OSError, ArtifactValidationError, tarfile.TarError, EOFError) as exc:
+                        compatibility_authorized = False
+                        compatibility_passed = False
                         issue('invalid_acquisition_identity', 'engineering', 'fail', source_id=source, vintage=year, detail=str(exc))
                 if source == 'census_acs1' and year == 2020:
                     issue('acs1_2020_whole_vintage_gap_requires_governance', 'governance', source_id=source, vintage=year)
@@ -271,12 +293,14 @@ def evaluate(spec: dict, root: Path) -> dict:
                         observed = accounting.get((geo['geo_id'], variable))
                         status = ('explicitly_excluded' if geo in excluded else
                             'ambiguous_or_conflicting_identity' if ambiguous else
+                            'monthly_no_content_authorized' if compatibility_authorized and geo['geo_id'] in compatibility_absent else
+                            'available_compatibility_authorized' if compatibility_authorized else
                             'monthly_no_content_attested' if compatibility_passed and geo['geo_id'] in compatibility_absent else
                             'available_compatibility_reconciled' if compatibility_passed else
                             'evidenced_unavailable' if observed and observed != 'available' else
                             'available_and_verified' if verified else
                             'missing_acquisition' if record is None else 'unresolved_evidence')
-                        if status == 'available_and_verified':
+                        if status in {'available_and_verified', 'available_compatibility_authorized'}:
                             available.add((geo['geo_id'], year, suffix))
                         matrix.append({'source_id': source, 'vintage': year, 'geo_id': geo['geo_id'], 'variable': variable,
                             'availability': status, 'provider_classification': observed, 'evidence_sha256': evidence_hash,
@@ -285,7 +309,7 @@ def evaluate(spec: dict, root: Path) -> dict:
                             'acquisition_verified': package_verified,
                             'independent_provider_verification': 'passed' if verified else 'not_established',
                             'monthly_compatibility_technical_reconciliation': qualifications[key]['technical_reconciliation'] if key in qualifications else 'not_established',
-                            'compatibility_governance': 'not_approved',
+                            'compatibility_governance': 'approved_bounded_readiness' if compatibility_authorized else 'not_approved',
                             'original_provider_response_independently_verified': 'not_established',
                             'historical_acceptance': 'not_established',
                             'downstream_activation': 'not_established'})
@@ -299,8 +323,8 @@ def evaluate(spec: dict, root: Path) -> dict:
         variable = next(v for v, s in VARIABLES.items() if s == suffix)
         one = indexed.get(('census_acs1', year, geo, variable))
         logical.append({'geo_id': geo, 'vintage': year, 'metric': suffix,
-            'proposed_source': 'census_acs1' if one == 'available_and_verified' else 'census_acs5',
-            'resolution': 'potential_only', 'acs1_evidence_resolved': one in {'available_and_verified', 'evidenced_unavailable'},
+            'proposed_source': 'census_acs1' if one in {'available_and_verified', 'available_compatibility_authorized'} else 'census_acs5',
+            'resolution': 'potential_only', 'acs1_evidence_resolved': one in {'available_and_verified', 'evidenced_unavailable'} or (year == 2024 and bool(compatibility_authority) and one in {'available_compatibility_authorized', 'monthly_no_content_authorized'}),
             'historical_acceptance': 'not_established', 'downstream_activation': 'not_established'})
     for item in spec.get('pins', []):
         try:
@@ -329,22 +353,26 @@ def evaluate(spec: dict, root: Path) -> dict:
     if not comparison:
         issue('previous_macro_baseline_not_supplied', 'engineering')
     counts = dict(sorted(Counter(r['availability'] for r in matrix).items()))
-    if any(r['availability'] in {'missing_acquisition', 'unresolved_evidence', 'available_compatibility_reconciled', 'monthly_no_content_attested'} for r in matrix):
+    if any(r['availability'] in {'missing_acquisition', 'unresolved_evidence', 'available_compatibility_reconciled', 'monthly_no_content_attested', 'monthly_no_content_authorized'} for r in matrix):
         issue('incomplete_historical_logical_inputs', 'engineering')
     if any(not r['acs1_evidence_resolved'] for r in logical):
         issue('acs5_fallback_preference_evidence_unresolved', 'engineering')
     fingerprints = {}
     paths = [spec['catalog'], *spec.get('packages', {}).values(), *spec.get('evidence', {}).values()]
+    paths += list(spec.get('compatibility_authorization', {}).get('reports', {}).values())
     paths += [spec[k] for k in ('governance', 'baseline', 'comparison') if spec.get(k)]
     for item in spec.get('pins', []):
         paths += [item['pin'], *item['members'].values()]
     for path in sorted(set(paths)):
         fingerprints[path] = sha256_file(Path(path)) if Path(path).is_file() else None
+    if compatibility_authority:
+        production_governance.current_commit(REPOSITORY)
     return {'schema_version': VERSION, 'advisory_only': True, 'input_sha256': sha256_json(spec),
         'input_file_sha256': fingerprints, 'config_hashes': governed_config_hashes(root),
         'scope': {'requested': len(plan), 'by_level': dict(sorted(Counter(g['level'] for g in plan).items())),
                   'excluded': excluded}, 'coverage': matrix, 'availability_counts': counts,
         'monthly_compatibility_qualifications': qualifications,
+        'compatibility_authority': compatibility_authority,
         'proposed_inventories': proposed, 'logical_potential': logical, 'blockers': blockers,
         'continuity': comparison, 'validation': {'disposition': 'fail' if any(b['disposition'] == 'fail' for b in blockers) else 'blocked' if blockers else 'pass',
             'source_availability': 'pass' if all(r['availability'] in {'available_and_verified', 'evidenced_unavailable', 'explicitly_excluded'} for r in matrix) else 'blocked',
@@ -368,6 +396,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository-root', type=Path, default=Path('.'))
     parser.add_argument('--inputs', type=Path)
+    parser.add_argument('--verify-production-compatibility', action='store_true',
+                        help='Read current remote-main authority using GITHUB_TOKEN; never activates data')
     parser.add_argument('--template', type=Path)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
@@ -382,7 +412,8 @@ def main():
     if args.inputs is None:
         parser.error('--inputs required')
     try:
-        report = evaluate(read_json(args.inputs), root)
+        governance = ACSGovernance.load_production(REPOSITORY, os.environ['GITHUB_TOKEN']) if args.verify_production_compatibility else None
+        report = evaluate(read_json(args.inputs), root, production_governance=governance)
     except (ValueError, KeyError, TypeError, OSError, AttributeError, IndexError, ArtifactValidationError, tarfile.TarError, EOFError) as exc:
         report = {'schema_version': VERSION, 'advisory_only': True, 'coverage': [],
             'proposed_inventories': {}, 'continuity': [], 'availability_counts': {},
