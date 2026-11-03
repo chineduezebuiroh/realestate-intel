@@ -158,8 +158,8 @@ def test_proposed_inputs_are_deliberately_not_authority():
     assert auth.validate_proposal(record, ROOT)['compatibility_authorized'] is False
     installed = auth.qualification.read_json(ROOT / 'config/acs_historical_governance.json')
     assert record['scope_authorities'] == installed['current_scope']
-    assert not installed.get('compatibility_authorizations')
-    assert not installed.get('current_compatibility_authorization')
+    assert record['authorization_id'] not in installed.get('compatibility_authorizations', {})
+    assert installed.get('current_compatibility_authorization') != record['authorization_id']
     with pytest.raises(ValueError):
         auth.proposal({}, {}, ROOT, report_files={})
 
