@@ -452,14 +452,13 @@ def test_conflicting_durable_pin_evidence_stops_before_package_reuse(tmp_path):
 
 
 def test_serialization_runtime_identity_is_plan_bound():
-    runtime = backfill.runtime_identity()
-    assert set(runtime["implementations"]) == {"pandas", "numpy", "pyarrow"}
+    runtime = {"schema_version": "acs_backfill_runtime_compatibility_v1", "profile_sha256": "a" * 64}
     identity = {**IDENTITY, "serialization_runtime": runtime}
     value = plan()
     body = {k: v for k, v in value.items() if k != "plan_id"}; body["repository_identity"] = identity
     value = backfill._identified(backfill.PLAN_VERSION, body, "plan_id")
     backfill.verify_plan(value, identity)
-    changed = copy.deepcopy(identity); changed["serialization_runtime"]["implementations"]["pyarrow"]["version"] = "changed"
+    changed = copy.deepcopy(identity); changed["serialization_runtime"]["profile_sha256"] = "changed"
     with pytest.raises(ValueError, match="drift"): backfill.verify_plan(value, changed)
 
 
@@ -503,6 +502,7 @@ def test_repository_remote_identity_including_actions_checkout_format(monkeypatc
         if args[-3:] == ["remote", "get-url", "origin"]: return remote
         return original(args, **kwargs)
     monkeypatch.setattr(backfill.subprocess, "check_output", checkout_output)
+    monkeypatch.setattr(backfill, "runtime_identity", lambda: {"offline_fixture": True})
     if "-fork" in remote:
         with pytest.raises(ValueError, match="repository identity"): backfill.repository_identity(Path.cwd())
     else:
@@ -766,9 +766,11 @@ def test_runtime_verifies_actual_installed_bytes_not_just_metadata(monkeypatch, 
         def read_text(self, name): return 'fixed-RECORD'
         def locate_file(self, entry): return binary
     monkeypatch.setattr(importlib.metadata, 'distribution', lambda name: Distribution())
-    backfill.runtime_identity()
+    from jobs.monthly_refresh.acs_backfill_runtime import verify_installed
+    # Local integrity remains required even with an approved version/profile.
+    verify_installed(Distribution(), 'fixture')
     binary.write_bytes(b'drifted implementation, identical version and RECORD')
-    with pytest.raises(ValueError, match='implementation bytes drifted'): backfill.runtime_identity()
+    with pytest.raises(ValueError, match='installed_bytes'): verify_installed(Distribution(), 'fixture')
 
 
 class FencedContentsAPI:

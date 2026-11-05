@@ -114,11 +114,16 @@ values are passed through environment variables, quoted arguments or a Python ar
 list; review paths forbid traversal and symlinks. Only execute receives the
 Census secret or contents write permission. There is no force/overwrite option.
 
-The plan also binds the Python executable/version and pandas, NumPy and PyArrow
-versions plus installed wheel RECORD checksums, with actual declared installed
-file bytes checked against those checksums before identity acceptance. If the
-serialization runtime changes, restore the reviewed implementation environment before retry; a new compatible
-version does not authorize regeneration of an old immutable identity.
+New backfill plans and authorizations use v2 and bind the versioned ACS-only
+runtime profile described in [the runtime contract](../contracts/acs_backfill_runtime_compatibility_v1.md).
+Exact Python executable and installed RECORD hashes are per-run observations,
+not cross-run equality requirements. Every identity check still verifies the
+actual interpreter against the allowed profile, exact approved wheel hashes,
+installed wheel payloads, and local installed-file integrity. Unapproved runtime
+or package changes fail closed. No compatible runtime authorizes regeneration
+of an old immutable acquisition. All old v1 plans remain archived and cannot be
+used for new execution under v2; generate/review a new plan after this change is
+merged and obtain a separate successful authorization run.
 
 Execution independently verifies content hashes and authority; main ancestry is
 insufficient if code or governed configuration changed. It rejects incomplete
