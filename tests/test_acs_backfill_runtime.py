@@ -157,8 +157,16 @@ def test_old_plan_is_preserved_and_rejected():
 def test_workflow_profile_and_observations_are_used_in_both_jobs():
     workflow=yaml.safe_load(Path('.github/workflows/acs-historical-backfill.yml').read_text())
     for job in workflow['jobs'].values():
-        assert 'ACS_BACKFILL_WHEELHOUSE' in job['env']
+        # #310 initializes runner-dependent paths via GITHUB_ENV, where the
+        # runner context is available; every runtime consumer must follow it.
+        assert 'ACS_BACKFILL_WHEELHOUSE' not in job['env']
         steps=job['steps']; commands=[s.get('run','') for s in steps]
+        setup = [i for i,c in enumerate(commands) if c ==
+                 'echo \"ACS_BACKFILL_WHEELHOUSE=$RUNNER_TEMP/acs-backfill-wheels\" >> \"$GITHUB_ENV\"']
+        assert len(setup) == 1
+        consumers = [i for i,c in enumerate(commands) if 'acs_backfill_runtime --' in c
+                     or 'jobs.monthly_refresh.acs_backfill ' in c or "'jobs.monthly_refresh.acs_backfill'" in c]
+        assert consumers and all(setup[0] < i for i in consumers)
         assert sum('acs_backfill_runtime --prepare' in c for c in commands)==1
         assert sum('acs_backfill_runtime --observe' in c for c in commands)==1
         observation=next(s for s in steps if s.get('with',{}).get('name','').startswith('acs-backfill-runtime-'))
