@@ -44,7 +44,6 @@ jobs:
     permissions: {contents: read}
     env:
       PYTHONPATH: .
-      ACS_BACKFILL_WHEELHOUSE: '${{ runner.temp }}/acs-backfill-wheels'
       ACTION: '${{ inputs.action }}'
       SOURCE_ID: '${{ inputs.source_id }}'
       VINTAGES: '${{ inputs.vintages }}'
@@ -59,6 +58,8 @@ jobs:
         with: {ref: main, fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@v5
         with: {python-version: '3.11.18', cache: pip}
+      - name: Configure ACS wheelhouse
+        run: echo "ACS_BACKFILL_WHEELHOUSE=$RUNNER_TEMP/acs-backfill-wheels" >> "$GITHUB_ENV"
       - run: pip install -r requirements.txt
       - name: Install exact ACS serialization wheels
         run: python -m jobs.monthly_refresh.acs_backfill_runtime --prepare "$ACS_BACKFILL_WHEELHOUSE"
@@ -118,7 +119,6 @@ jobs:
     permissions: {contents: write, actions: read}
     env:
       PYTHONPATH: .
-      ACS_BACKFILL_WHEELHOUSE: '${{ runner.temp }}/acs-backfill-wheels'
       REVIEWED_PLAN_ID: '${{ inputs.reviewed_plan_id }}'
       AUTHORIZATION_RUN_ID: '${{ inputs.authorization_run_id }}'
     steps:
@@ -126,6 +126,8 @@ jobs:
         with: {ref: main, fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-python@v5
         with: {python-version: '3.11.18', cache: pip}
+      - name: Configure ACS wheelhouse
+        run: echo "ACS_BACKFILL_WHEELHOUSE=$RUNNER_TEMP/acs-backfill-wheels" >> "$GITHUB_ENV"
       - run: pip install -r requirements.txt
       - name: Install exact ACS serialization wheels
         run: python -m jobs.monthly_refresh.acs_backfill_runtime --prepare "$ACS_BACKFILL_WHEELHOUSE"
