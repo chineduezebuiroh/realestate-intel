@@ -32,8 +32,8 @@ from sources.census_acs.historical import (HistoricalAcquisitionFailure, acquire
 
 REPOSITORY = "chineduezebuiroh/realestate-intel"
 BASELINE = "282ba2d4dcb0fa18d1e945fc5f3cb16957d9da32"
-PLAN_VERSION = "acs_historical_execution_plan_v1"
-AUTH_VERSION = "acs_historical_execution_authorization_v1"
+PLAN_VERSION = "acs_historical_execution_plan_v2"
+AUTH_VERSION = "acs_historical_execution_authorization_v2"
 MAX_BATCH = 5
 
 
@@ -58,31 +58,21 @@ def scope(source_id: str, vintages: list[int], batch_size: int) -> list[int]:
 
 
 def runtime_identity() -> dict:
-    """Bind serialization implementations, including wheel member checksums."""
-    import importlib.metadata
-    import sys
-    implementations = {}
-    for name in ("pandas", "numpy", "pyarrow"):
-        distribution = importlib.metadata.distribution(name)
-        record = distribution.read_text("RECORD")
-        if record is None:
-            raise ValueError(f"serialization implementation evidence unavailable: {name}")
-        import hashlib
-        if distribution.files is None:
-            raise ValueError("installed serialization file inventory unavailable")
-        for member in distribution.files:
-            if member.hash is None:
-                continue
-            if member.hash.mode != "sha256":
-                raise ValueError("unsupported installed serialization hash algorithm")
-            path = Path(distribution.locate_file(member))
-            actual = base64.urlsafe_b64encode(bytes.fromhex(sha256_file(path))).decode().rstrip("=")
-            if actual != member.hash.value:
-                raise ValueError(f"installed serialization implementation bytes drifted: {name}")
-        implementations[name] = {"version": distribution.version,
-                                  "installed_record_sha256": hashlib.sha256(record.encode()).hexdigest()}
-    return {"python_version": sys.version, "python_executable_sha256": sha256_file(Path(sys.executable)),
-            "implementations": implementations}
+    """Stable profile identity after rechecking actual runtime and wheel bytes."""
+    from jobs.monthly_refresh.acs_backfill_runtime import compatibility_identity
+    return compatibility_identity()
+
+
+def verify_repository_identity(expected: dict, observed: dict) -> None:
+    """Report only fixed field names; never values or caller-controlled JSON keys."""
+    if not isinstance(expected, dict) or not isinstance(observed, dict):
+        raise ValueError('repository identity drift: identity_schema')
+    fields = ('repository', 'baseline', 'code_sha256', 'config_hashes', 'serialization_runtime')
+    changed = [field for field in fields if expected.get(field) != observed.get(field)]
+    if set(expected) != set(observed):
+        changed.append('identity_schema')
+    if changed:
+        raise ValueError('repository identity drift: ' + ', '.join(changed))
 
 
 def repository_identity(root: Path) -> dict:
@@ -102,6 +92,9 @@ def repository_identity(root: Path) -> dict:
     workflow = ".github/workflows/acs-historical-backfill.yml"
     if (root / workflow).exists() and workflow not in paths:
         paths.append(workflow)
+    runtime_profile = 'jobs/monthly_refresh/acs_backfill_runtime_profile.json'
+    if runtime_profile not in paths:
+        paths.append(runtime_profile)
     files = {p: sha256_file(root / p) for p in sorted(set(paths)) if (root / p).is_file()}
     configs = governed_config_hashes(root)
     governance = root / "config/acs_historical_governance.json"
@@ -218,8 +211,9 @@ def verify_plan(plan: dict, identity: dict) -> None:
     if set(plan) != {"schema_version", "source_id", "vintages", "batch_size", "repository_identity",
                      "code_commit", "authority", "geography", "excluded", "entries", "plan_id"}:
         raise ValueError("execution plan schema mismatch")
-    if plan.get("schema_version") != PLAN_VERSION or plan.get("repository_identity") != identity:
-        raise ValueError("repository/code/configuration/governance/serialization-runtime drift; restore reviewed identity or review a new plan")
+    if plan.get("schema_version") != PLAN_VERSION:
+        raise ValueError("execution plan contract changed; review a new v2 plan")
+    verify_repository_identity(plan['repository_identity'], identity)
     years = scope(plan["source_id"], plan["vintages"], plan["batch_size"])
     if plan["vintages"] != years or [e["vintage"] for e in plan["entries"]] != years:
         raise ValueError("plan entries do not exactly match vintage scope")
@@ -338,6 +332,7 @@ def execute_batch(*, plan: dict, authorization: dict, reviewed_plan_id: str, ide
     progress.update(boundary="authorization", completed_vintages=[])
     verify_plan(plan, identity)
     verify_identity(authorization, AUTH_VERSION, "authorization_id")
+    verify_repository_identity(authorization.get('repository_identity', {}), identity)
     if (authorization.get("schema_version") != AUTH_VERSION or authorization.get("action") != "acquire_physical_only"
             or authorization.get("plan_id") != plan["plan_id"] or reviewed_plan_id != plan["plan_id"]
             or authorization.get("repository_identity") != identity or not authorization.get("actor")):
