@@ -58,8 +58,68 @@ p.write_text(json.dumps(spec, sort_keys=True, indent=2) + '\n')
 PY
 ```
 
-Provide GITHUB_TOKEN using the existing authorized environment, without printing
-it. Production preparation has no local/cached-governance fallback:
+### Mac credential and production-read preflight
+
+The Python CLI reads **GITHUB_TOKEN**, not GH_TOKEN or the GitHub CLI credential
+cache. The same value is passed to the existing `ACSGovernance.load_production()`
+and to the separately constructed read-only current-catalog reader. The loader
+constructs its own transport; there is no injectable production transport, local
+registry fallback, fixture promotion or recovery-snapshot shortcut. The CLI calls
+`require_destination()` before either preparation or verification. Authenticated
+repository **Contents: read** access is sufficient; Phase 1 needs no write,
+Actions-dispatch or release-publication permissions. A token grants read access,
+not governance approval. The shared read-only transport permits anonymous public
+reads, but they are rate-limited and are not a substitute for this operator
+credential preflight.
+
+On the Mac, use an existing authorized credential. Disable shell tracing before
+capturing a token; do not run `gh auth token` on its own or print the environment.
+If GITHUB_TOKEN is already set, this snippet preserves it. Otherwise it captures
+the existing `gh` credential without sending the value to the terminal:
+
+```sh
+set +x
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  GITHUB_TOKEN="$(gh auth token --hostname github.com 2>/dev/null)"
+  export GITHUB_TOKEN
+fi
+
+python - <<'PY'
+import json, os
+from pathlib import Path
+from core.source_artifacts.github_release import GitHubAPI
+from jobs.monthly_refresh.acs_scope import ACSGovernance
+
+repository = 'chineduezebuiroh/realestate-intel'
+token = os.environ.get('GITHUB_TOKEN', '')
+if not token:
+    raise SystemExit('No GitHub credential available; configure existing read access separately')
+try:
+    governance = ACSGovernance.load_production(repository, token)
+    governance.require_destination(repository)
+    registry = json.loads(Path('config/acs_historical_governance.json').read_text())
+    for source in ('census_acs1', 'census_acs5'):
+        governance.scope(source, registry['current_scope'][source], Path.cwd())
+        if governance.current_state(source) is not None:
+            raise ValueError('Initial bootstrap no longer applies')
+    tip = governance.current_commit(repository)
+    api = GitHubAPI(repository, token, read_only=True)
+    api.request('GET', f'/contents/config/artifact_catalog.json?ref={tip}')
+    if governance.current_commit(repository) != tip:
+        raise ValueError('Concurrent main change')
+except Exception as error:
+    raise SystemExit('ACS read-only preflight failed: ' + type(error).__name__) from None
+print(json.dumps({'credential_preflight': 'passed', 'main_commit': tip,
+                  'installation_readiness': 'not_established'}))
+PY
+```
+
+This prints only fixed status and a public commit identity. It establishes neither
+package verification nor acceptance. Authentication/permission failure, rate
+limits and proxy/network denial remain distinct operational causes to diagnose
+in the authorized environment; none permits an offline authority fallback.
+
+After the preflight succeeds, run production preparation:
 
 ```sh
 python -m jobs.monthly_refresh.acs_history_bootstrap \
@@ -75,13 +135,26 @@ python -m jobs.monthly_refresh.acs_history_bootstrap \
 ```
 
 Exit 0 means preparation/verification passed, not installation readiness. Exit 2
-means missing inputs or inaccessible authority; exit 1 means invalid/contradictory
-evidence. `verification.json` always distinguishes implementation availability,
+means missing inputs or inaccessible transport; exit 1 means invalid/contradictory
+evidence or explicitly rejected authority (including permission rejection). `verification.json` always distinguishes implementation availability,
 real 35-package verification, local file presence, production-loader status and
 remaining gates. Invalid input JSON and partial candidates do not become a pass.
 Outputs must be new directories outside the repository. Failures retain partial
 local output for inspection; rerun into a new directory. Verification never
 replaces a retained candidate or original acquisition.
+
+Failure reports include fixed `operation` and `failed_stage` labels. In
+particular, `inventory_reconciliation`, `candidate_construction` and
+`independent_verification` are distinct even when verification is performed inside
+preparation. Rechecking original inputs during `--verify` can fail at
+`inventory_reconciliation`; `operation=verify` distinguishes that invocation.
+Other labels identify input reading, production-loader access, preparation-input
+validation, review-bundle reading/writing and the final authority fence. Only
+exception class names are serialized, never exception messages, tracebacks,
+credential values, request URLs, signed parameters or input paths. Partial success
+does not promote `actual_35_package_verification` to passed. If the report file
+itself cannot be written, stdout still emits a redacted failed report labeled
+`write_verification_report`; no filesystem exception message is printed.
 
 ## Verification contract
 
@@ -217,16 +290,38 @@ not rewrite those historical proposals or suppress the test. Report it separatel
 from adapter failures; a green full suite requires the bounded metadata correction
 through its own review. No approved scope or governance record needs to change.
 
-Local validation results: **322 focused tests passed** (including 28 new adapter
-cases). Full suite: **1,185 passed, four existing-main failures**, 138 existing
+Local validation results: **328 focused tests passed** (including 34 adapter
+cases). Full suite: **1,191 passed, four existing-main failures**, 138 existing
 warnings. All four failures were reproduced independently in an untouched worktree
 at the baseline commit:
 
-- `test_repository_discovery_never_retrieves`: old 34-parent discovery expectation.
-- `test_deterministic_checked_in_artifacts`: archived metadata/catalog digest drift.
-- `test_scope_and_coverage_are_separate`: still expects ACS5 2023 acquisition missing.
-- `test_acs5_proposal_remains_identical_to_original_303`: compares present coverage
-  against the original pre-acquisition proposal.
+| Exact clean-main test | Cause |
+| --- | --- |
+| `tests/test_acs_readiness_discover.py::test_repository_discovery_never_retrieves` | Asserts 34 selected packages; the catalog correctly selects 35 after ACS5 2023 acquisition. |
+| `tests/test_acs_scope_bootstrap.py::test_deterministic_checked_in_artifacts` | Current generation changes ACS5 acquisition coverage, its wrapper digest and the catalog input digest; retained proposal files describe pre-acquisition coverage. |
+| `tests/test_acs_scope_bootstrap.py::test_scope_and_coverage_are_separate` | Asserts ACS5 2023 is still missing; current generated missing-acquisition list is empty. |
+| `tests/test_acs_scope_bootstrap.py::test_acs5_proposal_remains_identical_to_original_303` | Compares current acquisition-coverage metadata with the original #303 proposal, which listed ACS5 2023 as missing. |
+
+Reproduction was repeated on clean main
+`7327cbce27141cc88ad2523aeb82c7cc199f9807` in an isolated worktree, using exactly
+these four node IDs. All four failed there before any PR review changes. No
+baseline test, archived proposal, catalog or approval has been edited here.
 
 These failures remain visible and unmodified; they require a separate bounded
 baseline-test/archived-metadata review. Module syntax and whitespace checks pass.
+
+To reproduce the baseline failures without disturbing this implementation:
+
+```sh
+git worktree add --detach /tmp/acs-bootstrap-main-review 7327cbce27141cc88ad2523aeb82c7cc199f9807
+(cd /tmp/acs-bootstrap-main-review && python -m pytest -q \
+  tests/test_acs_readiness_discover.py::test_repository_discovery_never_retrieves \
+  tests/test_acs_scope_bootstrap.py::test_deterministic_checked_in_artifacts \
+  tests/test_acs_scope_bootstrap.py::test_scope_and_coverage_are_separate \
+  tests/test_acs_scope_bootstrap.py::test_acs5_proposal_remains_identical_to_original_303)
+```
+
+Final review: the read-only boundary and new reporting/authentication checks pass.
+A clean-suite merge remains blocked by the four reproduced baseline failures;
+real 35-package verification remains independently gated by the missing original
+inputs and live production access. The PR stays draft pending review.

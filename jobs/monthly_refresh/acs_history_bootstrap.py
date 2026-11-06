@@ -41,6 +41,12 @@ GATES = ['human_acceptance_authorization', 'published_candidate_catalog_receipts
          'fresh_preinstallation_verification', 'atomic_two_state_installation']
 
 
+def _stage(progress, name):
+    """Only fixed internal labels reach failure reports; no exception values."""
+    if progress is not None:
+        progress['stage'] = name
+
+
 def _fresh(spec, governance):
     """Local files are evidence; only the existing production loader grants trust."""
     if type(governance) is not ACSGovernance:
@@ -136,8 +142,9 @@ def _qualification_catalog(root, records, workspace):
     return path
 
 
-def reconcile_inventory(spec, *, governance, root: Path, workspace: Path):
+def reconcile_inventory(spec, *, governance, root: Path, workspace: Path, progress=None):
     """Verify every explicit original TAR and independently account for its rows."""
+    _stage(progress, 'inventory_reconciliation')
     if set(spec) != INPUT_FIELDS or spec['schema_version'] != INPUT_VERSION:
         raise ValueError('exact bootstrap input schema required')
     baseline = _fresh(spec, governance)
@@ -250,41 +257,49 @@ def _bundle(spec, checked, candidates):
     return {**result, 'bundle_id': BUNDLE_VERSION + '__' + sha256_json(result)}
 
 
-def prepare_bootstrap(spec, *, governance, root: Path, output: Path):
+def prepare_bootstrap(spec, *, governance, root: Path, output: Path, progress=None):
     """Create deterministic local candidates only. A failed directory is retained."""
+    _stage(progress, 'preparation_inputs')
     created_at = _created_at(spec)
     if output.resolve().is_relative_to(root.resolve()):
         raise ValueError('candidate output must be outside repository')
     output.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory() as directory:
-        checked = reconcile_inventory(spec, governance=governance, root=root, workspace=Path(directory))
+        checked = reconcile_inventory(spec, governance=governance, root=root, workspace=Path(directory), progress=progress)
         candidates = {}
         for source in YEARS:
+            _stage(progress, 'candidate_construction')
             relative = f'candidates/{source}'
             built = history.materialize_current(mode='BOOTSTRAP', governance=governance,
                 value=checked['inventories'][source], paths=checked['paths'], records=checked['records'],
                 output=output / relative, repository_root=root, artifact_created_at=created_at)
+            _stage(progress, 'independent_verification')
             history.verify_state(output / relative, governance=governance, paths=checked['paths'],
                                  records=checked['records'], repository_root=root)
+            _stage(progress, 'candidate_construction')
             package_path = f'packages/{source}.tar'
             package = build_publication_package(output / relative, output / package_path)
             candidates[source] = {'state': built['state'], 'artifact_id': built['manifest']['artifact_id'],
                 'artifact_content_hash': built['manifest']['artifact_content_hash'],
                 'package_sha256': package['package_sha256'], 'artifact_path': relative, 'package_path': package_path}
+        _stage(progress, 'final_authority_check')
         if _fresh(spec, governance) != checked['baseline']:
             raise ValueError('governance/catalog changed during preparation')
+        _stage(progress, 'review_bundle')
         bundle = _bundle(spec, checked, candidates)
         write_canonical_json(output / 'bundle.json', bundle)
         return bundle
 
 
-def verify_bootstrap(spec, bundle, *, governance, root: Path, directory: Path):
+def verify_bootstrap(spec, bundle, *, governance, root: Path, directory: Path, progress=None):
     """Re-extract immutable parents and candidates; never trust a retained pass."""
+    _stage(progress, 'independent_verification')
     if bundle.get('input_sha256') != sha256_json(spec):
         raise ValueError('bootstrap inputs changed')
     with tempfile.TemporaryDirectory() as temp:
-        checked = reconcile_inventory(spec, governance=governance, root=root, workspace=Path(temp) / 'parents')
+        checked = reconcile_inventory(spec, governance=governance, root=root, workspace=Path(temp) / 'parents', progress=progress)
         candidates = {}
+        _stage(progress, 'independent_verification')
         for source in YEARS:
             claimed = bundle['candidates'][source]
             # Paths are contract-fixed; a bundle cannot redirect reads elsewhere.
@@ -306,8 +321,12 @@ def verify_bootstrap(spec, bundle, *, governance, root: Path, directory: Path):
             candidates[source] = {'state': state, 'artifact_id': manifest['artifact_id'],
                 'artifact_content_hash': manifest['artifact_content_hash'],
                 'package_sha256': sha256_file(directory / package_path), 'artifact_path': relative, 'package_path': package_path}
-        if _fresh(spec, governance) != checked['baseline'] or _bundle(spec, checked, candidates) != bundle:
-            raise ValueError('bundle, candidate, authority or acceptance delta changed')
+        _stage(progress, 'final_authority_check')
+        if _fresh(spec, governance) != checked['baseline']:
+            raise ValueError('authority changed during independent verification')
+        _stage(progress, 'independent_verification')
+        if _bundle(spec, checked, candidates) != bundle:
+            raise ValueError('bundle, candidate or acceptance delta changed')
     return {'verification': 'passed', 'verified_original_parents': 35,
             'production_inputs_verified': checked['baseline']['namespace'] == 'production',
             'fresh_governance': checked['baseline']['governance'], 'installation_readiness': 'blocked',
@@ -371,34 +390,41 @@ def main():
         'actual_35_package_verification': 'not_established', 'verified_original_parents': 0,
         'required_original_parents': 35, 'local_tar_files_present': 0,
         'publication': 'not_established', 'installation_readiness': 'blocked', 'activation': False,
-        'governance_verification': 'not_established'}
-    stage = 'read_inputs'
+        'governance_verification': 'not_established',
+        'operation': 'prepare' if args.prepare else 'verify'}
+    progress = {'stage': 'read_inputs'}
     try:
         spec = read_json(args.inputs)
         report['local_tar_files_present'] = sum(isinstance(p, str) and Path(p).is_file() for p in spec.get('packages', {}).values())
-        stage = 'load_production_governance'
+        _stage(progress, 'load_production_governance')
         governance = ACSGovernance.load_production(REPOSITORY, os.environ.get('GITHUB_TOKEN', ''))
         governance.require_destination(REPOSITORY)
         report['governance_snapshot'] = governance.production_snapshot()
         report['governance_verification'] = 'production_loader_verified_at_snapshot'
-        stage = 'prepare_or_reverify_real_inputs'
         if args.prepare:
-            bundle = prepare_bootstrap(spec, governance=governance, root=root, output=output)
-            verification = verify_bootstrap(spec, bundle, governance=governance, root=root, directory=output)
+            bundle = prepare_bootstrap(spec, governance=governance, root=root, output=output, progress=progress)
+            verification = verify_bootstrap(spec, bundle, governance=governance, root=root, directory=output, progress=progress)
         else:
             output.mkdir(parents=True)
+            _stage(progress, 'read_review_bundle')
             bundle = read_json(args.verify)
-            verification = verify_bootstrap(spec, bundle, governance=governance, root=root, directory=args.verify.resolve().parent)
+            verification = verify_bootstrap(spec, bundle, governance=governance, root=root, directory=args.verify.resolve().parent, progress=progress)
         report.update(verification, actual_35_package_verification='passed', disposition='passed_preparation_only', bundle_id=bundle['bundle_id'])
         code = 0
     except Exception as exc:
         # No exception values: they can contain input URLs or credential-bearing paths.
         blocked = isinstance(exc, (BootstrapBlocked, FileNotFoundError, OSError, TransientPublicationError))
-        report.update(disposition='blocked' if blocked else 'failed', error_type=type(exc).__name__, failed_stage=stage,
+        report.update(disposition='blocked' if blocked else 'failed', error_type=type(exc).__name__, failed_stage=progress['stage'],
                       unresolved_gates=['complete_real_inputs', 'fresh_production_governance', *GATES])
         code = 2 if blocked else 1
-    output.mkdir(parents=True, exist_ok=True)
-    write_canonical_json(output / 'verification.json', report)
+    try:
+        output.mkdir(parents=True, exist_ok=True)
+        write_canonical_json(output / 'verification.json', report)
+    except Exception as exc:
+        # Even report-delivery errors must not expose filesystem/URL details.
+        report.update(disposition='failed', error_type=type(exc).__name__,
+                      failed_stage='write_verification_report')
+        code = 1
     print(json.dumps(report, sort_keys=True))
     return code
 

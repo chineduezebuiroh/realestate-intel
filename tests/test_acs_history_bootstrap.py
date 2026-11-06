@@ -177,6 +177,7 @@ def test_production_reader_uses_live_capability_and_only_gets(inputs,monkeypatch
     import base64
     from unittest.mock import patch
     spec,_=inputs
+    monkeypatch.setenv('GITHUB_TOKEN','fixture-token')
     registry=boot.read_json(Path(spec['governance']));registry['namespace']='production'
     write_canonical_json(Path(spec['governance']),registry)
     catalog=boot.read_json(Path(spec['catalog']));calls=[]
@@ -189,7 +190,9 @@ def test_production_reader_uses_live_capability_and_only_gets(inputs,monkeypatch
         def read(self):return json.dumps(self.value).encode()
     class Opener:
         def open(self,request):
-            assert request.method=='GET';calls.append(request.full_url)
+            assert request.method=='GET'
+            assert request.get_header('Authorization')=='Bearer fixture-token'
+            calls.append(request.full_url)
             if request.full_url.endswith('/commits/main'):
                 count=sum(x.endswith('/commits/main') for x in calls)
                 return Response({'sha': ('b' if mutation=='main_advance' and count>=3 else 'a')*40})
@@ -230,3 +233,86 @@ def test_original_qualification_catalog_remains_separate_from_live_catalog(tmp_p
     record=records[boot.compatibility.qualification.ELIGIBLE['census_acs1'][0]]
     record['release_id']='altered'
     with pytest.raises(ValueError,match='2024 catalog record changed'):boot._qualification_catalog(ROOT,records,tmp_path)
+
+
+@pytest.mark.parametrize('failed_stage', ['inventory_reconciliation', 'candidate_construction', 'independent_verification'])
+def test_cli_reports_precise_preparation_stage_without_sensitive_details(tmp_path,monkeypatch,capsys,failed_stage):
+    secret='token-do-not-report https://private.invalid/?signature=do-not-report'
+    spec={'artifact_created_at':'2026-11-05T00:00:00Z','packages':{}}
+    path=tmp_path/'inputs.json';write_canonical_json(path,spec)
+    calls=[]
+    class Gov:
+        def require_destination(self,repository):calls.append(('destination',repository))
+        def production_snapshot(self):return {'fixture_snapshot_only':True}
+    def load(repository,token):
+        calls.append(('load',repository,token));return Gov()
+    def reconcile_stage(*args,progress=None,**kwargs):
+        boot._stage(progress,'inventory_reconciliation')
+        if failed_stage=='inventory_reconciliation':raise ValueError(secret)
+        return {'inventories':{'census_acs1':{}},'paths':{},'records':{}}
+    def construct(**kwargs):
+        if failed_stage=='candidate_construction':raise ValueError(secret)
+        return {'state':{},'manifest':{}}
+    monkeypatch.setenv('GITHUB_TOKEN','credential-not-to-print')
+    monkeypatch.setenv('GH_TOKEN','different-gh-cli-credential')
+    monkeypatch.setattr(boot.ACSGovernance,'load_production',load)
+    monkeypatch.setattr(boot,'reconcile_inventory',reconcile_stage)
+    monkeypatch.setattr(boot.history,'materialize_current',construct)
+    def independent(*args,**kwargs):raise ValueError(secret)
+    monkeypatch.setattr(boot.history,'verify_state',independent)
+    out=tmp_path/'out'
+    monkeypatch.setattr('sys.argv',['bootstrap','--inputs',str(path),'--prepare','--output',str(out)])
+    assert boot.main()==1
+    report=boot.read_json(out/'verification.json')
+    assert report['failed_stage']==failed_stage and report['operation']=='prepare'
+    assert report['verified_original_parents']==0 and report['actual_35_package_verification']=='not_established'
+    emitted=(out/'verification.json').read_text()+capsys.readouterr().out
+    assert secret not in emitted and 'credential-not-to-print' not in emitted and 'signature=' not in emitted
+    assert calls==[('load',boot.REPOSITORY,'credential-not-to-print'),('destination',boot.REPOSITORY)]
+
+
+def test_verify_cli_reports_independent_verification_stage(tmp_path,monkeypatch,capsys):
+    from core.source_artifacts.hashing import sha256_json
+    spec={'packages':{}};path=tmp_path/'inputs.json';write_canonical_json(path,spec)
+    bundle={'input_sha256':sha256_json(spec),'candidates':{'census_acs1':{
+        'artifact_path':'candidates/census_acs1','package_path':'packages/census_acs1.tar','package_sha256':'a'*64}}}
+    bp=tmp_path/'bundle.json';write_canonical_json(bp,bundle)
+    class Gov:
+        def require_destination(self,repository):assert repository==boot.REPOSITORY
+        def production_snapshot(self):return {'fixture_snapshot_only':True}
+    monkeypatch.setattr(boot.ACSGovernance,'load_production',lambda *args:Gov())
+    def reconciled(*args,progress=None,**kwargs):
+        boot._stage(progress,'inventory_reconciliation');return {}
+    monkeypatch.setattr(boot,'reconcile_inventory',reconciled)
+    def fail(*args,**kwargs):raise FileNotFoundError('sensitive/path/never/print')
+    monkeypatch.setattr(boot,'extract_publication_package',fail)
+    out=tmp_path/'out'
+    monkeypatch.setattr('sys.argv',['bootstrap','--inputs',str(path),'--verify',str(bp),'--output',str(out)])
+    assert boot.main()==2
+    report=boot.read_json(out/'verification.json')
+    assert report['failed_stage']=='independent_verification' and report['operation']=='verify'
+    assert 'sensitive/path' not in (out/'verification.json').read_text()+capsys.readouterr().out
+
+
+def test_production_cli_rejects_fixture_capability_before_preparation(tmp_path,monkeypatch):
+    path=tmp_path/'inputs.json';write_canonical_json(path,{'packages':{}})
+    monkeypatch.setattr(boot.ACSGovernance,'load_production',lambda *args:ACSGovernance.from_fixture(registry()))
+    monkeypatch.setattr(boot,'prepare_bootstrap',lambda *args,**kwargs:pytest.fail('fixture entered production preparation'))
+    out=tmp_path/'out'
+    monkeypatch.setattr('sys.argv',['bootstrap','--inputs',str(path),'--prepare','--output',str(out)])
+    assert boot.main()==1
+    assert boot.read_json(out/'verification.json')['failed_stage']=='load_production_governance'
+
+
+def test_report_delivery_failure_remains_redacted(tmp_path,monkeypatch,capsys):
+    path=tmp_path/'inputs.json';write_canonical_json(path,{'packages':{}})
+    def denied(*args):raise OSError('secret-loader-detail')
+    def unwritable(*args):raise OSError('secret-output-path')
+    monkeypatch.setattr(boot.ACSGovernance,'load_production',denied)
+    monkeypatch.setattr(boot,'write_canonical_json',unwritable)
+    monkeypatch.setattr('sys.argv',['bootstrap','--inputs',str(path),'--prepare','--output',str(tmp_path/'out')])
+    assert boot.main()==1
+    output=capsys.readouterr()
+    report=json.loads(output.out)
+    assert report['failed_stage']=='write_verification_report' and report['installation_readiness']=='blocked'
+    assert 'secret-' not in output.out+output.err
