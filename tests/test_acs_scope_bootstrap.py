@@ -1,6 +1,10 @@
 """Proposal generation never establishes governance, even with self-consistent IDs."""
 from copy import deepcopy
 import json
+import io
+import os
+import subprocess
+import tarfile
 from pathlib import Path
 import shutil
 import sys
@@ -12,6 +16,48 @@ from jobs.monthly_refresh.acs_scope import ACSGovernance, SCOPE_VERSION, identif
 
 ROOT = Path('.').resolve()
 PROPOSALS = ROOT / 'docs/proposals/acs_historical_scope_bootstrap'
+# Last input-manifest synchronization, before ACS5 2023 was acquired. The
+# proposal records remain archived; this is not a production authority snapshot.
+ARCHIVE_INPUT_BASELINE = '7e350ea1ac10d19b497258ce75683808f2c86120'
+ORIGINAL_303 = 'cc9ddcbf8fffb6d4b45716813e63185652cdfd5c'
+
+
+def git_bytes(revision, path):
+    return subprocess.check_output(['git', '-C', str(ROOT), 'show', f'{revision}:{path}'])
+
+
+@pytest.fixture(scope='module')
+def archived_generation(tmp_path_factory):
+    historical = tmp_path_factory.mktemp('archived-acs-proposals')
+    manifest = json.loads(git_bytes(ARCHIVE_INPUT_BASELINE,
+        'docs/proposals/acs_historical_scope_bootstrap/initial-registry.proposal.json'))
+    # Execute the original generator/code, with only its original input bytes,
+    # in a separate interpreter so current imports/catalogs cannot bleed in.
+    code = subprocess.check_output(['git', '-C', str(ROOT), 'archive',
+                                   ARCHIVE_INPUT_BASELINE, 'core', 'jobs', 'sources'])
+    with tarfile.open(fileobj=io.BytesIO(code)) as archive:
+        archive.extractall(historical, filter='data')
+    from core.source_artifacts.hashing import sha256_file
+    for path, digest in {**manifest['input_file_sha256'], **manifest['config_hashes']}.items():
+        target = historical / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(git_bytes(ARCHIVE_INPUT_BASELINE, path))
+        assert sha256_file(target) == digest
+    assert sha256_file(historical / 'jobs/monthly_refresh/acs_scope_bootstrap.py') == manifest['generator_sha256']
+    program = """
+import json, socket
+from pathlib import Path
+def denied(*args, **kwargs):
+    raise AssertionError('archived proposal generation attempted network access')
+socket.socket.connect = denied
+from jobs.monthly_refresh import acs_scope_bootstrap as bootstrap
+root = Path.cwd()
+documents = bootstrap.generate(root)
+assert documents == bootstrap.generate(root)
+print(json.dumps({'documents': documents, 'validation': bootstrap.validate(documents, root)}))
+"""
+    return json.loads(subprocess.check_output([sys.executable, '-c', program], cwd=historical,
+        env={**os.environ, 'PYTHONPATH': str(historical)}, text=True))
 
 
 @pytest.fixture
@@ -32,10 +78,13 @@ def fixture_governance(documents, source, *, approved=False):
     return registry, scope
 
 
-def test_deterministic_checked_in_artifacts(documents):
+def test_deterministic_checked_in_artifacts(archived_generation):
+    for path in PROPOSALS.iterdir():
+        assert path.read_bytes() == git_bytes(ARCHIVE_INPUT_BASELINE, path.relative_to(ROOT).as_posix())
     retained = {p.name: json.loads(p.read_bytes()) for p in PROPOSALS.iterdir()}
-    assert retained == documents == bootstrap.generate(ROOT)
-    result = bootstrap.validate(retained, ROOT)
+    documents = archived_generation['documents']
+    assert retained == documents
+    result = archived_generation['validation']
     assert result['proposal_validation'] == 'passed'
     assert result['production_authority'] is False and result['activation'] is False
     initial = documents[bootstrap.REGISTRY_FILE]['registry_template']
@@ -51,7 +100,12 @@ def test_scope_and_coverage_are_separate(documents):
     assert 2020 not in one['scope_record']['expected_available_vintages']
     assert five['scope_record']['historical_range'] == [2009, 2024]
     assert 2023 in five['scope_record']['expected_available_vintages']
-    assert 2023 in five['acquisition_coverage']['missing_acquisition_vintages']
+    assert 2023 in five['acquisition_coverage']['cataloged_vintages']
+    assert 2023 not in five['acquisition_coverage']['missing_acquisition_vintages']
+    archived = json.loads((PROPOSALS / bootstrap.FILENAMES['census_acs5']).read_bytes())
+    assert 2023 in archived['acquisition_coverage']['missing_acquisition_vintages']
+    assert five['scope_record'] == archived['scope_record']
+    assert five['acquisition_coverage']['missing_acquisition_is_governed_gap'] is False
     for value in [one, five]:
         assert value['request_scope']['requested_geographies'] == 223
         assert len(value['request_scope']['excluded_geographies']) == 10
@@ -212,8 +266,13 @@ def test_capture_absence_or_tampering_fails_closed(tmp_path):
     with pytest.raises(ValueError, match='documentation capture'): generate_gap(tmp_path)
 
 
-def test_acs5_proposal_remains_identical_to_original_303(documents):
-    import subprocess
+def test_acs5_proposal_remains_identical_to_original_303(archived_generation):
     path = 'docs/proposals/acs_historical_scope_bootstrap/' + bootstrap.FILENAMES['census_acs5']
-    original = json.loads(subprocess.check_output(['git', 'show', 'cc9ddcbf8fffb6d4b45716813e63185652cdfd5c:' + path]))
-    assert documents[bootstrap.FILENAMES['census_acs5']] == original
+    original_bytes = git_bytes(ORIGINAL_303, path)
+    assert (ROOT / path).read_bytes() == original_bytes
+    original = json.loads(original_bytes)
+    assert archived_generation['documents'][bootstrap.FILENAMES['census_acs5']] == original
+    assert original['acquisition_coverage']['missing_acquisition_vintages'] == [2023]
+    assert original['acquisition_coverage']['missing_acquisition_is_governed_gap'] is False
+    assert original['scope_record']['governed_gaps'] == []
+    assert original['scope_record']['approval_provenance'] is None

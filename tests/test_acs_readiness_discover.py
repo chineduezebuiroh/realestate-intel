@@ -1,5 +1,6 @@
 """Discovery reads explicit local roots only; retrieval scripts never run in tests."""
 from copy import deepcopy
+from collections import Counter
 import json
 from pathlib import Path
 import socket
@@ -220,7 +221,20 @@ def test_repository_discovery_never_retrieves(tmp_path, monkeypatch):
     report = discovery.discover(Path('.'),[],tmp_path/'repository')
     inputs = acs_readiness.read_json(tmp_path/'repository/inputs.json')
     assert report['files_scanned'] == 0
-    assert len(report['packages']) == 34
+    assert len(report['packages']) == 35
+    assert len({p['artifact_id'] for p in report['packages']}) == 35
+    acquisition = next(p for p in report['packages'] if p['artifact_id'] ==
+        'src__census_acs5__2023-12__r1__4de4cec871ace0a1')
+    assert acquisition['package_sha256'] == '4cc76ae8ca66e1e1d9cac272434147e1ee21a8110bee216d826058e67dcf83d8'
+    assert acquisition['status'] == 'missing_local_package'
+    assert acquisition['release_id'] == 435428291 and acquisition['asset_id'] == 713988353
+    assert inputs['selected_parents']['census_acs5:2023'] == acquisition['artifact_id']
+    evidence = acs_readiness.read_json(inputs['evidence']['census_acs5:2023'])
+    assert evidence['source_id'] == 'census_acs5' and evidence['vintage'] == 2023
+    assert Counter(row['classification'] for row in evidence['accounting']) == {
+        'available': 438, 'provider_no_content': 8}
+    assert len(evidence['omission_evidence']) == 4
+    assert all(receipt['http_status'] == 204 for receipt in evidence['omission_evidence'])
     assert not inputs['packages']
     assert len(inputs['evidence']) == 33
     assert inputs['selected_parents']['census_acs1:2024'] == inputs['accepted_august']['census_acs1']['artifact_id']
