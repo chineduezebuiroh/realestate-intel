@@ -282,15 +282,17 @@ and obtain live governance access in the owner environment before claiming actua
 35-package preparation. Human approval, immutable candidate publication and atomic
 installation remain separate gates even after that preparation succeeds.
 
-A pre-existing deterministic scope-proposal regression also occurs on clean main
+### Historical clean-main failure reproduction (before PR #313)
+
+A pre-existing deterministic scope-proposal regression occurred on clean main
 `7327cbce27141cc88ad2523aeb82c7cc199f9807`: the new ACS5 2023 catalog record makes
 archived `census_acs5.scope.proposal.json` acquisition coverage and the inactive
-initial-registry proposal's catalog/scope digests stale. This Phase 1 change does
-not rewrite those historical proposals or suppress the test. Report it separately
-from adapter failures; a green full suite requires the bounded metadata correction
-through its own review. No approved scope or governance record needs to change.
+initial-registry proposal's catalog/scope digests differ from current generation.
+The historical proposal bytes remain unchanged. PR #313 separated historical
+determinism from current acquisition coverage; no approved scope or governance
+record changed.
 
-Local validation results: **328 focused tests passed** (including 34 adapter
+Pre-synchronization validation results: **328 focused tests passed** (including 34 adapter
 cases). Full suite: **1,191 passed, four existing-main failures**, 138 existing
 warnings. All four failures were reproduced independently in an untouched worktree
 at the baseline commit:
@@ -307,8 +309,10 @@ Reproduction was repeated on clean main
 these four node IDs. All four failed there before any PR review changes. No
 baseline test, archived proposal, catalog or approval has been edited here.
 
-These failures remain visible and unmodified; they require a separate bounded
-baseline-test/archived-metadata review. Module syntax and whitespace checks pass.
+PR #313 subsequently corrected these tests separately, preserving all archived
+proposal bytes and testing current acquisition coverage independently. The
+reproduction below retains the exact historical baseline; it does not describe
+current main. Module syntax and whitespace checks pass.
 
 To reproduce the baseline failures without disturbing this implementation:
 
@@ -321,7 +325,21 @@ git worktree add --detach /tmp/acs-bootstrap-main-review 7327cbce27141cc88ad2523
   tests/test_acs_scope_bootstrap.py::test_acs5_proposal_remains_identical_to_original_303)
 ```
 
-Final review: the read-only boundary and new reporting/authentication checks pass.
-A clean-suite merge remains blocked by the four reproduced baseline failures;
-real 35-package verification remains independently gated by the missing original
-inputs and live production access. The PR stays draft pending review.
+The four reproduced baseline failures were resolved by merged PR #313. Real
+35-package verification remains independently gated by the original inputs and
+live production access. The PR stays draft pending review; a green implementation
+suite does not establish production package verification or acceptance.
+
+Post-#313 synchronization against main
+`a4ce524995fbbe3119d15ef54f44e46539cf9d5e`: the four corrected baseline tests
+pass, and all **420 focused tests pass** (bootstrap preparation, materialization,
+scope bootstrap, governance installation/provenance, and 2024 compatibility
+authorization/installation). Adapter implementation, adapter tests and retained
+real-input audit bytes are unchanged from the previously reviewed PR head.
+
+The synchronized full suite passes: **1,195 passed**, 138 existing warnings.
+Syntax/JSON validation and `git diff --check` pass. The PR diff remains limited
+to the adapter, its tests, this runbook and the retained Phase 1 verification
+report; production configuration, catalog, readiness and accepted identities are
+unchanged. Implementation merge readiness is clear; actual 35-TAR/live-governance
+verification and all later acceptance/publication/installation gates remain open.
