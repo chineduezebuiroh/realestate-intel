@@ -1,4 +1,4 @@
-# Bounded ACS bootstrap publication (Phase 2)
+# Bounded ACS bootstrap publication recovery (Phase 2)
 
 This adapter publishes only the two retained packages in bundle
 `acs_history_bootstrap_review_v1__99e0abccc424165f2c5ec6e4f603904087ceff4562f3c0725e0b0aedcd2fd7cf`.
@@ -17,6 +17,13 @@ Both artifacts have prefix `src__<source_id>__2024-12__r1__`. States use
 `87fd4c909fb3b1e314e2646e00fa9a2f60bec70023d3a541b25979f412db7141`.
 These constants scope the adapter; they confer no authorization.
 
+This revision generates **v2** requests. It recovers existing ACS1 draft Release
+**437874694** from the failed PR #315 run. Original head
+`055e332fc7e4c872d8c97b676ef2c47f1ac5418b`, owner comment `6713551209`, and request
+`acs_history_bootstrap_publication_request_v1__ca0f24785f35dd82773a7d9d4a07ae0936b20120886e4dd7d232b2097f5e0651`
+are historical evidence only. None authorizes changed code. Do not edit #315,
+its decision, the retained bundle, original journal, TARs or acquisition evidence.
+
 ## Retained inputs and inactive review request
 
 Run on the owner's Mac using the exact retained Phase 1 input JSON, preparation
@@ -33,13 +40,15 @@ for the owner's **existing** retained files, not instructions to regenerate them
 ```sh
 ACS_INPUTS="$HOME/acs-readiness-review/physical-bootstrap/input-template/inputs.json"
 ACS_PREPARED="$HOME/acs-readiness-review/physical-bootstrap/preparation-1"
-ACS_PHASE2="$HOME/acs-readiness-review/physical-bootstrap/publication"
+ACS_PRIOR_JOURNAL="$HOME/acs-readiness-review/physical-bootstrap/publication/journal"
+ACS_PHASE2="$HOME/acs-readiness-review/physical-bootstrap/publication-recovery"
 mkdir -p "$ACS_PHASE2"
 
 python -m jobs.monthly_refresh.acs_history_bootstrap_publication \
   --repository-root "$PWD" --inputs "$ACS_INPUTS" \
   --bundle-directory "$ACS_PREPARED" --review-request \
-  --request "$ACS_PHASE2/request.json"
+  --request "$ACS_PHASE2/request.json" \
+  --prior-journal "$ACS_PRIOR_JOURNAL" --journal "$ACS_PHASE2/journal"
 ```
 
 This offline command creates an inactive request, not an approval. It binds the
@@ -48,6 +57,28 @@ pin file hashes, both full candidates, original governance/catalog baseline,
 inactive two-state delta, and protected code/workflow/requirements/configuration
 Git blob identities. It rejects a different bundle or either candidate package.
 No production package verification is claimed by request generation alone.
+
+The handoff snapshots every original journal file (hash and size), the original
+binding/owner snapshot, and numeric Release 437874694. It accepts only the exact
+observed initial sequence: fence, fence, prepare intent, prepare remote identity
+with no asset, fence, and the catalog_transition/ValueError blocked event. The
+original `.lock` and `binding.json` must also be present; receipts or extra/missing
+files fail closed. Do not remove files to make a mismatch pass: stop for review.
+
+Both source and destination journal locations are bound by hashes in the request.
+Choose the destination once, before human review. The original lock is opened
+read-only and held during execution, preventing concurrent recovery consumers or
+legacy use of the same archive. The new journal's own lock and binding prevent
+concurrent use or re-adoption under a different request. The adapter never writes
+to the original journal. Request-output paths inside that journal, including
+paths reached through symlinks, are rejected before writing anything. Changing either location requires a new request/review;
+do not silently fork, rename, rebind or copy away uncertain remote evidence.
+
+Before any production operation, fresh GitHub reads compare the original request
+at its immutable #315 head and the original comment with the retained snapshots.
+All original bundle/parent/candidate/evidence commitments must equal the new
+request. These historical checks preserve provenance; only a NEW personally
+posted decision, bound to the v2 request and new reviewed head, grants consent.
 
 Have the generated JSON reviewed in a small PR at
 `docs/proposals/acs_history_bootstrap_publication.json`. Copy its bytes exactly;
@@ -60,7 +91,8 @@ never publication consent.
 ## Genuine owner decision
 
 The owner must personally review the request and post a JSON decision on that
-request PR. No command generates or posts approval. The required body fields are:
+request PR. No command generates or posts approval. Do not reuse original comment
+`6713551209`; the validator explicitly rejects it as current authorization. The required body fields are:
 
 - `schema_version`: `acs_history_bootstrap_publication_decision_v1`.
 - `repository`: `chineduezebuiroh/realestate-intel`.
@@ -129,6 +161,7 @@ python -m jobs.monthly_refresh.acs_history_bootstrap_publication \
   --repository-root "$PWD" --inputs "$ACS_INPUTS" \
   --bundle-directory "$ACS_PREPARED" --request "$ACS_PHASE2/request.json" \
   --decision "$ACS_PHASE2/decision-locator.json" \
+  --prior-journal "$ACS_PRIOR_JOURNAL" \
   --journal "$ACS_PHASE2/journal" --publish
 ```
 
@@ -140,7 +173,24 @@ hashes and current main. There is no offline authority fallback.
 
 ## Sequence, receipts and failure recovery
 
-The sequence is ACS1 then ACS5. Each uses existing source-artifact Release naming,
+The sequence is ACS1 then ACS5. Numeric Release 437874694 is explicitly adopted
+into the new journal and reused, never replaced. Draft lookup is by numeric ID;
+a by-tag 404 is permitted only after independent draft verification. Published
+releases must resolve consistently by tag. Authenticated release listings require
+push-access visibility, exhaustive pagination to an empty page, duplicate checks
+and stable numeric identity. Permission/completeness ambiguity blocks execution.
+
+The bootstrap-local publisher selects the checked numeric object before invoking
+the unchanged generic prepare/upload/verify/finalize methods. An absent published
+tag never establishes that no draft exists. If a create response was lost, a
+restart must first find exactly one compatible release through complete listings;
+it adopts that ID. If an unresolved create intent has no discoverable object, it
+stops rather than repeating POST /releases. An empty listing that contradicts
+the by-tag endpoint also stops. An unexpected ACS5 object without a recorded
+create intent cannot be adopted. Conflicting/duplicate drafts stop;
+never delete one, change tags, overwrite assets or manually finalize to bypass it.
+
+ Each uses existing source-artifact Release naming,
 prepares, uploads exact retained bytes, downloads/verifies, finalizes, independently
 checks numeric Release/asset identity and tag, then catalogs the verified receipt.
 Uploads use retained bytes without compression or rebuilding. Verification may
@@ -148,11 +198,18 @@ create a temporary deterministic envelope solely to compare hashes; it never
 replaces a retained TAR. Original candidate timestamps and acquisition identities
 remain unchanged.
 
-The durable journal contains append-only intents, known numeric remote identities,
+The NEW durable journal contains append-only intents, explicit numeric adoption, known remote identities,
 per-fence live authorization audits, original receipts and final installation
 evidence. A local advisory lock prevents concurrent use of one journal. Use one
 owner execution/journal; do not start parallel publishers with separate journals.
 Git main/catalog CAS still rejects concurrent advancement.
+
+Observed numeric release/asset identities (including conflicts and failed byte
+verification) are recorded before proceeding. These observations grant no
+authority. Successful package verification is recorded separately before reuse.
+A restart cannot forget a previously observed ID or silently replace it with an
+identical-byte object under another ID. Never prune observations after a failure;
+conflicting identities require separately reviewed reconciliation.
 
 | Failure | Operator response |
 | --- | --- |
@@ -166,10 +223,10 @@ Git main/catalog CAS still rejects concurrent advancement.
 | Journal receipt missing/truncated/corrupt after cataloging | Stop; restore genuine retained evidence and verify it. Do not synthesize a receipt to match the catalog. |
 | Local audit/disk write fails | Stop. Published objects remain inactive; preserve partial evidence. |
 
-A fresh decision cannot silently rebind an existing journal. If authorization
-changes during recovery, review a handoff to a new journal retaining the original
-receipts and remote-identity evidence; never edit the old binding or manufacture
-replacement evidence.
+The original journal always stays read-only. This handoff supports only the
+observed empty-ACS1-draft failure. If a later run has different evidence or a
+recovery decision changes again, stop for a separately reviewed handoff contract;
+do not edit an existing binding or manufacture replacement receipts.
 
 No mutation is blindly repeated within a failed invocation. Unknown outcomes are
 resolved by fresh remote reads on the next invocation. Known numeric identities
@@ -186,10 +243,14 @@ python -m jobs.monthly_refresh.acs_history_bootstrap_publication \
   --repository-root "$PWD" --inputs "$ACS_INPUTS" \
   --bundle-directory "$ACS_PREPARED" --request "$ACS_PHASE2/request.json" \
   --decision "$ACS_PHASE2/decision-locator.json" \
+  --prior-journal "$ACS_PRIOR_JOURNAL" \
   --journal "$ACS_PHASE2/journal" --verify-publication
 ```
 
-This performs no remote writes. It rechecks all original parents/candidates and
+This performs no remote writes. The original journal is rehashed and compared
+with the reviewed handoff again. Failures distinguish historical handoff,
+release discovery, numeric identity, tag identity, asset verification, release
+stability and publication operations; exception values/credentials are not emitted. It rechecks all original parents/candidates and
 fresh authorization/governance, downloads both remote packages, verifies receipts,
 and permits exactly the original catalog plus the ACS1-first prefix of the two
 exact additions, including expected CAS bookkeeping. Installation evidence
@@ -219,3 +280,26 @@ immutable objects. The evidence is time-specific, never a permanent approval tok
 
 Implementation tests use only offline fixtures. They do not establish publication
 of the owner's retained packages or replace a Mac-side authorized execution audit.
+
+
+## Implementation and subsequent review split
+
+1. Review the bootstrap-local code/test/runbook fix; generic publication helpers
+   and existing proposals remain unchanged. Merge only after independent review.
+2. On the Mac, generate the v2 inactive request from unchanged real files and
+   original journal. Review it on a NEW request PR with the explicit recovery
+   handoff. The new request ID/code blobs/head must differ from #315; retain #315
+   and its comment as immutable historical evidence.
+3. The owner personally posts the fresh exact decision on the new request PR.
+   Only after that review/authorization may the operator use the commands above.
+4. Review resulting publication evidence before any separate atomic registry
+   installation authorization/PR. No installation or downstream permission is
+   granted by this fix or a publication pass.
+
+The original Mac journal and real candidate bytes were not supplied for this
+implementation. Fixture tests validate the mechanism, not a real handoff or
+production publication. Actual file-shape, live original-comment, draft-list
+visibility, fresh authorization and current governance checks remain execution
+gates. A GitHub response can be uncertain and an external actor can race checks;
+known identities stay pinned and contradictory/incomplete evidence always stops
+instead of being replaced. No cross-service atomic mutation guarantee is claimed.

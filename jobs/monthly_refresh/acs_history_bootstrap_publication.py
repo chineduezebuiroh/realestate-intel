@@ -32,7 +32,7 @@ from jobs.monthly_refresh.acs_scope import ACSGovernance
 REPOSITORY = boot.REPOSITORY
 CATALOG = 'config/artifact_catalog.json'
 REQUEST_PATH = 'docs/proposals/acs_history_bootstrap_publication.json'
-VERSION = 'acs_history_bootstrap_publication_request_v1'
+VERSION = 'acs_history_bootstrap_publication_request_v2'
 BUNDLE = 'acs_history_bootstrap_review_v1__99e0abccc424165f2c5ec6e4f603904087ceff4562f3c0725e0b0aedcd2fd7cf'
 BASELINE = '4ef518d37d1ee0da55a19a83dabb205363a97d44'
 REGISTRY = '87fd4c909fb3b1e314e2646e00fa9a2f60bec70023d3a541b25979f412db7141'
@@ -52,6 +52,134 @@ ACKNOWLEDGEMENTS = [
     '2024 limitations remain: unknown manifest git_sha, separately recovered code evidence, process-attested absence, 67 ACS5-only geographies and four jointly missing geographies.',
     'No registry installation, accepted-pointer changes, readiness changes, Source Set, canonical, serving or Macro authorization.']
 
+
+# Historical evidence only; never authorization for this executable revision.
+ORIGINAL_LOCATOR = {'reviewed_pr': 315,
+    'reviewed_commit': '055e332fc7e4c872d8c97b676ef2c47f1ac5418b', 'comment_id': 6713551209}
+ORIGINAL_REQUEST = 'acs_history_bootstrap_publication_request_v1__ca0f24785f35dd82773a7d9d4a07ae0936b20120886e4dd7d232b2097f5e0651'
+RECOVERY_RELEASE = 437874694
+
+
+def _path_hash(path):
+    return hashlib.sha256(str(path.resolve()).encode()).hexdigest()
+
+
+def handoff(prior, journal, bundle):
+    """Read-only snapshot of the exact failed initial run, not an authority."""
+    prior, journal = prior.resolve(), journal.resolve()
+    if prior == journal or prior in journal.parents or journal in prior.parents:
+        raise ValueError('recovery journal must be separate from the original journal')
+    names = ['binding.json', '.lock', '000000-fence.event.json', '000001-fence.event.json',
+        '000002-intent.event.json', '000003-remote.event.json', '000004-fence.event.json',
+        '000005-blocked.event.json']
+    if {p.name for p in prior.iterdir()} != set(names):
+        raise ValueError('original journal is incomplete or contains unexpected evidence')
+    raw = {}
+    for name in names:
+        path = prior / name
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('original journal requires regular immutable files')
+        raw[name] = path.read_bytes()
+    parsed = {n: json.loads(v, object_pairs_hook=provenance._unique) for n,v in raw.items() if n != '.lock'}
+    if raw['.lock'] or parsed['binding.json'] != {'request_id': ORIGINAL_REQUEST, 'locator': ORIGINAL_LOCATOR}:
+        raise ValueError('original request/decision journal binding mismatch')
+    if (parsed['000002-intent.event.json'] != {'source': 'census_acs1', 'operation': 'prepare'}
+            or parsed['000003-remote.event.json'] != {'source': 'census_acs1', 'operation': 'prepare',
+                'release_id': RECOVERY_RELEASE, 'asset_id': None}
+            or parsed['000005-blocked.event.json'] != {'failed_stage': 'catalog_transition', 'error_type': 'ValueError'}):
+        raise ValueError('original remote outcome differs from the reviewed recovery')
+    captures = []
+    for name in ('000000-fence.event.json', '000001-fence.event.json', '000004-fence.event.json'):
+        fence = parsed[name]
+        audit = deepcopy(fence['authorization']); digest = audit.pop('snapshot_sha256', None)
+        capture = audit.get('owner_comment', {})
+        body = json.loads(capture.get('body', ''), object_pairs_hook=provenance._unique)
+        if (digest != sha256_json(audit) or audit.get('request_id') != ORIGINAL_REQUEST
+                or audit.get('locator') != ORIGINAL_LOCATOR or audit.get('production_authority') is not False
+                or audit.get('activation') is not False or capture.get('id') != ORIGINAL_LOCATOR['comment_id']
+                or capture.get('created_at') != capture.get('updated_at')
+                or body.get('request_id') != ORIGINAL_REQUEST
+                or body.get('reviewed_pr') != ORIGINAL_LOCATOR['reviewed_pr']
+                or body.get('reviewed_commit') != ORIGINAL_LOCATOR['reviewed_commit']
+                or fence['registry_sha256'] != REGISTRY
+                or fence['catalog_sha256'] != bundle['baseline']['catalog_sha256']
+                or not re.fullmatch('[0-9a-f]{40}', fence['main_commit'])):
+            raise ValueError('original fence/owner evidence is inconsistent')
+        captures.append(capture)
+    if any(c != captures[0] for c in captures):
+        raise ValueError('original owner snapshots disagree')
+    # Detect concurrent changes during offline request generation as well.
+    if {p.name for p in prior.iterdir()} != set(names) or any((prior/n).read_bytes() != v for n,v in raw.items()):
+        raise ValueError('original journal changed during handoff snapshot')
+    value = {'schema_version': 'acs_history_bootstrap_recovery_handoff_v1',
+        'original_request_id': ORIGINAL_REQUEST, 'original_decision': ORIGINAL_LOCATOR,
+        'original_owner_comment': captures[0], 'source_journal_path_sha256': _path_hash(prior),
+        'destination_journal_path_sha256': _path_hash(journal),
+        'files': {n: {'sha256': hashlib.sha256(v).hexdigest(), 'size_bytes': len(v)} for n,v in raw.items()},
+        'source': 'census_acs1', 'release_id': RECOVERY_RELEASE,
+        'candidate': CANDIDATES['census_acs1'], 'bundle_id': bundle['bundle_id']}
+    return {**value, 'handoff_id': 'acs_history_bootstrap_recovery_handoff_v1__' + sha256_json(value)}
+
+
+def verify_handoff(api, review, audit):
+    """Historical evidence is compared live, but only the NEW decision grants consent."""
+    recovery = review['recovery_handoff']
+    old, _ = read_at_commit(api, REQUEST_PATH, ORIGINAL_LOCATOR['reviewed_commit'])
+    old_semantic = {k:v for k,v in old.items() if k != 'request_id'}
+    if (old.get('request_id') != ORIGINAL_REQUEST
+            or ORIGINAL_REQUEST != 'acs_history_bootstrap_publication_request_v1__' + sha256_json(old_semantic)):
+        raise ValueError('historical request identity mismatch')
+    for key in ('bundle_id', 'bundle_file_sha256', 'input_sha256', 'baseline', 'candidates', 'parents',
+                'compatibility', 'proposed_acceptance', 'evidence_file_sha256'):
+        if sha256_json(old[key]) != sha256_json(review[key]):
+            raise ValueError('historical candidate or parent evidence changed')
+    capture = provenance.comment_snapshot(provenance._get(api, f'/issues/comments/{ORIGINAL_LOCATOR["comment_id"]}'))
+    body = json.loads(capture['body'], object_pairs_hook=provenance._unique)
+    if (capture != recovery['original_owner_comment']
+            or capture['user'] != audit['owner_comment']['user'] or capture['performed_via_github_app'] is not None
+            or capture['issue_url'] != api.api + '/issues/315'
+            or capture['html_url'] != f'https://github.com/{REPOSITORY}/pull/315#issuecomment-6713551209'
+            or body.get('request_sha256') != sha256_json(old)
+            or body.get('personally_reviewed_and_authorized') is not True
+            or body.get('authorship') != 'human_personal'
+            or body.get('decision') != 'authorize_exact_publication_only'):
+        raise ValueError('historical owner evidence differs; no inferred authorization')
+
+
+class BootstrapPublisher(GitHubReleaseArtifactPublisher):
+    """Only this bootstrap adopts checked numeric drafts; generic behavior is unchanged."""
+    def select(self, tag, release):
+        self.selected_tag, self.selected_release = tag, release
+        self.create_permit = release is None
+
+    def _pending_release(self, item):
+        release = super()._pending_release(item)
+        if (type(release.get('draft')) is not bool or len(release['assets']) > 1
+                or (not release['draft'] and not release['assets'])):
+            raise ValueError('release state changed before operation; never replace missing assets')
+        if any(a.get('name') != item['asset_name'] or a.get('state', 'uploaded') != 'uploaded'
+               for a in release['assets']):
+            raise ValueError('unexpected or incomplete asset before operation')
+        selected = self.selected_release or {}
+        pinned = item.get('asset') or next(iter(selected.get('assets', [])), None)
+        if pinned is not None:
+            matches = [a for a in release['assets'] if a.get('name') == item['asset_name']]
+            if len(matches) != 1 or matches[0].get('id') != pinned['id']:
+                raise ValueError('pinned asset disappeared or changed; never replace it')
+        return release
+
+    def _release(self, tag):
+        if tag != self.selected_tag:
+            raise ValueError('bootstrap release selection differs')
+        if self.selected_release is not None:
+            release = self._release_by_id(self.selected_release['id'], tag)
+            if release is None:
+                raise ValueError('selected numeric release disappeared; never replace it')
+            return release
+        if not self.create_permit:
+            raise ValueError('uncertain create cannot be repeated')
+        self.create_permit = False
+        return None
 
 def read(path):
     return json.loads(Path(path).read_bytes(), object_pairs_hook=provenance._unique)
@@ -94,7 +222,7 @@ def evidence_files(spec):
     return {k: sha256_file(Path(v)) for k, v in paths.items()}
 
 
-def request(spec, bundle, directory, root):
+def request(spec, bundle, directory, root, *, prior_journal, journal):
     """Only an inactive review subject; no decision, reviewer or provenance."""
     semantic = {k: v for k, v in bundle.items() if k != 'bundle_id'}
     if (bundle.get('bundle_id') != BUNDLE
@@ -125,6 +253,7 @@ def request(spec, bundle, directory, root):
         'compatibility': bundle['compatibility'],
         'proposed_acceptance': bundle['proposed_acceptance'],
         'code_blobs': code_blobs(root), 'evidence_file_sha256': evidence_files(spec),
+        'recovery_handoff': handoff(prior_journal, journal, bundle),
         'acknowledgements': ACKNOWLEDGEMENTS,
         'operations': ['publish_exact_retained_packages', 'add_two_immutable_catalog_records'],
         'registry_installation_authorized': False, 'activation_authorized': False}
@@ -147,6 +276,8 @@ def verify_authorization(review, locator, token, root):
     """Fresh owner-only decision, using the existing provenance scan contracts."""
     if set(locator) != {'reviewed_pr', 'reviewed_commit', 'comment_id'}:
         raise ValueError('exact live decision locator required')
+    if locator['comment_id'] == ORIGINAL_LOCATOR['comment_id']:
+        raise ValueError('original decision is historical evidence only; fresh authorization required')
     pr, commit, cid = (locator[k] for k in ('reviewed_pr', 'reviewed_commit', 'comment_id'))
     if (type(pr) is not int or pr <= 0 or type(cid) is not int or cid <= 0
             or not isinstance(commit, str) or not re.fullmatch('[0-9a-f]{40}', commit)):
@@ -344,11 +475,21 @@ def verify_local(spec, bundle, directory, root, governance, current_catalog):
 
 class Session:
     """Not an authority token. Each fence independently revalidates live evidence."""
-    def __init__(self, *, spec, directory, root, review, locator, journal):
+    def __init__(self, *, spec, directory, root, review, locator, journal, prior_journal):
         self.stage = 'session_inputs'
         self.spec, self.directory, self.root = spec, directory, root
         self.bundle = read(directory / 'bundle.json')
-        if sha256_json(request(spec, self.bundle, directory, root)) != sha256_json(review):
+        self.prior_journal = prior_journal.resolve()
+        self.prior_lock = (self.prior_journal / '.lock').open('rb')
+        try:
+            fcntl.flock(self.prior_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._initialize(spec, directory, root, review, locator, journal)
+        except Exception:
+            self.prior_lock.close()
+            raise
+
+    def _initialize(self, spec, directory, root, review, locator, journal):
+        if sha256_json(request(spec, self.bundle, directory, root, prior_journal=self.prior_journal, journal=journal)) != sha256_json(review):
             raise ValueError('review request changed')
         self.review, self.locator, self.journal = review, locator, journal
         if journal.resolve().is_relative_to(root.resolve()) or journal.resolve().is_relative_to(directory.resolve()):
@@ -372,7 +513,8 @@ class Session:
         self.lock = (journal / '.lock').open('a')
         try:
             fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            binding = {'request_id': review['request_id'], 'locator': locator}
+            binding = {'request_id': review['request_id'], 'locator': locator,
+                'handoff_id': review['recovery_handoff']['handoff_id']}
             path = journal / 'binding.json'
             if path.exists():
                 if read(path) != binding:
@@ -397,6 +539,7 @@ class Session:
 
     def close(self):
         self.lock.close()
+        self.prior_lock.close()
 
     def evidence(self, kind, value):
         count = len(list(self.journal.glob('*.event.json')))
@@ -404,13 +547,15 @@ class Session:
 
     def fence(self, *, reconstruct=False):
         self.stage = 'local_input_integrity'
-        if sha256_json(request(self.spec, self.bundle, self.directory, self.root)) != sha256_json(self.review):
+        if sha256_json(request(self.spec, self.bundle, self.directory, self.root, prior_journal=self.prior_journal, journal=self.journal)) != sha256_json(self.review):
             raise ValueError('local input, bundle or code changed')
         # Re-read the file too; self.bundle must not mask local mutation.
         if read(self.directory / 'bundle.json') != self.bundle:
             raise ValueError('retained bundle changed')
         self.stage = 'live_owner_authorization'
         audit = verify_authorization(self.review, self.locator, self.token, self.root)
+        self.stage = 'historical_handoff_verification'
+        verify_handoff(self.reader, self.review, audit)
         self.stage = 'live_governance'
         governance = ACSGovernance.load_production(REPOSITORY, self.token)
         governance.require_destination(REPOSITORY)
@@ -445,49 +590,146 @@ class Session:
         self.stage = 'remote_receipts'
         self.records = {}
         for source, receipt in self.receipts.items():
+            self.known_remote(source)
+            self.stage = 'remote_receipts'
             with tempfile.TemporaryDirectory() as td:
                 self.records[source] = verify_remote(self.reader, receipt, self.metadata[source], self.bundle['candidates'][source], Path(td))
         self.stage = 'catalog_transition'
         prefix = catalog_transition(original, current, self.records, original_blob)
         if current_blob != (original_blob if prefix == 0 else _blob(canonical_json_bytes(current))):
             raise ValueError('catalog serialization changed outside authorized writes')
+        self.stage = 'final_authority_check'
         if governance.current_commit(REPOSITORY) != tip:
             raise ValueError('concurrent main change during fence')
         self.last_audit = audit
+        self.stage = 'journal_fence'
         self.evidence('fence', {'authorization': audit, 'main_commit': tip,
             'registry_sha256': REGISTRY, 'catalog_sha256': sha256_json(current)})
         return governance, tip, current, current_blob, prefix
 
     def known_remote(self, source):
-        """Known numeric objects cannot be replaced through a reassigned tag."""
-        events = [read(p) for p in sorted(self.journal.glob('*.event.json'))]
+        """Exhaustive draft-aware discovery, then independent numeric verification."""
+        self.stage = 'remote_release_discovery'
+        paths = sorted(self.journal.glob('*.event.json'))
+        events = [read(p) for p in paths]
+        prepare_intent = any(p.name.endswith('-intent.event.json') and v ==
+            {'source': source, 'operation': 'prepare'} for p, v in zip(paths, events))
         known = [v for v in events if v.get('source') == source and v.get('release_id') is not None]
-        if not known:
-            return
         releases = {v['release_id'] for v in known}
+        if source == 'census_acs1':
+            releases.add(self.review['recovery_handoff']['release_id'])
         assets = {v['asset_id'] for v in known if v.get('asset_id') is not None}
-        if len(releases) != 1 or len(assets) > 1:
+        if source in self.receipts:
+            releases.add(self.receipts[source]['release_id'])
+            assets.add(self.receipts[source]['asset_id'])
+        if len(releases) > 1 or len(assets) > 1:
             raise ValueError('ambiguous recovery remote identity')
-        rid = next(iter(releases))
-        release = provenance._get(self.reader, f'/releases/{rid}')
+        repository = provenance._get(self.reader, '')
+        if (repository.get('full_name') != REPOSITORY or type(repository.get('id')) is not int
+                or repository.get('permissions', {}).get('push') is not True):
+            raise ValueError('authenticated draft-list access cannot be established')
         candidate = self.bundle['candidates'][source]
         tag = f'source-artifact/{source}/{candidate["artifact_id"]}'
-        by_tag = provenance._get(self.reader, '/releases/tags/' + quote(tag, safe=''))
-        if release.get('id') != rid or release.get('tag_name') != tag or by_tag.get('id') != rid:
+        observations = {(v['release_id'], v.get('asset_id')) for v in known}
+        def observe(rid, aid=None):
+            # Observation pins identity, never grants permission or verifies bytes.
+            if type(rid) is not int or rid <= 0 or (aid is not None and (type(aid) is not int or aid <= 0)):
+                raise ValueError('invalid observed remote identity')
+            if (rid, aid) not in observations:
+                self.evidence('observed', {'source': source, 'release_id': rid, 'asset_id': aid,
+                    'handoff_id': self.review['recovery_handoff']['handoff_id']})
+                observations.add((rid, aid))
+        def scan():
+            values, _ = provenance._pages(self.reader, '/releases', repository['id'])
+            matches = [v for v in values if v.get('tag_name') == tag]
+            if len(matches) > 1:
+                for match in matches:
+                    observe(match['id'])
+                raise ValueError('duplicate or conflicting releases for exact candidate tag')
+            return matches
+        def identity(value):
+            # Download counters/profile presentation are not immutable identity.
+            return {**{k:value.get(k) for k in ('id', 'tag_name', 'draft', 'published_at')},
+                'assets': [{k:a[k] for k in ('id', 'name', 'state', 'size', 'digest') if k in a}
+                           for a in value.get('assets', [])]}
+        first = scan()
+        if not first:
+            if releases:
+                raise ValueError('known numeric release missing from complete listing; never replace it')
+            if prepare_intent:
+                raise ValueError('uncertain create outcome unresolved; never repeat creation')
+            if scan():
+                raise ValueError('release appeared during discovery; retry read-only reconciliation')
+            self.stage = 'remote_tag_identity'
+            by_tag, _ = self.reader.request('GET', '/releases/tags/' + quote(tag, safe=''), expected=(200,404))
+            if by_tag is not None:
+                if isinstance(by_tag, dict) and type(by_tag.get('id')) is int:
+                    observe(by_tag['id'])
+                raise ValueError('release listing/tag disagreement; do not create')
+            return None
+        rid = first[0].get('id')
+        observe(rid)
+        if source != 'census_acs1' and not prepare_intent:
+            raise ValueError('unexpected remote release without a recorded create intent; review required')
+        if type(rid) is not int or rid <= 0 or (releases and releases != {rid}):
             raise ValueError('known release missing or tag reassigned')
-        if assets:
-            matches = [a for a in release.get('assets', []) if a.get('name') == candidate['artifact_id'] + '.tar']
-            if len(matches) != 1 or matches[0].get('id') != next(iter(assets)):
-                raise ValueError('known asset missing or replaced')
+        self.stage = 'remote_release_identity'
+        release = provenance._get(self.reader, f'/releases/{rid}')
+        GitHubReleaseArtifactPublisher._validate_release(release, tag)
+        if (release['id'] != rid or type(release.get('draft')) is not bool
+                or identity(release) != identity(first[0])
+                or (release['draft'] and release.get('published_at') is not None)
+                or (not release['draft'] and not release.get('published_at'))):
+            raise ValueError('incompatible release state or identity')
+        self.stage = 'remote_tag_identity'
+        by_tag, _ = self.reader.request('GET', '/releases/tags/' + quote(tag, safe=''), expected=(200,404))
+        if by_tag is None:
+            if not release['draft']:
+                raise ValueError('published release must resolve by exact tag')
+        elif identity(by_tag) != identity(release):
+            raise ValueError('by-tag release conflicts with numeric identity')
+        remote_assets = release['assets']
+        for asset in remote_assets:
+            observe(rid, asset.get('id'))
+        if len(remote_assets) > 1 or (not release['draft'] and not remote_assets):
+            raise ValueError('unexpected or missing release assets')
+        if assets and (not remote_assets or assets != {remote_assets[0].get('id')}):
+            raise ValueError('known asset missing or replaced')
+        if remote_assets:
+            asset = remote_assets[0]
+            if (asset.get('name') != candidate['artifact_id'] + '.tar'
+                    or type(asset.get('id')) is not int or asset['id'] <= 0
+                    or asset.get('state', 'uploaded') != 'uploaded'):
+                raise ValueError('unexpected release asset identity or incomplete upload')
+            self.stage = 'remote_asset_verification'
+            with tempfile.TemporaryDirectory() as td:
+                path = Path(td) / 'remote.tar'
+                self.reader.download_asset(asset['id'], path)
+                if sha256_file(path) != candidate['package_sha256']:
+                    raise ValueError('existing remote asset bytes conflict; never overwrite')
+                GitHubReleaseArtifactPublisher._validate_package(path, Path(td)/'artifact', self.metadata[source])
+        self.stage = 'remote_release_stability'
+        second = scan()
+        final = provenance._get(self.reader, f'/releases/{rid}')
+        if len(second) != 1 or identity(second[0]) != identity(release) or identity(final) != identity(release):
+            raise ValueError('remote release changed during reconciliation')
+        asset_id = remote_assets[0]['id'] if remote_assets else None
+        verification = 'package_verified' if remote_assets else 'release_verified'
+        if not any(v.get('release_id') == rid and v.get('asset_id') == asset_id and
+                   v.get('verification') == verification for v in known):
+            self.evidence('adopted', {'source': source, 'release_id': rid, 'asset_id': asset_id,
+                'verification': verification, 'handoff_id': self.review['recovery_handoff']['handoff_id']})
+        return release
 
     def publish(self):
         self.fence(reconstruct=True)
         for source in CANDIDATES:
             if source not in self.receipts:
                 self.known_remote(source)
-                publisher = GitHubReleaseArtifactPublisher(self.api)
+                publisher = BootstrapPublisher(self.api)
                 metadata = self.metadata[source]
                 uri = metadata['logical_artifact_uri']
+                self.stage = 'retained_upload_bytes'
                 payload = (self.directory / self.bundle['candidates'][source]['package_path']).read_bytes()
                 if hashlib.sha256(payload).hexdigest() != CANDIDATES[source]['package_sha256']:
                     raise ValueError('retained upload bytes changed')
@@ -497,7 +739,9 @@ class Session:
                                       ('upload', lambda: publisher.upload(uri)),
                                       ('verify', lambda: publisher.verify(uri))]:
                     self.fence()
-                    self.known_remote(source)
+                    selected = self.known_remote(source)
+                    if label == 'prepare':
+                        publisher.select(f'source-artifact/{source}/{self.bundle["candidates"][source]["artifact_id"]}', selected)
                     self.evidence('intent', {'source': source, 'operation': label})
                     self.stage = 'publication_' + label
                     action()
@@ -509,6 +753,7 @@ class Session:
                 self.evidence('intent', {'source': source, 'operation': 'finalize'})
                 self.stage = 'publication_finalize'
                 receipt = publisher.finalize(uri)
+                self.stage = 'remote_receipt_verification'
                 with tempfile.TemporaryDirectory() as td:
                     verify_remote(self.reader, receipt, metadata, self.bundle['candidates'][source], Path(td))
                 _save(self.journal / (source + '.receipt.json'), receipt)
@@ -529,6 +774,7 @@ class Session:
                         governance.require_destination(repository)
                     def current_commit(self, repository):
                         _, now, value, oid, _ = session.fence()
+                        session.stage = 'catalog_write_confirmation'
                         before = now == tip and value == current and oid == blob
                         own_write = (self.write_events and now == self.write_events[-1]['commit_sha']
                             and value == written_catalog and oid == _blob(canonical_json_bytes(written_catalog)))
@@ -544,6 +790,7 @@ class Session:
 
     def verify_installation(self):
         governance, tip, catalog, blob, prefix = self.fence(reconstruct=True)
+        self.stage = 'installation_evidence'
         if prefix != 2 or set(self.receipts) != set(CANDIDATES):
             raise ValueError('both published cataloged candidates required; installation blocked')
         verify_at_commit(self.reader, CATALOG, tip, catalog)
@@ -570,7 +817,8 @@ def main():
     parser.add_argument('--bundle-directory', type=Path, required=True)
     parser.add_argument('--request', type=Path, required=True)
     parser.add_argument('--decision', type=Path, help='Only reviewed_pr, reviewed_commit and comment_id; never copied approval')
-    parser.add_argument('--journal', type=Path, help='Separate durable recovery directory outside checkout/bundle')
+    parser.add_argument('--prior-journal', type=Path, required=True, help='Original journal, read-only; never rebound')
+    parser.add_argument('--journal', type=Path, required=True, help='Separate durable recovery directory outside checkout/bundle')
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--review-request', action='store_true')
     mode.add_argument('--publish', action='store_true')
@@ -581,15 +829,16 @@ def main():
         root, directory = args.repository_root.resolve(), args.bundle_directory.resolve()
         spec = read(args.inputs)
         if args.review_request:
-            if args.request.resolve().is_relative_to(root) or args.request.resolve().is_relative_to(directory):
-                raise ValueError('review request output must be outside checkout and retained bundle')
-            _save(args.request, request(spec, read(directory / 'bundle.json'), directory, root))
+            if (args.request.resolve().is_relative_to(root) or args.request.resolve().is_relative_to(directory)
+                    or args.request.resolve().is_relative_to(args.prior_journal.resolve())):
+                raise ValueError('review request output must be outside checkout, retained bundle and original journal')
+            _save(args.request, request(spec, read(directory / 'bundle.json'), directory, root, prior_journal=args.prior_journal, journal=args.journal))
             print(json.dumps({'review_request': 'proposed', 'publication': 'not_performed', 'activation': False}))
             return 0
         if args.decision is None or args.journal is None:
             raise ValueError('live decision locator and durable journal required')
         with Session(spec=spec, directory=directory, root=root, review=read(args.request),
-                locator=read(args.decision), journal=args.journal.resolve()) as session:
+                locator=read(args.decision), journal=args.journal.resolve(), prior_journal=args.prior_journal.resolve()) as session:
             result = session.publish() if args.publish else session.verify_installation()
         print(json.dumps({'verification': result['verification'], 'evidence_id': result['evidence_id'],
             'registry_installation': 'not_performed', 'activation': False}))
